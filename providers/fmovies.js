@@ -1,6 +1,6 @@
 /**
- * fmovies - High Resolution Only (720p+)
- * Custom Aurora & Videasy Integration
+ * fmovies - High-Res Only Edition (720p/1080p/2160p)
+ * Removes 360p/480p automatically.
  */
 
 const TMDB_API_KEY = "d131017ccc6e5462a81c9304d21476de";
@@ -14,6 +14,7 @@ const AURORA_HEADERS = {
   "sec-ch-ua-mobile": "?1",
   "sec-ch-ua-platform": '"Android"',
   "Accept": "*/*",
+  "Accept-Encoding": "identity;q=1, *;q=0", // Critical for Aurora
   "X-Requested-With": "com.android.browser"
 };
 
@@ -29,73 +30,77 @@ const SERVERS = [
   { name: "Vyse", url: "https://api.videasy.net/hdmovie/sources-with-title", headers: STANDARD_HEADERS }
 ];
 
-/**
- * Validates quality is 720p or higher.
- */
-function isHighRes(q) {
-  const label = String(q || "").toLowerCase();
-  if (label.includes("480") || label.includes("360") || label === "sd") return false;
-  // Accept 720, 1080, 2160, 4k or generic HD/Auto labels
-  return /720|1080|2160|4k|auto|multi|hd/i.test(label);
+// Helper to sanitize quality labels and filter
+function getValidStream(source, server, title) {
+  const q = String(source.quality || "").toLowerCase();
+  
+  // 1. Delete low quality
+  if (q.includes("360") || q.includes("480") || q === "sd") return null;
+  
+  // 2. Identify High Res
+  let finalQuality = "720p"; // Default floor
+  if (q.includes("2160") || q.includes("4k")) finalQuality = "2160p";
+  else if (q.includes("1080")) finalQuality = "1080p";
+  else if (q.includes("720")) finalQuality = "720p";
+  else if (q.includes("auto") || q.includes("multi")) finalQuality = "1080p (Auto)";
+
+  return {
+    name: `FMovies ${server.name}`,
+    title: `${title} [${finalQuality}]`,
+    url: source.url,
+    quality: finalQuality,
+    headers: server.headers,
+    provider: "fmovies"
+  };
 }
 
 async function getStreams(tmdbIdOrMedia, mediaType = "movie", season = null, episode = null) {
   try {
     const id = typeof tmdbIdOrMedia === "object" ? (tmdbIdOrMedia.tmdbId || tmdbIdOrMedia.tmdb_id) : tmdbIdOrMedia;
-    const type = (typeof tmdbIdOrMedia === "object" ? (tmdbIdOrMedia.type || tmdbIdOrMedia.mediaType) : mediaType) === 'series' ? 'tv' : 'movie';
-    
-    // Fetch Title and Year from TMDB
+    let type = typeof tmdbIdOrMedia === "object" ? (tmdbIdOrMedia.type || tmdbIdOrMedia.mediaType) : mediaType;
+    if (type === 'series') type = 'tv';
+
+    // Get basic info from TMDB
     const media = await fetch(`https://api.themoviedb.org/3/${type}/${id}?api_key=${TMDB_API_KEY}`).then(r => r.json());
     if (!media.id) return [];
 
-    const title = type === 'tv' ? media.name : media.title;
-    const year = (type === 'tv' ? media.first_air_date : media.release_date || "").slice(0, 4);
+    const movieTitle = type === 'tv' ? media.name : media.title;
+    const year = (type === 'tv' ? media.first_air_date : media.release_date).slice(0, 4);
 
     const streamPromises = SERVERS.map(async (server) => {
       try {
-        const params = new URLSearchParams({
-          title: title,
-          tmdbId: id,
-          year: year,
-          mediaType: type
-        });
+        // Encode title strictly
+        const cleanTitle = encodeURIComponent(movieTitle).replace(/%20/g, "+");
+        let fetchUrl = `${server.url}?title=${cleanTitle}&tmdbId=${id}&year=${year}&mediaType=${type}`;
+        
         if (type === 'tv') {
-          params.set("seasonId", season || 1);
-          params.set("episodeId", episode || 1);
+          fetchUrl += `&seasonId=${season || 1}&episodeId=${episode || 1}`;
         }
 
-        const response = await fetch(`${server.url}?${params.toString()}`, { headers: server.headers });
-        const encryptedBody = await response.text();
+        const response = await fetch(fetchUrl, { headers: server.headers });
+        const encrypted = await response.text();
         
-        if (!encryptedBody || encryptedBody.length < 10) return [];
+        if (!encrypted || encrypted.length < 20) return [];
 
         const decrypted = await fetch(DECRYPT_API_URL, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: encryptedBody, id: String(id) })
+          body: JSON.stringify({ text: encrypted, id: String(id) })
         }).then(r => r.json());
 
-        const sources = decrypted.result?.sources || [];
+        return (decrypted.result?.sources || [])
+          .map(s => getValidStream(s, server, movieTitle))
+          .filter(Boolean); // Removes the nulls (480p/360p)
 
-        return sources
-          .filter(s => isHighRes(s.quality))
-          .map(s => ({
-            name: `FMovies ${server.name}`,
-            title: `${title} (${s.quality || 'HD'})`,
-            url: s.url,
-            quality: s.quality || '720p',
-            headers: server.headers,
-            provider: "fmovies"
-          }));
       } catch (e) { return []; }
     });
 
     const results = (await Promise.all(streamPromises)).flat();
     
-    // Sort: 2160p > 1080p > 720p
+    // Final Sort by Resolution
     return results.sort((a, b) => {
-      const getVal = (str) => parseInt(String(str).match(/\d+/)?.[0] || 0);
-      return getVal(b.quality) - getVal(a.quality);
+      const val = (s) => parseInt(s.quality) || 0;
+      return val(b) - val(a);
     });
 
   } catch (err) {

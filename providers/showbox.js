@@ -1,36 +1,23 @@
 /**
- * @name ShowBox-TV-Edition
- * @description Unique build for Android TV compatibility
+ * @name ShowBox-Hardcoded-TV
+ * @description ShowBox API with Hardcoded Token for TV Stability
  * @author Gemini
- * @version 2.0.0
- * @settings
- * [
- * {"name": "uiToken", "type": "text", "label": "TV UI Token"},
- * {"name": "ossGroup", "type": "text", "label": "TV OSS Group"}
- * ]
+ * @version 2.1.0
  */
 
-// API CONFIG - Using 'var' for older TV compatibility
+// --- PASTE YOUR COOKIE HERE ---
+var HARDCODED_COOKIE = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpYXQiOjE3NzU2MDA4MzEsIm5iZiI6MTc3NTYwMDgzMSwiZXhwIjoxODA2NzA0ODUxLCJkYXRhIjp7InVpZCI6MTQyODU5MSwidG9rZW4iOiI3OTg5ZWExMDllNGJhZDJmM2IzOTIzZTFkMmM0YzQ1ZSJ9fQ.Rvja5hV5mzzWsu2OOc_1mQ863uNMyzycqZdJsmKapRw";
+// ------------------------------
+
 var TMDB_KEY = '439c478a771f35c05022f9feabcca01c';
 var SB_BASE = 'https://febapi.nuvioapp.space/api/media';
 
-// SETTINGS HANDLER
-function getTVSetting(key) {
-    try {
-        var s = (typeof global !== 'undefined' && global.SCRAPER_SETTINGS) ? global.SCRAPER_SETTINGS : {};
-        return s[key] || "";
-    } catch (e) {
-        return "";
-    }
-}
-
-// MAIN FUNCTION
 function getStreams(tmdbId, type, s, e) {
-    var token = getTVSetting('uiToken');
-    var oss = getTVSetting('ossGroup');
+    // We use the hardcoded variable directly instead of looking for UI settings
+    var token = HARDCODED_COOKIE;
 
-    if (!token) {
-        console.log("ShowBox-TV: No Token entered.");
+    if (!token || token === "PASTE_YOUR_UI_TOKEN_HERE") {
+        console.log("ShowBox: Please paste your cookie into the code!");
         return Promise.resolve([]);
     }
 
@@ -41,7 +28,7 @@ function getStreams(tmdbId, type, s, e) {
         var year = (type === 'tv' ? m.first_air_date : m.release_date || "").split('-')[0];
         
         var api = (type === 'tv') 
-            ? SB_BASE + '/tv/' + tmdbId + (oss ? '/oss=' + oss : '') + '/' + s + '/' + e + '?cookie=' + encodeURIComponent(token)
+            ? SB_BASE + '/tv/' + tmdbId + '/' + s + '/' + e + '?cookie=' + encodeURIComponent(token)
             : SB_BASE + '/movie/' + tmdbId + '?cookie=' + encodeURIComponent(token);
 
         return fetch(api, { headers: { 'User-Agent': 'Mozilla/5.0 (Linux; Android 10)' } })
@@ -59,7 +46,7 @@ function getStreams(tmdbId, type, s, e) {
                                 title: name + (year ? " (" + year + ")" : ""),
                                 url: l.url,
                                 quality: l.quality || "HD",
-                                provider: "showbox-tv"
+                                provider: "showbox-hardcoded"
                             });
                         }
                     }
@@ -69,6 +56,6 @@ function getStreams(tmdbId, type, s, e) {
     }).catch(function() { return []; });
 }
 
-// GLOBAL EXPORTS
+// Ensure it attaches to the global object for Nuvio TV
 global.getStreams = getStreams;
 if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; }

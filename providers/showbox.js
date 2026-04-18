@@ -1,32 +1,27 @@
 /**
- * @name ShowBox-Hardcoded-TV
- * @description ShowBox API with Hardcoded Token for TV Stability
- * @author Gemini
- * @version 2.1.0
+ * @name ShowBox-TV-Final
+ * @description Unique manifest to avoid UI conflicts
+ * @version 2.2.0
+ * @settings
+ * [
+ * {"name": "sb_tv_token_99", "type": "text", "label": "ShowBox TV Token"}
+ * ]
  */
-
-// --- PASTE YOUR COOKIE HERE ---
-var HARDCODED_COOKIE = "";
-// ------------------------------
 
 var TMDB_KEY = '439c478a771f35c05022f9feabcca01c';
 var SB_BASE = 'https://febapi.nuvioapp.space/api/media';
 
 function getStreams(tmdbId, type, s, e) {
-    // We use the hardcoded variable directly instead of looking for UI settings
-    var token = HARDCODED_COOKIE;
+    // Look for the unique settings key 'sb_tv_token_99'
+    var settings = (typeof global !== 'undefined' && global.SCRAPER_SETTINGS) ? global.SCRAPER_SETTINGS : {};
+    var token = settings.sb_tv_token_99;
 
-    if (!token || token === "PASTE_YOUR_UI_TOKEN_HERE") {
-        console.log("ShowBox: Please paste your cookie into the code!");
-        return Promise.resolve([]);
-    }
+    if (!token) return Promise.resolve([]);
 
     var tmdbUrl = 'https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv/' : 'movie/') + tmdbId + '?api_key=' + TMDB_KEY;
 
     return fetch(tmdbUrl).then(function(r) { return r.json(); }).then(function(m) {
         var name = (type === 'tv' ? m.name : m.title) || "Media";
-        var year = (type === 'tv' ? m.first_air_date : m.release_date || "").split('-')[0];
-        
         var api = (type === 'tv') 
             ? SB_BASE + '/tv/' + tmdbId + '/' + s + '/' + e + '?cookie=' + encodeURIComponent(token)
             : SB_BASE + '/movie/' + tmdbId + '?cookie=' + encodeURIComponent(token);
@@ -40,13 +35,12 @@ function getStreams(tmdbId, type, s, e) {
                     var v = d.versions[i];
                     if (v.links) {
                         for (var j = 0; j < v.links.length; j++) {
-                            var l = v.links[j];
                             res.push({
-                                name: "ShowBox " + (l.quality || "HD"),
-                                title: name + (year ? " (" + year + ")" : ""),
-                                url: l.url,
-                                quality: l.quality || "HD",
-                                provider: "showbox-hardcoded"
+                                name: "ShowBox " + (v.links[j].quality || "HD"),
+                                title: name,
+                                url: v.links[j].url,
+                                quality: v.links[j].quality || "HD",
+                                provider: "showbox-tv"
                             });
                         }
                     }
@@ -56,6 +50,4 @@ function getStreams(tmdbId, type, s, e) {
     }).catch(function() { return []; });
 }
 
-// Ensure it attaches to the global object for Nuvio TV
 global.getStreams = getStreams;
-if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; }

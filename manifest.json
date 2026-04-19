@@ -14,6 +14,19 @@
       "formats": ["mp4", "m3u8"],
       "logo": "",
       "contentLanguage": ["en", "hi"]
+    },
+    {
+      "id": "moviesmod",
+      "name": "MoviesMod",
+      "description": "Movie and TV show streams from MoviesMod with multiple quality options",
+      "version": "1.0.1",
+      "author": "Nuvio Team",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/moviesmod.js",
+      "enabled": true,
+      "formats": ["mkv"],
+      "logo": "https://www.google.com/s2/favicons?domain=moviesmod.day&sz=128",
+      "contentLanguage": ["en"]
     }
   ]
 }

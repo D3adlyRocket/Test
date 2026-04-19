@@ -1,86 +1,94 @@
 'use strict';
 
 /**
- * PURE JAVASCRIPT VERSION (No Cheerio, No Node.js)
- * Designed specifically for Android TV / Nuvio Beta
+ * ANDROID TV UNIVERSAL VERSION
+ * 0 Dependencies | 0 Imports | ES5 Only
+ * This version uses raw string manipulation to avoid the Cheerio/Node crash.
  */
 
 var BASE_URL = 'https://hindmovie.ltd';
 var TMDB_KEY = '439c478a771f35c05022f9feabcca01c';
-var WORKER   = 'https://hindmoviez.s4nch1tt.workers.dev';
+var PROXY    = 'https://hindmoviez.s4nch1tt.workers.dev';
 
 function getStreams(tmdbId, type, season, episode) {
-    var isSeries = (type === 'series' || type === 'tv');
+    var isSeries = (type === 'tv' || type === 'series');
     var tmdbUrl = 'https://api.themoviedb.org/3/' + (isSeries ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY;
 
     return fetch(tmdbUrl)
-        .then(function(r) { return r.json(); })
-        .then(function(data) {
-            var name = data.title || data.name;
-            return fetch(BASE_URL + '/?s=' + encodeURIComponent(name));
+        .then(function(res) { return res.json(); })
+        .then(function(details) {
+            var title = details.title || details.name;
+            return fetch(BASE_URL + '/?s=' + encodeURIComponent(title));
         })
-        .then(function(r) { return r.text(); })
-        .then(function(html) {
-            // Find the first article link using Regex instead of Cheerio
-            var pageMatch = html.match(/<h2 class="entry-title"><a href="([^"]+)"/);
-            if (!pageMatch) return [];
-            return fetch(pageMatch[1]);
+        .then(function(res) { return res.text(); })
+        .then(function(searchHtml) {
+            // Find page link using basic string splitting (Fastest on TV)
+            var pageUrl = searchHtml.split('<h2 class="entry-title"><a href="')[1];
+            if (!pageUrl) return [];
+            pageUrl = pageUrl.split('"')[0];
+
+            return fetch(pageUrl);
         })
-        .then(function(r) { return r.text(); })
-        .then(function(html) {
+        .then(function(res) { return res.text(); })
+        .then(function(pageHtml) {
             var streams = [];
-            // Match all mvlink buttons
-            var linkRegex = /href="(https:\/\/mvlink\.site\/[^"]+)"/g;
-            var match;
-            var foundLinks = [];
+            var links = pageHtml.split('href="https://mvlink.site/');
             
-            while ((match = linkRegex.exec(html)) !== null) {
-                foundLinks.push(match[1]);
+            // Start at 1 to skip the first split chunk
+            var fetchTasks = [];
+            for (var i = 1; i < Math.min(links.length, 4); i++) {
+                var mvUrl = 'https://mvlink.site/' + links[i].split('"')[0];
+                
+                fetchTasks.push(
+                    fetch(mvUrl)
+                        .then(function(res) { return res.text(); })
+                        .then(function(mvHtml) {
+                            var target = null;
+                            if (!isSeries) {
+                                // Movie logic
+                                if (mvHtml.indexOf('hshare.ink') !== -1) {
+                                    target = 'https://hshare.ink/' + mvHtml.split('hshare.ink/')[1].split('"')[0];
+                                }
+                            } else {
+                                // Episode logic
+                                var epKey = 'Episode ' + (episode < 10 ? '0' + episode : episode);
+                                if (mvHtml.indexOf(epKey) !== -1) {
+                                    target = mvHtml.split(epKey)[0].split('href="').pop().split('"')[0];
+                                }
+                            }
+
+                            if (target && target.indexOf('http') === 0) {
+                                return {
+                                    name: "🎬 HindMoviez TV",
+                                    title: "Direct Link | Multi-Server\nOptimized for Leanback UI",
+                                    url: PROXY + "/hm/proxy?url=" + encodeURIComponent(target),
+                                    behaviorHints: {
+                                        notWebReady: false,
+                                        proxyHeaders: { "Referer": "https://hcloud.to/" }
+                                    }
+                                };
+                            }
+                            return null;
+                        })
+                        .catch(function() { return null; })
+                );
             }
 
-            // Process the first 3 links only to stay under TV memory limits
-            var promises = foundLinks.slice(0, 3).map(function(link) {
-                return fetch(link)
-                    .then(function(r) { return r.text(); })
-                    .then(function(mvHtml) {
-                        var finalLink = null;
-                        if (!isSeries) {
-                            // Find "Get Links" button for movies
-                            var movieMatch = mvHtml.match(/href="(https:\/\/hshare\.ink\/[^"]+)"/);
-                            if (movieMatch) finalLink = movieMatch[1];
-                        } else {
-                            // Find specific episode
-                            var epRegex = new RegExp('href="([^"]+)"[^>]*>Episode\\s*0?' + episode + '<', 'i');
-                            var epMatch = mvHtml.match(epRegex);
-                            if (epMatch) finalLink = epMatch[1];
-                        }
-
-                        if (finalLink) {
-                            return {
-                                name: "🎬 HindMoviez TV",
-                                title: "Direct Stream · " + (isSeries ? "Ep " + episode : "Movie"),
-                                url: WORKER + "/hm/proxy?url=" + encodeURIComponent(finalLink),
-                                behaviorHints: {
-                                    notWebReady: false,
-                                    proxyHeaders: { "Referer": "https://hcloud.to/" }
-                                }
-                            };
-                        }
-                        return null;
-                    })
-                    .catch(function() { return null; });
-            });
-
-            return Promise.all(promises);
+            return Promise.all(fetchTasks);
         })
         .then(function(results) {
-            return results.filter(function(x) { return x !== null; });
+            var filtered = [];
+            for (var j = 0; j < results.length; j++) {
+                if (results[j]) filtered.push(results[j]);
+            }
+            return filtered;
         })
         .catch(function() {
             return [];
         });
 }
 
-// Android TV Exports
-if (typeof module !== 'undefined') module.exports = { getStreams: getStreams };
-if (typeof self !== 'undefined') self.getStreams = getStreams;
+// Attach to global scope for Android TV Engines
+if (typeof self !== 'undefined') { self.getStreams = getStreams; }
+if (typeof window !== 'undefined') { window.getStreams = getStreams; }
+if (typeof global !== 'undefined') { global.getStreams = getStreams; }

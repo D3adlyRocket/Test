@@ -9,125 +9,126 @@ const cheerio = require('cheerio-without-node-native');
 const BASE_URL     = 'https://hindmovie.ltd';
 const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
 const PLUGIN_TAG   = '[HindMoviez-TV]';
+const HM_WORKER    = 'https://hindmoviez.s4nch1tt.workers.dev';
 
-// Cloudflare Worker proxy (Essential for Android TV range/seek support)
-const HM_WORKER = 'https://hindmoviez.s4nch1tt.workers.dev';
-
-function hmProxyUrl(rawUrl) {
-  if (!rawUrl) return rawUrl;
-  return HM_WORKER + '/hm/proxy?url=' + encodeURIComponent(rawUrl);
-}
-
-// Android TV needs very specific headers to avoid being flagged as a "bot" or "unsupported player"
-const DEFAULT_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Referer': BASE_URL + '/',
-  'Origin': BASE_URL
+// Standard TV headers to bypass bot protection
+const TV_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Linux; Android 10; BRAVIA 4K VH2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': '*/*',
+  'Cache-Control': 'no-cache',
+  'Connection': 'keep-alive'
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Robust Fetcher (Handles TV Timeout/CORS)
+// DNS-Safe Smart Fetch
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function smartFetch(url) {
+async function smartFetch(url, customHeaders = {}) {
   try {
-    const res = await fetch(url, {
-      headers: DEFAULT_HEADERS,
+    const controller = new AbortController();
+    const id = setTimeout(() => controller.abort(), 10000); // 10s strict timeout for TV
+
+    const response = await fetch(url, {
+      headers: { ...TV_HEADERS, ...customHeaders },
       redirect: 'follow',
-      signal: AbortSignal.timeout(12000) // TV's can be slow, 12s timeout
+      signal: controller.signal
     });
-    const text = await res.text();
-    return { html: text, finalUrl: res.url };
-  } catch (e) {
-    console.log(`${PLUGIN_TAG} Fetch Error: ${e.message}`);
+    
+    clearTimeout(id);
+    const text = await response.text();
+    return { html: text, finalUrl: response.url };
+  } catch (err) {
+    console.log(`${PLUGIN_TAG} Fetch Failure [${url.slice(0, 30)}...]: ${err.message}`);
     return null;
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Main Logic
+// Scraper Logic
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getStreams(tmdbId, type, season, episode) {
-  // 1. Get Title from TMDB
-  const tmdbRes = await fetch(`https://api.themoviedb.org/3/${type === 'movie' ? 'movie' : 'tv'}/${tmdbId}?api_key=${TMDB_API_KEY}`);
-  const details = await tmdbRes.json();
-  if (!details) return [];
+  // Get content details
+  const tmdbUrl = `https://api.themoviedb.org/3/${type === 'movie' ? 'movie' : 'tv'}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+  const tmdbRes = await smartFetch(tmdbUrl);
+  if (!tmdbRes) return [];
+  const details = JSON.parse(tmdbRes.html);
 
   const query = details.title || details.name;
-  console.log(`${PLUGIN_TAG} Searching TV: ${query}`);
+  console.log(`${PLUGIN_TAG} Target: ${query}`);
 
-  // 2. Search HindMoviez
-  const searchResult = await smartFetch(`${BASE_URL}/?s=${encodeURIComponent(query)}`);
-  if (!searchResult) return [];
+  // Search HindMoviez
+  const search = await smartFetch(`${BASE_URL}/?s=${encodeURIComponent(query)}`);
+  if (!search) return [];
 
-  const $ = cheerio.load(searchResult.html);
+  const $ = cheerio.load(search.html);
   const pageUrl = $('article h2.entry-title a').first().attr('href');
   if (!pageUrl) return [];
 
-  // 3. Parse Download Page
-  const page = await smartFetch(pageUrl);
-  if (!page) return [];
-  const $p = cheerio.load(page.html);
+  // Parse Main Page
+  const mainPage = await smartFetch(pageUrl);
+  if (!mainPage) return [];
+  const $mp = cheerio.load(mainPage.html);
   
   const streams = [];
-  const links = [];
+  const candidates = [];
 
-  // Match H3 headings to their buttons
-  $p('.entry-content h3').each((i, el) => {
-    const title = $p(el).text();
-    const btn = $p(el).nextUntil('h3').find('a[href*="mvlink.site"]').attr('href');
-    if (btn) links.push({ url: btn, meta: title });
+  // Identify all mvlink buttons
+  $mp('a[href*="mvlink.site"]').each((i, el) => {
+    const link = $mp(el).attr('href');
+    const context = $mp(el).closest('div, p').prevAll('h3').first().text() || 'Standard Quality';
+    candidates.push({ link, context });
   });
 
-  // 4. Resolve Chains (Parallel)
-  await Promise.all(links.map(async (item) => {
-    const mv = await smartFetch(item.url);
-    if (!mv) return;
+  // Limit concurrency for TV CPUs (max 3 at a time)
+  for (const item of candidates.slice(0, 5)) { 
+    const mvPage = await smartFetch(item.link);
+    if (!mvPage) continue;
 
-    const $mv = cheerio.load(mv.html);
-    let targetUrl = null;
+    const $mv = cheerio.load(mvPage.html);
+    let target = null;
 
-    // Series handling
-    if (type !== 'movie') {
-      const epMatch = new RegExp(`Episode\\s*0?${episode}\\b`, 'i');
-      $mv('a').each((i, a) => {
-        if (epMatch.test($mv(a).text())) targetUrl = $mv(a).attr('href');
-      });
+    if (type === 'movie') {
+      target = $mv('a:contains("Get Links")').attr('href') || $mv('a[href*="hshare"]').attr('href');
     } else {
-      targetUrl = $mv('a:contains("Get Links")').attr('href') || $mv('a[href*="hshare"]').attr('href');
+      const epRegex = new RegExp(`Episode\\s*0?${episode}\\b`, 'i');
+      $mv('a').each((i, a) => {
+        if (epRegex.test($mv(a).text())) target = $mv(a).attr('href');
+      });
     }
 
-    if (!targetUrl) return;
+    if (!target) continue;
 
-    // Resolve final Cloud-Server link
-    const hshare = await smartFetch(targetUrl);
-    if (!hshare) return;
-    const hcloudUrl = hshare.html.match(/https?:\/\/hcloud\.[^\s"']+/);
+    // Direct HCloud resolving
+    const hshare = await smartFetch(target);
+    if (!hshare) continue;
     
-    if (hcloudUrl) {
-      const finalPage = await smartFetch(hcloudUrl[0]);
-      if (!finalPage) return;
-      const $f = cheerio.load(finalPage.html);
+    const hcloudMatch = hshare.html.match(/https?:\/\/hcloud\.[^\s"']+/);
+    if (hcloudMatch) {
+      const hcloud = await smartFetch(hcloudMatch[0]);
+      if (!hcloud) continue;
+      const $hc = cheerio.load(hcloud.html);
 
-      $f('a[id^="download-btn"]').each((i, srv) => {
-        const directUrl = $f(srv).attr('href');
+      $hc('a[id^="download-btn"]').each((i, srv) => {
+        const streamUrl = $hc(srv).attr('href');
+        if (!streamUrl) return;
+
         streams.push({
-          name: `🎬 HindMoviez | Server ${i+1}`,
-          title: `📺 ${item.meta.split(' ').slice(-3).join(' ')}\nDirect Stream (TV Optimized)`,
-          url: hmProxyUrl(directUrl),
+          name: `🎬 HindMoviez | S${i + 1}`,
+          title: `📺 ${item.context.split('|')[0].trim()}\n🔗 Direct Stream via Cloudflare`,
+          url: `${HM_WORKER}/hm/proxy?url=${encodeURIComponent(streamUrl)}`,
           behaviorHints: {
             notWebReady: false,
             proxyHeaders: {
-              "User-Agent": DEFAULT_HEADERS["User-Agent"],
-              "Referer": "https://hcloud.to/"
+              "Referer": "https://hcloud.to/",
+              "Origin": "https://hcloud.to",
+              "User-Agent": TV_HEADERS['User-Agent']
             }
           }
         });
       });
     }
-  }));
+  }
 
   return streams;
 }

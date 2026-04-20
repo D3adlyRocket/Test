@@ -1,89 +1,104 @@
-'use strict';
+// Vixsrc Scraper - 2026 Updated Logic
+const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
+const BASE_URL = 'https://vixsrc.to';
 
-/**
- * NUVIO ANDROID TV - HERMES COMPATIBLE
- * No async, no await, no const, no let, no require.
- * Pure ES5 logic for direct execution on Android TV.
- */
+function makeRequest(url, options = {}) {
+    const defaultHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1',
+        'Referer': BASE_URL + '/',
+        ...options.headers
+    };
 
-var TMDB_KEY = '439c478a771f35c05022f9feabcca01c';
-var BASE_URL = 'https://hindmovie.ltd';
-var PROXY    = 'https://hindmoviez.s4nch1tt.workers.dev';
-
-function getStreams(tmdbId, type, season, episode) {
-    var isSeries = (type === 'tv' || type === 'series');
-    var tmdbUrl = 'https://api.themoviedb.org/3/' + (isSeries ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY;
-
-    // We use a flat chain because Hermes often fails with nested async logic
-    return fetch(tmdbUrl)
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-            var query = data.title || data.name;
-            return fetch(BASE_URL + '/?s=' + encodeURIComponent(query));
-        })
-        .then(function(res) { return res.text(); })
-        .then(function(html) {
-            // Find the link to the movie/show page
-            var parts = html.split('<h2 class="entry-title"><a href="');
-            if (parts.length < 2) return [];
-            var pageUrl = parts[1].split('"')[0];
-
-            return fetch(pageUrl)
-                .then(function(res) { return res.text(); })
-                .then(function(pageHtml) {
-                    var streams = [];
-                    // Find all download buttons
-                    var buttons = pageHtml.split('https://mvlink.site/');
-                    
-                    // Limit to 2 results to avoid the TV's memory cap
-                    for (var i = 1; i < Math.min(buttons.length, 3); i++) {
-                        var mvUrl = 'https://mvlink.site/' + buttons[i].split('"')[0];
-                        
-                        // We must return this inner chain to the main promise
-                        streams.push(fetch(mvUrl)
-                            .then(function(res) { return res.text(); })
-                            .then(function(mvHtml) {
-                                var link = null;
-                                if (!isSeries) {
-                                    if (mvHtml.indexOf('hshare.ink') !== -1) {
-                                        link = 'https://hshare.ink/' + mvHtml.split('hshare.ink/')[1].split('"')[0];
-                                    }
-                                } else {
-                                    var epStr = 'Episode ' + (episode < 10 ? '0' + episode : episode);
-                                    if (mvHtml.indexOf(epStr) !== -1) {
-                                        link = mvHtml.split(epStr)[0].split('href="').pop().split('"')[0];
-                                    }
-                                }
-
-                                if (link) {
-                                    return {
-                                        name: "🎬 HindMoviez",
-                                        title: "Android TV Optimized · 1080p/720p",
-                                        url: PROXY + "/hm/proxy?url=" + encodeURIComponent(link),
-                                        behaviorHints: {
-                                            notWebReady: false,
-                                            proxyHeaders: { "Referer": "https://hcloud.to/" }
-                                        }
-                                    };
-                                }
-                                return null;
-                            }));
-                    }
-                    return Promise.all(streams);
-                });
-        })
-        .then(function(results) {
-            // Clean up the array
-            var finalArr = [];
-            for (var k = 0; k < results.length; k++) {
-                if (results[k]) finalArr.push(results[k]);
-            }
-            return finalArr;
-        })
-        .catch(function() {
-            return [];
-        });
+    return fetch(url, {
+        method: options.method || 'GET',
+        headers: defaultHeaders,
+        ...options
+    }).then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response;
+    });
 }
 
-// Crucial: Hermes requires the function to be global
-global.getStreams = getStreams;
+async function extractStreamFromPage(mediaType, contentId, seasonNum, episodeNum) {
+    // 2026 Update: Vixsrc now prefers the /embed/ path for direct stream data
+    const path = mediaType === 'movie' 
+        ? `/embed/movie/${contentId}` 
+        : `/embed/tv/${contentId}/${seasonNum}/${episodeNum}`;
+    
+    const vixsrcUrl = `${BASE_URL}${path}`;
+    console.log(`[Vixsrc] Targeted URL: ${vixsrcUrl}`);
+
+    try {
+        const response = await makeRequest(vixsrcUrl);
+        const html = await response.text();
+
+        // Check for Cloudflare Block
+        if (html.includes("cf-challenge") || html.includes("Just a moment...")) {
+            console.error("[Vixsrc] Blocked by Cloudflare. Manual solve or Proxy required.");
+            return null;
+        }
+
+        let masterPlaylistUrl = null;
+
+        // 1. Logic for dynamic Token/Expires/URL combo
+        // The site often uses 'src' or 'file' instead of 'url' now
+        const urlMatch = html.match(/url["']?\s*:\s*["']([^"']+)["']/i) || html.match(/src["']?\s*:\s*["']([^"']+)["']/i);
+        const tokenMatch = html.match(/token["']?\s*:\s*["']([^"']+)["']/i);
+        const expiresMatch = html.match(/expires["']?\s*:\s*["']([^"']+)["']/i);
+
+        if (urlMatch && tokenMatch) {
+            const baseUrl = urlMatch[1];
+            const token = tokenMatch[1];
+            const expires = expiresMatch ? expiresMatch[1] : "";
+
+            // Constructing with 2026 parameter requirements
+            masterPlaylistUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}token=${token}&expires=${expires}&h=1`;
+        } 
+        
+        // 2. Fallback: Direct M3U8 Regex
+        if (!masterPlaylistUrl) {
+            const m3u8Match = html.match(/["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/);
+            if (m3u8Match) masterPlaylistUrl = m3u8Match[1];
+        }
+
+        if (!masterPlaylistUrl) return null;
+
+        // Subtitle logic (Sub.wyzie is the standard partner for Vix)
+        const subApi = mediaType === 'movie' 
+            ? `https://sub.wyzie.io/search?id=${contentId}`
+            : `https://sub.wyzie.io/search?id=${contentId}&season=${seasonNum}&episode=${episodeNum}`;
+
+        return { masterPlaylistUrl, subApi };
+    } catch (e) {
+        console.error("[Vixsrc] Extraction error:", e.message);
+        return null;
+    }
+}
+
+async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
+    const streamData = await extractStreamFromPage(mediaType, tmdbId, seasonNum, episodeNum);
+    
+    if (!streamData) return [];
+
+    return [{
+        name: "Vixsrc",
+        title: "Multi-Quality (HLS)",
+        url: streamData.masterPlaylistUrl,
+        quality: 'Auto',
+        type: 'direct',
+        headers: {
+            'Referer': BASE_URL + '/',
+            'Origin': BASE_URL,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+    }];
+}
+
+module.exports = { getStreams };

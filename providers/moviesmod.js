@@ -1,111 +1,166 @@
-/**
- * FlixIndia Provider for Nuvio
- * Updated: 2026-04-20
- * Status: Experimental (Cloudflare Bypass Attempt)
- */
+// =============================================================
+// Provider Nuvio : Nakios.art (VF / VOSTFR / MULTI)
+// Version : 3.5.1 (Fixed for Android TV compatibility)
+// =============================================================
 
-const BASE_URL = "https://m.flixindia.xyz";
-const TMDB_API_KEY = "919605fd567bbffcf76492a03eb4d527";
+var NAKIOS_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+var NAKIOS_VITRINE = 'https://nakios.online/';
+var NAKIOS_BLACKLIST = ['online', 'health', 'png', 'svg', 'com', 'support', 'news', 'media'];
 
-/**
- * Enhanced fetch to mimic a real mobile browser
- */
-async function stealthFetch(url) {
-    const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-            'Referer': 'https://www.google.com/',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'cross-site',
-            'Upgrade-Insecure-Requests': '1'
-        }
-    });
-    
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.text();
-}
+var _cachedEndpoint = null;
 
-/**
- * Main Nuvio Entry Point
- */
-async function getStreams(tmdbId, mediaType, season, episode) {
-    const results = [];
-    
-    try {
-        // 1. Resolve Title from TMDB
-        const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-        const tmdbData = await fetch(tmdbUrl).then(res => res.json());
-        const title = mediaType === "movie" ? tmdbData.title : tmdbData.name;
-        
-        if (!title) return [];
-
-        // 2. Search using GET (less protected than POST search)
-        // Clean title for search (remove special chars)
-        const cleanTitle = title.replace(/[^a-zA-Z0-9 ]/g, '');
-        let searchQuery = encodeURIComponent(cleanTitle);
-        
-        if (mediaType === "tv") {
-            searchQuery += `%20S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
-        }
-
-        const searchUrl = `${BASE_URL}/?s=${searchQuery}`;
-        const searchHtml = await stealthFetch(searchUrl);
-
-        // 3. Extract Post Links using Regex
-        // Matches pattern: https://m.flixindia.xyz/post/slug-name
-        const postRegex = /href="(https:\/\/m\.flixindia\.xyz\/post\/[^"]+)"/g;
-        let match;
-        const posts = [];
-        while ((match = postRegex.exec(searchHtml)) !== null) {
-            if (!posts.includes(match[1])) posts.push(match[1]);
-        }
-
-        // 4. Scrape the Movie/Episode Page for Video Links
-        for (const postUrl of posts.slice(0, 2)) {
-            try {
-                const pageHtml = await stealthFetch(postUrl);
-
-                // Look for the domains you identified earlier
-                const streamRegex = /href="(https:\/\/[^"]+\.(?:pages\.dev|gdflix\.net|hubcloud\.club|gdlink\.net)[^"]+)"/g;
-                let streamMatch;
-
-                while ((streamMatch = streamRegex.exec(pageHtml)) !== null) {
-                    let finalUrl = streamMatch[1];
-
-                    // Handle the pages.dev proxy redirect
-                    if (finalUrl.includes("pages.dev") && finalUrl.includes("?url=")) {
-                        const urlObj = new URL(finalUrl);
-                        const extracted = urlObj.searchParams.get("url");
-                        if (extracted) finalUrl = extracted;
-                    }
-
-                    results.push({
-                        name: "FlixIndia",
-                        title: `${title} [${finalUrl.includes('googleusercontent') ? 'Fast' : 'Cloud'}]`,
-                        url: finalUrl,
-                        quality: "HD",
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                        }
-                    });
-                }
-            } catch (e) {
-                continue; 
+// Polyfill for simple XHR to replace fetch where fetch is unavailable
+function httpRequest(url, options) {
+    return new Promise(function(resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open(options.method || 'GET', url);
+        if (options.headers) {
+            for (var key in options.headers) {
+                xhr.setRequestHeader(key, options.headers[key]);
             }
         }
-
-        // 5. Deduplicate and Return
-        return results.filter((v, i, a) => a.findIndex(t => t.url === v.url) === i);
-
-    } catch (error) {
-        console.error("FlixIndia Provider Error:", error.message);
-        return [];
-    }
+        xhr.onload = function() {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                resolve({
+                    text: function() { return xhr.responseText; },
+                    json: function() { return JSON.parse(xhr.responseText); },
+                    ok: true,
+                    status: xhr.status
+                });
+            } else {
+                reject(new Error('HTTP ' + xhr.status));
+            }
+        };
+        xhr.onerror = function() { reject(new Error('Network Error')); };
+        xhr.send(options.body || null);
+    });
 }
 
-// Ensure the module export is present for Nuvio
-module.exports = { getStreams };
+// Check if fetch exists, otherwise use httpRequest
+var safeFetch = (typeof fetch === 'function') ? fetch : httpRequest;
+
+function fetchBundleUrl() {
+    return safeFetch(NAKIOS_VITRINE, { redirect: 'follow' })
+        .then(function(res) { return res.text(); })
+        .then(function(html) {
+            var match = html.match(/src=["'](\/assets\/[^"']+\.js)["']/);
+            if (!match) throw new Error('Bundle JS introuvable');
+            return 'https://nakios.online' + match[1];
+        });
+}
+
+function extractDomainsFromBundle(bundleUrl) {
+    return safeFetch(bundleUrl)
+        .then(function(res) { return res.text(); })
+        .then(function(js) {
+            var matches = js.match(/https?:\/\/nakios\.([a-z]{2,10})/gi) || [];
+            var tlds = [];
+            var seen = {};
+            matches.forEach(function(url) {
+                var tld = url.replace(/https?:\/\/nakios\./, '').toLowerCase();
+                if (!seen[tld] && NAKIOS_BLACKLIST.indexOf(tld) === -1) {
+                    seen[tld] = true;
+                    tlds.push(tld);
+                }
+            });
+            if (tlds.length === 0) throw new Error('Aucun domaine trouvé');
+            return tlds;
+        });
+}
+
+function detectEndpoint() {
+    if (_cachedEndpoint) return Promise.resolve(_cachedEndpoint);
+
+    return fetchBundleUrl()
+        .then(extractDomainsFromBundle)
+        .then(function(tlds) {
+            var tld = tlds[0];
+            _cachedEndpoint = {
+                base:    'https://nakios.' + tld,
+                api:     'https://api.nakios.' + tld + '/api',
+                referer: 'https://nakios.' + tld + '/'
+            };
+            return _cachedEndpoint;
+        });
+}
+
+function fetchSources(endpoint, tmdbId, mediaType, season, episode) {
+    var url = mediaType === 'tv'
+        ? endpoint.api + '/sources/tv/' + tmdbId + '/' + (season || 1) + '/' + (episode || 1)
+        : endpoint.api + '/sources/movie/' + tmdbId;
+
+    return safeFetch(url, {
+        method: 'GET',
+        headers: {
+            'User-Agent': NAKIOS_UA,
+            'Referer':    endpoint.referer,
+            'Origin':     endpoint.base
+        }
+    })
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+        if (!data || !data.success || !data.sources) throw new Error('Pas de sources');
+        return data.sources;
+    });
+}
+
+function resolveSource(source) {
+    var rawUrl = source.url || '';
+    if (rawUrl.startsWith('http')) {
+        return {
+            url: rawUrl,
+            format: (source.isM3U8 || rawUrl.indexOf('.m3u8') !== -1) ? 'm3u8' : 'mp4',
+            referer: null,
+            origin: null
+        };
+    }
+    if (rawUrl.charAt(0) === '/') {
+        var urlMatch = rawUrl.match(/[?&]url=([^&]+)/);
+        if (!urlMatch) return null;
+        var decoded = decodeURIComponent(urlMatch[1]);
+        var match = decoded.match(/^(https?:\/\/[^\/]+)/);
+        var origin = match ? match[1] : null;
+        return { url: decoded, format: 'm3u8', referer: origin + '/', origin: origin };
+    }
+    return null;
+}
+
+function getStreams(tmdbId, mediaType, season, episode) {
+    return detectEndpoint()
+        .then(function(endpoint) {
+            return fetchSources(endpoint, tmdbId, mediaType, season, episode);
+        })
+        .then(function(sources) {
+            var results = [];
+            for (var i = 0; i < sources.length; i++) {
+                var source = sources[i];
+                if (source.isEmbed) continue;
+                var resolved = resolveSource(source);
+                if (!resolved) continue;
+
+                results.push({
+                    name: 'Nakios',
+                    title: (source.name || 'Nakios') + ' - ' + (source.lang || 'MULTI').toUpperCase() + ' ' + (source.quality || 'HD'),
+                    url: resolved.url,
+                    quality: source.quality || 'HD',
+                    format: resolved.format,
+                    headers: {
+                        'User-Agent': NAKIOS_UA,
+                        'Referer': resolved.referer || _cachedEndpoint.referer,
+                        'Origin': resolved.origin || _cachedEndpoint.base
+                    }
+                });
+            }
+            return results;
+        })
+        .catch(function(err) {
+            console.error('[Nakios] Error: ' + err.message);
+            return [];
+        });
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { getStreams: getStreams };
+} else {
+    this.getStreams = getStreams;
+}

@@ -27,12 +27,11 @@ function inferQualityScore(text) {
 }
 
 function toQualityLabel(score) {
-  if (score >= 2160) return '4K';
+  if (score >= 2160) return '2160p';
   if (score >= 1440) return '1440p';
   if (score >= 1080) return '1080p';
   if (score >= 720) return '720p';
   if (score >= 480) return '480p';
-  if (score >= 360) return '360p';
   return 'Auto';
 }
 
@@ -107,12 +106,14 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
   const cloudHtml = cloudRes && cloudRes.ok ? await cloudRes.text() : '';
 
   const hidden = cloudHtml.match(/<div id="([^"]+)"[^>]*style=["']display\s*:\s*none;?["'][^>]*>([a-zA-Z0-9:\/.,{}\-_=+ ]+)<\/div>/);
-  if (!hidden) return [];
+  const divId = hidden ? hidden[1] : null;
+  const divText = hidden ? hidden[2] : null;
+  if (!divId || !divText) return [];
 
   const decRes = await safeFetch('https://enc-dec.app/api/dec-cloudnestra', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: hidden[2], div_id: hidden[1] })
+    body: JSON.stringify({ text: divText, div_id: divId })
   });
   const decJson = decRes && decRes.ok ? await decRes.json() : null;
   const urls = decJson && Array.isArray(decJson.result) ? decJson.result : [];
@@ -126,9 +127,10 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
     const scoreFromUrl = inferQualityScore(streamUrl);
     const maxFromPlaylist = await detectPlaylistMaxQuality(streamUrl, headersCloud);
     
-    // We use the real resolution first, then fallback to URL hints.
+    // Use the best score found without assuming 1080p
     const score = Math.max(scoreFromUrl, maxFromPlaylist);
 
+    // Filter removed to ensure links show up regardless of resolution
     results.push({
       name: `${PROVIDER_ID} - Server ${idx + 1}`,
       url: streamUrl,

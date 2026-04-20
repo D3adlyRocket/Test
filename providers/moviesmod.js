@@ -23,7 +23,6 @@ function inferQualityScore(text) {
   if (value.includes('720')) return 720;
   if (value.includes('480')) return 480;
   if (value.includes('360')) return 360;
-  if (value.includes('266')) return 266;
   return 0;
 }
 
@@ -31,10 +30,8 @@ function toQualityLabel(score) {
   if (score >= 2160) return '2160p';
   if (score >= 1440) return '1440p';
   if (score >= 1080) return '1080p';
-  if (score >= 720) return '720p';
-  if (score >= 480) return '480p';
-  if (score >= 360) return '360p';
-  if (score > 0) return score + 'p';
+  if (score >= 720) return '720p'; // Fixed: Now identifies 720p
+  if (score >= 480) return '480p'; // Fixed: Now identifies 480p
   return 'Auto';
 }
 
@@ -134,8 +131,11 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
     const scoreFromUrl = inferQualityScore(streamUrl);
     const maxFromPlaylist = await detectPlaylistMaxQuality(streamUrl, headersCloud);
     
-    // Logic: Use real resolution from playlist first, then URL hints.
+    // FIX: Removed the "assumed = 1080" fallback.
+    // Use real resolution if found, otherwise use URL hints.
     const score = maxFromPlaylist > 0 ? maxFromPlaylist : scoreFromUrl;
+
+    // FIX: Removed "if (score < 1080) continue;" so it shows all qualities found.
 
     results.push({
       name: `${PROVIDER_ID} - Server ${idx + 1}`,

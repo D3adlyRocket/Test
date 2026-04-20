@@ -1,25 +1,28 @@
-// ... (keep all your existing utility functions: getJson, getText, etc.)
-
 /**
- * NEW: VidFast Resolver
+ * CORRECTED: VidFast Resolver
+ * Note: VidFast often uses a direct 'enc-vidfast' path or requires 
+ * the ID to be sent as a plain string if the encryption API is down.
  */
 function resolveVidFast(tmdbId, mediaType, season, episode) {
-  // 1. Get the encrypted string needed for VidFast
+  // We use the specific VidFast encoding endpoint
   return getJson('https://enc-dec.app/api/enc-vidfast?text=' + encodeURIComponent(String(tmdbId)))
     .then(function (encrypted) {
       var encodedTmdb = encrypted && encrypted.result;
-      if (!encodedTmdb) return [];
+      
+      // Fallback: If encryption fails, some versions of the API accept the raw ID
+      var idToUse = encodedTmdb || tmdbId;
 
-      // 2. Construct the API URL
       var url = mediaType === 'tv'
-        ? 'https://vidfast.pro/api/b/tv/' + encodedTmdb + '/' + (season || 1) + '/' + (episode || 1)
-        : 'https://vidfast.pro/api/b/movie/' + encodedTmdb;
+        ? 'https://vidfast.pro/api/b/tv/' + idToUse + '/' + (season || 1) + '/' + (episode || 1)
+        : 'https://vidfast.pro/api/b/movie/' + idToUse;
 
       return getJson(url);
     })
     .then(function (payload) {
-      // 3. Extract the stream information
-      var playlist = payload && payload.stream && payload.stream.playlist;
+      // VidFast sometimes wraps the stream in a 'data' or 'stream' object
+      var streamData = payload && (payload.stream || payload.data);
+      var playlist = streamData && streamData.playlist;
+      
       if (!playlist) return [];
 
       var stream = streamObject(
@@ -27,24 +30,28 @@ function resolveVidFast(tmdbId, mediaType, season, episode) {
         'VidFast Primary', 
         playlist, 
         'Auto', 
-        { Referer: 'https://vidfast.pro' }
+        { 
+          'Referer': 'https://vidfast.pro/',
+          'Origin': 'https://vidfast.pro' 
+        }
       );
       
       return stream ? [stream] : [];
     })
-    .catch(function () {
+    .catch(function (err) {
+      console.error("VidFast Error:", err.message);
       return [];
     });
 }
 
-// ... (keep your other resolvers: resolveVidEasy, resolveVidLink, etc.)
-
+/**
+ * Updated getStreams to handle the new resolver
+ */
 function getStreams(tmdbId, mediaType, season, episode) {
-  // ADDED resolveVidFast to the list below
   var resolvers = [
     resolveVidEasy,
     resolveVidLink,
-    resolveVidFast, // Added here
+    resolveVidFast, // Added correctly here
     resolveHexa,
     resolveSmashyStream,
     resolveVidSrc
@@ -52,6 +59,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
   return Promise.all(
     resolvers.map(function (resolver) {
+      // Ensure every resolver is wrapped in a catch so one crash doesn't stop all
       return resolver(tmdbId, mediaType, season, episode).catch(function () {
         return [];
       });
@@ -70,5 +78,3 @@ function getStreams(tmdbId, mediaType, season, episode) {
       return [];
     });
 }
-
-module.exports = { getStreams: getStreams };

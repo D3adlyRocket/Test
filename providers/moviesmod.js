@@ -163,5 +163,3 @@ if (typeof module !== 'undefined' && module.exports) {
 } else {
   global.getStreams = getStreams;
 }
-
-Can you fix this all links are showing 1080 even though they not. Some are 266p can you fix it so it shows correct resolution.

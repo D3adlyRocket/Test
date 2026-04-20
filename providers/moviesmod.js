@@ -23,9 +23,8 @@ function inferQualityScore(text) {
   if (value.includes('720')) return 720;
   if (value.includes('480')) return 480;
   if (value.includes('360')) return 360;
-  // Added common low-res markers
-  if (value.includes('240')) return 240; 
   if (value.includes('266')) return 266;
+  if (value.includes('240')) return 240;
   return 0;
 }
 
@@ -36,7 +35,7 @@ function toQualityLabel(score) {
   if (score >= 720) return '720p';
   if (score >= 480) return '480p';
   if (score >= 360) return '360p';
-  if (score > 0) return `${score}p`; // Shows exact resolution if it's odd like 266p
+  if (score > 0) return score + 'p';
   return 'Auto';
 }
 
@@ -45,7 +44,6 @@ function maxResolutionFromM3u8Text(text) {
   let maxY = 0;
   const re = /RESOLUTION=\s*\d+\s*x\s*(\d+)/gi;
   let m;
-  // eslint-disable-next-line no-cond-assign
   while ((m = re.exec(input)) !== null) {
     const y = Number(m[1]);
     if (Number.isFinite(y) && y > maxY) maxY = y;
@@ -75,7 +73,6 @@ async function getImdbId(tmdbId, mediaType) {
     const movie = await tmdbFetch(`/movie/${tmdbId}`);
     return movie && movie.imdb_id ? movie.imdb_id : null;
   }
-
   const tv = await tmdbFetch(`/tv/${tmdbId}`);
   if (!tv) return null;
   const ext = await tmdbFetch(`/tv/${tmdbId}/external_ids`);
@@ -101,10 +98,7 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
   const iframeRes = await safeFetch(`https:${iframeSrc}`, {
     headers: {
       'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) Gecko/20100101 Firefox/145.0',
-      accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'accept-language': 'en-US,en;q=0.5',
       referer: 'https://vsrc.su/',
-      'upgrade-insecure-requests': '1'
     }
   });
   const iframeHtml = iframeRes && iframeRes.ok ? await iframeRes.text() : '';
@@ -115,14 +109,12 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
   const cloudHtml = cloudRes && cloudRes.ok ? await cloudRes.text() : '';
 
   const hidden = cloudHtml.match(/<div id="([^"]+)"[^>]*style=["']display\s*:\s*none;?["'][^>]*>([a-zA-Z0-9:\/.,{}\-_=+ ]+)<\/div>/);
-  const divId = hidden ? hidden[1] : null;
-  const divText = hidden ? hidden[2] : null;
-  if (!divId || !divText) return [];
+  if (!hidden) return [];
 
   const decRes = await safeFetch('https://enc-dec.app/api/dec-cloudnestra', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: divText, div_id: divId })
+    body: JSON.stringify({ text: hidden[2], div_id: hidden[1] })
   });
   const decJson = decRes && decRes.ok ? await decRes.json() : null;
   const urls = decJson && Array.isArray(decJson.result) ? decJson.result : [];
@@ -133,12 +125,12 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
     const streamUrl = urls[idx];
     if (!streamUrl) continue;
 
+    // Detection logic
     const scoreFromUrl = inferQualityScore(streamUrl);
     const maxFromPlaylist = await detectPlaylistMaxQuality(streamUrl, headersCloud);
     
-    // REMOVED: const assumed = streamUrl.includes('.m3u8') ? 1080 : 0;
-    // Instead, we use the best detected score
-    const score = Math.max(scoreFromUrl, maxFromPlaylist);
+    // We trust the manifest first, then the URL keywords. No more "assuming 1080p".
+    const score = maxFromPlaylist > 0 ? maxFromPlaylist : scoreFromUrl;
 
     results.push({
       name: `${PROVIDER_ID} - Server ${idx + 1}`,
@@ -150,6 +142,7 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
     });
   }
 
+  // Sort by resolution and return
   return results
     .sort((a, b) => b._score - a._score)
     .map(({ _score, ...rest }) => rest);

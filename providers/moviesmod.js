@@ -1,4 +1,4 @@
-const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
+Const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const PROVIDER_ID = 'alas-vidsrc';
 
@@ -30,9 +30,6 @@ function toQualityLabel(score) {
   if (score >= 2160) return '2160p';
   if (score >= 1440) return '1440p';
   if (score >= 1080) return '1080p';
-  if (score >= 720) return '720p';
-  if (score >= 480) return '480p';
-  if (score >= 360) return '360p';
   return 'Auto';
 }
 
@@ -117,4 +114,54 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
 
   const decRes = await safeFetch('https://enc-dec.app/api/dec-cloudnestra', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: divText, div_id: divId })
+  });
+  const decJson = decRes && decRes.ok ? await decRes.json() : null;
+  const urls = decJson && Array.isArray(decJson.result) ? decJson.result : [];
+  if (urls.length === 0) return [];
+
+  const results = [];
+  for (let idx = 0; idx < urls.length; idx++) {
+    const streamUrl = urls[idx];
+    if (!streamUrl) continue;
+
+    const scoreFromUrl = inferQualityScore(streamUrl);
+    const maxFromPlaylist = await detectPlaylistMaxQuality(streamUrl, headersCloud);
+    const assumed = streamUrl.includes('.m3u8') ? 1080 : 0;
+    const score = Math.max(scoreFromUrl, maxFromPlaylist, assumed);
+    if (score < 1080) continue;
+
+    results.push({
+      name: `${PROVIDER_ID} - Server ${idx + 1}`,
+      url: streamUrl,
+      quality: toQualityLabel(score),
+      headers: headersCloud,
+      provider: PROVIDER_ID,
+      _score: score
+    });
+  }
+
+  return results
+    .sort((a, b) => b._score - a._score)
+    .map(({ _score, ...rest }) => rest);
+}
+
+async function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
+  try {
+    const type = mediaType === 'tv' ? 'tv' : 'movie';
+    const imdbId = await getImdbId(tmdbId, type);
+    if (!imdbId) return [];
+    return await resolveCloudnestraStreams(imdbId, type, seasonNum, episodeNum);
+  } catch {
+    return [];
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+}
+
+Can you fix this all links are showing 1080 even though they not. Some are 266p can you fix it so it shows correct resolution.

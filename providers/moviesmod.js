@@ -1,397 +1,220 @@
-function getJson(url, options) {
-  return fetch(url, options || {}).then(function (response) {
-    if (!response || !response.ok) {
-      throw new Error('Request failed: ' + url);
-    }
-    return response.json();
-  });
-}
-
-function getText(url, options) {
-  return fetch(url, options || {}).then(function (response) {
-    if (!response || !response.ok) {
-      throw new Error('Request failed: ' + url);
-    }
-    return response.text();
-  });
-}
-
-function normalizeQuality(label) {
-  var text = (label || '').toString();
-  var match = text.match(/(2160p|1440p|1080p|720p|480p|360p|4K)/i);
-  return match ? match[1].toUpperCase() : 'Auto';
-}
-
-function streamObject(provider, title, url, quality, headers) {
-  if (!url || typeof url !== 'string') {
-    return null;
-  }
-  return {
-    name: provider,
-    title: title || provider,
-    url: url,
-    quality: quality || 'Auto',
-    headers: headers || undefined
-  };
-}
-
-function dedupeStreams(streams) {
-  var seen = {};
-  return (streams || []).filter(function (stream) {
-    if (!stream || !stream.url) {
-      return false;
-    }
-    if (seen[stream.url]) {
-      return false;
-    }
-    seen[stream.url] = true;
-    return true;
-  });
-}
-
-function getTmdbMeta(tmdbId, mediaType) {
-  var typePath = mediaType === 'tv' ? 'tv' : 'movie';
-  var url = 'https://api.themoviedb.org/3/' + typePath + '/' + tmdbId + '?append_to_response=external_ids&api_key=ad301b7cc82ffe19273e55e4d4206885';
-  return getJson(url);
-}
-
-function resolveVidEasy(tmdbId, mediaType, season, episode) {
-  var typePath = mediaType === 'tv' ? 'tv' : 'movie';
-  var dbUrl = 'https://db.videasy.net/3/' + typePath + '/' + tmdbId + '?append_to_response=external_ids&language=en&api_key=ad301b7cc82ffe19273e55e4d4206885';
-
-  return getJson(dbUrl)
-    .then(function (meta) {
-      var isTv = mediaType === 'tv';
-      var title = encodeURIComponent((isTv ? meta.name : meta.title) || '');
-      var dateText = isTv ? meta.first_air_date : meta.release_date;
-      var year = dateText ? new Date(dateText).getFullYear() : '';
-      var imdbId = (meta.external_ids && meta.external_ids.imdb_id) || '';
-      var fullUrl = 'https://api.videasy.net/cdn/sources-with-title?title=' + title + '&mediaType=' + (isTv ? 'tv' : 'movie') + '&year=' + year + '&episodeId=' + (isTv ? (episode || 1) : 1) + '&seasonId=' + (isTv ? (season || 1) : 1) + '&tmdbId=' + meta.id + '&imdbId=' + imdbId;
-      return getText(fullUrl).then(function (encryptedText) {
-        var body = JSON.stringify({ text: encryptedText, id: String(tmdbId) });
-        return getJson('https://enc-dec.app/api/dec-videasy', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json'
-          },
-          body: body
-        });
-      });
-    })
-    .then(function (decryptedData) {
-      var result = (decryptedData && decryptedData.result) || {};
-      var sources = Array.isArray(result.sources) ? result.sources : [];
-      return sources
-        .filter(function (source) {
-          return source && source.url && !(source.quality || '').toUpperCase().includes('HDR');
-        })
-        .map(function (source) {
-          return streamObject(
-            'VidEasy',
-            'VidEasy ' + (source.quality || 'Auto'),
-            source.url,
-            normalizeQuality(source.quality),
-            {
-              Origin: 'https://player.videasy.net',
-              Referer: 'https://player.videasy.net/'
-            }
-          );
-        })
-        .filter(Boolean);
-    })
-    .catch(function () {
-      return [];
-    });
-}
-
-function resolveVidLink(tmdbId, mediaType, season, episode) {
-  return getJson('https://enc-dec.app/api/enc-vidlink?text=' + encodeURIComponent(String(tmdbId)))
-    .then(function (encrypted) {
-      var encodedTmdb = encrypted && encrypted.result;
-      if (!encodedTmdb) {
-        return [];
-      }
-
-      var url = mediaType === 'tv'
-        ? 'https://vidlink.pro/api/b/tv/' + encodedTmdb + '/' + (season || 1) + '/' + (episode || 1) + '?multiLang=0'
-        : 'https://vidlink.pro/api/b/movie/' + encodedTmdb + '?multiLang=0';
-
-      return getJson(url).then(function (payload) {
-        var playlist = payload && payload.stream && payload.stream.playlist;
-        var stream = streamObject('VidLink', 'VidLink Primary', playlist, 'Auto', { Referer: 'https://vidlink.pro' });
-        return stream ? [stream] : [];
-      });
-    })
-    .catch(function () {
-      return [];
-    });
-}
-
 /**
- * Added VidFast Resolver
+ * flixindia - Fixed & Updated
+ * Generated: 2026-04-20
  */
-function resolveVidFast(tmdbId, mediaType, season, episode) {
-  return getJson('https://enc-dec.app/api/enc-vidfast?text=' + encodeURIComponent(String(tmdbId)))
-    .then(function (encrypted) {
-      var encodedTmdb = encrypted && encrypted.result;
-      if (!encodedTmdb) {
-        return [];
-      }
-
-      var url = mediaType === 'tv'
-        ? 'https://vidfast.pro/api/b/tv/' + encodedTmdb + '/' + (season || 1) + '/' + (episode || 1)
-        : 'https://vidfast.pro/api/b/movie/' + encodedTmdb;
-
-      return getJson(url).then(function (payload) {
-        var streamData = payload && payload.stream;
-        var playlist = streamData && streamData.playlist;
-        var stream = streamObject('VidFast', 'VidFast Primary', playlist, 'Auto', { 
-          Referer: 'https://vidfast.pro/',
-          Origin: 'https://vidfast.pro'
-        });
-        return stream ? [stream] : [];
-      });
-    })
-    .catch(function () {
-      return [];
-    });
-}
-
-function resolveHexa(tmdbId, mediaType, season, episode) {
-  var key = '24ef089ebcab51d107a4e4709e87861ef609bace89ac23af13235f6ea743488f';
-  var endpoint = mediaType === 'tv'
-    ? 'https://themoviedb.hexa.su/api/tmdb/tv/' + tmdbId + '/season/' + (season || 1) + '/episode/' + (episode || 1) + '/images'
-    : 'https://themoviedb.hexa.su/api/tmdb/movie/' + tmdbId + '/images';
-
-  return getText(endpoint, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0',
-      'X-Api-Key': key
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
     }
-  })
-    .then(function (encryptedText) {
-      return getJson('https://enc-dec.app/api/dec-hexa', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json'
-        },
-        body: JSON.stringify({ text: encryptedText, key: key })
-      });
-    })
-    .then(function (decrypted) {
-      var sources = (decrypted && decrypted.result && decrypted.result.sources) || [];
-      if (!Array.isArray(sources)) {
-        return [];
+  return a;
+};
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
       }
-      return sources
-        .map(function (source) {
-          return streamObject(
-            'Hexa',
-            'Hexa ' + (source.server || 'Server'),
-            source.url,
-            normalizeQuality(source.server),
-            undefined
-          );
-        })
-        .filter(Boolean);
-    })
-    .catch(function () {
-      return [];
-    });
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
+
+// --- HTTP Helper ---
+var BASE_URL = "https://m.flixindia.xyz/";
+var BASE_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  Referer: BASE_URL,
+  Origin: BASE_URL
+};
+var COOKIE_JAR = "";
+
+function storeCookies(res) {
+  const setCookie = res.headers.get("set-cookie");
+  if (setCookie) {
+    COOKIE_JAR = setCookie.split(";")[0];
+  }
 }
 
-function decodeMaybeBase64(text) {
-  if (!text) {
-    return text;
-  }
-  if (!/[A-Z]/.test(text)) {
-    return text;
-  }
+function fetchText(url, options = {}) {
+  return __async(this, null, function* () {
+    const res = yield fetch(url, __spreadProps(__spreadValues({}, options), {
+      headers: __spreadValues(__spreadValues(__spreadValues({}, BASE_HEADERS), COOKIE_JAR ? { Cookie: COOKIE_JAR } : {}), options.headers || {})
+    }));
+    storeCookies(res);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return yield res.text();
+  });
+}
+
+function fetchJson(url, options = {}) {
+  return __async(this, null, function* () {
+    const res = yield fetch(url, __spreadProps(__spreadValues({}, options), {
+      headers: __spreadValues(__spreadValues(__spreadValues({}, BASE_HEADERS), COOKIE_JAR ? { Cookie: COOKIE_JAR } : {}), options.headers || {})
+    }));
+    storeCookies(res);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return yield res.json();
+  });
+}
+
+// --- Utils ---
+function extractCsrf(html) {
+  const match = html.match(/CSRF_TOKEN\s*=\s*['"]([^'"]+)['"]/);
+  return match ? match[1] : null;
+}
+
+function classifyHost(url) {
   try {
-    if (typeof atob === 'function') {
-      return atob(text);
-    }
-  } catch (_error) {}
-  return text;
+    const hostname = new URL(url).hostname.toLowerCase();
+    const path = new URL(url).pathname.toLowerCase();
+
+    if (hostname.includes("hubcloud")) return { host: "hubcloud", kind: "video" };
+    if (hostname.includes("gdflix") || hostname.includes("gdlink")) return { host: "gdflix", kind: "file" };
+    if (hostname.includes("fastcdn-dl.pages.dev")) return { host: "fastcdn", kind: "direct" };
+    
+    return { host: "unknown", kind: "unknown" };
+  } catch (e) {
+    return { host: "unknown", kind: "unknown" };
+  }
 }
 
-function resolveSmashyStream(tmdbId, mediaType, season, episode) {
-  return getTmdbMeta(tmdbId, mediaType)
-    .then(function (meta) {
-      var imdbId = mediaType === 'tv'
-        ? (meta.external_ids && meta.external_ids.imdb_id)
-        : meta.imdb_id;
+// --- Search ---
+function search(query) {
+  return __async(this, null, function* () {
+    try {
+      const homeHtml = yield fetchText(BASE_URL);
+      const csrf = extractCsrf(homeHtml);
+      if (!csrf) return [];
 
-      if (!imdbId) {
-        return [];
-      }
-
-      return getJson('https://enc-dec.app/api/enc-vidstack')
-        .then(function (tokenResponse) {
-          var token = tokenResponse && tokenResponse.result && tokenResponse.result.token;
-          if (!token) {
-            return [];
-          }
-
-          var embedApi = mediaType === 'tv'
-            ? 'https://api.smashystream.top/api/v1/videosmashyi/' + imdbId + '/155/' + (season || 1) + '/' + (episode || 1) + '?token=' + token + '&user_id='
-            : 'https://api.smashystream.top/api/v1/videosmashyi/' + imdbId + '/155?token=' + token + '&user_id=';
-
-          return getJson(embedApi)
-            .then(function (embedData) {
-              var embedUrl = embedData && embedData.data;
-              if (!embedUrl || embedUrl.indexOf('#') === -1) {
-                return [];
-              }
-
-              var embedId = embedUrl.split('#')[1];
-              return getText('https://smashyplayer.top/api/v1/video?id=' + embedId)
-                .then(function (encodedText) {
-                  var encryptedText = decodeMaybeBase64(encodedText);
-                  return getJson('https://enc-dec.app/api/dec-vidstack', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: encryptedText })
-                  });
-                })
-                .then(function (decrypted) {
-                  var result = (decrypted && decrypted.result) || {};
-                  var streamPath = result.hls || result.cf || '';
-                  if (!streamPath) {
-                    return [];
-                  }
-
-                  var streamUrl = streamPath;
-                  if (result.hls && streamPath.charAt(0) === '/') {
-                    streamUrl = 'https://proxy.aether.mom/m3u8-proxy?url=https://smashyplayer.top' + streamPath;
-                  }
-
-                  var stream = streamObject('SmashyStream', 'SmashyStream Default', streamUrl, 'Auto', undefined);
-                  return stream ? [stream] : [];
-                });
-            });
-        });
-    })
-    .catch(function () {
-      return [];
-    });
-}
-
-function resolveVidSrc(tmdbId, mediaType, season, episode) {
-  return getTmdbMeta(tmdbId, mediaType)
-    .then(function (meta) {
-      var imdbId = mediaType === 'tv'
-        ? (meta.external_ids && meta.external_ids.imdb_id)
-        : meta.imdb_id;
-
-      if (!imdbId) {
-        return [];
-      }
-
-      var embedUrl = mediaType === 'tv'
-        ? 'https://vsrc.su/embed/tv?imdb=' + imdbId + '&season=' + (season || 1) + '&episode=' + (episode || 1)
-        : 'https://vsrc.su/embed/' + imdbId;
-
-      return getText(embedUrl)
-        .then(function (embedHtml) {
-          var iframeMatch = embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/i);
-          var iframeSrc = iframeMatch ? iframeMatch[1] : '';
-          if (!iframeSrc) {
-            return [];
-          }
-
-          return getText('https:' + iframeSrc, {
-            headers: {
-              referer: 'https://vsrc.su/'
-            }
-          })
-            .then(function (iframeHtml) {
-              var srcMatch = iframeHtml.match(/src:\s*['"]([^'"]+)['"]/i);
-              var prorcpSrc = srcMatch ? srcMatch[1] : '';
-              if (!prorcpSrc) {
-                return [];
-              }
-
-              return getText('https://cloudnestra.com' + prorcpSrc, {
-                headers: {
-                  referer: 'https://cloudnestra.com/'
-                }
-              })
-                .then(function (cloudHtml) {
-                  var divMatch = cloudHtml.match(/<div id="([^"]+)"[^>]*style=["']display\s*:\s*none;?["'][^>]*>([a-zA-Z0-9:\/.,{}\-_=+ ]+)<\/div>/i);
-                  var divId = divMatch ? divMatch[1] : '';
-                  var divText = divMatch ? divMatch[2] : '';
-                  if (!divId || !divText) {
-                    return [];
-                  }
-
-                  return getJson('https://enc-dec.app/api/dec-cloudnestra', {
-                    method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ text: divText, div_id: divId })
-                  })
-                    .then(function (decrypted) {
-                      var urls = (decrypted && decrypted.result) || [];
-                      if (!Array.isArray(urls)) {
-                        return [];
-                      }
-                      return urls
-                        .map(function (url, index) {
-                          return streamObject(
-                            'VidSrc',
-                            'VidSrc Server ' + (index + 1),
-                            url,
-                            'Auto',
-                            {
-                              referer: 'https://cloudnestra.com/',
-                              origin: 'https://cloudnestra.com'
-                            }
-                          );
-                        })
-                        .filter(Boolean);
-                    });
-                });
-            });
-        });
-    })
-    .catch(function () {
-      return [];
-    });
-}
-
-function getStreams(tmdbId, mediaType, season, episode) {
-  var resolvers = [
-    resolveVidEasy,
-    resolveVidLink,
-    resolveVidFast, // Added VidFast
-    resolveHexa,
-    resolveSmashyStream,
-    resolveVidSrc
-  ];
-
-  return Promise.all(
-    resolvers.map(function (resolver) {
-      return resolver(tmdbId, mediaType, season, episode).catch(function () {
-        return [];
+      const body = new URLSearchParams({ action: "search", csrf_token: csrf, q: query }).toString();
+      const json = yield fetchJson(BASE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body
       });
-    })
-  )
-    .then(function (results) {
-      var merged = [];
-      results.forEach(function (group) {
-        if (Array.isArray(group)) {
-          merged = merged.concat(group);
+
+      if (!json.results) return [];
+      return json.results.map(item => __spreadValues({
+        title: item.title,
+        url: item.url,
+        quality: item.title.match(/\b(1080p|720p|480p|2160p)\b/i)?.[0] || "HD"
+      }, classifyHost(item.url)));
+    } catch (err) {
+      console.error("[SEARCH] Failed:", err.message);
+      return [];
+    }
+  });
+}
+
+// --- Resolvers ---
+var cheerio = __toESM(require("cheerio-without-node-native"));
+
+function resolveGeneric(entryUrl, meta) {
+  return __async(this, null, function* () {
+    try {
+      const html = yield fetchText(entryUrl);
+      const $ = cheerio.default.load(html);
+      const streams = [];
+
+      // 1. Handle Pages.dev (Instant Download)
+      if (entryUrl.includes("pages.dev")) {
+        const directUrl = new URL(entryUrl).searchParams.get("url");
+        if (directUrl) {
+          streams.push({ name: "FlixIndia - Instant", url: directUrl, quality: meta.quality, title: meta.title });
+        }
+        return streams;
+      }
+
+      // 2. Handle GDFlix / HubCloud (Scrape Download Button)
+      let nextUrl = $("a#download, a.btn-success, a.btn-primary").attr("href");
+      if (!nextUrl) return [];
+
+      const finalHtml = yield fetchText(nextUrl);
+      const $final = cheerio.default.load(finalHtml);
+
+      // Extract all likely stream links
+      $final("a[href]").each((_, el) => {
+        const href = $final(el).attr("href");
+        if (!href) return;
+        
+        if (href.includes("googleusercontent.com") || href.includes("pixeldrain") || href.includes("/zfile/")) {
+          streams.push({
+            name: `FlixIndia - ${meta.host || 'Cloud'}`,
+            title: meta.title,
+            url: href,
+            quality: meta.quality
+          });
         }
       });
-      return dedupeStreams(merged).slice(0, 50);
-    })
-    .catch(function () {
+
+      return streams;
+    } catch (e) {
       return [];
-    });
+    }
+  });
 }
 
-module.exports = { getStreams: getStreams };
+// --- Main Export ---
+const TMDB_API_KEY = "919605fd567bbffcf76492a03eb4d527";
+
+async function getStreams(tmdbId, mediaType, season, episode) {
+  try {
+    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const tmdbData = await fetchJson(tmdbUrl);
+    const title = mediaType === "movie" ? tmdbData.title : tmdbData.name;
+    
+    let query = title;
+    if (mediaType === "tv") query += ` S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
+
+    const results = await search(query);
+    const limited = results.slice(0, 6);
+    
+    const streamPromises = limited.map(item => resolveGeneric(item.url, item));
+    const resultsArrays = await Promise.all(streamPromises);
+    
+    return resultsArrays.flat().filter(s => s.url);
+  } catch (err) {
+    return [];
+  }
+}
+
+module.exports = { getStreams };

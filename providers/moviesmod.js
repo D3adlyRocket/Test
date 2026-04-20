@@ -3,14 +3,15 @@ const TMDB_BASE = 'https://api.themoviedb.org/3';
 const PROVIDER_ID = 'alas-vidsrc';
 
 async function safeFetch(url, options = {}) {
+  // Use fetchv2 if available (usually in specific extension environments)
   if (typeof fetchv2 === 'function') {
     const headers = options.headers || {};
     const method = options.method || 'GET';
     const body = options.body || null;
     try {
       return await fetchv2(url, headers, method, body, true, options.encoding || 'utf-8');
-    } catch {
-      // Silently fail to fallback
+    } catch (e) {
+      console.error("fetchv2 error:", e);
     }
   }
   return fetch(url, options);
@@ -24,7 +25,6 @@ function inferQualityScore(text) {
   if (value.includes('720')) return 720;
   if (value.includes('480')) return 480;
   if (value.includes('360')) return 360;
-  if (value.includes('240')) return 240;
   return 0;
 }
 
@@ -34,8 +34,6 @@ function toQualityLabel(score) {
   if (score >= 1080) return '1080p';
   if (score >= 720) return '720p';
   if (score >= 480) return '480p';
-  if (score >= 360) return '360p';
-  if (score > 0) return `${score}p`;
   return 'Auto';
 }
 
@@ -61,104 +59,82 @@ async function detectPlaylistMaxQuality(url, headers) {
   }
 }
 
-function tmdbFetch(path) {
-  return safeFetch(`${TMDB_BASE}${path}?api_key=${TMDB_API_KEY}`)
-    .then(r => (r && r.ok ? r.json() : null))
-    .catch(() => null);
-}
-
-async function getImdbId(tmdbId, mediaType) {
-  const type = mediaType === 'tv' ? 'tv' : 'movie';
-  if (type === 'movie') {
-    const movie = await tmdbFetch(`/movie/${tmdbId}`);
-    return movie && movie.imdb_id ? movie.imdb_id : null;
-  }
-
-  const tv = await tmdbFetch(`/tv/${tmdbId}`);
-  if (!tv) return null;
-  const ext = await tmdbFetch(`/tv/${tmdbId}/external_ids`);
-  return ext && ext.imdb_id ? ext.imdb_id : null;
-}
-
 async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum) {
-  const headersCloud = {
-    Referer: 'https://cloudnestra.com/',
-    Origin: 'https://cloudnestra.com',
-    'User-Agent': 'Mozilla/5.0'
-  };
+  const commonHeaders = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' };
 
+  // Updated URL pattern for vsrc.su
   const embedUrl = mediaType === 'tv'
-    ? `https://vsrc.su/embed/tv?imdb=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
-    : `https://vsrc.su/embed/${encodeURIComponent(imdbId)}`;
+    ? `https://vsrc.su/embed/tv/${imdbId}/${seasonNum}-${episodeNum}`
+    : `https://vsrc.su/embed/movie/${imdbId}`;
 
-  const embedRes = await safeFetch(embedUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const embedRes = await safeFetch(embedUrl, { headers: commonHeaders });
   const embedHtml = embedRes && embedRes.ok ? await embedRes.text() : '';
-  const iframeSrc = (embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/) || [])[1];
+  
+  // Extract iframe more reliably
+  const iframeMatch = embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+  let iframeSrc = iframeMatch ? iframeMatch[1] : null;
   if (!iframeSrc) return [];
+  if (iframeSrc.startsWith('//')) iframeSrc = 'https:' + iframeSrc;
 
-  const iframeRes = await safeFetch(`https:${iframeSrc}`, {
-    headers: {
-      'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) Gecko/20100101 Firefox/145.0',
-      accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'accept-language': 'en-US,en;q=0.5',
-      referer: 'https://vsrc.su/',
-      'upgrade-insecure-requests': '1'
-    }
+  const iframeRes = await safeFetch(iframeSrc, {
+    headers: { ...commonHeaders, referer: 'https://vsrc.su/' }
   });
   const iframeHtml = iframeRes && iframeRes.ok ? await iframeRes.text() : '';
-  const prorcpSrc = (iframeHtml.match(/src:\s*["']([^"']+)["']/) || [])[1];
+  
+  // Look for the source script tag
+  const prorcpMatch = iframeHtml.match(/src:\s*["']([^"']+)["']/);
+  const prorcpSrc = prorcpMatch ? prorcpMatch[1] : null;
   if (!prorcpSrc) return [];
 
-  const cloudRes = await safeFetch(`https://cloudnestra.com${prorcpSrc}`, { headers: { referer: 'https://cloudnestra.com/' } });
+  const cloudUrl = `https://cloudnestra.com${prorcpSrc}`;
+  const cloudRes = await safeFetch(cloudUrl, { 
+    headers: { ...commonHeaders, referer: 'https://cloudnestra.com/' } 
+  });
   const cloudHtml = cloudRes && cloudRes.ok ? await cloudRes.text() : '';
 
+  // Extract hidden div data
   const hidden = cloudHtml.match(/<div id="([^"]+)"[^>]*style=["']display\s*:\s*none;?["'][^>]*>([a-zA-Z0-9:\/.,{}\-_=+ ]+)<\/div>/);
-  const divId = hidden ? hidden[1] : null;
-  const divText = hidden ? hidden[2] : null;
-  if (!divId || !divText) return [];
+  if (!hidden) return [];
 
   const decRes = await safeFetch('https://enc-dec.app/api/dec-cloudnestra', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: divText, div_id: divId })
+    body: JSON.stringify({ text: hidden[2], div_id: hidden[1] })
   });
+  
   const decJson = decRes && decRes.ok ? await decRes.json() : null;
   const urls = decJson && Array.isArray(decJson.result) ? decJson.result : [];
-  if (urls.length === 0) return [];
-
+  
   const results = [];
   for (let idx = 0; idx < urls.length; idx++) {
     const streamUrl = urls[idx];
     if (!streamUrl) continue;
 
-    // Detect actual resolution
-    const maxFromPlaylist = await detectPlaylistMaxQuality(streamUrl, headersCloud);
+    const maxFromPlaylist = await detectPlaylistMaxQuality(streamUrl, { Referer: 'https://cloudnestra.com/' });
     const scoreFromUrl = inferQualityScore(streamUrl);
-    
-    // Priority: Real resolution from manifest > URL keywords > 0 (Auto)
     const score = maxFromPlaylist > 0 ? maxFromPlaylist : scoreFromUrl;
 
     results.push({
       name: `${PROVIDER_ID} - Server ${idx + 1}`,
       url: streamUrl,
       quality: toQualityLabel(score),
-      headers: headersCloud,
+      headers: { Referer: 'https://cloudnestra.com/', Origin: 'https://cloudnestra.com' },
       provider: PROVIDER_ID,
       _score: score
     });
   }
 
-  return results
-    .sort((a, b) => b._score - a._score)
-    .map(({ _score, ...rest }) => rest);
+  return results.sort((a, b) => b._score - a._score).map(({ _score, ...rest }) => rest);
 }
 
+// Support functions (tmdb, getImdbId, etc.)
 async function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
   try {
-    const type = mediaType === 'tv' ? 'tv' : 'movie';
-    const imdbId = await getImdbId(tmdbId, type);
+    const movie = await safeFetch(`${TMDB_BASE}/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`).then(r => r.json());
+    const ext = await safeFetch(`${TMDB_BASE}/${mediaType}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`).then(r => r.json());
+    const imdbId = ext.imdb_id || movie.imdb_id;
     if (!imdbId) return [];
-    return await resolveCloudnestraStreams(imdbId, type, seasonNum, episodeNum);
+    return await resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum);
   } catch {
     return [];
   }

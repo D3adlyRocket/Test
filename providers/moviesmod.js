@@ -25,9 +25,7 @@ function normalizeQuality(label) {
 }
 
 function streamObject(provider, title, url, quality, headers) {
-  if (!url || typeof url !== 'string') {
-    return null;
-  }
+  if (!url || typeof url !== 'string') return null;
   return {
     name: provider,
     title: title || provider,
@@ -57,12 +55,7 @@ function getTmdbMeta(tmdbId, mediaType) {
 
 function resolveVidFast(tmdbId, mediaType, season, episode) {
   var VIDFAST_BASE = 'https://vidfast.pro';
-  
-  // Specific whitelist provided by user
-  var ALLOWED_SERVERS = [
-    'Alpha', 'Cobra', 'Kirito', 'Max', 'Meliodas', 
-    'Oscar', 'vEdge', 'vFast', 'vRapid', 'Bollywood'
-  ];
+  var ALLOWED_SERVERS = ['Alpha', 'Cobra', 'Kirito', 'Max', 'Meliodas', 'Oscar', 'vEdge', 'vFast', 'vRapid', 'Bollywood'];
 
   var pageUrl = mediaType === 'tv' 
     ? VIDFAST_BASE + '/tv/' + tmdbId + '/' + (season || 1) + '/' + (episode || 1)
@@ -77,12 +70,34 @@ function resolveVidFast(tmdbId, mediaType, season, episode) {
   return getText(pageUrl, { headers: headers })
     .then(function(pageText) {
       var rawData = null;
-      var patterns = [/"en":"([^"]+)"/, /'en':'([^']+)'/, /data\s*=\s*"([^"]+)"/];
-      for (var i = 0; i < patterns.length; i++) {
-        var match = pageText.match(patterns[i]);
-        if (match) { rawData = match[1]; break; }
+      
+      // 1. Try to find inside __NEXT_DATA__ JSON block first
+      var nextMatch = pageText.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+      if (nextMatch) {
+          try {
+              var jsonData = JSON.parse(nextMatch[1]);
+              // Look deep into props for the "en" key
+              var strData = JSON.stringify(jsonData);
+              var enMatch = strData.match(/"en":"([^"]+)"/);
+              if (enMatch) rawData = enMatch[1];
+          } catch(e) {}
       }
-      if (!rawData) throw new Error('No VidFast data');
+
+      // 2. Fallback to broad regex patterns if script parsing fails
+      if (!rawData) {
+        var patterns = [
+            /"en":"([^"]+)"/, 
+            /'en':'([^']+)'/, 
+            /\\"en\\":\\"([^"]+)\\"/,
+            /data\s*=\s*"([^"]+)"/
+        ];
+        for (var i = 0; i < patterns.length; i++) {
+          var match = pageText.match(patterns[i]);
+          if (match) { rawData = match[1]; break; }
+        }
+      }
+      
+      if (!rawData) throw new Error('VidFast source data not found');
 
       return getJson('https://enc-dec.app/api/enc-vidfast?text=' + encodeURIComponent(rawData) + '&version=1');
     })
@@ -90,7 +105,6 @@ function resolveVidFast(tmdbId, mediaType, season, episode) {
       if (!apiData.result) return [];
       var apiServers = apiData.result.servers;
       var streamBase = apiData.result.stream;
-      
       if (apiData.result.token) headers['X-CSRF-Token'] = apiData.result.token;
 
       return getText(apiServers, { method: 'POST', headers: headers })
@@ -103,13 +117,9 @@ function resolveVidFast(tmdbId, mediaType, season, episode) {
         })
         .then(function(decServers) {
           var serverList = decServers.result || [];
-          
-          // Filter to only include the requested servers
-          var filteredServers = serverList.filter(function(server) {
-             return ALLOWED_SERVERS.indexOf(server.name) !== -1;
-          });
+          var filtered = serverList.filter(function(s) { return ALLOWED_SERVERS.indexOf(s.name) !== -1; });
 
-          var streamPromises = filteredServers.map(function(serverObj) {
+          var streamPromises = filtered.map(function(serverObj) {
             return getText(streamBase + '/' + serverObj.data, { method: 'POST', headers: headers })
               .then(function(encStream) {
                 return getJson('https://enc-dec.app/api/dec-vidfast', {
@@ -131,7 +141,6 @@ function resolveVidFast(tmdbId, mediaType, season, episode) {
               })
               .catch(function() { return null; });
           });
-
           return Promise.all(streamPromises);
         });
     })
@@ -231,83 +240,4 @@ function resolveVidmody(tmdbId, mediaType, season, episode) {
           return [];
         });
     })
-    .catch(function () { return []; });
-}
-
-function resolveVidSrc(tmdbId, mediaType, season, episode) {
-  return getTmdbMeta(tmdbId, mediaType)
-    .then(function (meta) {
-      var imdbId = mediaType === 'tv' ? (meta.external_ids && meta.external_ids.imdb_id) : meta.imdb_id;
-      if (!imdbId) return [];
-
-      var embedUrl = mediaType === 'tv'
-        ? 'https://vsrc.su/embed/tv?imdb=' + imdbId + '&season=' + (season || 1) + '&episode=' + (episode || 1)
-        : 'https://vsrc.su/embed/' + imdbId;
-
-      return getText(embedUrl)
-        .then(function (embedHtml) {
-          var iframeMatch = embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/i);
-          var iframeSrc = iframeMatch ? iframeMatch[1] : '';
-          if (!iframeSrc) return [];
-
-          return getText('https:' + iframeSrc, { headers: { referer: 'https://vsrc.su/' } })
-            .then(function (iframeHtml) {
-              var srcMatch = iframeHtml.match(/src:\s*['"]([^'"]+)['"]/i);
-              var prorcpSrc = srcMatch ? srcMatch[1] : '';
-              if (!prorcpSrc) return [];
-
-              return getText('https://cloudnestra.com' + prorcpSrc, { headers: { referer: 'https://cloudnestra.com/' } })
-                .then(function (cloudHtml) {
-                  var divMatch = cloudHtml.match(/<div id="([^"]+)"[^>]*style=["']display\s*:\s*none;?["'][^>]*>([a-zA-Z0-9:\/.,{}\-_=+ ]+)<\/div>/i);
-                  var divId = divMatch ? divMatch[1] : '';
-                  var divText = divMatch ? divMatch[2] : '';
-                  if (!divId || !divText) return [];
-
-                  return getJson('https://enc-dec.app/api/dec-cloudnestra', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: divText, div_id: divId })
-                  }).then(function (decrypted) {
-                    var urls = (decrypted && decrypted.result) || [];
-                    if (!Array.isArray(urls)) return [];
-                    return urls.map(function (url, index) {
-                      return streamObject('VidSrc', 'VidSrc Server ' + (index + 1), url, 'Auto', {
-                        referer: 'https://cloudnestra.com/',
-                        origin: 'https://cloudnestra.com'
-                      });
-                    }).filter(Boolean);
-                  });
-                });
-            });
-        });
-    })
-    .catch(function () { return []; });
-}
-
-// --- MAIN FUNCTION ---
-
-function getStreams(tmdbId, mediaType, season, episode) {
-  var resolvers = [
-    resolveVidFast,
-    resolveVidEasy,
-    resolveVidLink,
-    resolveVidmody,
-    resolveVidSrc
-  ];
-
-  return Promise.all(
-    resolvers.map(function (resolver) {
-      return resolver(tmdbId, mediaType, season, episode).catch(function () { return []; });
-    })
-  )
-    .then(function (results) {
-      var merged = [];
-      results.forEach(function (group) {
-        if (Array.isArray(group)) merged = merged.concat(group);
-      });
-      return dedupeStreams(merged).slice(0, 50);
-    })
-    .catch(function () { return []; });
-}
-
-module.exports = { getStreams: getStreams };
+    .catch(function () { return

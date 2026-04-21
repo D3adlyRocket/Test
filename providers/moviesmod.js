@@ -2,13 +2,13 @@
 
 async function getJson(url, options) {
     const response = await fetch(url, options || {});
-    if (!response.ok) throw new Error('JSON Fetch Failed');
+    if (!response.ok) throw new Error('J-Fail');
     return await response.json();
 }
 
 async function getText(url, options) {
     const response = await fetch(url, options || {});
-    if (!response.ok) throw new Error('Text Fetch Failed');
+    if (!response.ok) throw new Error('T-Fail');
     return await response.text();
 }
 
@@ -45,12 +45,14 @@ async function parseM3U8Playlist(playlistUrl) {
         if (!playlistText.includes('#EXT-X-STREAM-INF')) return null;
         const variants = [];
         const lines = playlistText.split('\n');
+        const baseUrl = playlistUrl.substring(0, playlistUrl.lastIndexOf('/') + 1);
+        
         for (let i = 0; i < lines.length; i++) {
             if (lines[i].trim().startsWith('#EXT-X-STREAM-INF')) {
                 const resMatch = lines[i].match(/RESOLUTION=(\d+)x(\d+)/i);
                 const urlLine = lines[i + 1]?.trim();
                 if (!urlLine || urlLine.startsWith('#')) continue;
-                let vUrl = urlLine.startsWith('http') ? urlLine : playlistUrl.substring(0, playlistUrl.lastIndexOf('/') + 1) + urlLine;
+                let vUrl = urlLine.startsWith('http') ? urlLine : baseUrl + urlLine;
                 variants.push({ url: vUrl, quality: resMatch ? resMatch[2] + 'p' : 'Auto' });
             }
         }
@@ -72,7 +74,8 @@ async function resolveVidFast(tmdbId, mediaType, season, episode) {
             ? `${VIDFAST_BASE}/tv/${tmdbId}/${season || 1}/${episode || 1}` 
             : `${VIDFAST_BASE}/movie/${tmdbId}`;
 
-        const headers = {
+        // Fixed Headers for Android TV compatibility
+        const currentHeaders = {
             'Accept': '*/*',
             'Origin': 'https://vidfast.pro',
             'Referer': pageUrl,
@@ -80,54 +83,58 @@ async function resolveVidFast(tmdbId, mediaType, season, episode) {
             'X-Requested-With': 'XMLHttpRequest'
         };
 
-        const pageText = await getText(pageUrl, { headers });
+        const pageText = await getText(pageUrl, { headers: currentHeaders });
         let rawData = null;
-        const nextDataMatch = pageText.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
-        if (nextDataMatch) {
-            try {
-                const jsonData = JSON.parse(nextDataMatch[1]);
-                const propsStr = JSON.stringify(jsonData);
-                const dataMatch = propsStr.match(/"en":"([^"]+)"/);
-                if (dataMatch) rawData = dataMatch[1];
-            } catch (e) {}
+        
+        // Comprehensive regex match
+        const patterns = [/"en":"([^"]+)"/, /'en':'([^']+)'/, /data\s*=\s*"([^"]+)"/, /"en":\s*"([^"]+)"/];
+        for (const p of patterns) {
+            const match = pageText.match(p);
+            if (match) { rawData = match[1]; break; }
         }
         
         if (!rawData) {
-            const patterns = [/"en":"([^"]+)"/, /'en':'([^']+)'/, /data\s*=\s*"([^"]+)"/];
-            for (const p of patterns) {
-                const match = pageText.match(p);
-                if (match) { rawData = match[1]; break; }
+            const nextDataMatch = pageText.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
+            if (nextDataMatch) {
+                const dataMatch = nextDataMatch[1].match(/"en":"([^"]+)"/);
+                if (dataMatch) rawData = dataMatch[1];
             }
         }
+        
         if (!rawData) return [];
 
+        // Encrypt call
         const apiData = await getJson(`${ENCRYPT_API}?text=${encodeURIComponent(rawData)}&version=1`);
-        if (apiData.result.token) headers['X-CSRF-Token'] = apiData.result.token;
+        if (!apiData || !apiData.result) return [];
+        
+        // Critical: Update headers with token for all subsequent POSTs
+        if (apiData.result.token) currentHeaders['X-CSRF-Token'] = apiData.result.token;
 
-        const serversEnc = await getText(apiData.result.servers, { method: 'POST', headers });
+        // Fetch server list
+        const serversEnc = await getText(apiData.result.servers, { method: 'POST', headers: currentHeaders });
         const decServers = await getJson(DECRYPT_API, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'User-Agent': currentHeaders['User-Agent'] },
             body: JSON.stringify({ text: serversEnc, version: '1' })
         });
 
-        // Apply your specific filters
-        let serverList = (decServers.result || []).filter(s => 
+        // Filter: Must not be blocked AND must contain "Original audio"
+        const serverList = (decServers.result || []).filter(s => 
             !BLOCKED_SERVERS.includes(s.name) && 
-            s.description && s.description.includes(FILTER_DESCRIPTION)
+            s.description && s.description.toLowerCase().includes(FILTER_DESCRIPTION.toLowerCase())
         );
 
         const streams = [];
         for (const sObj of serverList) {
             try {
-                const sEnc = await getText(`${apiData.result.stream}/${sObj.data}`, { method: 'POST', headers });
+                const sEnc = await getText(`${apiData.result.stream}/${sObj.data}`, { method: 'POST', headers: currentHeaders });
                 const sDec = await getJson(DECRYPT_API, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', 'User-Agent': currentHeaders['User-Agent'] },
                     body: JSON.stringify({ text: sEnc, version: '1' })
                 });
 
-                if (sDec.result?.url) {
+                if (sDec.result && sDec.result.url) {
                     const videoUrl = sDec.result.url;
                     if (videoUrl.includes('.m3u8')) {
                         const variants = await parseM3U8Playlist(videoUrl);
@@ -146,7 +153,7 @@ async function resolveVidFast(tmdbId, mediaType, season, episode) {
     } catch (e) { return []; }
 }
 
-// ... (resolveVidEasy, resolveVidLink, resolveVidmody, resolveVidSrc functions remain the same as previous) ...
+// ... (Other resolvers: resolveVidEasy, resolveVidLink, resolveVidmody, resolveVidSrc) ...
 
 async function resolveVidEasy(tmdbId, mediaType, season, episode) {
     try {
@@ -207,7 +214,7 @@ async function getStreams(tmdbId, mediaType = 'movie', season = null, episode = 
     
     const seen = new Set();
     return merged.filter(s => {
-        if (seen.has(s.url)) return false;
+        if (!s || seen.has(s.url)) return false;
         seen.add(s.url);
         return true;
     }).slice(0, 50);

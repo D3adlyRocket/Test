@@ -32,23 +32,15 @@ function streamObject(provider, title, url, quality, headers) {
     };
 }
 
-async function getTmdbMeta(tmdbId, mediaType) {
-    const typePath = mediaType === 'tv' ? 'tv' : 'movie';
-    const url = `https://api.themoviedb.org/3/${typePath}/${tmdbId}?append_to_response=external_ids&api_key=ad301b7cc82ffe19273e55e4d4206885`;
-    const data = await getJson(url);
-    return {
-        title: mediaType === 'tv' ? data.name : data.title,
-        year: (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4) || '',
-        imdbId: mediaType === 'tv' ? data.external_ids?.imdb_id : data.imdb_id
-    };
-}
-
-// --- VIDFAST SPECIFIC UTILS ---
+// --- VIDFAST HELPERS ---
 
 async function parseM3U8Playlist(playlistUrl) {
     try {
         const playlistText = await getText(playlistUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://vidfast.pro/' }
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 
+                'Referer': 'https://vidfast.pro/' 
+            }
         });
         if (!playlistText.includes('#EXT-X-STREAM-INF')) return null;
         const variants = [];
@@ -62,7 +54,7 @@ async function parseM3U8Playlist(playlistUrl) {
                 variants.push({ url: vUrl, quality: resMatch ? resMatch[2] + 'p' : 'Auto' });
             }
         }
-        return variants;
+        return variants.length > 0 ? variants : null;
     } catch (e) { return null; }
 }
 
@@ -72,13 +64,16 @@ async function resolveVidFast(tmdbId, mediaType, season, episode) {
     const VIDFAST_BASE = 'https://vidfast.pro';
     const ENCRYPT_API = 'https://enc-dec.app/api/enc-vidfast';
     const DECRYPT_API = 'https://enc-dec.app/api/dec-vidfast';
-    // Removed Bollywood from blocked list so it shows up
-    const BLOCKED_SERVERS = ['Beta', 'Iron', 'Viper', 'Specter', 'Ranger', 'Echo', 'Charlie', 'Vodka', 'Pablo', 'Loco', 'Samba'];
+    const FILTER_DESCRIPTION = 'Original audio';
+    const BLOCKED_SERVERS = ['Beta', 'Iron', 'Viper', 'Specter', 'Ranger', 'Echo', 'Charlie', 'Vodka', 'Pablo', 'Loco', 'Samba', 'Bollywood'];
 
     try {
-        const meta = await getTmdbMeta(tmdbId, mediaType);
-        const pageUrl = mediaType === 'tv' ? `${VIDFAST_BASE}/tv/${tmdbId}/${season || 1}/${episode || 1}` : `${VIDFAST_BASE}/movie/${tmdbId}`;
+        const pageUrl = mediaType === 'tv' 
+            ? `${VIDFAST_BASE}/tv/${tmdbId}/${season || 1}/${episode || 1}` 
+            : `${VIDFAST_BASE}/movie/${tmdbId}`;
+
         const headers = {
+            'Accept': '*/*',
             'Origin': 'https://vidfast.pro',
             'Referer': pageUrl,
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Safari/605.1.15',
@@ -87,10 +82,22 @@ async function resolveVidFast(tmdbId, mediaType, season, episode) {
 
         const pageText = await getText(pageUrl, { headers });
         let rawData = null;
-        const patterns = [/"en":"([^"]+)"/, /'en':'([^']+)'/, /data\s*=\s*"([^"]+)"/];
-        for (const p of patterns) {
-            const match = pageText.match(p);
-            if (match) { rawData = match[1]; break; }
+        const nextDataMatch = pageText.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
+        if (nextDataMatch) {
+            try {
+                const jsonData = JSON.parse(nextDataMatch[1]);
+                const propsStr = JSON.stringify(jsonData);
+                const dataMatch = propsStr.match(/"en":"([^"]+)"/);
+                if (dataMatch) rawData = dataMatch[1];
+            } catch (e) {}
+        }
+        
+        if (!rawData) {
+            const patterns = [/"en":"([^"]+)"/, /'en':'([^']+)'/, /data\s*=\s*"([^"]+)"/];
+            for (const p of patterns) {
+                const match = pageText.match(p);
+                if (match) { rawData = match[1]; break; }
+            }
         }
         if (!rawData) return [];
 
@@ -104,9 +111,13 @@ async function resolveVidFast(tmdbId, mediaType, season, episode) {
             body: JSON.stringify({ text: serversEnc, version: '1' })
         });
 
-        let serverList = (decServers.result || []).filter(s => !BLOCKED_SERVERS.includes(s.name));
-        const streams = [];
+        // Apply your specific filters
+        let serverList = (decServers.result || []).filter(s => 
+            !BLOCKED_SERVERS.includes(s.name) && 
+            s.description && s.description.includes(FILTER_DESCRIPTION)
+        );
 
+        const streams = [];
         for (const sObj of serverList) {
             try {
                 const sEnc = await getText(`${apiData.result.stream}/${sObj.data}`, { method: 'POST', headers });
@@ -117,14 +128,17 @@ async function resolveVidFast(tmdbId, mediaType, season, episode) {
                 });
 
                 if (sDec.result?.url) {
-                    if (sDec.result.url.includes('.m3u8')) {
-                        const variants = await parseM3U8Playlist(sDec.result.url);
+                    const videoUrl = sDec.result.url;
+                    if (videoUrl.includes('.m3u8')) {
+                        const variants = await parseM3U8Playlist(videoUrl);
                         if (variants) {
-                            variants.forEach(v => streams.push(streamObject('VidFast', `VidFast ${sObj.name} - ${v.quality}`, v.url, v.quality)));
+                            variants.forEach(v => {
+                                streams.push(streamObject('VidFast', `VidFast ${sObj.name} - ${v.quality}`, v.url, v.quality));
+                            });
                             continue;
                         }
                     }
-                    streams.push(streamObject('VidFast', `VidFast ${sObj.name}`, sDec.result.url, normalizeQuality(sDec.result.quality || sDec.result.label)));
+                    streams.push(streamObject('VidFast', `VidFast ${sObj.name}`, videoUrl, normalizeQuality(sDec.result.quality || sDec.result.label)));
                 }
             } catch (e) {}
         }
@@ -132,13 +146,14 @@ async function resolveVidFast(tmdbId, mediaType, season, episode) {
     } catch (e) { return []; }
 }
 
+// ... (resolveVidEasy, resolveVidLink, resolveVidmody, resolveVidSrc functions remain the same as previous) ...
+
 async function resolveVidEasy(tmdbId, mediaType, season, episode) {
     try {
-        const meta = await getTmdbMeta(tmdbId, mediaType);
-        const year = meta.year;
-        const title = encodeURIComponent(meta.title);
-        const fullUrl = `https://api.videasy.net/cdn/sources-with-title?title=${title}&mediaType=${mediaType}&year=${year}&episodeId=${episode || 1}&seasonId=${season || 1}&tmdbId=${tmdbId}&imdbId=${meta.imdbId || ''}`;
-        const enc = await getText(fullUrl);
+        const meta = await getJson(`https://api.themoviedb.org/3/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=ad301b7cc82ffe19273e55e4d4206885`);
+        const title = encodeURIComponent(meta.name || meta.title);
+        const year = (meta.first_air_date || meta.release_date || '').substring(0, 4);
+        const enc = await getText(`https://api.videasy.net/cdn/sources-with-title?title=${title}&mediaType=${mediaType}&year=${year}&episodeId=${episode || 1}&seasonId=${season || 1}&tmdbId=${tmdbId}`);
         const dec = await getJson('https://enc-dec.app/api/dec-videasy', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -159,18 +174,19 @@ async function resolveVidLink(tmdbId, mediaType, season, episode) {
 
 async function resolveVidmody(tmdbId, mediaType, season, episode) {
     try {
-        const meta = await getTmdbMeta(tmdbId, mediaType);
-        if (!meta.imdbId) return [];
-        const url = mediaType === 'movie' ? `https://vidmody.com/vs/${meta.imdbId}#.m3u8` : `https://vidmody.com/vs/${meta.imdbId}/s${season || 1}/e${String(episode || 1).padStart(2, '0')}#.m3u8`;
+        const meta = await getJson(`https://api.themoviedb.org/3/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?append_to_response=external_ids&api_key=ad301b7cc82ffe19273e55e4d4206885`);
+        const imdbId = mediaType === 'tv' ? meta.external_ids?.imdb_id : meta.imdb_id;
+        if (!imdbId) return [];
+        const url = mediaType === 'movie' ? `https://vidmody.com/vs/${imdbId}#.m3u8` : `https://vidmody.com/vs/${imdbId}/s${season || 1}/e${String(episode || 1).padStart(2, '0')}#.m3u8`;
         return [streamObject('Vidmody', 'Vidmody Server', url, 'Auto', { Referer: 'https://vidmody.com/' })];
     } catch (e) { return []; }
 }
 
 async function resolveVidSrc(tmdbId, mediaType, season, episode) {
     try {
-        const meta = await getTmdbMeta(tmdbId, mediaType);
-        if (!meta.imdbId) return [];
-        const embed = mediaType === 'tv' ? `https://vsrc.su/embed/tv?imdb=${meta.imdbId}&season=${season || 1}&episode=${episode || 1}` : `https://vsrc.su/embed/${meta.imdbId}`;
+        const meta = await getJson(`https://api.themoviedb.org/3/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?append_to_response=external_ids&api_key=ad301b7cc82ffe19273e55e4d4206885`);
+        const imdbId = mediaType === 'tv' ? meta.external_ids?.imdb_id : meta.imdb_id;
+        const embed = mediaType === 'tv' ? `https://vsrc.su/embed/tv?imdb=${imdbId}&season=${season || 1}&episode=${episode || 1}` : `https://vsrc.su/embed/${imdbId}`;
         const html = await getText(embed);
         const match = html.match(/src=["']([^"']+)["']/i);
         return match ? [streamObject('VidSrc', 'VidSrc Server', 'https:' + match[1], 'Auto')] : [];
@@ -189,7 +205,6 @@ async function getStreams(tmdbId, mediaType = 'movie', season = null, episode = 
         } catch (err) {}
     }
     
-    // Final deduplication
     const seen = new Set();
     return merged.filter(s => {
         if (seen.has(s.url)) return false;

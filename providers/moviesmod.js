@@ -186,4 +186,32 @@ function resolveVidmody(tmdbId, mediaType, season, episode) {
   return getTmdbMeta(tmdbId, mediaType).then(function (meta) {
       var imdbId = (mediaType === 'tv' ? (meta.external_ids && meta.external_ids.imdb_id) : meta.imdb_id);
       if (!imdbId) return [];
-      var targetUrl = mediaType === "movie" ?
+      var targetUrl = mediaType === "movie" ? `https://vidmody.com/vs/${imdbId}#.m3u8` : `https://vidmody.com/vs/${imdbId}/s${season || 1}/e${(episode || 1) < 10 ? '0'+(episode||1) : (episode||1)}#.m3u8`;
+      return [streamObject("Vidmody", "Vidmody Server", targetUrl, "Auto", { "Referer": "https://vidmody.com/" })];
+  }).catch(() => []);
+}
+
+function resolveVidSrc(tmdbId, mediaType, season, episode) {
+  return getTmdbMeta(tmdbId, mediaType).then(function (meta) {
+      var imdbId = mediaType === 'tv' ? (meta.external_ids && meta.external_ids.imdb_id) : meta.imdb_id;
+      if (!imdbId) return [];
+      return getText(`https://vsrc.su/embed/${mediaType==='tv'?'tv?imdb='+imdbId+'&season='+(season||1)+'&episode='+(episode||1):imdbId}`)
+        .then(html => {
+            var match = html.match(/src=["']([^"']+)["']/i);
+            return match ? [streamObject('VidSrc', 'VidSrc Server', 'https:' + match[1], 'Auto')] : [];
+        });
+  }).catch(() => []);
+}
+
+// --- MAIN FUNCTION ---
+
+async function getStreams(tmdbId, mediaType, season, episode) {
+  const resolvers = [resolveVidFast, resolveVidEasy, resolveVidLink, resolveVidmody, resolveVidSrc];
+
+  const results = await Promise.all(resolvers.map(r => r(tmdbId, mediaType, season, episode).catch(() => [])));
+  let merged = [];
+  results.forEach(group => { if (Array.isArray(group)) merged = merged.concat(group); });
+  return dedupeStreams(merged).slice(0, 50);
+}
+
+module.exports = { getStreams };

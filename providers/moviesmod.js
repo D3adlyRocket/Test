@@ -1,232 +1,201 @@
-/**
- * vixsrc - Built from src/vixsrc/
- * Generated: 2025-12-31T21:23:16.687Z
- */
-"use strict";
-var __defProp = Object.defineProperty;
-var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __spreadValues = (a, b) => {
-  for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop))
-      __defNormalProp(a, prop, b[prop]);
-  if (__getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
-    }
-  return a;
-};
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
+// --- UTILS ---
+
+async function getJson(url, options) {
+    const response = await fetch(url, options || {});
+    if (!response.ok) throw new Error('JSON Fetch Failed');
+    return await response.json();
+}
+
+async function getText(url, options) {
+    const response = await fetch(url, options || {});
+    if (!response.ok) throw new Error('Text Fetch Failed');
+    return await response.text();
+}
+
+function normalizeQuality(label) {
+    const text = (label || '').toString();
+    const match = text.match(/(2160p|1440p|1080p|720p|480p|360p|4K)/i);
+    return match ? match[1].toUpperCase() : 'Auto';
+}
+
+function streamObject(provider, title, url, quality, headers) {
+    if (!url || typeof url !== 'string') return null;
+    return {
+        name: provider,
+        title: title || provider,
+        url: url,
+        quality: quality || 'Auto',
+        headers: headers || {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': 'https://vidfast.pro/'
+        }
     };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
+}
+
+async function getTmdbMeta(tmdbId, mediaType) {
+    const typePath = mediaType === 'tv' ? 'tv' : 'movie';
+    const url = `https://api.themoviedb.org/3/${typePath}/${tmdbId}?append_to_response=external_ids&api_key=ad301b7cc82ffe19273e55e4d4206885`;
+    const data = await getJson(url);
+    return {
+        title: mediaType === 'tv' ? data.name : data.title,
+        year: (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4) || '',
+        imdbId: mediaType === 'tv' ? data.external_ids?.imdb_id : data.imdb_id
     };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
+}
 
-// src/vixsrc/constants.js
-var TMDB_API_KEY = "4d8fa4b38dd1070fa957a2d82dcd257c";
-var BASE_URL = "https://vixsrc.to";
-var USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+// --- VIDFAST SPECIFIC UTILS ---
 
-// src/vixsrc/http.js
-function makeRequest(_0) {
-  return __async(this, arguments, function* (url, options = {}) {
-    const defaultHeaders = __spreadValues({
-      "User-Agent": USER_AGENT,
-      "Accept": "application/json,*/*",
-      "Accept-Language": "en-US,en;q=0.5",
-      "Accept-Encoding": "gzip, deflate",
-      "Connection": "keep-alive"
-    }, options.headers);
+async function parseM3U8Playlist(playlistUrl) {
     try {
-      const response = yield fetch(url, __spreadValues({
-        method: options.method || "GET",
-        headers: defaultHeaders
-      }, options));
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      return response;
-    } catch (error) {
-      console.error(`[Vixsrc] Request failed for ${url}: ${error.message}`);
-      throw error;
-    }
-  });
-}
-
-// src/vixsrc/tmdb.js
-function getTmdbInfo(tmdbId, mediaType) {
-  return __async(this, null, function* () {
-    var _a, _b;
-    const endpoint = mediaType === "tv" ? "tv" : "movie";
-    const url = `https://api.themoviedb.org/3/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    const response = yield makeRequest(url);
-    const data = yield response.json();
-    const title = mediaType === "tv" ? data.name : data.title;
-    const year = mediaType === "tv" ? (_a = data.first_air_date) == null ? void 0 : _a.substring(0, 4) : (_b = data.release_date) == null ? void 0 : _b.substring(0, 4);
-    if (!title) {
-      throw new Error("Could not extract title from TMDB response");
-    }
-    console.log(`[Vixsrc] TMDB Info: "${title}" (${year})`);
-    return { title, year, data };
-  });
-}
-
-// src/vixsrc/extractor.js
-function extractStreamFromPage(contentType, contentId, seasonNum, episodeNum) {
-  return __async(this, null, function* () {
-    let vixsrcUrl;
-    let subtitleApiUrl;
-    if (contentType === "movie") {
-      vixsrcUrl = `${BASE_URL}/movie/${contentId}`;
-      subtitleApiUrl = `https://sub.wyzie.ru/search?id=${contentId}`;
-    } else {
-      vixsrcUrl = `${BASE_URL}/tv/${contentId}/${seasonNum}/${episodeNum}`;
-      subtitleApiUrl = `https://sub.wyzie.ru/search?id=${contentId}&season=${seasonNum}&episode=${episodeNum}`;
-    }
-    console.log(`[Vixsrc] Fetching: ${vixsrcUrl}`);
-    const response = yield makeRequest(vixsrcUrl, {
-      headers: {
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
-      }
-    });
-    const html = yield response.text();
-    console.log(`[Vixsrc] HTML length: ${html.length} characters`);
-    let masterPlaylistUrl = null;
-    if (html.includes("window.masterPlaylist")) {
-      console.log("[Vixsrc] Found window.masterPlaylist");
-      const urlMatch = html.match(/url:\s*['"]([^'"]+)['"]/);
-      const tokenMatch = html.match(/['"]?token['"]?\s*:\s*['"]([^'"]+)['"]/);
-      const expiresMatch = html.match(/['"]?expires['"]?\s*:\s*['"]([^'"]+)['"]/);
-      if (urlMatch && tokenMatch && expiresMatch) {
-        const baseUrl = urlMatch[1];
-        const token = tokenMatch[1];
-        const expires = expiresMatch[1];
-        console.log("[Vixsrc] Extracted tokens:");
-        console.log(`  - Base URL: ${baseUrl}`);
-        console.log(`  - Token: ${token.substring(0, 20)}...`);
-        console.log(`  - Expires: ${expires}`);
-        if (baseUrl.includes("?b=1")) {
-          masterPlaylistUrl = `${baseUrl}&token=${token}&expires=${expires}&h=1&lang=en`;
-        } else {
-          masterPlaylistUrl = `${baseUrl}?token=${token}&expires=${expires}&h=1&lang=en`;
+        const playlistText = await getText(playlistUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://vidfast.pro/' }
+        });
+        if (!playlistText.includes('#EXT-X-STREAM-INF')) return null;
+        const variants = [];
+        const lines = playlistText.split('\n');
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].trim().startsWith('#EXT-X-STREAM-INF')) {
+                const resMatch = lines[i].match(/RESOLUTION=(\d+)x(\d+)/i);
+                const urlLine = lines[i + 1]?.trim();
+                if (!urlLine || urlLine.startsWith('#')) continue;
+                let vUrl = urlLine.startsWith('http') ? urlLine : playlistUrl.substring(0, playlistUrl.lastIndexOf('/') + 1) + urlLine;
+                variants.push({ url: vUrl, quality: resMatch ? resMatch[2] + 'p' : 'Auto' });
+            }
         }
-        console.log(`[Vixsrc] Constructed master playlist URL: ${masterPlaylistUrl}`);
-      }
-    }
-    if (!masterPlaylistUrl) {
-      const m3u8Match = html.match(/(https?:\/\/[^'"\s]+\.m3u8[^'"\s]*)/);
-      if (m3u8Match) {
-        masterPlaylistUrl = m3u8Match[1];
-        console.log("[Vixsrc] Found direct .m3u8 URL:", masterPlaylistUrl);
-      }
-    }
-    if (!masterPlaylistUrl) {
-      const scriptMatches = html.match(new RegExp("<script[^>]*>(.*?)<\\/script>", "gs"));
-      if (scriptMatches) {
-        for (const script of scriptMatches) {
-          const streamMatch = script.match(/['"]?(https?:\/\/[^'"\s]+(?:\.m3u8|playlist)[^'"\s]*)/);
-          if (streamMatch) {
-            masterPlaylistUrl = streamMatch[1];
-            console.log("[Vixsrc] Found stream in script:", masterPlaylistUrl);
-            break;
-          }
-        }
-      }
-    }
-    if (!masterPlaylistUrl) {
-      console.log("[Vixsrc] No master playlist URL found");
-      return null;
-    }
-    return { masterPlaylistUrl, subtitleApiUrl };
-  });
+        return variants;
+    } catch (e) { return null; }
 }
 
-// src/vixsrc/subtitles.js
-function getSubtitles(subtitleApiUrl) {
-  return __async(this, null, function* () {
+// --- RESOLVERS ---
+
+async function resolveVidFast(tmdbId, mediaType, season, episode) {
+    const VIDFAST_BASE = 'https://vidfast.pro';
+    const ENCRYPT_API = 'https://enc-dec.app/api/enc-vidfast';
+    const DECRYPT_API = 'https://enc-dec.app/api/dec-vidfast';
+    // Removed Bollywood from blocked list so it shows up
+    const BLOCKED_SERVERS = ['Beta', 'Iron', 'Viper', 'Specter', 'Ranger', 'Echo', 'Charlie', 'Vodka', 'Pablo', 'Loco', 'Samba'];
+
     try {
-      const response = yield makeRequest(subtitleApiUrl);
-      const subtitleData = yield response.json();
-      let subtitleTrack = subtitleData.find(
-        (track) => track.display.includes("English") && (track.encoding === "ASCII" || track.encoding === "UTF-8")
-      );
-      if (!subtitleTrack) {
-        subtitleTrack = subtitleData.find(
-          (track) => track.display.includes("English") && track.encoding === "CP1252"
-        );
-      }
-      if (!subtitleTrack) {
-        subtitleTrack = subtitleData.find(
-          (track) => track.display.includes("English") && track.encoding === "CP1250"
-        );
-      }
-      if (!subtitleTrack) {
-        subtitleTrack = subtitleData.find(
-          (track) => track.display.includes("English") && track.encoding === "CP850"
-        );
-      }
-      const subtitles = subtitleTrack ? subtitleTrack.url : "";
-      console.log(
-        subtitles ? `[Vixsrc] Found subtitles: ${subtitles}` : "[Vixsrc] No English subtitles found"
-      );
-      return subtitles;
-    } catch (error) {
-      console.log("[Vixsrc] Subtitle fetch failed:", error.message);
-      return "";
-    }
-  });
+        const meta = await getTmdbMeta(tmdbId, mediaType);
+        const pageUrl = mediaType === 'tv' ? `${VIDFAST_BASE}/tv/${tmdbId}/${season || 1}/${episode || 1}` : `${VIDFAST_BASE}/movie/${tmdbId}`;
+        const headers = {
+            'Origin': 'https://vidfast.pro',
+            'Referer': pageUrl,
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Safari/605.1.15',
+            'X-Requested-With': 'XMLHttpRequest'
+        };
+
+        const pageText = await getText(pageUrl, { headers });
+        let rawData = null;
+        const patterns = [/"en":"([^"]+)"/, /'en':'([^']+)'/, /data\s*=\s*"([^"]+)"/];
+        for (const p of patterns) {
+            const match = pageText.match(p);
+            if (match) { rawData = match[1]; break; }
+        }
+        if (!rawData) return [];
+
+        const apiData = await getJson(`${ENCRYPT_API}?text=${encodeURIComponent(rawData)}&version=1`);
+        if (apiData.result.token) headers['X-CSRF-Token'] = apiData.result.token;
+
+        const serversEnc = await getText(apiData.result.servers, { method: 'POST', headers });
+        const decServers = await getJson(DECRYPT_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: serversEnc, version: '1' })
+        });
+
+        let serverList = (decServers.result || []).filter(s => !BLOCKED_SERVERS.includes(s.name));
+        const streams = [];
+
+        for (const sObj of serverList) {
+            try {
+                const sEnc = await getText(`${apiData.result.stream}/${sObj.data}`, { method: 'POST', headers });
+                const sDec = await getJson(DECRYPT_API, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: sEnc, version: '1' })
+                });
+
+                if (sDec.result?.url) {
+                    if (sDec.result.url.includes('.m3u8')) {
+                        const variants = await parseM3U8Playlist(sDec.result.url);
+                        if (variants) {
+                            variants.forEach(v => streams.push(streamObject('VidFast', `VidFast ${sObj.name} - ${v.quality}`, v.url, v.quality)));
+                            continue;
+                        }
+                    }
+                    streams.push(streamObject('VidFast', `VidFast ${sObj.name}`, sDec.result.url, normalizeQuality(sDec.result.quality || sDec.result.label)));
+                }
+            } catch (e) {}
+        }
+        return streams;
+    } catch (e) { return []; }
 }
 
-// src/vixsrc/index.js
-function getStreams(tmdbId, mediaType = "movie", seasonNum = null, episodeNum = null) {
-  return __async(this, null, function* () {
-    console.log(`[Vixsrc] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
+async function resolveVidEasy(tmdbId, mediaType, season, episode) {
     try {
-      const tmdbInfo = yield getTmdbInfo(tmdbId, mediaType);
-      const { title, year } = tmdbInfo;
-      console.log(`[Vixsrc] Title: "${title}" (${year})`);
-      const streamData = yield extractStreamFromPage(mediaType, tmdbId, seasonNum, episodeNum);
-      if (!streamData) {
-        console.log("[Vixsrc] No stream data found");
-        return [];
-      }
-      const { masterPlaylistUrl, subtitleApiUrl } = streamData;
-      const subtitles = yield getSubtitles(subtitleApiUrl);
-      const nuvioStreams = [{
-        name: "Vixsrc",
-        title: "Auto Quality Stream",
-        url: masterPlaylistUrl,
-        quality: "Auto",
-        type: "direct",
-        headers: {
-          "Referer": BASE_URL,
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-        }
-      }];
-      console.log("[Vixsrc] Successfully processed 1 stream with Auto quality");
-      return nuvioStreams;
-    } catch (error) {
-      console.error(`[Vixsrc] Error in getStreams: ${error.message}`);
-      return [];
-    }
-  });
+        const meta = await getTmdbMeta(tmdbId, mediaType);
+        const year = meta.year;
+        const title = encodeURIComponent(meta.title);
+        const fullUrl = `https://api.videasy.net/cdn/sources-with-title?title=${title}&mediaType=${mediaType}&year=${year}&episodeId=${episode || 1}&seasonId=${season || 1}&tmdbId=${tmdbId}&imdbId=${meta.imdbId || ''}`;
+        const enc = await getText(fullUrl);
+        const dec = await getJson('https://enc-dec.app/api/dec-videasy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: enc, id: String(tmdbId) })
+        });
+        return (dec.result?.sources || []).map(s => streamObject('VidEasy', `VidEasy ${s.quality}`, s.url, normalizeQuality(s.quality), { Referer: 'https://player.videasy.net' }));
+    } catch (e) { return []; }
 }
+
+async function resolveVidLink(tmdbId, mediaType, season, episode) {
+    try {
+        const enc = await getJson(`https://enc-dec.app/api/enc-vidlink?text=${encodeURIComponent(tmdbId)}`);
+        const url = mediaType === 'tv' ? `https://vidlink.pro/api/b/tv/${enc.result}/${season || 1}/${episode || 1}` : `https://vidlink.pro/api/b/movie/${enc.result}`;
+        const data = await getJson(url);
+        return data?.stream?.playlist ? [streamObject('VidLink', 'VidLink Primary', data.stream.playlist, 'Auto', { Referer: 'https://vidlink.pro' })] : [];
+    } catch (e) { return []; }
+}
+
+async function resolveVidmody(tmdbId, mediaType, season, episode) {
+    try {
+        const meta = await getTmdbMeta(tmdbId, mediaType);
+        if (!meta.imdbId) return [];
+        const url = mediaType === 'movie' ? `https://vidmody.com/vs/${meta.imdbId}#.m3u8` : `https://vidmody.com/vs/${meta.imdbId}/s${season || 1}/e${String(episode || 1).padStart(2, '0')}#.m3u8`;
+        return [streamObject('Vidmody', 'Vidmody Server', url, 'Auto', { Referer: 'https://vidmody.com/' })];
+    } catch (e) { return []; }
+}
+
+async function resolveVidSrc(tmdbId, mediaType, season, episode) {
+    try {
+        const meta = await getTmdbMeta(tmdbId, mediaType);
+        if (!meta.imdbId) return [];
+        const embed = mediaType === 'tv' ? `https://vsrc.su/embed/tv?imdb=${meta.imdbId}&season=${season || 1}&episode=${episode || 1}` : `https://vsrc.su/embed/${meta.imdbId}`;
+        const html = await getText(embed);
+        const match = html.match(/src=["']([^"']+)["']/i);
+        return match ? [streamObject('VidSrc', 'VidSrc Server', 'https:' + match[1], 'Auto')] : [];
+    } catch (e) { return []; }
+}
+
+// --- MAIN ---
+
+async function getStreams(tmdbId, mediaType = 'movie', season = null, episode = null) {
+    const resolvers = [resolveVidFast, resolveVidEasy, resolveVidLink, resolveVidmody, resolveVidSrc];
+    let merged = [];
+    for (const resolver of resolvers) {
+        try {
+            const results = await resolver(tmdbId, mediaType, season, episode);
+            if (results && results.length > 0) merged = merged.concat(results);
+        } catch (err) {}
+    }
+    
+    // Final deduplication
+    const seen = new Set();
+    return merged.filter(s => {
+        if (seen.has(s.url)) return false;
+        seen.add(s.url);
+        return true;
+    }).slice(0, 50);
+}
+
 module.exports = { getStreams };

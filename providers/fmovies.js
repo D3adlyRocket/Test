@@ -1,195 +1,284 @@
-var cheerio = require('cheerio-without-node-native');
+// HDMovie2 Provider for Nuvio
+// Bollywood + Hollywood Hindi Dubbed + Web Series
+// Updated with .equipment domain and HLS stream fixes
 
-var BASE_URL = 'https://filmpalast.to';
-var TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
-var TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305'
+var BASE = 'https://hdmovie2.equipment' // Updated Domain 🌐
+var CDN = 'https://hdm2.ink'
+var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
 
-var DEFAULT_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Referer': BASE_URL
-};
+function httpGet(url, headers) {
+  return fetch(url, {
+    headers: Object.assign({ 'User-Agent': UA }, headers || {})
+  }).then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status)
+    return r.text()
+  })
+}
 
-// ==========================================
-// 1. HELPER UTILS (Your Provided Logic)
-// ==========================================
-function b64decode(str) {
-    var chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    var result = "";
-    var i = 0;
-    var s = str.replace(/[^A-Za-z0-9+/]/g, "");
-    while (i < s.length) {
-        var a = chars.indexOf(s[i++]);
-        var b = chars.indexOf(s[i++]);
-        var c = i < s.length ? chars.indexOf(s[i++]) : -1;
-        var d = i < s.length ? chars.indexOf(s[i++]) : -1;
-        var cb = c === -1 ? 0 : c;
-        var db = d === -1 ? 0 : d;
-        var n = a << 18 | b << 12 | cb << 6 | db;
-        result += String.fromCharCode(n >> 16 & 255);
-        if (c !== -1) result += String.fromCharCode(n >> 8 & 255);
-        if (d !== -1) result += String.fromCharCode(n & 255);
+function httpPost(url, body, headers) {
+  return fetch(url, {
+    method: 'POST',
+    headers: Object.assign({
+      'User-Agent': UA,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    }, headers || {}),
+    body: body
+  }).then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status)
+    return r.text()
+  })
+}
+
+function cleanTitle(title) {
+  return title.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function searchSite(title, year) {
+  var url = BASE + '/?s=' + encodeURIComponent(title)
+  return httpGet(url, { 'Referer': BASE + '/' })
+    .then(function(html) {
+      var results = []
+      var articleRegex = /<article[^>]*>([\s\S]*?)<\/article>/g
+      var articleMatch
+
+      while ((articleMatch = articleRegex.exec(html)) !== null) {
+        var articleHtml = articleMatch[1]
+        // Updated Regex to match .equipment domain 🛠️
+        var linkMatch = articleHtml.match(/href="(https:\/\/hdmovie2\.equipment\/movies\/([^"\/]+)\/)"/)
+        if (!linkMatch) continue
+        if (linkMatch[1].includes('/feed/')) continue
+        var altMatch = articleHtml.match(/alt="([^"]+)"/)
+        if (!altMatch) continue
+
+        var itemUrl = linkMatch[1]
+        var slug = linkMatch[2]
+        var itemTitle = altMatch[1].trim()
+        var yearMatch = itemTitle.match(/\((\d{4})\)/)
+        var itemYear = yearMatch ? parseInt(yearMatch[1]) : null
+
+        var exists = false
+        for (var i = 0; i < results.length; i++) {
+          if (results[i].slug === slug) { exists = true; break }
+        }
+        if (!exists && slug) {
+          results.push({ url: itemUrl, slug: slug, title: itemTitle, year: itemYear })
+        }
+      }
+
+      console.log('[HDMovie2] Raw: ' + results.length + ' for: ' + title + ' (' + year + ')')
+
+      var withYear = []
+      if (year) {
+        withYear = results.filter(function(r) {
+          return r.year && Math.abs(r.year - year) <= 1
+        })
+      }
+
+      var candidates = withYear.length > 0 ? withYear : results
+      if (candidates.length === 0) candidates = results
+
+      var cleanSearch = cleanTitle(title)
+      candidates.sort(function(a, b) {
+        var cleanA = cleanTitle(a.title)
+        var cleanB = cleanTitle(b.title)
+        var exactA = cleanA === cleanSearch ? 0 : 1
+        var exactB = cleanB === cleanSearch ? 0 : 1
+        if (exactA !== exactB) return exactA - exactB
+        var startsA = cleanA.indexOf(cleanSearch) === 0 ? 0 : 1
+        var startsB = cleanB.indexOf(cleanSearch) === 0 ? 0 : 1
+        if (startsA !== startsB) return startsA - startsB
+        return cleanA.length - cleanB.length
+      })
+
+      if (candidates.length > 0) {
+        console.log('[HDMovie2] Best: ' + candidates[0].title + ' (' + candidates[0].year + ')')
+      }
+      return candidates
+    })
+}
+
+function getHdm2Stream(playerUrl) {
+  return httpGet(playerUrl, { 'Referer': BASE + '/' })
+    .then(function(html) {
+      var streamMatch = html.match(/data-stream-url="([^"]+)"/)
+      if (!streamMatch) {
+        console.log('[HDMovie2] No data-stream-url in hdm2 page')
+        return null
+      }
+      var streamPath = streamMatch[1]
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+      
+      // Fix: Force .m3u8 extension for ExoPlayer 📺
+      var finalUrl = CDN + streamPath;
+      if (!finalUrl.includes('.m3u8')) {
+        finalUrl += '#index.m3u8';
+      }
+
+      console.log('[HDMovie2] hdm2 stream found!')
+      return {
+        url: finalUrl,
+        headers: { 'Referer': CDN + '/', 'Origin': CDN, 'User-Agent': UA }
+      }
+    })
+}
+
+function getMolopStream(playerUrl) {
+  return httpGet(playerUrl, { 'Referer': BASE + '/' })
+    .then(function(html) {
+      var sniffMatch = html.match(/sniff\s*\(\s*["'][^"']+["']\s*,\s*["'][^"']+["']\s*,\s*["']([a-f0-9]+)["']/)
+      if (!sniffMatch) {
+        console.log('[HDMovie2] No sniff hash in molop page')
+        return null
+      }
+      var hash = sniffMatch[SniffMatch.length - 1]
+      var m3u8Url = 'https://molop.art/m3u8/1/' + hash + '/master.m3u8?s=1&cache=1'
+      console.log('[HDMovie2] molop hash: ' + hash)
+      return {
+        url: m3u8Url,
+        headers: {
+          'Referer': 'https://molop.art/',
+          'Origin': 'https://molop.art',
+          'User-Agent': UA
+        }
+      }
+    })
+}
+
+function tryGetStream(postId, movieUrl) {
+  var nume = 1
+  var maxNume = 4
+
+  function tryNume() {
+    if (nume > maxNume) {
+      console.log('[HDMovie2] All servers exhausted')
+      return Promise.resolve(null)
     }
-    return result;
+
+    console.log('[HDMovie2] Trying server ' + nume)
+    return httpPost(
+      BASE + '/wp-admin/admin-ajax.php',
+      'action=doo_player_ajax&post=' + postId + '&nume=' + nume + '&type=movie',
+      { 'Referer': movieUrl }
+    ).then(function(body) {
+      var data
+      try { data = JSON.parse(body) } catch(e) { return null }
+
+      var embedUrl = data.embed_url || ''
+      if (!embedUrl) {
+        console.log('[HDMovie2] Empty embed')
+        return null
+      }
+
+      var cleaned = embedUrl.replace(/\\\//g, '/')
+      console.log('[HDMovie2] Server ' + nume + ': ' + cleaned.substring(0, 80))
+
+      var hdm2Match = cleaned.match(/src="(https:\/\/hdm2\.ink\/play\?v=[^"]+)"/)
+      if (hdm2Match) {
+        return getHdm2Stream(hdm2Match[1]).then(function(s) {
+          if (s) return s
+          nume++; return tryNume()
+        })
+      }
+
+      var molopMatch = cleaned.match(/src="(https:\/\/molop\.art\/watch\?v=[^"]+)"/)
+      if (molopMatch) {
+        return getMolopStream(molopMatch[1]).then(function(s) {
+          if (s) return s
+          nume++; return tryNume()
+        })
+      }
+
+      if (cleaned.includes('prvs.top')) {
+        console.log('[HDMovie2] Skipping AbyssCDN')
+        nume++; return tryNume()
+      }
+
+      if (cleaned.includes('ok.ru')) {
+        console.log('[HDMovie2] Skipping ok.ru')
+        nume++; return tryNume()
+      }
+
+      console.log('[HDMovie2] Unknown server')
+      nume++; return tryNume()
+
+    }).catch(function(err) {
+      console.log('[HDMovie2] Server ' + nume + ' error: ' + err.message)
+      nume++; return tryNume()
+    })
+  }
+
+  return tryNume()
 }
 
-function resolveRelativeUrl(href, base) {
-    if (href.indexOf("http") === 0) return href;
-    var m = base.match(/^(https?:\/\/[^/]+)/);
-    var origin = m ? m[1] : "";
-    if (href.charAt(0) === "/") return origin + href;
-    var basePath = base.substring(0, base.lastIndexOf("/") + 1);
-    return basePath + href;
+function getStreamFromMoviePage(movieUrl) {
+  return httpGet(movieUrl, { 'Referer': BASE + '/' })
+    .then(function(html) {
+      var postIdMatch = html.match(/postid-(\d+)/)
+      if (!postIdMatch) {
+        console.log('[HDMovie2] No post ID')
+        return null
+      }
+      var postId = postIdMatch[1]
+      console.log('[HDMovie2] Post ID: ' + postId)
+      return tryGetStream(postId, movieUrl)
+    })
 }
 
-// ==========================================
-// 2. VOE DECODER (Your Provided Logic)
-// ==========================================
-function voeDecode(ct, luts) {
-    try {
-        var rawLuts = luts.replace(/^\[|\]$/g, "").split("','").map(function(s) {
-            return s.replace(/^'+|'+$/g, "");
-        });
-        var escapedLuts = rawLuts.map(function(i) {
-            return i.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        });
-        var txt = "";
-        for (var ci = 0; ci < ct.length; ci++) {
-            var x = ct.charCodeAt(ci);
-            if (x > 64 && x < 91) x = (x - 52) % 26 + 65;
-            else if (x > 96 && x < 123) x = (x - 84) % 26 + 97;
-            txt += String.fromCharCode(x);
+function getStreams(tmdbId, mediaType, season, episode) {
+  return new Promise(function(resolve) {
+
+    var tmdbUrl = mediaType === 'movie'
+      ? 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY
+      : 'https://api.themoviedb.org/3/tv/' + tmdbId + '?api_key=' + TMDB_KEY
+
+    console.log('[HDMovie2] Start: ' + tmdbId + ' ' + mediaType)
+
+    fetch(tmdbUrl)
+      .then(function(r) { return r.json() })
+      .then(function(data) {
+        var title = data.title || data.name
+        if (!title) throw new Error('No title')
+        var releaseDate = data.release_date || data.first_air_date || ''
+        var year = releaseDate ? parseInt(releaseDate.split('-')[0]) : null
+        console.log('[HDMovie2] Title: ' + title + ' Year: ' + year)
+        return searchSite(title, year)
+      })
+      .then(function(results) {
+        if (!results || results.length === 0) {
+          console.log('[HDMovie2] Not found')
+          resolve([])
+          return null
         }
-        for (var pi = 0; pi < escapedLuts.length; pi++) txt = txt.replace(new RegExp(escapedLuts[pi], "g"), "_");
-        txt = txt.split("_").join("");
-        var decoded1 = b64decode(txt);
-        if (!decoded1) return null;
-        var step4 = "";
-        for (var si = 0; si < decoded1.length; si++) step4 += String.fromCharCode((decoded1.charCodeAt(si) - 3 + 256) % 256);
-        var revBase64 = step4.split("").reverse().join("");
-        var finalStr = b64decode(revBase64);
-        if (!finalStr) return null;
-        return JSON.parse(finalStr);
-    } catch (e) {
-        return null;
-    }
+        var result = results[0]
+        console.log('[HDMovie2] Using: ' + result.url)
+        return getStreamFromMoviePage(result.url)
+      })
+      .then(function(streamData) {
+        if (!streamData) { resolve([]); return }
+        console.log('[HDMovie2] Resolving stream!')
+        resolve([{
+          name: '🎬 HDMovie2',
+          title: 'Hindi Dubbed • HD',
+          url: streamData.url,
+          quality: '1080p',
+          headers: streamData.headers || {
+            'Referer': CDN + '/',
+            'Origin': CDN,
+            'User-Agent': UA
+          }
+        }])
+      })
+      .catch(function(err) {
+        console.error('[HDMovie2] Error: ' + err.message)
+        resolve([])
+      })
+  })
 }
 
-// ==========================================
-// 3. EXTRACTORS
-// ==========================================
-
-async function extractVoe(embedUrl) {
-    try {
-        // Step 1: Handle the Landing Page Redirect
-        var res = await fetch(embedUrl, { headers: { "Referer": embedUrl } });
-        var data = await res.text();
-
-        // Redirect check (per your debug logs)
-        var redirectMatch = data.match(/window\.location\.href\s*=\s*['"](https:\/\/[^'"]+)['"]/i);
-        if (redirectMatch && redirectMatch[1].indexOf('voe.sx') === -1) {
-            console.log("[VOE] Redirecting to bypass landing page...");
-            res = await fetch(redirectMatch[1], { headers: { "Referer": embedUrl } });
-            data = await res.text();
-        }
-
-        // Step 2: Use your resolveVoe logic on the final page data
-        var rMain = data.match(/json">\s*\[?\s*['"]([^'"]+)['"]\s*\]?\s*<\/script>\s*<script[^>]*src=['"]([^'"]+)['"]/i);
-        if (rMain) {
-            var encodedArray = rMain[1];
-            var loaderUrl = resolveRelativeUrl(rMain[2], embedUrl);
-            var jsRes = await fetch(loaderUrl, { headers: { "Referer": embedUrl } });
-            var jsData = await jsRes.text();
-            
-            var replMatch = jsData.match(/(\[(?:'[^']{1,10}'[\s,]*){4,12}\])/i) || jsData.match(/(\[(?:"[^"]{1,10}"[,\s]*){4,12}\])/i);
-            if (replMatch) {
-                var decoded = voeDecode(encodedArray, replMatch[1]);
-                if (decoded && (decoded.source || decoded.direct_access_url)) {
-                    return decoded.source || decoded.direct_access_url;
-                }
-            }
-        }
-
-        // Fallback
-        var re = /(?:mp4|hls|file)['"\s]*:\s*['"]([^'"]+)['"]/gi;
-        var m;
-        while ((m = re.exec(data)) !== null) {
-            var url = m[1];
-            if (url && url.indexOf("aHR0") === 0) return b64decode(url);
-            if (url && url.indexOf("http") === 0) return url;
-        }
-    } catch (err) {
-        console.log("[VOE] Error: " + err.message);
-    }
-    return null;
-}
-
-async function extractVidara(urlStr) {
-    try {
-        var filecodeMatch = urlStr.match(/\/(?:e|v|f)\/([a-zA-Z0-9]+)/);
-        if (!filecodeMatch) return null;
-        var apiBase = urlStr.split('/')[0] + '//' + urlStr.split('/')[2];
-        var pageRes = await fetch(urlStr, { headers: DEFAULT_HEADERS });
-        var pageHtml = await pageRes.text();
-        var tokenMatch = pageHtml.match(/key:\s*['"]([^'"]+)['"]/i);
-        
-        var response = await fetch(apiBase + '/api/stream', {
-            method: 'POST',
-            headers: Object.assign({}, DEFAULT_HEADERS, { 'Content-Type': 'application/json', 'Referer': urlStr, 'X-Requested-With': 'XMLHttpRequest' }),
-            body: JSON.stringify({ filecode: filecodeMatch[1], device: 'web', key: tokenMatch ? tokenMatch[1] : null })
-        });
-        var data = await response.json();
-        return data && (data.streaming_url || data.url) ? (data.streaming_url || data.url) : null;
-    } catch (e) { return null; }
-}
-
-// ==========================================
-// 4. MAIN SCRAPER
-// ==========================================
-async function getStreams(tmdbId, mediaType) {
-    var results = [];
-    try {
-        var tmdbUrl = TMDB_BASE_URL + '/' + (mediaType === 'series' ? 'tv' : 'movie') + '/' + tmdbId + '/external_ids?api_key=' + TMDB_API_KEY;
-        var idData = await fetch(tmdbUrl).then(r => r.json());
-        if (!idData.imdb_id) return [];
-
-        var searchRes = await fetch(BASE_URL + '/autocomplete.php', {
-            method: 'POST',
-            headers: { 'User-Agent': DEFAULT_HEADERS['User-Agent'], 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: 'term=' + encodeURIComponent(idData.imdb_id)
-        });
-        
-        var movieList = await searchRes.json();
-        if (!movieList || movieList.length === 0) return [];
-        
-        var targetTitle = movieList.find(t => t.toLowerCase().indexOf('english') === -1) || movieList[0];
-        var searchPageUrl = BASE_URL + '/search/title/' + encodeURIComponent(targetTitle);
-        var searchHtml = await fetch(searchPageUrl, { headers: DEFAULT_HEADERS }).then(r => r.text());
-        var $search = cheerio.load(searchHtml);
-        
-        var streamAnchor = $search('a[href*="/stream/"]').first();
-        var streamPageUrl = streamAnchor.length > 0 ? BASE_URL + streamAnchor.attr('href').replace('/filmpalast.to', '') : (searchHtml.indexOf('currentStreamLinks') !== -1 ? searchPageUrl : null);
-
-        if (!streamPageUrl) return [];
-
-        var streamPageHtml = await fetch(streamPageUrl, { headers: DEFAULT_HEADERS }).then(r => r.text());
-        var $stream = cheerio.load(streamPageHtml);
-        var anchors = $stream('.currentStreamLinks a, .hosterSite span a, .streamList a').toArray();
-
-        for (var i = 0; i < anchors.length; i++) {
-            var aHref = $stream(anchors[i]).attr('href');
-            if (!aHref || aHref.indexOf('javascript') !== -1) continue;
-            var fullUrl = aHref.indexOf('//') === 0 ? 'https:' + aHref : (aHref.indexOf('http') === 0 ? aHref : 'https://' + aHref);
-            
-            if (fullUrl.indexOf('voe.sx') !== -1) {
-                var direct = await extractVoe(fullUrl);
-                if (direct) results.push({ url: direct, meta: { title: "VOE \xB7 1080p", countryCodes: ['de'] } });
-            } else if (fullUrl.indexOf('vidara.') !== -1 || fullUrl.indexOf('vidfast.') !== -1) {
-                var direct = await extractVidara(fullUrl);
-                if (direct) results.push({ url: direct, meta: { title: "Vidara \xB7 1080p", countryCodes: ['de'] } });
-            }
-        }
-    } catch (e) { console.log("[Filmpalast] Fatal Error: " + e.message); }
-    return results;
-}
-
-module.exports = { getStreams };
+module.exports = { getStreams }

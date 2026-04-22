@@ -1,283 +1,181 @@
-// HDMovie2 Provider for Nuvio
-// Bollywood + Hollywood Hindi Dubbed + Web Series
-// Updated with .equipment domain and HLS stream fixes
+// ================================================================
+// ZoroLost — Android TV Optimized Version
+// ================================================================
 
 var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305'
-var BASE = 'https://hdmovie2.equipment' // Updated Domain 🌐
-var CDN = 'https://hdm2.ink'
-var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
+var BASE     = 'https://watchanimeworld.net'
+var PLAYER   = 'https://play.zephyrflick.top'
 
-function httpGet(url, headers) {
+// Optimized UA: Using a generic Chrome Windows UA is safer than Android TV UAs 
+// to avoid being served "Mobile-only" low bitrate streams or bot detection.
+var UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+
+// ── Timeout helper ────────────────────────────────────────────────
+function withTimeout(promise, ms) {
+  var killer = new Promise(function(_, reject) {
+    setTimeout(function() {
+      reject(new Error('[ZoroLost] Timed out after ' + ms + 'ms'))
+    }, ms)
+  })
+  return Promise.race([promise, killer])
+}
+
+// ── HTTP helpers ──────────────────────────────────────────────────
+function httpGet(url, extra) {
   return fetch(url, {
-    headers: Object.assign({ 'User-Agent': UA }, headers || {})
+    headers: Object.assign({ 'User-Agent': UA }, extra || {})
   }).then(function(r) {
-    if (!r.ok) throw new Error('HTTP ' + r.status)
+    if (!r.ok) throw new Error('GET ' + r.status + ' → ' + url)
     return r.text()
   })
 }
 
-function httpPost(url, body, headers) {
+function httpPost(url, body, extra) {
   return fetch(url, {
     method: 'POST',
     headers: Object.assign({
       'User-Agent': UA,
       'Content-Type': 'application/x-www-form-urlencoded'
-    }, headers || {}),
+    }, extra || {}),
     body: body
   }).then(function(r) {
-    if (!r.ok) throw new Error('HTTP ' + r.status)
-    return r.text()
+    if (!r.ok) throw new Error('POST ' + r.status + ' → ' + url)
+    return r.json()
   })
 }
 
-function cleanTitle(title) {
-  return title.toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+// ── Title scoring ─────────────────────────────────────────────────
+function cleanStr(s) {
+  return s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim()
 }
 
-function searchSite(title, year) {
+function scoreMatch(slug, query, itemYear, year) {
+  var slugTitle = slug.replace(/-/g, ' ').replace(/\d{4}$/, '').trim()
+  var c = cleanStr(slugTitle), q = cleanStr(query)
+  var s = 0
+  if (c === q) s += 100
+  else if (c.indexOf(q) === 0) s += 70
+  else if (c.indexOf(q) >= 0) s += 40
+  if (year && itemYear) {
+    if (itemYear === year) s += 20
+    else if (Math.abs(itemYear-year)<=1) s += 10
+  }
+  return s
+}
+
+// ── Step 1 : Search ──────────────────────────────────────────────
+function searchSite(title, mediaType, year) {
   var url = BASE + '/?s=' + encodeURIComponent(title)
-  return httpGet(url, { 'Referer': BASE + '/' })
+  return httpGet(url, { Referer: BASE + '/' })
     .then(function(html) {
       var results = []
-      var articleRegex = /<article[^>]*>([\s\S]*?)<\/article>/g
-      var articleMatch
-
-      while ((articleMatch = articleRegex.exec(html)) !== null) {
-        var articleHtml = articleMatch[1]
-        // Updated Regex to match .equipment domain 🛠️
-        var linkMatch = articleHtml.match(/href="(https:\/\/hdmovie2\.equipment\/movies\/([^"\/]+)\/)"/)
-        if (!linkMatch) continue
-        if (linkMatch[1].includes('/feed/')) continue
-        var altMatch = articleHtml.match(/alt="([^"]+)"/)
-        if (!altMatch) continue
-
-        var itemUrl = linkMatch[1]
-        var slug = linkMatch[2]
-        var itemTitle = altMatch[1].trim()
-        var yearMatch = itemTitle.match(/\((\d{4})\)/)
-        var itemYear = yearMatch ? parseInt(yearMatch[1]) : null
-
-        var exists = false
-        for (var i = 0; i < results.length; i++) {
-          if (results[i].slug === slug) { exists = true; break }
-        }
-        if (!exists && slug) {
-          results.push({ url: itemUrl, slug: slug, title: itemTitle, year: itemYear })
-        }
+      var re = /href="(https:\/\/watchanimeworld\.net\/(series|movies)\/([^\/\"]+)\/)"/g
+      var m
+      while ((m = re.exec(html)) !== null) {
+        var link = m[1], type = m[2], slug = m[3]
+        if (!slug || slug === 'page') continue
+        var ym = slug.match(/-(\d{4})$/)
+        results.push({ url: link, type: type, slug: slug, year: ym ? parseInt(ym[1]) : null })
       }
-
-      console.log('[HDMovie2] Raw: ' + results.length + ' for: ' + title + ' (' + year + ')')
-
-      var withYear = []
-      if (year) {
-        withYear = results.filter(function(r) {
-          return r.year && Math.abs(r.year - year) <= 1
-        })
-      }
-
-      var candidates = withYear.length > 0 ? withYear : results
-      if (candidates.length === 0) candidates = results
-
-      var cleanSearch = cleanTitle(title)
-      candidates.sort(function(a, b) {
-        var cleanA = cleanTitle(a.title)
-        var cleanB = cleanTitle(b.title)
-        var exactA = cleanA === cleanSearch ? 0 : 1
-        var exactB = cleanB === cleanSearch ? 0 : 1
-        if (exactA !== exactB) return exactA - exactB
-        var startsA = cleanA.indexOf(cleanSearch) === 0 ? 0 : 1
-        var startsB = cleanB.indexOf(cleanSearch) === 0 ? 0 : 1
-        if (startsA !== startsB) return startsA - startsB
-        return cleanA.length - cleanB.length
+      var typed = results.filter(function(r) { 
+        return mediaType === 'movie' ? r.type === 'movies' : r.type === 'series' 
       })
-
-      if (candidates.length > 0) {
-        console.log('[HDMovie2] Best: ' + candidates[0].title + ' (' + candidates[0].year + ')')
-      }
-      return candidates
+      typed.sort(function(a, b) { return scoreMatch(b.slug, title, b.year, year) - scoreMatch(a.slug, title, a.year, year) })
+      return typed
     })
 }
 
-function getHdm2Stream(playerUrl) {
-  return httpGet(playerUrl, { 'Referer': BASE + '/' })
+// ── Step 2 : Episode logic ──────────────────────────────────────
+function getEpisodeUrl(seriesUrl, season, episode) {
+  return httpGet(seriesUrl, { Referer: BASE + '/' })
     .then(function(html) {
-      var streamMatch = html.match(/data-stream-url="([^"]+)"/)
-      if (!streamMatch) {
-        console.log('[HDMovie2] No data-stream-url in hdm2 page')
-        return null
-      }
-      var streamPath = streamMatch[1]
-        .replace(/&amp;/g, '&')
-        .replace(/&lt;/g, '<')
-        .replace(/&gt;/g, '>')
-      
-      // Fix: Force .m3u8 extension for ExoPlayer 📺
-      var finalUrl = CDN + streamPath;
-      if (!finalUrl.includes('.m3u8')) {
-        finalUrl += '#index.m3u8';
-      }
-
-      console.log('[HDMovie2] hdm2 stream found!')
-      return {
-        url: finalUrl,
-        headers: { 'Referer': CDN + '/', 'Origin': CDN, 'User-Agent': UA }
-      }
-    })
-}
-
-function getMolopStream(playerUrl) {
-  return httpGet(playerUrl, { 'Referer': BASE + '/' })
-    .then(function(html) {
-      var sniffMatch = html.match(/sniff\s*\(\s*["'][^"']+["']\s*,\s*["'][^"']+["']\s*,\s*["']([a-f0-9]+)["']/)
-      if (!sniffMatch) {
-        console.log('[HDMovie2] No sniff hash in molop page')
-        return null
-      }
-      var hash = sniffMatch[SniffMatch.length - 1]
-      var m3u8Url = 'https://molop.art/m3u8/1/' + hash + '/master.m3u8?s=1&cache=1'
-      console.log('[HDMovie2] molop hash: ' + hash)
-      return {
-        url: m3u8Url,
-        headers: {
-          'Referer': 'https://molop.art/',
-          'Origin': 'https://molop.art',
-          'User-Agent': UA
+      var pidM = html.match(/postid-(\d+)/) || html.match(/data-post="(\d+)"/)
+      if (!pidM) return null
+      var ajaxUrl = BASE + '/wp-admin/admin-ajax.php?action=action_select_season&season=' + season + '&post=' + pidM[1]
+      return httpGet(ajaxUrl, { Referer: seriesUrl }).then(function(epHtml) {
+        var suffix = season + 'x' + episode + '/'
+        var re = /href="(https:\/\/watchanimeworld\.net\/episode\/([^"]+))"/g
+        var m
+        while ((m = re.exec(epHtml)) !== null) {
+          if (m[1].slice(-suffix.length) === suffix) return m[1]
         }
-      }
-    })
-}
-
-function tryGetStream(postId, movieUrl) {
-  var nume = 1
-  var maxNume = 4
-
-  function tryNume() {
-    if (nume > maxNume) {
-      console.log('[HDMovie2] All servers exhausted')
-      return Promise.resolve(null)
-    }
-
-    console.log('[HDMovie2] Trying server ' + nume)
-    return httpPost(
-      BASE + '/wp-admin/admin-ajax.php',
-      'action=doo_player_ajax&post=' + postId + '&nume=' + nume + '&type=movie',
-      { 'Referer': movieUrl }
-    ).then(function(body) {
-      var data
-      try { data = JSON.parse(body) } catch(e) { return null }
-
-      var embedUrl = data.embed_url || ''
-      if (!embedUrl) {
-        console.log('[HDMovie2] Empty embed')
         return null
-      }
-
-      var cleaned = embedUrl.replace(/\\\//g, '/')
-      console.log('[HDMovie2] Server ' + nume + ': ' + cleaned.substring(0, 80))
-
-      var hdm2Match = cleaned.match(/src="(https:\/\/hdm2\.ink\/play\?v=[^"]+)"/)
-      if (hdm2Match) {
-        return getHdm2Stream(hdm2Match[1]).then(function(s) {
-          if (s) return s
-          nume++; return tryNume()
-        })
-      }
-
-      var molopMatch = cleaned.match(/src="(https:\/\/molop\.art\/watch\?v=[^"]+)"/)
-      if (molopMatch) {
-        return getMolopStream(molopMatch[1]).then(function(s) {
-          if (s) return s
-          nume++; return tryNume()
-        })
-      }
-
-      if (cleaned.includes('prvs.top')) {
-        console.log('[HDMovie2] Skipping AbyssCDN')
-        nume++; return tryNume()
-      }
-
-      if (cleaned.includes('ok.ru')) {
-        console.log('[HDMovie2] Skipping ok.ru')
-        nume++; return tryNume()
-      }
-
-      console.log('[HDMovie2] Unknown server')
-      nume++; return tryNume()
-
-    }).catch(function(err) {
-      console.log('[HDMovie2] Server ' + nume + ' error: ' + err.message)
-      nume++; return tryNume()
+      })
     })
-  }
-
-  return tryNume()
 }
 
-function getStreamFromMoviePage(movieUrl) {
-  return httpGet(movieUrl, { 'Referer': BASE + '/' })
+// ── Step 3 : Stream Extraction ──────────────────────────────────
+function getStreamFromPage(pageUrl) {
+  return httpGet(pageUrl, { Referer: BASE + '/' })
     .then(function(html) {
-      var postIdMatch = html.match(/postid-(\d+)/)
-      if (!postIdMatch) {
-        console.log('[HDMovie2] No post ID')
-        return null
-      }
-      var postId = postIdMatch[1]
-      console.log('[HDMovie2] Post ID: ' + postId)
-      return tryGetStream(postId, movieUrl)
+      var iframeM = html.match(/(?:src|data-src)="(https:\/\/play\.zephyrflick\.top\/video\/([a-f0-9]+))"/)
+      if (!iframeM) return null
+      var videoHash = iframeM[2]
+
+      return httpPost(
+        PLAYER + '/player/index.php?data=' + videoHash + '&do=getVideo',
+        'hash=' + videoHash + '&r=' + encodeURIComponent(BASE + '/'),
+        { Referer: PLAYER + '/', Origin: PLAYER, 'X-Requested-With': 'XMLHttpRequest' }
+      ).then(function(data) {
+        var m3u8 = data.videoSource || data.securedLink
+        if (!m3u8) return null
+        
+        var contentHashM = m3u8.match(/\/cdn\/hls\/([a-f0-9]+)\//)
+        var contentHash  = contentHashM ? contentHashM[1] : videoHash
+        var subCdn = PLAYER
+        if (data.videoImage && data.videoImage.match(/^(https:\/\/[^\/]+)/)) subCdn = data.videoImage.match(/^(https:\/\/[^\/]+)/)[1]
+
+        return {
+          m3u8: m3u8,
+          subtitleUrl: subCdn + '/cdn/down/' + contentHash + '/Subtitle/subtitle_eng.srt'
+        }
+      })
     })
 }
 
+// ── Main Export ──────────────────────────────────────────────────
 function getStreams(tmdbId, mediaType, season, episode) {
   return new Promise(function(resolve) {
+    var chain = fetch('https://api.themoviedb.org/3/' + (mediaType === 'movie' ? 'movie' : 'tv') + '/' + tmdbId + '?api_key=' + TMDB_KEY)
+    .then(function(r) { return r.json() })
+    .then(function(meta) {
+      var title = meta.title || meta.name
+      var dateStr = meta.release_date || meta.first_air_date || ''
+      var year = dateStr ? parseInt(dateStr.split('-')[0]) : null
+      return searchSite(title, mediaType, year)
+    })
+    .then(function(results) {
+      if (!results || results.length === 0) return resolve([])
+      return (mediaType === 'movie') ? getStreamFromPage(results[0].url) : getEpisodeUrl(results[0].url, season, episode).then(function(url) { return url ? getStreamFromPage(url) : null })
+    })
+    .then(function(streamData) {
+      if (!streamData) return resolve([])
 
-    var tmdbUrl = mediaType === 'movie'
-      ? 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY
-      : 'https://api.themoviedb.org/3/tv/' + tmdbId + '?api_key=' + TMDB_KEY
+      resolve([{
+        name: '🗡️ ZoroLost [TV]',
+        title: 'Multi-Audio | 1080p | Zephyrflick',
+        description: 'Optimized for Android TV Playback',
+        url: streamData.m3u8,
+        quality: '1080p',
+        behaviorHints: {
+          bingeGroup: 'zorolost-tv-1080p',
+          // CRITICAL FOR TV: Explicitly set headers for the system player (ExoPlayer/VLC)
+          proxyHeaders: {
+            request: {
+              'User-Agent': UA,
+              'Referer': PLAYER + '/',
+              'Origin': PLAYER
+            }
+          },
+          // Tells TV apps this is a direct video link
+          notInterpreted: true 
+        },
+        subtitles: streamData.subtitleUrl ? [{ url: streamData.subtitleUrl, lang: 'en', name: 'English' }] : []
+      }])
+    })
+    .catch(function() { resolve([]) })
 
-    console.log('[HDMovie2] Start: ' + tmdbId + ' ' + mediaType)
-
-    fetch(tmdbUrl)
-      .then(function(r) { return r.json() })
-      .then(function(data) {
-        var title = data.title || data.name
-        if (!title) throw new Error('No title')
-        var releaseDate = data.release_date || data.first_air_date || ''
-        var year = releaseDate ? parseInt(releaseDate.split('-')[0]) : null
-        console.log('[HDMovie2] Title: ' + title + ' Year: ' + year)
-        return searchSite(title, year)
-      })
-      .then(function(results) {
-        if (!results || results.length === 0) {
-          console.log('[HDMovie2] Not found')
-          resolve([])
-          return null
-        }
-        var result = results[0]
-        console.log('[HDMovie2] Using: ' + result.url)
-        return getStreamFromMoviePage(result.url)
-      })
-      .then(function(streamData) {
-        if (!streamData) { resolve([]); return }
-        console.log('[HDMovie2] Resolving stream!')
-        resolve([{
-          name: '🎬 HDMovie2',
-          title: 'Hindi Dubbed • HD',
-          url: streamData.url,
-          quality: '1080p',
-          headers: streamData.headers || {
-            'Referer': CDN + '/',
-            'Origin': CDN,
-            'User-Agent': UA
-          }
-        }])
-      })
-      .catch(function(err) {
-        console.error('[HDMovie2] Error: ' + err.message)
-        resolve([])
-      })
+    withTimeout(chain, 9000).catch(function() { resolve([]) })
   })
 }
 

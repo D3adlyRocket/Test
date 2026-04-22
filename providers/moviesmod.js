@@ -1,96 +1,24 @@
-const TMDB_API_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
-const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-
 async function getStreams(tmdbId, mediaType = 'movie', seasonNum = 1, episodeNum = 1) {
     const allStreams = [];
+    const sNum = seasonNum || 1;
+    const eNum = episodeNum || 1;
+    const TMDB_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
 
-    // 1. Get Metadata (Linear fetch from your working code)
+    // 1. Get Metadata quickly
     let title = "Unknown";
     let year = "";
     try {
-        const endpoint = mediaType === 'tv' ? 'tv' : 'movie';
-        const metaRes = await fetch(`${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}`);
+        const metaRes = await fetch(`https://api.themoviedb.org/3/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_KEY}`);
         const meta = await metaRes.json();
-        title = meta.name || meta.title || "Unknown";
+        title = meta.name || meta.title;
         year = (meta.first_air_date || meta.release_date || "").substring(0, 4);
-    } catch (e) {
-        console.log('[Scraper] TMDB Metadata fetch failed');
-    }
+    } catch (e) {}
 
-    const mediaInfo = { title, year, mediaType };
-
-    // 2. VidFast Scraper Block (Your exact working logic integrated)
-    try {
-        const VIDFAST_BASE = 'https://vidfast.pro';
-        const ENCRYPT_API = 'https://enc-dec.app/api/enc-vidfast';
-        const DECRYPT_API = 'https://enc-dec.app/api/dec-vidfast';
-        const ALLOWED_SERVERS = ['Alpha', 'Cobra', 'Max', 'Oscar', 'vEdge', 'vFast', 'vRapid'];
-
-        const pageUrl = mediaType === 'tv'
-            ? `${VIDFAST_BASE}/tv/${tmdbId}/${seasonNum}/${episodeNum}`
-            : `${VIDFAST_BASE}/movie/${tmdbId}`;
-
-        const headers = {
-            'Accept': '*/*',
-            'Origin': 'https://vidfast.pro',
-            'Referer': pageUrl,
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Safari/605.1.15',
-            'X-Requested-With': 'XMLHttpRequest'
-        };
-
-        const pageRes = await fetch(pageUrl, { headers });
-        const pageText = await pageRes.text();
-
-        let rawData = pageText.match(/"en":"([^"]+)"/)?.[1] || pageText.match(/data\s*=\s*"([^"]+)"/)?.[1];
-
-        if (rawData) {
-            const apiRes = await fetch(`${ENCRYPT_API}?text=${encodeURIComponent(rawData)}&version=1`);
-            const apiData = await apiRes.json();
-
-            if (apiData?.result) {
-                if (apiData.result.token) headers['X-CSRF-Token'] = apiData.result.token;
-
-                const sEnc = await (await fetch(apiData.result.servers, { method: 'POST', headers })).text();
-                const sDec = await (await fetch(DECRYPT_API, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: sEnc, version: '1' })
-                })).json();
-
-                const serverList = (sDec.result || []).filter(s => ALLOWED_SERVERS.includes(s.name));
-
-                for (const sObj of serverList) {
-                    try {
-                        const stEnc = await (await fetch(`${apiData.result.stream}/${sObj.data}`, { method: 'POST', headers })).text();
-                        const stDec = await (await fetch(DECRYPT_API, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ text: stEnc, version: '1' })
-                        })).json();
-
-                        if (stDec.result?.url) {
-                            allStreams.push({
-                                name: `VidFast ${sObj.name}`,
-                                title: `${title} (${year})`,
-                                url: stDec.result.url,
-                                quality: stDec.result.quality || 'Auto',
-                                provider: 'vidfast',
-                                headers: { 'Referer': 'https://vidfast.pro/', 'User-Agent': 'Mozilla/5.0' }
-                            });
-                        }
-                    } catch (e) {}
-                }
-            }
-        }
-    } catch (e) {
-        console.log('[Scraper] VidFast section failed');
-    }
-
-    // 3. VidLink Fallback (Your other working logic)
+    // 2. VIDLINK - (Fastest Provider first to ensure we get SOMETHING)
     try {
         const vlEncRes = await fetch(`https://enc-dec.app/api/enc-vidlink?text=${tmdbId}`);
         const vlEnc = await vlEncRes.json();
-        const vlUrl = mediaType === 'tv' ? `https://vidlink.pro/api/b/tv/${vlEnc.result}/${seasonNum}/${episodeNum}` : `https://vidlink.pro/api/b/movie/${vlEnc.result}`;
+        const vlUrl = mediaType === 'tv' ? `https://vidlink.pro/api/b/tv/${vlEnc.result}/${sNum}/${eNum}` : `https://vidlink.pro/api/b/movie/${vlEnc.result}`;
         const vlRes = await fetch(vlUrl);
         const vlData = await vlRes.json();
         if (vlData?.stream?.playlist) {
@@ -102,23 +30,63 @@ async function getStreams(tmdbId, mediaType = 'movie', seasonNum = 1, episodeNum
                 provider: 'vidlink'
             });
         }
-    } catch (e) {
-        console.log('[Scraper] VidLink section failed');
-    }
+    } catch (e) {}
 
-    // 4. Final Cleanup
+    // 3. VIDFAST - (Limited to the 2 Fastest Servers to beat the 30s timeout)
+    try {
+        const VID_BASE = 'https://vidfast.pro';
+        const pageUrl = mediaType === 'tv' ? `${VID_BASE}/tv/${tmdbId}/${sNum}/${eNum}` : `${VID_BASE}/movie/${tmdbId}`;
+        const pageRes = await fetch(pageUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+        const pageText = await pageRes.text();
+        const rawData = pageText.match(/"en":"([^"]+)"/)?.[1] || pageText.match(/data\s*=\s*"([^"]+)"/)?.[1];
+
+        if (rawData) {
+            const apiData = await (await fetch(`https://enc-dec.app/api/enc-vidfast?text=${encodeURIComponent(rawData)}&version=1`)).json();
+            if (apiData?.result?.servers) {
+                const sHeaders = { 'User-Agent': 'Mozilla/5.0', 'Referer': pageUrl };
+                if (apiData.result.token) sHeaders['X-CSRF-Token'] = apiData.result.token;
+
+                const sRes = await fetch(apiData.result.servers, { method: 'POST', headers: sHeaders });
+                const sDec = await (await fetch('https://enc-dec.app/api/dec-vidfast', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: await sRes.text(), version: '1' })
+                })).json();
+
+                // LIMIT: Just take the first 2 servers to save time
+                const servers = (sDec.result || []).slice(0, 2); 
+
+                for (const sObj of servers) {
+                    try {
+                        const stEnc = await (await fetch(`${apiData.result.stream}/${sObj.data}`, { method: 'POST', headers: sHeaders })).text();
+                        const stDec = await (await fetch('https://enc-dec.app/api/dec-vidfast', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ text: stEnc, version: '1' })
+                        })).json();
+
+                        if (stDec.result?.url) {
+                            allStreams.push({
+                                name: `VidFast ${sObj.name}`,
+                                title: `${title} (${year})`,
+                                url: stDec.result.url,
+                                quality: 'Auto',
+                                provider: 'vidfast'
+                            });
+                        }
+                    } catch (err) {}
+                }
+            }
+        }
+    } catch (e) {}
+
+    // Return what we found before the timeout hits
     const seen = new Set();
-    const finalResults = allStreams.filter(s => {
+    return allStreams.filter(s => {
         if (!s.url || seen.has(s.url)) return false;
         seen.add(s.url);
         return true;
     });
-
-    return finalResults;
 }
 
-if (typeof module !== 'undefined') {
-    module.exports = { getStreams };
-} else {
-    global.getStreams = getStreams;
-}
+if (typeof module !== 'undefined') module.exports = { getStreams };

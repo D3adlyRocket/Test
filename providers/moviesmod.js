@@ -1,138 +1,128 @@
-// --- CONSTANTS ---
-const TMDB_API_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
-const VIDFAST_BASE = 'https://vidfast.pro';
-const ENCRYPT_API = 'https://enc-dec.app/api/enc-vidfast';
-const DECRYPT_API = 'https://enc-dec.app/api/dec-vidfast';
-const ALLOWED_SERVERS = ['Alpha', 'Bollywood', 'Cobra', 'Max', 'Oscar', 'vEdge', 'vFast', 'vRapid'];
+// --- CONFIG ---
+const TMDB_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
+const VF_BASE = 'https://vidfast.pro';
+const ENC_API = 'https://enc-dec.app/api/enc-vidfast';
+const DEC_API = 'https://enc-dec.app/api/dec-vidfast';
+const SERVERS = ['Alpha', 'Bollywood', 'Cobra', 'Max', 'Oscar', 'vEdge', 'vFast', 'vRapid'];
 
-// --- HELPERS ---
+// --- CORE VIDFAST LOGIC ---
 
-async function safeFetchJson(url, options = {}) {
+async function fetchVidFast(tmdbId, type, season, episode, meta) {
     try {
-        const res = await fetch(url, options);
-        return res.ok ? await res.json() : null;
-    } catch (e) { return null; }
-}
+        const pageUrl = type === 'tv' ? `${VF_BASE}/tv/${tmdbId}/${season}/${episode}` : `${VF_BASE}/movie/${tmdbId}`;
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Referer': pageUrl,
+            'X-Requested-With': 'XMLHttpRequest'
+        };
 
-async function safeFetchText(url, options = {}) {
-    try {
-        const res = await fetch(url, options);
-        return res.ok ? await res.text() : null;
-    } catch (e) { return null; }
-}
+        const pageRes = await fetch(pageUrl, { headers });
+        const pageText = await pageRes.text();
 
-async function parseM3U8(playlistUrl) {
-    const text = await safeFetchText(playlistUrl, {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
-            'Referer': 'https://vidfast.pro/'
-        }
-    });
-    if (!text || !text.includes('#EXT-X-STREAM-INF')) return null;
-    const variants = [];
-    const lines = text.split('\n');
-    for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes('#EXT-X-STREAM-INF')) {
-            const resMatch = lines[i].match(/RESOLUTION=(\d+)x(\d+)/i);
-            const urlLine = lines[i + 1]?.trim();
-            if (!urlLine || urlLine.startsWith('#')) continue;
-            let vUrl = urlLine.startsWith('http') ? urlLine : playlistUrl.substring(0, playlistUrl.lastIndexOf('/') + 1) + urlLine;
-            variants.push({ url: vUrl, quality: resMatch ? resMatch[2] + 'p' : 'Auto' });
-        }
-    }
-    return variants;
-}
+        // Robust regex for VidFast data
+        const rawMatch = pageText.match(/"en":"([^"]+)"/) || pageText.match(/data\s*=\s*"([^"]+)"/);
+        if (!rawMatch) return [];
 
-// --- PROVIDERS ---
+        const encRes = await fetch(`${ENC_API}?text=${encodeURIComponent(rawMatch[1])}&version=1`);
+        const encData = await encRes.json();
+        if (!encData?.result) return [];
 
-async function getVidFast(tmdbId, type, season, episode, title, year) {
-    const pageUrl = type === 'tv' ? `${VIDFAST_BASE}/tv/${tmdbId}/${season}/${episode}` : `${VIDFAST_BASE}/movie/${tmdbId}`;
-    const headers = {
-        'Origin': 'https://vidfast.pro',
-        'Referer': pageUrl,
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Safari/605.1.15',
-        'X-Requested-With': 'XMLHttpRequest'
-    };
+        if (encData.result.token) headers['X-CSRF-Token'] = encData.result.token;
 
-    const pageText = await safeFetchText(pageUrl, { headers });
-    if (!pageText) return [];
-
-    let rawData = pageText.match(/"en":"([^"]+)"/)?.[1] || pageText.match(/data\s*=\s*"([^"]+)"/)?.[1];
-    if (!rawData) return [];
-
-    const apiData = await safeFetchJson(`${ENCRYPT_API}?text=${encodeURIComponent(rawData)}&version=1`);
-    if (!apiData?.result) return [];
-    if (apiData.result.token) headers['X-CSRF-Token'] = apiData.result.token;
-
-    const sEnc = await safeFetchText(apiData.result.servers, { method: 'POST', headers });
-    const sDec = await safeFetchJson(DECRYPT_API, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: sEnc, version: '1' })
-    });
-
-    const serverList = (sDec?.result || []).filter(s => ALLOWED_SERVERS.includes(s.name));
-    let streams = [];
-
-    for (const sObj of serverList) {
-        const stEnc = await safeFetchText(`${apiData.result.stream}/${sObj.data}`, { method: 'POST', headers });
-        const stDec = await safeFetchJson(DECRYPT_API, {
+        const sEncRes = await fetch(encData.result.servers, { method: 'POST', headers });
+        const sEnc = await sEncRes.text();
+        
+        const sDecRes = await fetch(DEC_API, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: stEnc, version: '1' })
+            body: JSON.stringify({ text: sEnc, version: '1' })
         });
+        const sDec = await sDecRes.json();
 
-        if (stDec?.result?.url) {
-            if (stDec.result.url.includes('.m3u8')) {
-                const vars = await parseM3U8(stDec.result.url);
-                if (vars) {
-                    vars.forEach(v => streams.push({ name: `VidFast ${sObj.name} ${v.quality}`, url: v.url, quality: v.quality }));
-                    continue;
+        const serverList = (sDec?.result || []).filter(s => SERVERS.includes(s.name));
+        const streams = [];
+
+        for (const s of serverList) {
+            try {
+                const stEncRes = await fetch(`${encData.result.stream}/${s.data}`, { method: 'POST', headers });
+                const stEnc = await stEncRes.text();
+                const stDecRes = await fetch(DEC_API, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: stEnc, version: '1' })
+                });
+                const stDec = await stDecRes.json();
+
+                if (stDec?.result?.url) {
+                    streams.push({
+                        name: `VidFast ${s.name}`,
+                        title: `${meta.title} (${meta.year})`,
+                        url: stDec.result.url,
+                        quality: stDec.result.quality || 'Auto',
+                        headers: { 'Referer': 'https://vidfast.pro/', 'User-Agent': headers['User-Agent'] },
+                        provider: 'vidfast'
+                    });
                 }
-            }
-            streams.push({ name: `VidFast ${sObj.name}`, url: stDec.result.url, quality: 'Auto' });
+            } catch (e) {}
         }
-    }
-    return streams.map(s => ({ ...s, title: `${title} (${year})`, provider: 'vidfast', headers: { 'Referer': 'https://vidfast.pro/' } }));
+        return streams;
+    } catch (e) { return []; }
 }
 
-async function getVidLink(tmdbId, type, season, episode) {
+// --- FALLBACK LOGIC ---
+
+async function fetchVidLink(tmdbId, type, season, episode, meta) {
     try {
-        const enc = await safeFetchJson(`https://enc-dec.app/api/enc-vidlink?text=${tmdbId}`);
+        const encRes = await fetch(`https://enc-dec.app/api/enc-vidlink?text=${tmdbId}`);
+        const enc = await encRes.json();
         const url = type === 'tv' ? `https://vidlink.pro/api/b/tv/${enc.result}/${season}/${episode}` : `https://vidlink.pro/api/b/movie/${enc.result}`;
-        const data = await safeFetchJson(url);
-        return data?.stream?.playlist ? [{ name: 'VidLink Primary', url: data.stream.playlist, quality: 'Auto', provider: 'vidlink' }] : [];
-    } catch (e) { return []; }
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data?.stream?.playlist) {
+            return [{
+                name: 'VidLink Primary',
+                title: `${meta.title} (${meta.year})`,
+                url: data.stream.playlist,
+                quality: 'Auto',
+                provider: 'vidlink'
+            }];
+        }
+    } catch (e) {}
+    return [];
 }
 
 // --- MAIN ---
 
 async function getStreams(tmdbId, mediaType = 'movie', season = 1, episode = 1) {
-    // 1. Get TMDB Meta First (Critical for titles)
-    const meta = await safeFetchJson(`https://api.themoviedb.org/3/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`);
-    const title = meta?.name || meta?.title || 'Unknown';
-    const year = (meta?.first_air_date || meta?.release_date || '').substring(0, 4);
-
-    let allStreams = [];
-
-    // 2. Execute Providers with independent error handling
+    let meta = { title: 'Unknown', year: '' };
+    
+    // Step 1: Meta fetch with extreme safety
     try {
-        const vf = await getVidFast(tmdbId, mediaType, season, episode, title, year);
-        if (vf) allStreams = allStreams.concat(vf);
+        const res = await fetch(`https://api.themoviedb.org/3/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_KEY}`);
+        const data = await res.json();
+        meta.title = data?.name || data?.title || 'Unknown';
+        meta.year = (data?.first_air_date || data?.release_date || '').substring(0, 4);
     } catch (e) {}
 
-    try {
-        const vl = await getVidLink(tmdbId, mediaType, season, episode);
-        if (vl) allStreams = allStreams.concat(vl);
-    } catch (e) {}
+    // Step 2: Run providers in parallel but catch individual failures
+    const results = await Promise.allSettled([
+        fetchVidFast(tmdbId, mediaType, season, episode, meta),
+        fetchVidLink(tmdbId, mediaType, season, episode, meta)
+    ]);
 
-    // 3. Deduplicate and return
+    // Step 3: Flat and Filter
+    const finalStreams = results
+        .filter(r => r.status === 'fulfilled')
+        .map(r => r.value)
+        .flat();
+
+    // Step 4: Dedupe
     const seen = new Set();
-    return allStreams.filter(s => {
+    return finalStreams.filter(s => {
         if (!s.url || seen.has(s.url)) return false;
         seen.add(s.url);
         return true;
     });
 }
 
-module.exports = { getStreams };
+if (typeof module !== 'undefined') module.exports = { getStreams };

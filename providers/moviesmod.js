@@ -1,156 +1,101 @@
-console.log('[MultiStream] Initializing scraper');
-
-// ================= CONSTANTS =================
-const TMDB_API_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
-const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-
-const VIDFAST_BASE = 'https://vidfast.pro';
-const ENCRYPT_API = 'https://enc-dec.app/api/enc-vidfast';
-const DECRYPT_API = 'https://enc-dec.app/api/dec-vidfast';
-
-const ALLOWED_SERVERS = ['Alpha', 'Cobra', 'Max', 'Oscar', 'vEdge', 'vFast', 'vRapid'];
+const TMDB_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
 
 // ================= TMDB =================
-function getTMDBDetails(tmdbId, mediaType) {
-    const endpoint = mediaType === 'tv' ? 'tv' : 'movie';
-    return fetch(`${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}`)
-        .then(r => r.json())
-        .then(data => ({
-            title: mediaType === 'tv' ? data.name : data.title,
-            year: (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4) || '',
-            mediaType
-        }))
-        .catch(() => ({
-            title: "Unknown",
-            year: "",
-            mediaType
-        }));
-}
-
-// ================= M3U8 PARSER =================
-async function parseM3U8Playlist(url) {
+async function getMeta(tmdbId, mediaType) {
     try {
-        const res = await fetch(url);
-        const text = await res.text();
-
-        if (!text.includes('#EXT-X-STREAM-INF')) return null;
-
-        const lines = text.split('\n');
-        const variants = [];
-
-        for (let i = 0; i < lines.length; i++) {
-            if (lines[i].includes('RESOLUTION')) {
-                const resMatch = lines[i].match(/RESOLUTION=\d+x(\d+)/);
-                const next = lines[i + 1];
-
-                if (next && !next.startsWith('#')) {
-                    variants.push({
-                        url: next.startsWith('http') ? next : url.substring(0, url.lastIndexOf('/') + 1) + next,
-                        quality: resMatch ? `${resMatch[1]}p` : 'Auto'
-                    });
-                }
-            }
-        }
-
-        return variants.length ? variants : null;
+        const res = await fetch(`https://api.themoviedb.org/3/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_KEY}`);
+        const json = await res.json();
+        return {
+            title: json.name || json.title || "Unknown",
+            year: (json.first_air_date || json.release_date || "").substring(0, 4)
+        };
     } catch {
-        return null;
+        return { title: "Unknown", year: "" };
     }
 }
 
-// ================= VIDFAST =================
-async function scrapeVidFast(tmdbId, mediaInfo, season, episode) {
+// ================= VIDFAST (UNCHANGED CORE) =================
+async function vidFast(tmdbId, mediaType, season, episode, meta) {
+    const results = [];
+
     try {
-        const pageUrl = mediaInfo.mediaType === 'tv'
-            ? `${VIDFAST_BASE}/tv/${tmdbId}/${season}/${episode}`
-            : `${VIDFAST_BASE}/movie/${tmdbId}`;
+        const vfBase = 'https://vidfast.pro';
+        const pageUrl = mediaType === 'tv'
+            ? `${vfBase}/tv/${tmdbId}/${season}/${episode}`
+            : `${vfBase}/movie/${tmdbId}`;
 
-        const page = await fetch(pageUrl);
-        const text = await page.text();
+        const pageRes = await fetch(pageUrl, {
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': pageUrl }
+        });
 
-        let raw = text.match(/"en":"([^"]+)"/)?.[1] ||
-                  text.match(/data\s*=\s*"([^"]+)"/)?.[1];
+        const pageText = await pageRes.text();
 
-        if (!raw) return [];
+        const rawData =
+            pageText.match(/"en":"([^"]+)"/)?.[1] ||
+            pageText.match(/data\s*=\s*"([^"]+)"/)?.[1];
 
-        const enc = await fetch(`${ENCRYPT_API}?text=${encodeURIComponent(raw)}&version=1`).then(r => r.json());
+        if (!rawData) return [];
 
-        const headers = {
-            'User-Agent': 'Mozilla/5.0',
-            'Referer': pageUrl
-        };
+        const encRes = await fetch(`https://enc-dec.app/api/enc-vidfast?text=${encodeURIComponent(rawData)}&version=1`);
+        const encData = await encRes.json();
 
-        if (enc.result.token) headers['X-CSRF-Token'] = enc.result.token;
+        const headers = { 'User-Agent': 'Mozilla/5.0', 'Referer': pageUrl };
+        if (encData?.result?.token) headers['X-CSRF-Token'] = encData.result.token;
 
-        const serversEnc = await fetch(enc.result.servers, { method: 'POST', headers }).then(r => r.text());
+        const sRes = await fetch(encData.result.servers, {
+            method: 'POST',
+            headers
+        });
 
-        const servers = await fetch(DECRYPT_API, {
+        const sEnc = await sRes.text();
+
+        const sDec = await fetch('https://enc-dec.app/api/dec-vidfast', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: serversEnc, version: '1' })
+            body: JSON.stringify({ text: sEnc, version: '1' })
         }).then(r => r.json());
 
-        let list = servers.result || [];
-        list = list.filter(s => ALLOWED_SERVERS.includes(s.name));
+        const allowed = ['Alpha', 'Bollywood', 'Cobra', 'Max', 'Oscar', 'vEdge', 'vFast', 'vRapid'];
 
-        const streams = [];
-
-        for (const s of list) {
+        for (const s of (sDec.result || []).filter(x => allowed.includes(x.name))) {
             try {
-                const stEnc = await fetch(`${enc.result.stream}/${s.data}`, {
+                const stRes = await fetch(`${encData.result.stream}/${s.data}`, {
                     method: 'POST',
                     headers
-                }).then(r => r.text());
+                });
 
-                const st = await fetch(DECRYPT_API, {
+                const stEnc = await stRes.text();
+
+                const stDec = await fetch('https://enc-dec.app/api/dec-vidfast', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: stEnc, version: '1' })
                 }).then(r => r.json());
 
-                if (!st?.result?.url) continue;
-
-                let baseStream = {
-                    name: `VidFast ${s.name}`,
-                    title: `${mediaInfo.title} (${mediaInfo.year})`,
-                    url: st.result.url,
-                    quality: st.result.quality || 'Auto',
-                    provider: 'vidfast'
-                };
-
-                // expand m3u8
-                if (baseStream.url.includes('.m3u8')) {
-                    const variants = await parseM3U8Playlist(baseStream.url);
-                    if (variants) {
-                        variants.forEach(v => {
-                            streams.push({
-                                ...baseStream,
-                                url: v.url,
-                                quality: v.quality
-                            });
-                        });
-                        continue;
-                    }
+                if (stDec?.result?.url) {
+                    results.push({
+                        name: `VidFast ${s.name}`,
+                        title: `${meta.title} (${meta.year})`,
+                        url: stDec.result.url,
+                        quality: stDec.result.quality || 'Auto',
+                        provider: 'vidfast'
+                    });
                 }
-
-                streams.push(baseStream);
 
             } catch {}
         }
 
-        return streams;
-    } catch {
-        return [];
-    }
+    } catch {}
+
+    return results;
 }
 
 // ================= VIDLINK =================
-async function scrapeVidLink(tmdbId, mediaInfo, season, episode) {
+async function vidLink(tmdbId, mediaType, season, episode, meta) {
     try {
-        const enc = await fetch(`https://enc-dec.app/api/enc-vidlink?text=${tmdbId}`)
-            .then(r => r.json());
+        const enc = await fetch(`https://enc-dec.app/api/enc-vidlink?text=${tmdbId}`).then(r => r.json());
 
-        const url = mediaInfo.mediaType === 'tv'
+        const url = mediaType === 'tv'
             ? `https://vidlink.pro/api/b/tv/${enc.result}/${season}/${episode}`
             : `https://vidlink.pro/api/b/movie/${enc.result}`;
 
@@ -160,12 +105,49 @@ async function scrapeVidLink(tmdbId, mediaInfo, season, episode) {
 
         return [{
             name: 'VidLink',
-            title: `${mediaInfo.title} (${mediaInfo.year})`,
+            title: `${meta.title} (${meta.year})`,
             url: data.stream.playlist,
             quality: 'Auto',
             provider: 'vidlink'
         }];
+    } catch {
+        return [];
+    }
+}
 
+// ================= VIDSRC =================
+async function vidSrc(tmdbId, mediaType, season, episode, meta) {
+    try {
+        const url = mediaType === 'tv'
+            ? `https://vidsrc.to/embed/tv/${tmdbId}/${season}/${episode}`
+            : `https://vidsrc.to/embed/movie/${tmdbId}`;
+
+        return [{
+            name: 'VidSrc',
+            title: `${meta.title} (${meta.year})`,
+            url,
+            quality: 'Auto',
+            provider: 'vidsrc'
+        }];
+    } catch {
+        return [];
+    }
+}
+
+// ================= VIDEASY =================
+async function videasy(tmdbId, mediaType, season, episode, meta) {
+    try {
+        const url = mediaType === 'tv'
+            ? `https://player.videasy.net/tv/${tmdbId}/${season}/${episode}`
+            : `https://player.videasy.net/movie/${tmdbId}`;
+
+        return [{
+            name: 'Videasy',
+            title: `${meta.title} (${meta.year})`,
+            url,
+            quality: 'Auto',
+            provider: 'videasy'
+        }];
     } catch {
         return [];
     }
@@ -173,19 +155,19 @@ async function scrapeVidLink(tmdbId, mediaInfo, season, episode) {
 
 // ================= MAIN =================
 async function getStreams(tmdbId, mediaType = 'movie', season = 1, episode = 1) {
-    console.log(`[MultiStream] Fetching ${tmdbId}`);
 
-    const mediaInfo = await getTMDBDetails(tmdbId, mediaType);
+    const meta = await getMeta(tmdbId, mediaType);
 
-    const [vidfast, vidlink] = await Promise.all([
-        scrapeVidFast(tmdbId, mediaInfo, season, episode),
-        scrapeVidLink(tmdbId, mediaInfo, season, episode)
+    const results = await Promise.all([
+        vidFast(tmdbId, mediaType, season, episode, meta),
+        vidLink(tmdbId, mediaType, season, episode, meta),
+        vidSrc(tmdbId, mediaType, season, episode, meta),
+        videasy(tmdbId, mediaType, season, episode, meta)
     ]);
 
-    // merge + dedupe
-    const all = [...vidfast, ...vidlink];
-    const seen = new Set();
+    const all = results.flat();
 
+    const seen = new Set();
     return all.filter(s => {
         if (!s.url || seen.has(s.url)) return false;
         seen.add(s.url);
@@ -193,9 +175,4 @@ async function getStreams(tmdbId, mediaType = 'movie', season = 1, episode = 1) 
     });
 }
 
-// export
-if (typeof module !== 'undefined') {
-    module.exports = { getStreams };
-} else {
-    global.getStreams = getStreams;
-}
+if (typeof module !== 'undefined') module.exports = { getStreams };

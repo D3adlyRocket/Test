@@ -1,16 +1,16 @@
 // ================================================================
-// ZoroLost — Android TV "Final Stand" Version
+// ZoroLost — Android TV "Nuclear Option"
 // ================================================================
 
 var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305';
 var BASE     = 'https://watchanimeworld.net';
 var PLAYER   = 'https://play.zephyrflick.top';
 
-// Using a UA that mimics a generic Android Tablet to get better compatibility
-var UA = 'Mozilla/5.0 (Linux; Android 13; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36';
+// A "Legacy" User-Agent often forces servers into a more compatible HLS mode
+var UA = 'Mozilla/5.0 (Linux; Android 10; BRAVIA 4K UR3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
 function httpGet(url) {
-  return fetch(url, { headers: { 'User-Agent': UA } }).then(function(r) { return r.text(); });
+  return fetch(url, { headers: { 'User-Agent': UA } }).then(r => r.text());
 }
 
 function httpPost(url, body) {
@@ -23,73 +23,77 @@ function httpPost(url, body) {
       'Referer': PLAYER + '/'
     },
     body: body
-  }).then(function(r) { return r.json(); });
+  }).then(r => r.json());
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  return new Promise(function(resolve) {
-    // 1. Get Title from TMDB
-    fetch('https://api.themoviedb.org/3/' + (mediaType === 'movie' ? 'movie' : 'tv') + '/' + tmdbId + '?api_key=' + TMDB_KEY)
-    .then(function(r) { return r.json(); })
-    .then(function(meta) {
-      var title = meta.title || meta.name;
-      // 2. Search Site
-      return httpGet(BASE + '/?s=' + encodeURIComponent(title));
-    })
-    .then(function(html) {
-      var typeStr = (mediaType === 'movie' ? 'movies' : 'series');
-      var match = html.match(new RegExp('href="(https:\\/\\/watchanimeworld\\.net\\/' + typeStr + '\\/([^\\/\\"]+)\\/)"'));
-      if (!match) throw new Error('Not Found');
-      var url = match[1];
+  return new Promise((resolve) => {
+    // Hardcoded 15-second limit for slow TV hardware
+    const timeout = setTimeout(() => resolve([]), 15000);
 
-      // 3. Get Episode or Direct Movie Page
-      if (mediaType === 'movie') return url;
-      return httpGet(url).then(function(sHtml) {
-        var id = sHtml.match(/postid-(\d+)/)[1];
-        var ajax = BASE + '/wp-admin/admin-ajax.php?action=action_select_season&season=' + season + '&post=' + id;
-        return httpGet(ajax).then(function(eHtml) {
-          var m = eHtml.match(new RegExp('href="(https:\\/\\/watchanimeworld\\.net\\/episode\\/[^"]*' + season + 'x' + episode + '\\/)"'));
-          return m ? m[1] : null;
+    fetch(`https://api.themoviedb.org/3/${mediaType === 'movie' ? 'movie' : 'tv'}/${tmdbId}?api_key=${TMDB_KEY}`)
+      .then(r => r.json())
+      .then(meta => {
+        const title = meta.title || meta.name;
+        return httpGet(`${BASE}/?s=${encodeURIComponent(title)}`);
+      })
+      .then(html => {
+        const typeStr = (mediaType === 'movie' ? 'movies' : 'series');
+        const match = html.match(new RegExp(`href="(https:\\/\\/watchanimeworld\\.net\\/${typeStr}\\/([^\\/\\"]+)\\/)"`));
+        if (!match) return null;
+        
+        const url = match[1];
+        if (mediaType === 'movie') return url;
+        
+        return httpGet(url).then(sHtml => {
+          const id = sHtml.match(/postid-(\d+)/)[1];
+          const ajax = `${BASE}/wp-admin/admin-ajax.php?action=action_select_season&season=${season}&post=${id}`;
+          return httpGet(ajax).then(eHtml => {
+            const m = eHtml.match(new RegExp(`href="(https:\\/\\/watchanimeworld\\.net\\/episode\\/[^"]*${season}x${episode}\\/)"`));
+            return m ? m[1] : null;
+          });
         });
-      });
-    })
-    .then(function(finalPage) {
-      if (!finalPage) return null;
-      return httpGet(finalPage);
-    })
-    .then(function(html) {
-      // 4. Extract Video Data
-      var m = html.match(/src="(https:\/\/play\.zephyrflick\.top\/video\/([a-f0-9]+))"/);
-      if (!m) return null;
-      var hash = m[2];
-      return httpPost(PLAYER + '/player/index.php?data=' + hash + '&do=getVideo', 'hash=' + hash + '&r=' + encodeURIComponent(BASE + '/'));
-    })
-    .then(function(res) {
-      var stream = res ? (res.videoSource || res.securedLink) : null;
-      if (!stream) return resolve([]);
+      })
+      .then(finalPage => {
+        if (!finalPage) return null;
+        return httpGet(finalPage);
+      })
+      .then(html => {
+        const m = html.match(/src="(https:\/\/play\.zephyrflick\.top\/video\/([a-f0-9]+))"/);
+        if (!m) return null;
+        const hash = m[2];
+        return httpPost(`${PLAYER}/player/index.php?data=${hash}&do=getVideo`, `hash=${hash}&r=${encodeURIComponent(BASE + '/')}`);
+      })
+      .then(res => {
+        const stream = res ? (res.videoSource || res.securedLink) : null;
+        if (!stream) {
+          clearTimeout(timeout);
+          return resolve([]);
+        }
 
-      resolve([{
-        name: '🗡️ ZoroLost [TV-PRO]',
-        title: 'Multi-Audio | 1080p | Fix Applied',
-        url: stream,
-        behaviorHints: {
-          notInterpreted: true,
-          bingeGroup: 'zorolost-tv-final', // Changed to clear cache
-          proxyHeaders: {
-            request: {
-              'User-Agent': UA,
-              'Referer': PLAYER + '/',
-              'Origin': PLAYER,
-              'Connection': 'keep-alive',
-              'Accept-Language': 'en-US,en;q=0.9'
+        clearTimeout(timeout);
+        resolve([{
+          name: '🗡️ ZoroLost [TV-HARDENED]',
+          title: 'Direct Link | Multi-Audio',
+          url: stream,
+          behaviorHints: {
+            notInterpreted: true,
+            // TV-specific networking hints
+            proxyHeaders: {
+              request: {
+                'User-Agent': UA,
+                'Referer': 'https://play.zephyrflick.top/',
+                'Origin': 'https://play.zephyrflick.top',
+                'Connection': 'keep-alive'
+              }
             }
           }
-        }
-      }]);
-    })
-    .catch(function() { resolve([]); });
-
-    setTimeout(function() { resolve([]); }, 15000); // 15s timeout for slow TV hardware
+        }]);
+      })
+      .catch(() => {
+        clearTimeout(timeout);
+        resolve([]);
+      });
   });
 }
 

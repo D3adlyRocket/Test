@@ -1,5 +1,5 @@
 // ================================================================
-// ZoroLost — WatchAnimeWorld India (Android TV Fixed Version)
+// AnimeWorld India — Android TV Optimized
 // ================================================================
 
 var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305'
@@ -43,7 +43,6 @@ function searchSite(title, mediaType) {
           results.push({ url: link, type: type, slug: slug })
         }
       }
-      // Filter by type
       return results.filter(function(r) {
         return mediaType === 'movie' ? r.type === 'movies' : r.type === 'series'
       })
@@ -89,7 +88,6 @@ function getStreamFromPage(pageUrl) {
         var m3u8 = data.videoSource || data.securedLink
         if (!m3u8) return null
         
-        // Extract content hash for subtitle path
         var contentHashM = m3u8.match(/\/cdn\/hls\/([a-f0-9]+)\//)
         var contentHash  = contentHashM ? contentHashM[1] : videoHash
         var subtitleUrl = PLAYER + '/cdn/down/' + contentHash + '/Subtitle/subtitle_eng.srt'
@@ -121,13 +119,11 @@ function getStreams(tmdbId, mediaType, season, episode) {
       .then(function(streamData) {
         if (!streamData) { resolve([]); return }
 
-        // MATCHING ANIMESALT STRUCTURE EXACTLY:
         resolve([{
-          name: '🗡️ ZoroLost',
-          title: 'ZoroLost • Multi-Audio 1080p',
+          name: '📽️ AnimeWorld',
+          title: 'AnimeWorld • Multi-Audio 1080p',
           url: streamData.url,
           quality: '1080p',
-          // Use direct headers property instead of behaviorHints
           headers: {
             'Referer': PLAYER + '/',
             'Origin': PLAYER,

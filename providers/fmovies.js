@@ -1,114 +1,82 @@
 // ================================================================
-// ZoroLost — Android TV "Final Fix" (ExoPlayer Optimized)
+// ZoroLost — Android TV "Barebones" Version (Maximum Compatibility)
 // ================================================================
 
 var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305';
 var BASE     = 'https://watchanimeworld.net';
 var PLAYER   = 'https://play.zephyrflick.top';
-
-// Using an older, more "Standard" Chrome UA that ExoPlayer handles better
-var UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36';
-
-function withTimeout(promise, ms) {
-  var killer = new Promise(function(_, reject) {
-    setTimeout(function() { reject(new Error('Timeout')); }, ms);
-  });
-  return Promise.race([promise, killer]);
-}
+var UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
 function httpGet(url, extra) {
   return fetch(url, {
-    headers: Object.assign({ 'User-Agent': UA, 'Accept': '*/*' }, extra || {})
+    headers: Object.assign({ 'User-Agent': UA }, extra || {})
   }).then(function(r) { return r.text(); });
 }
 
-function httpPost(url, body, extra) {
+function httpPost(url, body) {
   return fetch(url, {
     method: 'POST',
-    headers: Object.assign({
+    headers: {
       'User-Agent': UA,
       'Content-Type': 'application/x-www-form-urlencoded',
-      'Origin': PLAYER,
+      'X-Requested-With': 'XMLHttpRequest',
       'Referer': PLAYER + '/'
-    }, extra || {}),
+    },
     body: body
   }).then(function(r) { return r.json(); });
 }
 
-// ── Extraction Logic ─────────────────────────────────────────────
+// ── Search & Extraction ──────────────────────────────────────────
 
-function searchSite(title, mediaType) {
-  var url = BASE + '/?s=' + encodeURIComponent(title);
+function searchSite(title, type) {
+  return httpGet(BASE + '/?s=' + encodeURIComponent(title)).then(function(html) {
+    var match = html.match(new RegExp('href="(https:\\/\\/watchanimeworld\\.net\\/' + (type === 'movie' ? 'movies' : 'series') + '\\/([^\\/\\"]+)\\/)"'));
+    return match ? match[1] : null;
+  });
+}
+
+function getEp(url, s, e) {
   return httpGet(url).then(function(html) {
-    var re = /href="(https:\/\/watchanimeworld\.net\/(series|movies)\/([^\/\"]+)\/)"/g;
-    var m, results = [];
-    while ((m = re.exec(html)) !== null) {
-      if (m[3] !== 'page') results.push({ url: m[1], type: m[2] });
-    }
-    return results.filter(function(r) { 
-        return mediaType === 'movie' ? r.type === 'movies' : r.type === 'series'; 
+    var id = (html.match(/postid-(\d+)/) || html.match(/data-post="(\d+)"/))[1];
+    var ajax = BASE + '/wp-admin/admin-ajax.php?action=action_select_season&season=' + s + '&post=' + id;
+    return httpGet(ajax).then(function(h) {
+      var m = h.match(new RegExp('href="(https:\\/\\/watchanimeworld\\.net\\/episode\\/[^"]*' + s + 'x' + e + '\\/)"'));
+      return m ? m[1] : null;
     });
   });
 }
 
-function getEpisodeUrl(seriesUrl, season, episode) {
-  return httpGet(seriesUrl).then(function(html) {
-    var pidM = html.match(/postid-(\d+)/) || html.match(/data-post="(\d+)"/);
-    if (!pidM) return null;
-    var ajaxUrl = BASE + '/wp-admin/admin-ajax.php?action=action_select_season&season=' + season + '&post=' + pidM[1];
-    return httpGet(ajaxUrl).then(function(epHtml) {
-      var suffix = season + 'x' + episode + '/';
-      var re = /href="(https:\/\/watchanimeworld\.net\/episode\/([^"]+))"/g;
-      var m;
-      while ((m = re.exec(epHtml)) !== null) {
-        if (m[1].includes(suffix)) return m[1];
-      }
-      return null;
-    });
+function getFinal(url) {
+  return httpGet(url).then(function(html) {
+    var m = html.match(/src="(https:\/\/play\.zephyrflick\.top\/video\/([a-f0-9]+))"/);
+    if (!m) return null;
+    return httpPost(PLAYER + '/player/index.php?data=' + m[2] + '&do=getVideo', 'hash=' + m[2] + '&r=' + encodeURIComponent(BASE + '/'));
   });
 }
 
-// ── Stream Fetching ──────────────────────────────────────────────
-
-function getFinalStream(pageUrl) {
-  return httpGet(pageUrl).then(function(html) {
-    var iframeM = html.match(/src="(https:\/\/play\.zephyrflick\.top\/video\/([a-f0-9]+))"/);
-    if (!iframeM) return null;
-    var hash = iframeM[2];
-
-    return httpPost(
-      PLAYER + '/player/index.php?data=' + hash + '&do=getVideo',
-      'hash=' + hash + '&r=' + encodeURIComponent(BASE + '/')
-    ).then(function(data) {
-        return data.videoSource || data.securedLink || null;
-    });
-  });
-}
-
-// ── Main Export ──────────────────────────────────────────────────
+// ── Main ─────────────────────────────────────────────────────────
 
 function getStreams(tmdbId, mediaType, season, episode) {
   return new Promise(function(resolve) {
-    var chain = fetch('https://api.themoviedb.org/3/' + (mediaType === 'movie' ? 'movie' : 'tv') + '/' + tmdbId + '?api_key=' + TMDB_KEY)
+    fetch('https://api.themoviedb.org/3/' + (mediaType === 'movie' ? 'movie' : 'tv') + '/' + tmdbId + '?api_key=' + TMDB_KEY)
     .then(function(r) { return r.json(); })
     .then(function(meta) {
       return searchSite(meta.title || meta.name, mediaType);
     })
-    .then(function(results) {
-      if (!results || !results.length) return null;
-      var target = results[0].url;
-      return (mediaType === 'movie') ? getFinalStream(target) : getEpisodeUrl(target, season, episode).then(function(u) { return u ? getFinalStream(u) : null; });
+    .then(function(url) {
+      if (!url) return null;
+      return (mediaType === 'movie') ? getFinal(url) : getEp(url, season, episode).then(getFinal);
     })
-    .then(function(m3u8Url) {
-      if (!m3u8Url) return resolve([]);
+    .then(function(res) {
+      var streamUrl = res ? (res.videoSource || res.securedLink) : null;
+      if (!streamUrl) return resolve([]);
 
       resolve([{
-        name: '🗡️ ZoroLost [TV-FIX]',
+        name: '🗡️ ZoroLost TV',
         title: 'Multi-Audio | 1080p',
-        url: m3u8Url,
+        url: streamUrl,
         behaviorHints: {
           notInterpreted: true,
-          // TV players need these headers passed directly to the networking stack
           proxyHeaders: {
             request: {
               'User-Agent': UA,
@@ -121,8 +89,9 @@ function getStreams(tmdbId, mediaType, season, episode) {
       }]);
     })
     .catch(function() { resolve([]); });
-
-    withTimeout(chain, 12000).catch(function() { resolve([]); });
+    
+    // Safety timeout
+    setTimeout(function() { resolve([]); }, 12000);
   });
 }
 

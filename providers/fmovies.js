@@ -1,16 +1,16 @@
 // ================================================================
-// ZoroLost — Android TV "Barebones" Version (Maximum Compatibility)
+// ZoroLost — Android TV "Final Stand" Version
 // ================================================================
 
 var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305';
 var BASE     = 'https://watchanimeworld.net';
 var PLAYER   = 'https://play.zephyrflick.top';
-var UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
-function httpGet(url, extra) {
-  return fetch(url, {
-    headers: Object.assign({ 'User-Agent': UA }, extra || {})
-  }).then(function(r) { return r.text(); });
+// Using a UA that mimics a generic Android Tablet to get better compatibility
+var UA = 'Mozilla/5.0 (Linux; Android 13; Pixel Tablet) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36';
+
+function httpGet(url) {
+  return fetch(url, { headers: { 'User-Agent': UA } }).then(function(r) { return r.text(); });
 }
 
 function httpPost(url, body) {
@@ -26,72 +26,70 @@ function httpPost(url, body) {
   }).then(function(r) { return r.json(); });
 }
 
-// ── Search & Extraction ──────────────────────────────────────────
-
-function searchSite(title, type) {
-  return httpGet(BASE + '/?s=' + encodeURIComponent(title)).then(function(html) {
-    var match = html.match(new RegExp('href="(https:\\/\\/watchanimeworld\\.net\\/' + (type === 'movie' ? 'movies' : 'series') + '\\/([^\\/\\"]+)\\/)"'));
-    return match ? match[1] : null;
-  });
-}
-
-function getEp(url, s, e) {
-  return httpGet(url).then(function(html) {
-    var id = (html.match(/postid-(\d+)/) || html.match(/data-post="(\d+)"/))[1];
-    var ajax = BASE + '/wp-admin/admin-ajax.php?action=action_select_season&season=' + s + '&post=' + id;
-    return httpGet(ajax).then(function(h) {
-      var m = h.match(new RegExp('href="(https:\\/\\/watchanimeworld\\.net\\/episode\\/[^"]*' + s + 'x' + e + '\\/)"'));
-      return m ? m[1] : null;
-    });
-  });
-}
-
-function getFinal(url) {
-  return httpGet(url).then(function(html) {
-    var m = html.match(/src="(https:\/\/play\.zephyrflick\.top\/video\/([a-f0-9]+))"/);
-    if (!m) return null;
-    return httpPost(PLAYER + '/player/index.php?data=' + m[2] + '&do=getVideo', 'hash=' + m[2] + '&r=' + encodeURIComponent(BASE + '/'));
-  });
-}
-
-// ── Main ─────────────────────────────────────────────────────────
-
 function getStreams(tmdbId, mediaType, season, episode) {
   return new Promise(function(resolve) {
+    // 1. Get Title from TMDB
     fetch('https://api.themoviedb.org/3/' + (mediaType === 'movie' ? 'movie' : 'tv') + '/' + tmdbId + '?api_key=' + TMDB_KEY)
     .then(function(r) { return r.json(); })
     .then(function(meta) {
-      return searchSite(meta.title || meta.name, mediaType);
+      var title = meta.title || meta.name;
+      // 2. Search Site
+      return httpGet(BASE + '/?s=' + encodeURIComponent(title));
     })
-    .then(function(url) {
-      if (!url) return null;
-      return (mediaType === 'movie') ? getFinal(url) : getEp(url, season, episode).then(getFinal);
+    .then(function(html) {
+      var typeStr = (mediaType === 'movie' ? 'movies' : 'series');
+      var match = html.match(new RegExp('href="(https:\\/\\/watchanimeworld\\.net\\/' + typeStr + '\\/([^\\/\\"]+)\\/)"'));
+      if (!match) throw new Error('Not Found');
+      var url = match[1];
+
+      // 3. Get Episode or Direct Movie Page
+      if (mediaType === 'movie') return url;
+      return httpGet(url).then(function(sHtml) {
+        var id = sHtml.match(/postid-(\d+)/)[1];
+        var ajax = BASE + '/wp-admin/admin-ajax.php?action=action_select_season&season=' + season + '&post=' + id;
+        return httpGet(ajax).then(function(eHtml) {
+          var m = eHtml.match(new RegExp('href="(https:\\/\\/watchanimeworld\\.net\\/episode\\/[^"]*' + season + 'x' + episode + '\\/)"'));
+          return m ? m[1] : null;
+        });
+      });
+    })
+    .then(function(finalPage) {
+      if (!finalPage) return null;
+      return httpGet(finalPage);
+    })
+    .then(function(html) {
+      // 4. Extract Video Data
+      var m = html.match(/src="(https:\/\/play\.zephyrflick\.top\/video\/([a-f0-9]+))"/);
+      if (!m) return null;
+      var hash = m[2];
+      return httpPost(PLAYER + '/player/index.php?data=' + hash + '&do=getVideo', 'hash=' + hash + '&r=' + encodeURIComponent(BASE + '/'));
     })
     .then(function(res) {
-      var streamUrl = res ? (res.videoSource || res.securedLink) : null;
-      if (!streamUrl) return resolve([]);
+      var stream = res ? (res.videoSource || res.securedLink) : null;
+      if (!stream) return resolve([]);
 
       resolve([{
-        name: '🗡️ ZoroLost TV',
-        title: 'Multi-Audio | 1080p',
-        url: streamUrl,
+        name: '🗡️ ZoroLost [TV-PRO]',
+        title: 'Multi-Audio | 1080p | Fix Applied',
+        url: stream,
         behaviorHints: {
           notInterpreted: true,
+          bingeGroup: 'zorolost-tv-final', // Changed to clear cache
           proxyHeaders: {
             request: {
               'User-Agent': UA,
               'Referer': PLAYER + '/',
               'Origin': PLAYER,
-              'Connection': 'keep-alive'
+              'Connection': 'keep-alive',
+              'Accept-Language': 'en-US,en;q=0.9'
             }
           }
         }
       }]);
     })
     .catch(function() { resolve([]); });
-    
-    // Safety timeout
-    setTimeout(function() { resolve([]); }, 12000);
+
+    setTimeout(function() { resolve([]); }, 15000); // 15s timeout for slow TV hardware
   });
 }
 

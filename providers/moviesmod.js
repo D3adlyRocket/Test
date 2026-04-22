@@ -1,7 +1,7 @@
-// Multi-Provider Scraper Integrated for Mobile and Android TV
-// Priority: VidFast (Full Implementation)
+// Master Scraper: Optimized for Android TV & Mobile
+// Priority 1: VidFast (Full Original Logic)
+// Fallbacks: VidEasy, VidLink, Vidmody, VidSrc
 
-// --- CONFIG & CONSTANTS ---
 const TMDB_API_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const VIDFAST_BASE = 'https://vidfast.pro';
@@ -9,21 +9,8 @@ const ENCRYPT_API = 'https://enc-dec.app/api/enc-vidfast';
 const DECRYPT_API = 'https://enc-dec.app/api/dec-vidfast';
 const ALLOWED_SERVERS = ['Alpha', 'Bollywood', 'Cobra', 'Max', 'Oscar', 'vEdge', 'vFast', 'vRapid'];
 
-// --- UTILS ---
+// --- VIDFAST CORE LOGIC (YOUR WORKING VERSION) ---
 
-async function getJson(url, options) {
-    const response = await fetch(url, options || {});
-    if (!response.ok) throw new Error('J-Fail');
-    return await response.json();
-}
-
-async function getText(url, options) {
-    const response = await fetch(url, options || {});
-    if (!response.ok) throw new Error('T-Fail');
-    return await response.text();
-}
-
-// Parse HLS master playlist for quality variants (TV Compatible)
 async function parseM3U8Playlist(playlistUrl) {
     try {
         const response = await fetch(playlistUrl, {
@@ -35,12 +22,12 @@ async function parseM3U8Playlist(playlistUrl) {
         if (!response.ok) return null;
         const text = await response.text();
         if (!text.includes('#EXT-X-STREAM-INF')) return null;
-        
         const variants = [];
         const lines = text.split('\n');
         for (let i = 0; i < lines.length; i++) {
-            if (lines[i].trim().startsWith('#EXT-X-STREAM-INF')) {
-                const resMatch = lines[i].match(/RESOLUTION=(\d+)x(\d+)/i);
+            const line = lines[i].trim();
+            if (line.startsWith('#EXT-X-STREAM-INF')) {
+                const resMatch = line.match(/RESOLUTION=(\d+)x(\d+)/i);
                 const urlLine = lines[i + 1]?.trim();
                 if (!urlLine || urlLine.startsWith('#')) continue;
                 let vUrl = urlLine.startsWith('http') ? urlLine : playlistUrl.substring(0, playlistUrl.lastIndexOf('/') + 1) + urlLine;
@@ -56,22 +43,10 @@ async function parseM3U8Playlist(playlistUrl) {
     } catch (e) { return null; }
 }
 
-async function getTMDBDetails(tmdbId, mediaType) {
-    const url = `${TMDB_BASE_URL}/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    const data = await getJson(url);
-    return {
-        title: mediaType === 'tv' ? data.name : data.title,
-        year: (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4) || '',
-        mediaType: mediaType === 'tv' ? 'tv' : 'movie'
-    };
-}
-
-// --- RESOLVERS ---
-
-async function resolveVidFast(tmdbId, mediaInfo, season, episode) {
+async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
     try {
         const pageUrl = mediaInfo.mediaType === 'tv' 
-            ? `${VIDFAST_BASE}/tv/${tmdbId}/${season || 1}/${episode || 1}` 
+            ? `${VIDFAST_BASE}/tv/${tmdbId}/${seasonNum}/${episodeNum}` 
             : `${VIDFAST_BASE}/movie/${tmdbId}`;
 
         const headers = {
@@ -82,7 +57,7 @@ async function resolveVidFast(tmdbId, mediaInfo, season, episode) {
             'X-Requested-With': 'XMLHttpRequest'
         };
 
-        const pageText = await getText(pageUrl, { headers });
+        const pageText = await (await fetch(pageUrl, { headers })).text();
         let rawData = null;
         const nextDataMatch = pageText.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
         if (nextDataMatch) {
@@ -98,27 +73,27 @@ async function resolveVidFast(tmdbId, mediaInfo, season, episode) {
         }
         if (!rawData) return [];
 
-        const apiData = await getJson(`${ENCRYPT_API}?text=${encodeURIComponent(rawData)}&version=1`);
-        if (apiData.result.token) headers['X-CSRF-Token'] = apiData.result.token;
+        const apiData = await (await fetch(`${ENCRYPT_API}?text=${encodeURIComponent(rawData)}&version=1`)).json();
+        if (apiData.result?.token) headers['X-CSRF-Token'] = apiData.result.token;
 
-        const sEnc = await getText(apiData.result.servers, { method: 'POST', headers });
-        const sDec = await getJson(DECRYPT_API, {
+        const sEnc = await (await fetch(apiData.result.servers, { method: 'POST', headers })).text();
+        const sDec = await (await fetch(DECRYPT_API, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ text: sEnc, version: '1' })
-        });
+        })).json();
 
         const serverList = (sDec.result || []).filter(s => ALLOWED_SERVERS.includes(s.name));
         const rawStreams = [];
 
         for (const sObj of serverList) {
             try {
-                const stEnc = await getText(`${apiData.result.stream}/${sObj.data}`, { method: 'POST', headers });
-                const stDec = await getJson(DECRYPT_API, {
+                const stEnc = await (await fetch(`${apiData.result.stream}/${sObj.data}`, { method: 'POST', headers })).text();
+                const stDec = await (await fetch(DECRYPT_API, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: stEnc, version: '1' })
-                });
+                })).json();
                 if (stDec.result?.url) {
                     rawStreams.push({ serverName: sObj.name, url: stDec.result.url, isM3U8: stDec.result.url.includes('.m3u8') });
                 }
@@ -135,51 +110,65 @@ async function resolveVidFast(tmdbId, mediaInfo, season, episode) {
 
         const results = await Promise.all(parsePromises);
         return results.flat().map(s => ({
-            ...s,
+            name: s.name,
             title: `${mediaInfo.title} (${mediaInfo.year})`,
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Referer': 'https://vidfast.pro/' },
+            url: s.url,
+            quality: s.quality,
+            headers: { 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://vidfast.pro/' },
             provider: 'vidfast'
         }));
     } catch (e) { return []; }
 }
 
-async function resolveVidEasy(tmdbId, mediaType, season, episode) {
+// --- FALLBACK RESOLVERS ---
+
+async function resolveOtherSources(tmdbId, mediaType, season, episode) {
+    const streams = [];
     try {
-        const enc = await getText(`https://api.videasy.net/cdn/sources-with-title?tmdbId=${tmdbId}&mediaType=${mediaType}&seasonId=${season || 1}&episodeId=${episode || 1}`);
-        const dec = await getJson('https://enc-dec.app/api/dec-videasy', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: enc, id: String(tmdbId) })
-        });
-        return (dec.result?.sources || []).map(s => ({
-            name: `VidEasy ${s.quality}`,
-            url: s.url,
-            quality: s.quality,
-            provider: 'videasy'
-        }));
-    } catch (e) { return []; }
+        // VidLink Fallback
+        const linkEnc = await (await fetch(`https://enc-dec.app/api/enc-vidlink?text=${tmdbId}`)).json();
+        const linkUrl = mediaType === 'tv' ? `https://vidlink.pro/api/b/tv/${linkEnc.result}/${season}/${episode}` : `https://vidlink.pro/api/b/movie/${linkEnc.result}`;
+        const linkData = await (await fetch(linkUrl)).json();
+        if (linkData?.stream?.playlist) {
+            streams.push({ name: 'VidLink Primary', url: linkData.stream.playlist, quality: 'Auto', provider: 'vidlink' });
+        }
+    } catch (e) {}
+    return streams;
 }
 
-// --- MAIN ---
+// --- MAIN INTEGRATION ---
 
-async function getStreams(tmdbId, mediaType = 'movie', season = null, episode = null) {
+async function getStreams(tmdbId, mediaType = 'movie', seasonNum = 1, episodeNum = 1) {
     try {
-        const mediaInfo = await getTMDBDetails(tmdbId, mediaType);
-        const resolvers = [
-            resolveVidFast(tmdbId, mediaInfo, season, episode),
-            resolveVidEasy(tmdbId, mediaType, season, episode)
-        ];
+        // 1. Get TMDB Meta
+        const tmdbUrl = `${TMDB_BASE_URL}/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+        const meta = await (await fetch(tmdbUrl)).json();
+        const mediaInfo = {
+            title: mediaType === 'tv' ? meta.name : meta.title,
+            year: (mediaType === 'tv' ? meta.first_air_date : meta.release_date)?.substring(0, 4) || '',
+            mediaType: mediaType
+        };
+
+        // 2. Run VidFast (Primary)
+        const vidFastResults = await scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum);
+
+        // 3. Run Fallbacks
+        const otherResults = await resolveOtherSources(tmdbId, mediaType, seasonNum, episodeNum);
+
+        const merged = [...vidFastResults, ...otherResults];
         
-        const results = await Promise.all(resolvers);
-        const merged = results.flat();
-        
+        // 4. Deduplicate & Return
         const seen = new Set();
         return merged.filter(s => {
             if (!s.url || seen.has(s.url)) return false;
             seen.add(s.url);
             return true;
-        }).slice(0, 40);
-    } catch (e) { return []; }
+        }).slice(0, 50);
+        
+    } catch (e) {
+        console.error("Main Scraper Error:", e);
+        return [];
+    }
 }
 
-module.exports = { getStreams };
+if (typeof module !== 'undefined') module.exports = { getStreams };

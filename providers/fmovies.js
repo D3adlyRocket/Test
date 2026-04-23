@@ -7,22 +7,24 @@ var HM_WORKER    = 'https://hindmoviez.s4nch1tt.workers.dev';
 
 var DEFAULT_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
 };
 
-// Helper: Ensure we have a valid URL
 function hmProxyUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') return rawUrl;
+  if (!rawUrl) return rawUrl;
   return HM_WORKER + '/hm/proxy?url=' + encodeURIComponent(rawUrl);
 }
 
-// Logic: Extract Metadata from text
-function getInfo(text) {
-  var q = text.match(/\b(2160p|1080p|720p|480p|4K)\b/i);
-  var s = text.match(/\[([0-9.]+\s*(?:MB|GB))\]/i);
-  return {
-    quality: q ? q[1].replace(/4K/i, '2160p') : '720p',
-    size: s ? s[1] : ''
-  };
+// ─────────────────────────────────────────────────────────────────────────────
+// The Secret Sauce: A fail-safe Fetch that works on TV & Mobile
+// ─────────────────────────────────────────────────────────────────────────────
+function safeFetch(url) {
+  return fetch(url, { headers: DEFAULT_HEADERS, redirect: 'follow' })
+    .then(function(res) { 
+      if (!res.ok) return null;
+      return res.text(); 
+    })
+    .catch(function() { return null; });
 }
 
 function getStreams(tmdbId, type, season, episode) {
@@ -32,81 +34,77 @@ function getStreams(tmdbId, type, season, episode) {
   return fetch(tmdbUrl)
     .then(function(res) { return res.json(); })
     .then(function(details) {
-      if (!details) throw new Error('TMDB Failed');
+      if (!details) return [];
       var query = isSeries ? details.name : details.title;
-      console.log(PLUGIN_TAG + ' Searching: ' + query);
-      return fetch(BASE_URL + '/?s=' + encodeURIComponent(query), { headers: DEFAULT_HEADERS });
+      return safeFetch(BASE_URL + '/?s=' + encodeURIComponent(query));
     })
-    .then(function(res) { return res.text(); })
     .then(function(html) {
-      // Find the first article link
-      var match = html.match(/<h2 class="entry-title"><a href="([^"]+)"/i);
-      if (!match) return [];
-      return fetch(match[1], { headers: DEFAULT_HEADERS }).then(function(res) { return res.text(); });
+      if (!html) return [];
+      // Look for article links
+      var linkMatch = html.match(/<h2[^>]*class="entry-title"[^>]*>\s*<a\s[^>]*href="([^"]+)"/i) || html.match(/<a\s[^>]*href="([^"]+)"[^>]*rel="bookmark"/i);
+      if (!linkMatch) return [];
+      return safeFetch(linkMatch[1]);
     })
     .then(function(pageHtml) {
-      if (!pageHtml || typeof pageHtml !== 'string') return [];
-      
+      if (!pageHtml) return [];
+
       var streams = [];
       var resolvePromises = [];
-      // Split by H3 to get quality-specific sections
+      // Split page into chunks by H3 so we don't mix up quality info
       var sections = pageHtml.split(/<h3/i);
 
-      for (var i = 0; i < sections.length; i++) {
-        var section = sections[i];
-        var mvMatch = section.match(/href="(https:\/\/mvlink\.site\/[^"]+)"/i);
+      for (var i = 1; i < sections.length; i++) {
+        var chunk = sections[i];
+        var mvMatch = chunk.match(/href="(https:\/\/mvlink\.site\/[^"]+)"/i);
         
         if (mvMatch) {
-          var meta = getInfo(section);
-          (function(mUrl, info) {
-            var p = fetch(mUrl, { headers: DEFAULT_HEADERS })
-              .then(function(r) { return r.text(); })
+          // Extract info from the H3 text (before the </h3>)
+          var headingText = chunk.split('</h3>')[0];
+          var qMatch = headingText.match(/\b(2160p|1080p|720p|480p|4K)\b/i);
+          var quality = qMatch ? qMatch[1].toLowerCase().replace('4k', '2160p') : '720p';
+          var sizeMatch = headingText.match(/\[([0-9.]+\s*(?:MB|GB))\]/i);
+          var size = sizeMatch ? sizeMatch[1] : '';
+
+          (function(mvUrl, q, sz) {
+            var p = safeFetch(mvUrl)
               .then(function(mvHtml) {
-                var hshare = mvHtml.match(/href="(https:\/\/hshare\.ink\/[^"]+)"/i);
-                if (!hshare) return null;
-                return fetch(hshare[1], { headers: DEFAULT_HEADERS }).then(function(r) { return r.text(); });
+                if (!mvHtml) return null;
+                var hs = mvHtml.match(/href="(https:\/\/hshare\.ink\/[^"]+)"/i);
+                return hs ? safeFetch(hs[1]) : null;
               })
               .then(function(hsHtml) {
                 if (!hsHtml) return null;
-                var hpage = hsHtml.match(/href="([^"]+)"[^>]*>HPage<\/a>/i);
-                if (!hpage) return null;
-                return fetch(hpage[1], { headers: DEFAULT_HEADERS }).then(function(r) { return r.text(); });
+                var hp = hsHtml.match(/href="([^"]+)"[^>]*>HPage<\/a>/i);
+                return hp ? safeFetch(hp[1]) : null;
               })
               .then(function(hcHtml) {
                 if (!hcHtml) return;
-                // Find all Server Links
+                // Regex for server links: matches Server 1, Server 2, etc.
                 var srvRe = /<a[^>]*href="([^"]+)"[^>]*>(Server\s+\d+)<\/a>/gi;
                 var sMatch;
                 while ((sMatch = srvRe.exec(hcHtml)) !== null) {
                   streams.push({
-                    name: '🎬 HindMoviez | ' + sMatch[2] + ' | ' + info.quality,
-                    title: '📺 ' + info.quality + ' | 💾 ' + info.size + '\nBy Sanchit',
+                    name: '🎬 HindMoviez | ' + sMatch[2] + ' | ' + q.toUpperCase(),
+                    title: '📺 ' + q.toUpperCase() + ' • 💾 ' + sz + '\nSanchit Plugin (TV Mode)',
                     url: hmProxyUrl(sMatch[1]),
-                    quality: info.quality.toLowerCase(),
+                    quality: q,
                     behaviorHints: { notWebReady: false }
                   });
                 }
-              })
-              .catch(function(e) { console.log('Chain error'); });
+              });
             resolvePromises.push(p);
-          })(mvMatch[1], meta);
+          })(mvMatch[1], quality, size);
         }
       }
 
       return Promise.all(resolvePromises).then(function() {
-        console.log(PLUGIN_TAG + ' Found ' + streams.length + ' streams');
         return streams;
       });
     })
     .catch(function(err) {
-      console.log(PLUGIN_TAG + ' Error: ' + err);
       return [];
     });
 }
 
-// Standard Export
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams: getStreams };
-} else {
-  global.getStreams = getStreams;
-}
+if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; } 
+else { global.getStreams = getStreams; }

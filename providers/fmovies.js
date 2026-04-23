@@ -1,5 +1,5 @@
 // StreamM4U Provider for Nuvio
-// Optimized for SV Emb1 (rpmvip.com) extraction
+// Focus: ID Extraction + RPMVIP Header Fix
 
 var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305';
 var BASE = 'https://streamm4u.com.co';
@@ -7,14 +7,13 @@ var UA = 'Mozilla/5.0 (Linux; Android 15; ALT-NX1 Build/HONORALT-N31; wv) AppleW
 
 function httpGet(url, headers) {
     return fetch(url, {
-        headers: Object.assign({ 'User-Agent': UA }, headers || {})
+        headers: Object.assign({ 'User-Agent': UA, 'Referer': BASE + '/' }, headers || {})
     }).then(function(r) { return r.text(); });
 }
 
 function searchSite(title) {
-    // StreamM4U search format
     var url = BASE + '/search/' + encodeURIComponent(title).replace(/%20/g, '+');
-    return httpGet(url, { 'Referer': BASE + '/' }).then(function(html) {
+    return httpGet(url).then(function(html) {
         var results = [];
         var movieRegex = /<div class="movie-box">[\s\S]*?href="([^"]+)" title="([^"]+)"/g;
         var match;
@@ -26,24 +25,35 @@ function searchSite(title) {
 }
 
 function extractStream(movieUrl) {
-    return httpGet(movieUrl, { 'Referer': BASE + '/' }).then(function(html) {
-        // Look for the iframe that contains the rpmvip.com domain
-        var rpmMatch = html.match(/src="(https:\/\/youtube-prime\.rpmvip\.com\/[^"]+)"/i);
-        
-        if (!rpmMatch) {
-            // Fallback: Check if it's hidden in a data-src or a script variable
-            rpmMatch = html.match(/["'](https:\/\/youtube-prime\.rpmvip\.com\/[^"']+)["']/i);
+    return httpGet(movieUrl).then(function(html) {
+        // Step 1: Find the Movie ID (Post ID)
+        var idMatch = html.match(/data-id="(\d+)"/) || html.match(/id\s*=\s*["'](\d+)["']/);
+        if (!idMatch) {
+            // Step 2: Fallback - try to find the rpmvip link directly in the page source
+            var directMatch = html.match(/src="(https:\/\/youtube-prime\.rpmvip\.com\/[^"]+)"/i);
+            if (directMatch) return directMatch[1];
+            return null;
         }
 
-        if (rpmMatch) {
-            var playerUrl = rpmMatch[1];
-            // Now fetch the player page to find the master.m3u8
-            return httpGet(playerUrl, { 'Referer': movieUrl }).then(function(playerHtml) {
-                var m3u8Match = playerHtml.match(/(https:\/\/[^"']+\.m3u8[^"']*)/i);
-                return m3u8Match ? m3u8Match[1] : playerUrl; // Return URL or the player page
-            });
-        }
-        return null;
+        var movieId = idMatch[1];
+        
+        // Step 3: Call the source fetcher (Simulating the 'SV Emb1' click)
+        // StreamM4U often uses this endpoint for its server list
+        return fetch(BASE + '/ajax/movie/get_sources/' + movieId, {
+            method: 'POST',
+            headers: {
+                'User-Agent': UA,
+                'Referer': movieUrl,
+                'X-Requested-With': 'XMLHttpRequest',
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: 'id=' + movieId + '&type=movie'
+        }).then(function(r) { return r.json(); }).then(function(json) {
+            // Look for the rpmvip URL in the JSON response
+            var src = json.src || json.embed_url || '';
+            if (src.includes('rpmvip.com')) return src;
+            return null;
+        }).catch(function() { return null; });
     });
 }
 
@@ -55,27 +65,32 @@ function getStreams(tmdbId, mediaType) {
             var title = data.title || data.name;
             return searchSite(title);
         }).then(function(results) {
-            if (!results || results.length === 0) throw new Error('Not found');
-            // Try the first result
+            if (!results || results.length === 0) throw new Error('No results');
+            // Select the most relevant search result
             return extractStream(results[0].url);
         }).then(function(finalUrl) {
             if (!finalUrl) { resolve([]); return; }
 
+            // Ensure the URL is clean (no escaped slashes)
+            var cleanUrl = finalUrl.replace(/\\/g, '');
+
             resolve([{
                 name: '🎬 StreamM4U (SV Emb1)',
-                title: 'Full HD • rpmvip',
-                url: finalUrl,
+                title: 'Multi-Server • 1080p',
+                url: cleanUrl,
                 quality: '1080p',
                 headers: {
                     'User-Agent': UA,
-                    'Referer': 'https://youtube-prime.rpmvip.com/', // New critical Referer
-                    'Accept': '*/*',
+                    'Referer': 'https://youtube-prime.rpmvip.com/',
                     'Origin': 'https://youtube-prime.rpmvip.com',
-                    'Sec-Fetch-Mode': 'cors'
+                    'Accept': '*/*',
+                    'Sec-Fetch-Dest': 'video',
+                    'Sec-Fetch-Mode': 'cors',
+                    'Sec-Fetch-Site': 'cross-site'
                 }
             }]);
         }).catch(function(err) {
-            console.error('[StreamM4U] Error: ' + err.message);
+            console.error('[StreamM4U] Failed: ' + err.message);
             resolve([]);
         });
     });

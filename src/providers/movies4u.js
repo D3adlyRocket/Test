@@ -1,85 +1,170 @@
 /**
- * Movies4u - Rebuilt in AnimeWorld India Style
- * Optimized for Nuvio Android TV
+ * Movies4u - Universal Nuvio Provider
+ * Optimized for Mobile + Android TV (Hermes Engine)
  */
+var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = function(obj, key, value) { return key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value: value }) : obj[key] = value; };
+var __spreadValues = function(a, b) {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
+var __spreadProps = function(a, b) { return __defProps(a, __getOwnPropDescs(b)); };
+var __async = function(__this, __arguments, generator) {
+  return new Promise(function(resolve, reject) {
+    var fulfilled = function(value) { try { step(generator.next(value)); } catch (e) { reject(e); } };
+    var rejected = function(value) { try { step(generator.throw(value)); } catch (e) { reject(e); } };
+    var step = function(x) { return x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected); };
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
 
-var TMDB_KEY = '1b3113663c9004682ed61086cf967c44'
-var BASE     = 'https://new1.movies4u.style'
-var M4U_PLAY = 'https://m4uplay.store'
-var UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+var cheerio = require("cheerio-without-node-native");
+var TMDB_API_KEY = "1b3113663c9004682ed61086cf967c44";
+var TMDB_BASE_URL = "https://api.themoviedb.org/3";
+var MAIN_URL = "https://new1.movies4u.style";
+var M4UPLAY_BASE = "https://m4uplay.store";
+var HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+  "Referer": MAIN_URL + "/"
+};
 
-function httpGet(url, headers) {
-  return fetch(url, {
-    headers: Object.assign({ 
-      'User-Agent': UA,
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.5'
-    }, headers || {})
-  }).then(function(r) {
-    if (!r.ok) throw new Error('HTTP ' + r.status)
-    return r.text()
-  })
+function fetchWithTimeout(url, options, timeout) {
+  var options = options || {};
+  var timeout = timeout || 1e4;
+  return __async(this, null, function* () {
+    var controller = new AbortController();
+    var timeoutId = setTimeout(function() { controller.abort(); }, timeout);
+    try {
+      var response = yield fetch(url, __spreadProps(__spreadValues({}, options), {
+        signal: controller.signal
+      }));
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
+  });
+}
+
+function normalizeTitle(title) {
+  if (!title) return "";
+  return title.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
+}
+
+function calculateTitleSimilarity(title1, title2) {
+  var norm1 = normalizeTitle(title1);
+  var norm2 = normalizeTitle(title2);
+  if (norm1 === norm2) return 1;
+  if (norm1.indexOf(norm2) !== -1 || norm2.indexOf(norm1) !== -1) return 0.9;
+  var words1 = norm1.split(/\s+/).filter(function(w) { return w.length > 2; });
+  var words2 = norm2.split(/\s+/).filter(function(w) { return w.length > 2; });
+  if (words1.length === 0 || words2.length === 0) return 0;
+  var intersection = words1.filter(function(w) { return words2.indexOf(w) !== -1; });
+  return intersection.length / (words1.length + words2.length - intersection.length);
+}
+
+function findBestTitleMatch(mediaInfo, searchResults) {
+  if (!searchResults || searchResults.length === 0) return null;
+  var targetTitle = mediaInfo.title.toLowerCase().replace(/[^a-z0-9]/g, "");
+  var targetYear = mediaInfo.year ? parseInt(mediaInfo.year) : null;
+  var bestMatch = null;
+  var bestScore = 0;
+  for (var i = 0; i < searchResults.length; i++) {
+    var result = searchResults[i];
+    var normalizedResultTitle = result.title.toLowerCase().replace(/[^a-z0-9]/g, "");
+    var score = calculateTitleSimilarity(mediaInfo.title, result.title);
+    var titleMatch = normalizedResultTitle.indexOf(targetTitle) !== -1 || targetTitle.indexOf(normalizedResultTitle) !== -1;
+    var yearMatch = !targetYear || result.title.indexOf(targetYear.toString()) !== -1;
+    if (titleMatch && yearMatch) score += 0.5;
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = result;
+    }
+  }
+  return bestScore > 0.4 ? bestMatch : null;
+}
+
+function formatStreamTitle(mediaInfo, stream) {
+  var quality = stream.quality || "Unknown";
+  var title = mediaInfo.title || "Unknown";
+  var type = "Direct";
+  var yearStr = mediaInfo.year ? " (" + mediaInfo.year + ")" : "";
+  return "Movies4u (Instant) (" + quality + ")\n\u1F4FA: " + type + "\n\u1F4FC: " + title + yearStr + " - " + quality;
+}
+
+function unpack(p, a, c, k) {
+  while (c--) { if (k[c]) p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]); }
+  return p;
+}
+
+function extractFromM4UPlay(embedUrl) {
+  return __async(this, null, function* () {
+    try {
+      var response = yield fetchWithTimeout(embedUrl, { headers: __spreadProps(__spreadValues({}, HEADERS), { "Referer": MAIN_URL }) });
+      var html = yield response.text();
+      var m3u8Match = html.match(/(https?:\/\/[^\s"']+\.(?:m3u8|txt)(?:\?[^\s"']*)?)/);
+      if (m3u8Match) {
+        var url = m3u8Match[1];
+        if (url.startsWith("/")) url = M4UPLAY_BASE + url;
+        return [{ url: url, quality: "Auto", isMaster: url.indexOf("master") !== -1 }];
+      }
+      return [];
+    } catch (e) { return []; }
+  });
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  return new Promise(function(resolve) {
-    var type = (mediaType === 'movie' || mediaType === 'movies') ? 'movie' : 'tv'
-    var tmdbUrl = 'https://api.themoviedb.org/3/' + type + '/' + tmdbId + '?api_key=' + TMDB_KEY
-    
-    fetch(tmdbUrl)
-      .then(function(r) { return r.json() })
-      .then(function(data) {
-        var title = data.title || data.name
-        var searchUrl = BASE + '/?s=' + encodeURIComponent(title)
-        return httpGet(searchUrl, { 'Referer': BASE + '/' })
-      })
-      .then(function(html) {
-        // Find post URL - Regex needs to be extremely simple for TV
-        var postRe = /href="(https:\/\/new1\.movies4u\.style\/[^"]+)"/
-        var m = postRe.exec(html)
-        if (!m) return null
-        return httpGet(m[1], { 'Referer': BASE + '/' })
-      })
-      .then(function(pageHtml) {
-        if (!pageHtml) return null
-        
-        // Find M4UPlay link
-        var embedRe = /href="(https:\/\/m4uplay\.[^"]+)"/
-        var m = embedRe.exec(pageHtml)
-        if (!m) return null
-        
-        return httpGet(m[1], { 'Referer': BASE + '/' })
-      })
-      .then(function(embedHtml) {
-        if (!embedHtml) { resolve([]); return }
+  return __async(this, null, function* () {
+    try {
+      var type = mediaType === "movie" ? "movie" : "tv";
+      var tmdbRes = yield fetch(TMDB_BASE_URL + "/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY);
+      var data = yield tmdbRes.json();
+      var mediaInfo = { title: data.title || data.name, year: (data.release_date || data.first_air_date || "").split("-")[0] };
 
-        // Look for the source. M4UPlay usually uses a simple 'file:' or a direct .m3u8 link
-        var streamRe = /(https?:\/\/[^"']+\.(?:m3u8|txt)(?:\?[^"']*)?)/
-        var m = streamRe.exec(embedHtml)
-        
-        if (m) {
-          var finalUrl = m[1]
-          
-          resolve([{
-            name: '🎬 Movies4u',
-            title: 'Movies4u (Instant) • 1080p',
-            url: finalUrl,
-            quality: '1080p',
-            headers: {
-              'Referer': M4U_PLAY + '/',
-              'Origin': M4U_PLAY,
-              'User-Agent': UA,
-              'Connection': 'keep-alive'
-            }
-          }])
-        } else {
-          resolve([])
+      var searchRes = yield fetch(MAIN_URL + "/?s=" + encodeURIComponent(mediaInfo.title), { headers: HEADERS });
+      var searchHtml = yield searchRes.text();
+      var $ = cheerio.load(searchHtml);
+      var results = [];
+      $("h3.entry-title a").each(function(i, el) { results.push({ title: $(el).text().trim(), url: $(el).attr("href") }); });
+
+      var bestMatch = findBestTitleMatch(mediaInfo, results);
+      if (!bestMatch) return [];
+
+      var pageRes = yield fetch(bestMatch.url, { headers: HEADERS });
+      var pageHtml = yield pageRes.text();
+      var $$ = cheerio.load(pageHtml);
+      var streams = [];
+
+      var watchLink = $$("a.btn.btn-zip").attr("href");
+      if (watchLink) {
+        var extraction = yield extractFromM4UPlay(watchLink);
+        for (var j = 0; j < extraction.length; j++) {
+          var res = extraction[j];
+          streams.push({
+            name: "Movies4u",
+            title: formatStreamTitle(mediaInfo, res),
+            url: res.url,
+            quality: res.quality,
+            headers: { "Referer": M4UPLAY_BASE + "/", "User-Agent": HEADERS["User-Agent"] }
+          });
         }
-      })
-      .catch(function() {
-        resolve([])
-      })
-  })
+      }
+      return streams;
+    } catch (e) { return []; }
+  });
 }
 
-module.exports = { getStreams: getStreams }
+module.exports = { getStreams: getStreams };

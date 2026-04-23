@@ -4,7 +4,7 @@ var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var DATA_URL = "https://api.streamflix.app/data.json";
 var CONFIG_URL = "https://api.streamflix.app/config/config-streamflixapp.json";
 
-// We only proxy the JSON data, not the video streams
+// Safe JSON fetch for TV
 function fetchJson(url) {
   return fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } })
     .then(function(res) { return res.json(); })
@@ -18,8 +18,7 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
   return fetchJson(tmdbUrl).then(function(tmdbData) {
     if (!tmdbData) return [];
     
-    // Clean Title: "Spider-Man: No Way Home" -> "spiderman no way home"
-    var title = (isTV ? tmdbData.name : tmdbData.title).toLowerCase().replace(/[^a-z0-9\s]/g, '');
+    var title = (isTV ? tmdbData.name : tmdbData.title).toLowerCase();
 
     return fetchJson(CONFIG_URL).then(function(config) {
       return fetchJson(DATA_URL).then(function(remoteData) {
@@ -28,15 +27,11 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
         var match = null;
         var list = remoteData.data;
         
-        // Manual search loop (Fast & TV-friendly)
+        // Exact search logic
         for (var i = 0; i < list.length; i++) {
-          if (list[i].moviename) {
-            var entryName = list[i].moviename.toLowerCase().replace(/[^a-z0-9\s]/g, '');
-            // Exact match or partial match
-            if (entryName === title || entryName.indexOf(title) !== -1 || title.indexOf(entryName) !== -1) {
-              match = list[i];
-              break;
-            }
+          if (list[i].moviename && list[i].moviename.toLowerCase() === title) {
+            match = list[i];
+            break;
           }
         }
 
@@ -44,46 +39,49 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
         var streams = [];
         var hosts = (config && config.premium) ? config.premium : ["https://stream.streamflix.app/"];
 
-        // MOVIE
+        // MOVIE LOGIC
         if (!isTV && match.movielink) {
           for (var j = 0; j < hosts.length; j++) {
             streams.push({
               name: "StreamFlix | Movie",
-              title: match.moviename + "\nPremium Direct Server",
-              url: hosts[j] + match.movielink, // Direct Link (No Proxy)
-              quality: "1080p",
-              behaviorHints: { notWebReady: false }
+              title: match.moviename,
+              url: hosts[j] + match.movielink,
+              quality: "1080p"
             });
           }
+          return streams;
         }
 
-        // TV 
+        // TV LOGIC (The "Mobile-Style" direct data fetch)
         if (isTV && seasonNum && episodeNum) {
-          var epIndex = episodeNum - 1; 
-          for (var k = 0; k < hosts.length; k++) {
-            // Using the standard StreamFlix TV link format
-            var directUrl = hosts[k] + "tv/" + match.moviekey + "/s" + seasonNum + "/episode" + epIndex + ".mkv";
-            streams.push({
-              name: "StreamFlix | TV",
-              title: match.moviename + " - S" + seasonNum + "E" + episodeNum,
-              url: directUrl, // Direct Link (No Proxy)
-              quality: "1080p",
-              behaviorHints: { notWebReady: false }
-            });
-          }
+          // We fetch the series data directly to get the real episode links
+          var seriesDataUrl = "https://chilflix-410be-default-rtdb.asia-southeast1.firebasedatabase.app/Data/" + match.moviekey + "/seasons/" + seasonNum + "/episodes.json";
+          
+          return fetchJson(seriesDataUrl).then(function(episodes) {
+            if (!episodes) return [];
+            
+            // Firebase returns an array or object of episodes
+            var epKey = (episodeNum - 1);
+            var ep = episodes[epKey];
+            
+            if (ep && ep.link) {
+              for (var k = 0; k < hosts.length; k++) {
+                streams.push({
+                  name: "StreamFlix | S" + seasonNum + "E" + episodeNum,
+                  title: ep.name || match.moviename,
+                  url: hosts[k] + ep.link,
+                  quality: "1080p"
+                });
+              }
+            }
+            return streams;
+          });
         }
-
         return streams;
       });
     });
-  }).catch(function() {
-    return [];
-  });
+  }).catch(function() { return []; });
 }
 
-// Universal Export
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams: getStreams };
-} else {
-  global.getStreams = getStreams;
-}
+if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; } 
+else { global.getStreams = getStreams; }

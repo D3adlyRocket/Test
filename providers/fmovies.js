@@ -1,153 +1,155 @@
-var pe = Object.create;
-var N = Object.defineProperty, he = Object.defineProperties, me = Object.getOwnPropertyDescriptor, ge = Object.getOwnPropertyDescriptors, ye = Object.getOwnPropertyNames, Q = Object.getOwnPropertySymbols, be = Object.getPrototypeOf, Z = Object.prototype.hasOwnProperty, Ae = Object.prototype.propertyIsEnumerable;
-var Y = (e, t, n) => t in e ? N(e, t, { enumerable: true, configurable: true, writable: true, value: n }) : e[t] = n, L = (e, t) => {
-  for (var n in t || (t = {}))
-    Z.call(t, n) && Y(e, n, t[n]);
-  if (Q)
-    for (var n of Q(t))
-      Ae.call(t, n) && Y(e, n, t[n]);
-  return e;
-}, ee = (e, t) => he(e, ge(t));
-var Re = (e, t) => {
-  for (var n in t)
-    N(e, n, { get: t[n], enumerable: true });
-}, te = (e, t, n, i) => {
-  if (t && typeof t == "object" || typeof t == "function")
-    for (let o of ye(t))
-      !Z.call(e, o) && o !== n && N(e, o, { get: () => t[o], enumerable: !(i = me(t, o)) || i.enumerable });
-  return e;
+// src/embed69/index.js
+var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var EMBED_BASE = "https://embed69.org";
+var DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Linux; Android 11; BRAVIA 4K Build/RP1A.200720.011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.50 Safari/537.36"
 };
-var $ = (e, t, n) => (n = e != null ? pe(be(e)) : {}, te(t || !e || !e.__esModule ? N(n, "default", { value: e, enumerable: true }) : n, e)), ve = (e) => te(N({}, "__esModule", { value: true }), e);
-var y = (e, t, n) => new Promise((i, o) => {
-  var r = (s) => {
+
+// Helper: Generic fetch wrapper for ES5
+function get(url, extraHeaders) {
+    var headers = Object.assign({}, DEFAULT_HEADERS, extraHeaders || {});
+    return fetch(url, { headers: headers, redirect: "follow" }).then(function(res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        var ct = res.headers.get("content-type") || "";
+        if (ct.indexOf("json") !== -1) return res.json();
+        return res.text();
+    });
+}
+
+// Helper: Base64 Decoder (Native fallback)
+function b64decode(str) {
     try {
-      l(n.next(s));
-    } catch (c) {
-      o(c);
+        return atob(str.replace(/-/g, "+").replace(/_/g, "/"));
+    } catch (e) {
+        return null;
     }
-  }, a = (s) => {
-    try {
-      l(n.throw(s));
-    } catch (c) {
-      o(c);
-    }
-  }, l = (s) => s.done ? i(s.value) : Promise.resolve(s.value).then(r, a);
-  l((n = n.apply(e, t)).next());
-});
-
-var Be = {};
-Re(Be, { getStreams: () => qe });
-module.exports = ve(Be);
-
-var K = $(require("axios"));
-var x = $(require("crypto-js"));
-
-// Optimized UA for Android TV WebView/Players
-const TV_UA = "Mozilla/5.0 (Linux; Android 11; BRAVIA 4K VH2 Build/RP1A.200720.011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/95.0.4638.50 Mobile Safari/537.36";
-
-function q(e, t) {
-  return e >= 3840 || t >= 2160 ? "4K" : e >= 1920 || t >= 1080 ? "1080p" : e >= 1280 || t >= 720 ? "720p" : e >= 854 || t >= 480 ? "480p" : "360p";
 }
 
-// --- VOE RESOLVER ---
-function se(e) {
-  return y(this, null, function* () {
-    try {
-      let { data: n } = yield K.default.get(e, { headers: { "User-Agent": TV_UA, Referer: e } });
-      let i = n.match(/json">\s*\[\s*['"]([^'"]+)['"]\s*\]/i);
-      if (i) {
-         // ... (Logic for Voe decoding remains same but using TV_UA)
-      }
-      let o = n.match(/'hls'\s*:\s*'([^']+)'/i);
-      if (o) {
-        let url = o[1].startsWith("aHR0") ? atob(o[1]) : o[1];
-        return { url, quality: "1080p", headers: { "User-Agent": TV_UA, "Referer": e } };
-      }
-      return null;
-    } catch (t) { return null; }
-  });
+// --- RESOLVERS ---
+
+function resolveVoe(embedUrl) {
+    return get(embedUrl, { "Referer": embedUrl }).then(function(html) {
+        var o = html.match(/'hls'\s*:\s*'([^']+)'/i);
+        if (o) {
+            var url = o[1].indexOf("aHR0") === 0 ? b64decode(o[1]) : o[1];
+            return { url: url, quality: "1080p", headers: { "User-Agent": DEFAULT_HEADERS["User-Agent"], "Referer": embedUrl } };
+        }
+        return null;
+    });
 }
 
-// --- FILEMOON RESOLVER (Modified for Android TV Player compatibility) ---
-function we(e, t, n) {
-  try {
-    let i = new Uint8Array(16); i.set(t, 0); i[15] = 1;
-    let o = i, r = j(e), a = new Uint8Array(n.length);
-    for (let l = 0; l < n.length; l += 16) {
-      let s = Math.min(16, n.length - l),
-          c = j(o),
-          u = x.default.AES.encrypt(c, r, { mode: x.default.mode.ECB, padding: x.default.pad.NoPadding }),
-          g = k(u.ciphertext);
-      for (let d = 0; d < s; d++) a[l + d] = n[l + d] ^ g[d];
-      for (let n2 = 15; n2 >= 12 && (o[n2]++, o[n2] === 0); n2--);
-    }
-    return a;
-  } catch (i) { return null; }
+function resolveStreamWish(embedUrl) {
+    var hostMatch = embedUrl.match(/^(https?:\/\/[^/]+)/);
+    var host = hostMatch ? hostMatch[1] : "https://streamwish.to";
+    return get(embedUrl, { "Referer": "https://embed69.org/" }).then(function(html) {
+        var m = html.match(/file\s*:\s*["']([^"']+)["']/i);
+        if (m) {
+            return { url: m[1], quality: "1080p", headers: { "User-Agent": DEFAULT_HEADERS["User-Agent"], "Referer": host + "/" } };
+        }
+        return null;
+    });
 }
 
-function O(e) {
-  return y(this, null, function* () {
-    try {
-      let r = e.match(/\/(?:e|d)\/([a-z0-9]{12})/i)[1];
-      let { data: a } = yield K.default.get(`https://filemooon.link/api/videos/${r}/embed/playback`, { 
-        headers: { "User-Agent": TV_UA, "Referer": e } 
-      });
-      // ... (Decryption logic)
-      let finalUrl = ""; // Derived from decrypted payload
-      return { 
-        url: finalUrl, 
-        quality: "1080p", 
-        headers: { "User-Agent": TV_UA, "Referer": "https://filemoon.sx/", "Origin": "https://filemoon.sx" } 
-      };
-    } catch (o) { return null; }
-  });
+// --- CORE LOGIC ---
+
+function getImdbId(tmdbId, type) {
+    var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "/external_ids?api_key=" + TMDB_API_KEY;
+    return get(url).then(function(data) {
+        return data.imdb_id || null;
+    });
 }
 
-// --- MAIN SCRAPER TWEAKS ---
-const ce = "439c478a771f35c05022f9feabcca01c";
-const ue = "https://embed69.org";
-
-async function qe(tmdbId, type, season, episode) {
+function parseDataLink(html) {
     try {
-        let imdb = yield Ie(tmdbId, type);
-        if (!imdb) return [];
+        var t = html.match(/let\s+dataLink\s*=\s*(\[.+\]);/);
+        return t ? JSON.parse(t[1]) : null;
+    } catch (e) { return null; }
+}
 
-        let target = type === "movie" ? `${ue}/f/${imdb}` : `${ue}/f/${imdb}-${season}x${String(episode).padStart(2, '0')}`;
-        
-        let { data } = yield K.default.get(target, { 
-            headers: { "User-Agent": TV_UA, "Referer": "https://sololatino.net/" } 
-        });
+function decodeLink(str) {
+    try {
+        var parts = str.split(".");
+        if (parts.length < 2) return null;
+        return JSON.parse(b64decode(parts[1]));
+    } catch (e) { return null; }
+}
 
-        let dataLinks = Te(data); 
+function getStreams(tmdbId, mediaType, season, episode) {
+    var type = (mediaType === "series" || mediaType === "tv") ? "tv" : "movie";
+    console.log("[Embed69] Start: " + tmdbId + " " + type);
+
+    return getImdbId(tmdbId, type).then(function(imdbId) {
+        if (!imdbId) throw new Error("No IMDB ID found");
+
+        var targetUrl = (type === "movie") 
+            ? EMBED_BASE + "/f/" + imdbId 
+            : EMBED_BASE + "/f/" + imdbId + "-" + season + "x" + (String(episode).length < 2 ? "0" + episode : episode);
+
+        return get(targetUrl, { "Referer": "https://sololatino.net/" });
+    }).then(function(html) {
+        var dataLinks = parseDataLink(html);
         if (!dataLinks) return [];
 
-        let results = [];
-        // Prioritize Latino for TV users, then English/Sub
-        let languages = ["LAT", "ESP", "SUB"];
+        var results = [];
+        var languages = ["LAT", "ESP", "SUB"];
         
-        for (let lang of languages) {
-            let item = dataLinks.find(x => x.video_language === lang);
-            if (!item) continue;
-
-            for (let embed of item.sortedEmbeds) {
-                let decoded = _e(embed.link);
-                let resolver = He(decoded.link);
-                if (resolver) {
-                    let stream = await resolver(decoded.link);
-                    if (stream) {
-                        results.push({
-                            name: `Embed69 (${lang})`,
-                            title: `[${stream.quality || 'HD'}] ${embed.servername.toUpperCase()}`,
-                            url: stream.url,
-                            headers: stream.headers // CRITICAL: Android TV players need these
-                        });
-                    }
-                }
+        // Use a recursive function to resolve embeds sequentially (Better for TV memory)
+        function processLanguages(langIdx) {
+            if (langIdx >= languages.length || results.length > 0) return Promise.resolve(results);
+            
+            var langKey = languages[langIdx];
+            var category = null;
+            for(var i=0; i<dataLinks.length; i++) {
+                if(dataLinks[i].video_language === langKey) { category = dataLinks[i]; break; }
             }
-            if (results.length > 0) break; // Stop at highest priority language
+
+            if (!category || !category.sortedEmbeds) return processLanguages(langIdx + 1);
+
+            var embeds = category.sortedEmbeds;
+            
+            function processEmbed(embedIdx) {
+                if (embedIdx >= embeds.length) return processLanguages(langIdx + 1);
+                
+                var embed = embeds[embedIdx];
+                var decoded = decodeLink(embed.link);
+                if (!decoded || !decoded.link) return processEmbed(embedIdx + 1);
+
+                var resolver = null;
+                var url = decoded.link;
+                if (url.indexOf("voe.sx") !== -1) resolver = resolveVoe;
+                if (url.indexOf("streamwish") !== -1 || url.indexOf("swish") !== -1) resolver = resolveStreamWish;
+
+                if (resolver) {
+                    return resolver(url).then(function(res) {
+                        if (res) {
+                            var langLabel = langKey === "LAT" ? "Latino" : (langKey === "ESP" ? "Castellano" : "Sub");
+                            results.push({
+                                name: "Embed69",
+                                title: "[" + res.quality + "] " + embed.servername + " (" + langLabel + ")",
+                                url: res.url,
+                                quality: res.quality,
+                                headers: res.headers
+                            });
+                        }
+                        return processEmbed(embedIdx + 1);
+                    });
+                }
+                return processEmbed(embedIdx + 1);
+            }
+
+            return processEmbed(0);
         }
-        return results;
-    } catch (err) {
+
+        return processLanguages(0);
+    }).catch(function(err) {
+        console.log("[Embed69] Error: " + err.message);
         return [];
-    }
+    });
+}
+
+// Export for TV app environment
+if (typeof module !== "undefined" && module.exports) {
+    module.exports = { getStreams: getStreams };
+} else {
+    global.getStreams = getStreams;
 }

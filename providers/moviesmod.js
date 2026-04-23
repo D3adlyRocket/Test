@@ -4,14 +4,25 @@ var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var DATA_URL = "https://api.streamflix.app/data.json";
 var CONFIG_URL = "https://api.streamflix.app/config/config-streamflixapp.json";
 
-// Standard Fetch Helper
+/**
+ * TV-Optimized Fetch
+ * Added mode/credentials for older Android WebViews
+ */
 function fetchData(url) {
   return fetch(url, { 
-    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } 
+    method: 'GET',
+    mode: 'cors',
+    credentials: 'omit',
+    headers: { 
+      'Accept': 'application/json',
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; TV) AppleWebKit/537.36' 
+    } 
   })
-  .then(function(res) { return res.json(); })
+  .then(function(res) { 
+    if (!res.ok) return null;
+    return res.json(); 
+  })
   .catch(function(err) { 
-    console.log('[StreamFlix] Fetch Error: ' + err.message);
     return null; 
   });
 }
@@ -23,7 +34,8 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
   return fetchData(tmdbUrl).then(function(tmdbData) {
     if (!tmdbData) return [];
     
-    var searchTitle = (isTV ? tmdbData.name : tmdbData.title).toLowerCase();
+    // TMDB titles can be complex; we simplify for the TV search
+    var searchTitle = (isTV ? tmdbData.name : tmdbData.title).toLowerCase().trim();
 
     return fetchData(CONFIG_URL).then(function(config) {
       return fetchData(DATA_URL).then(function(remote) {
@@ -32,12 +44,13 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
         var match = null;
         var list = remote.data;
         
-        // Improved Search Logic
+        // Simplified search for low-power TV processors
         for (var i = 0; i < list.length; i++) {
-          if (list[i].moviename) {
-            var entryName = list[i].moviename.toLowerCase();
-            if (entryName === searchTitle || entryName.indexOf(searchTitle) !== -1 || searchTitle.indexOf(entryName) !== -1) {
-              match = list[i];
+          var entry = list[i];
+          if (entry.moviename) {
+            var name = entry.moviename.toLowerCase();
+            if (name === searchTitle || name.indexOf(searchTitle) !== -1) {
+              match = entry;
               break;
             }
           }
@@ -47,48 +60,38 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
         var streams = [];
         var hosts = (config && config.premium) ? config.premium : ["https://stream.streamflix.app/"];
 
-        // MOVIE HANDLING
+        // MOVIE
         if (!isTV && match.movielink) {
           for (var j = 0; j < hosts.length; j++) {
             streams.push({
-              name: "StreamFlix | Movie",
+              name: "StreamFlix 🎬",
               title: match.moviename + " [1080p]",
               url: hosts[j] + match.movielink,
-              quality: "1080p",
-              behaviorHints: { notWebReady: false }
+              quality: "1080p"
             });
           }
           return streams;
         }
 
-        // TV HANDLING (Bypassing WebSocket for stability)
+        // TV (Using the .json endpoint for Max Compatibility)
         if (isTV && seasonNum && episodeNum) {
-          // Construct direct Firebase JSON URL
           var fbUrl = "https://chilflix-410be-default-rtdb.asia-southeast1.firebasedatabase.app/Data/" + 
                       match.moviekey + "/seasons/" + seasonNum + "/episodes.json";
           
           return fetchData(fbUrl).then(function(episodes) {
             if (!episodes) return [];
             
-            // Firebase can return an object or an array
-            var epKey = (episodeNum - 1);
-            var ep = episodes[epKey] || null;
-            
-            // If the array index didn't work, try finding by key
-            if (!ep) {
-                for (var key in episodes) {
-                    if (parseInt(key) === epKey) { ep = episodes[key]; break; }
-                }
-            }
+            // TV episodes can be Array or Object; this handles both
+            var epIdx = (episodeNum - 1);
+            var ep = episodes[epIdx] || episodes[episodeNum] || null;
 
             if (ep && ep.link) {
               for (var k = 0; k < hosts.length; k++) {
                 streams.push({
-                  name: "StreamFlix | TV",
+                  name: "StreamFlix 📺",
                   title: "S" + seasonNum + "E" + episodeNum + " - " + (ep.name || match.moviename),
                   url: hosts[k] + ep.link,
-                  quality: "1080p",
-                  behaviorHints: { notWebReady: false }
+                  quality: "1080p"
                 });
               }
             }
@@ -98,13 +101,12 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
         return streams;
       });
     });
-  }).catch(function(err) {
-    console.log('[StreamFlix] Fatal Error: ' + err.message);
+  }).catch(function() {
     return [];
   });
 }
 
-// Export Logic
+// Universal Entry Points
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { getStreams: getStreams };
 } else {

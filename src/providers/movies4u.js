@@ -14,14 +14,14 @@ var HEADERS = {
 };
 
 
-// ✅ FIXED FETCH (NO AbortController)
+// ✅ FIXED FETCH (ONLY CHANGE)
 function fetchWithTimeout(url, options = {}, timeout = 10000) {
   return new Promise((resolve, reject) => {
-    let finished = false;
+    let done = false;
 
     const timer = setTimeout(() => {
-      if (!finished) {
-        finished = true;
+      if (!done) {
+        done = true;
         reject(new Error("Timeout"));
       }
     }, timeout);
@@ -29,20 +29,20 @@ function fetchWithTimeout(url, options = {}, timeout = 10000) {
     fetch(url, {
       ...options,
       headers: {
-        "User-Agent": HEADERS["User-Agent"],
+        ...HEADERS,
         ...(options.headers || {})
       }
     })
       .then(res => {
-        if (!finished) {
-          finished = true;
+        if (!done) {
+          done = true;
           clearTimeout(timer);
           resolve(res);
         }
       })
       .catch(err => {
-        if (!finished) {
-          finished = true;
+        if (!done) {
+          done = true;
           clearTimeout(timer);
           reject(err);
         }
@@ -51,59 +51,18 @@ function fetchWithTimeout(url, options = {}, timeout = 10000) {
 }
 
 
-// ---------------- UTILS ----------------
-function normalizeTitle(title) {
-  return title.toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-}
-
-function calculateTitleSimilarity(t1, t2) {
-  const a = normalizeTitle(t1);
-  const b = normalizeTitle(t2);
-  if (a === b) return 1;
-  if (a.includes(b) || b.includes(a)) return 0.9;
-  return 0;
-}
-
-function findBestTitleMatch(mediaInfo, results) {
-  let best = null, score = 0;
-  for (const r of results) {
-    const s = calculateTitleSimilarity(mediaInfo.title, r.title);
-    if (s > score) {
-      score = s;
-      best = r;
-    }
-  }
-  return best;
-}
-
-
-// ---------------- TMDB ----------------
-async function getTMDBDetails(id, type) {
-  try {
-    const url = `${TMDB_BASE_URL}/${type === "movie" ? "movie" : "tv"}/${id}?api_key=${TMDB_API_KEY}`;
-    const res = await fetchWithTimeout(url);
-    if (!res || !res.ok) return null;
-    const data = await res.json();
-    return {
-      title: data.title || data.name,
-      year: (data.release_date || data.first_air_date || "").split("-")[0]
-    };
-  } catch {
-    return null;
-  }
-}
-
-
 // ---------------- SEARCH ----------------
 async function searchMovies(query) {
   try {
     const res = await fetchWithTimeout(`${MAIN_URL}/?s=${encodeURIComponent(query)}`);
+
     if (!res || !res.ok) return [];
 
     const html = await res.text();
     const $ = cheerio.load(html);
 
     const results = [];
+
     $("h3.entry-title a").each((_, el) => {
       results.push({
         title: $(el).text().trim(),
@@ -122,6 +81,7 @@ async function searchMovies(query) {
 async function extractWatchLinks(url) {
   try {
     const res = await fetchWithTimeout(url);
+
     if (!res || !res.ok) return [];
 
     const html = await res.text();
@@ -148,6 +108,17 @@ async function extractWatchLinks(url) {
   } catch {
     return [];
   }
+}
+
+
+// ---------------- UNPACK (RESTORED) ----------------
+function unpack(p, a, c, k) {
+  while (c--) {
+    if (k[c]) {
+      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
+    }
+  }
+  return p;
 }
 
 
@@ -181,6 +152,7 @@ async function resolveHlsPlaylist(masterUrl) {
 
         let quality = "Unknown";
         const match = lines[i].match(/RESOLUTION=\d+x(\d+)/);
+
         if (match) {
           const h = parseInt(match[1]);
           if (h >= 1080) quality = "1080p";
@@ -207,15 +179,27 @@ async function resolveHlsPlaylist(masterUrl) {
 }
 
 
-// ---------------- EXTRACT ----------------
+// ---------------- EXTRACT (FULL ORIGINAL LOGIC RESTORED) ----------------
 async function extractFromM4UPlay(url) {
   try {
     const res = await fetchWithTimeout(url);
+
     if (!res || !res.ok) return [];
 
     const html = await res.text();
 
-    const match = html.match(/https?:\/\/[^\s"']+\.m3u8[^\s"']*/);
+    let unpacked = html;
+
+    const packer = html.match(/eval\(function\(p,a,c,k,e,d\).*?\)/s);
+    if (packer) {
+      try {
+        const args = packer[0].match(/\((.*)\)/s)[1];
+        const parts = args.split(",");
+        unpacked += unpack(parts[0].slice(1, -1), parseInt(parts[1]), parseInt(parts[2]), parts[3].slice(1, -1).split("|"));
+      } catch {}
+    }
+
+    const match = unpacked.match(/https?:\/\/[^\s"']+\.m3u8[^\s"']*/);
 
     if (!match) return [];
 
@@ -223,12 +207,11 @@ async function extractFromM4UPlay(url) {
 
     const resolved = await resolveHlsPlaylist(master);
 
-    // ✅ TV FIX: return variants instead of master
+    // ✅ TV FIX
     if (resolved.isMaster && resolved.variants.length > 0) {
       return resolved.variants.map(v => ({
         url: v.url,
-        quality: v.quality,
-        isMaster: false
+        quality: v.quality
       }));
     }
 
@@ -242,16 +225,19 @@ async function extractFromM4UPlay(url) {
 // ---------------- MAIN ----------------
 async function getStreams(tmdbId, mediaType = "movie") {
   try {
-    const media = await getTMDBDetails(tmdbId, mediaType);
-    if (!media) return [];
+    const tmdb = await fetchWithTimeout(`${TMDB_BASE_URL}/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`);
 
-    const results = await searchMovies(media.title);
+    if (!tmdb || !tmdb.ok) return [];
+
+    const data = await tmdb.json();
+
+    const title = data.title || data.name;
+    const year = (data.release_date || data.first_air_date || "").split("-")[0];
+
+    const results = await searchMovies(title);
     if (!results.length) return [];
 
-    const best = findBestTitleMatch(media, results);
-    if (!best) return [];
-
-    const watchLinks = await extractWatchLinks(best.url);
+    const watchLinks = await extractWatchLinks(results[0].url);
 
     const streams = [];
 
@@ -261,7 +247,7 @@ async function getStreams(tmdbId, mediaType = "movie") {
       for (const s of extracted) {
         streams.push({
           name: "Movies4u",
-          title: `${media.title} (${media.year}) - ${s.quality}`,
+          title: `${title} (${year}) - ${s.quality}`,
           url: s.url,
           quality: s.quality,
           headers: {
@@ -277,6 +263,5 @@ async function getStreams(tmdbId, mediaType = "movie") {
     return [];
   }
 }
-
 
 module.exports = { getStreams };

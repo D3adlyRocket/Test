@@ -13,8 +13,9 @@ var HEADERS = {
   "Referer": MAIN_URL
 };
 
-
-// ✅ FIXED FETCH (ONLY CHANGE)
+//
+// ✅ FIXED FETCH (TV SAFE - NO AbortController)
+//
 function fetchWithTimeout(url, options = {}, timeout = 10000) {
   return new Promise((resolve, reject) => {
     let done = false;
@@ -50,24 +51,22 @@ function fetchWithTimeout(url, options = {}, timeout = 10000) {
   });
 }
 
-
+//
 // ---------------- SEARCH ----------------
+//
 async function searchMovies(query) {
   try {
-    const res = await fetchWithTimeout(`${MAIN_URL}/?s=${encodeURIComponent(query)}`);
+    const response = await fetchWithTimeout(`${MAIN_URL}/?s=${encodeURIComponent(query)}`);
+    if (!response || !response.ok) return [];
 
-    if (!res || !res.ok) return [];
-
-    const html = await res.text();
+    const html = await response.text();
     const $ = cheerio.load(html);
 
     const results = [];
-
     $("h3.entry-title a").each((_, el) => {
-      results.push({
-        title: $(el).text().trim(),
-        url: $(el).attr("href")
-      });
+      const title = $(el).text().trim();
+      const url = $(el).attr("href");
+      if (title && url) results.push({ title, url });
     });
 
     return results;
@@ -76,42 +75,45 @@ async function searchMovies(query) {
   }
 }
 
-
+//
 // ---------------- WATCH LINKS ----------------
-async function extractWatchLinks(url) {
+//
+async function extractWatchLinks(movieUrl) {
   try {
-    const res = await fetchWithTimeout(url);
+    const response = await fetchWithTimeout(movieUrl);
+    if (!response || !response.ok) return [];
 
-    if (!res || !res.ok) return [];
-
-    const html = await res.text();
+    const html = await response.text();
     const $ = cheerio.load(html);
 
-    const links = [];
+    const watchLinks = [];
 
     $("a.btn.btn-zip").each((_, el) => {
       const href = $(el).attr("href");
-      const text = $(el).text();
+      const text = $(el).text().trim();
 
       if (href && href.includes("m4uplay")) {
-        links.push({
+        watchLinks.push({
           url: href,
-          quality: text.includes("1080") ? "1080p" :
-                   text.includes("720") ? "720p" :
-                   text.includes("4K") ? "4K" : "Unknown",
+          quality:
+            text.includes("1080p") ? "1080p" :
+            text.includes("720p") ? "720p" :
+            text.includes("480p") ? "480p" :
+            text.includes("4K") ? "4K" : "Unknown",
           label: text
         });
       }
     });
 
-    return links;
+    return watchLinks;
   } catch {
     return [];
   }
 }
 
-
-// ---------------- UNPACK (RESTORED) ----------------
+//
+// ---------------- UNPACK (UNCHANGED) ----------------
+//
 function unpack(p, a, c, k) {
   while (c--) {
     if (k[c]) {
@@ -121,13 +123,17 @@ function unpack(p, a, c, k) {
   return p;
 }
 
-
-// ---------------- HLS ----------------
+//
+// ---------------- HLS RESOLVER ----------------
+//
 async function resolveHlsPlaylist(masterUrl) {
-  const result = { variants: [], isMaster: false };
+  const result = {
+    variants: [],
+    isMaster: false
+  };
 
   try {
-    const res = await fetchWithTimeout(masterUrl, {
+    const response = await fetchWithTimeout(masterUrl, {
       headers: {
         "User-Agent": HEADERS["User-Agent"],
         "Referer": M4UPLAY_BASE,
@@ -135,28 +141,31 @@ async function resolveHlsPlaylist(masterUrl) {
       }
     });
 
-    if (!res || !res.ok) return result;
+    if (!response || !response.ok) return result;
 
-    const text = await res.text();
+    const content = await response.text();
 
-    if (!text.includes("#EXTM3U")) return result;
+    if (!content.includes("#EXTM3U")) return result;
 
-    if (text.includes("#EXT-X-STREAM-INF")) {
+    if (content.includes("#EXT-X-STREAM-INF")) {
       result.isMaster = true;
     }
 
-    const lines = text.split("\n");
+    const lines = content.split("\n");
 
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes("#EXT-X-STREAM-INF")) {
+      const line = lines[i];
 
+      if (line.includes("#EXT-X-STREAM-INF")) {
         let quality = "Unknown";
-        const match = lines[i].match(/RESOLUTION=\d+x(\d+)/);
 
+        const match = line.match(/RESOLUTION=\d+x(\d+)/);
         if (match) {
           const h = parseInt(match[1]);
-          if (h >= 1080) quality = "1080p";
+          if (h >= 2160) quality = "4K";
+          else if (h >= 1080) quality = "1080p";
           else if (h >= 720) quality = "720p";
+          else if (h >= 480) quality = "480p";
         }
 
         let next = lines[i + 1]?.trim();
@@ -178,36 +187,42 @@ async function resolveHlsPlaylist(masterUrl) {
   }
 }
 
-
-// ---------------- EXTRACT (FULL ORIGINAL LOGIC RESTORED) ----------------
-async function extractFromM4UPlay(url) {
+//
+// ---------------- EXTRACT ----------------
+//
+async function extractFromM4UPlay(embedUrl) {
   try {
-    const res = await fetchWithTimeout(url);
+    const response = await fetchWithTimeout(embedUrl);
+    if (!response || !response.ok) return [];
 
-    if (!res || !res.ok) return [];
+    const html = await response.text();
 
-    const html = await res.text();
+    let unpackedHtml = html;
 
-    let unpacked = html;
+    const packerMatch = html.match(/eval\(function\(p,a,c,k,e,d\).*?\)/s);
 
-    const packer = html.match(/eval\(function\(p,a,c,k,e,d\).*?\)/s);
-    if (packer) {
+    if (packerMatch) {
       try {
-        const args = packer[0].match(/\((.*)\)/s)[1];
+        const args = packerMatch[0].match(/\((.*)\)/s)[1];
         const parts = args.split(",");
-        unpacked += unpack(parts[0].slice(1, -1), parseInt(parts[1]), parseInt(parts[2]), parts[3].slice(1, -1).split("|"));
+        unpackedHtml += unpack(
+          parts[0].slice(1, -1),
+          parseInt(parts[1]),
+          parseInt(parts[2]),
+          parts[3].slice(1, -1).split("|")
+        );
       } catch {}
     }
 
-    const match = unpacked.match(/https?:\/\/[^\s"']+\.m3u8[^\s"']*/);
+    const hlsMatch = unpackedHtml.match(/https?:\/\/[^\s"']+\.m3u8[^\s"']*/);
 
-    if (!match) return [];
+    if (!hlsMatch) return [];
 
-    const master = match[0];
+    const masterUrl = hlsMatch[0];
 
-    const resolved = await resolveHlsPlaylist(master);
+    const resolved = await resolveHlsPlaylist(masterUrl);
 
-    // ✅ TV FIX
+    // ✅ FIX FOR ANDROID TV
     if (resolved.isMaster && resolved.variants.length > 0) {
       return resolved.variants.map(v => ({
         url: v.url,
@@ -215,29 +230,33 @@ async function extractFromM4UPlay(url) {
       }));
     }
 
-    return [{ url: master, quality: "Unknown" }];
+    return [{
+      url: masterUrl,
+      quality: "Unknown"
+    }];
+
   } catch {
     return [];
   }
 }
 
-
+//
 // ---------------- MAIN ----------------
+//
 async function getStreams(tmdbId, mediaType = "movie") {
   try {
-    const tmdb = await fetchWithTimeout(`${TMDB_BASE_URL}/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`);
+    const res = await fetchWithTimeout(`${TMDB_BASE_URL}/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`);
+    if (!res || !res.ok) return [];
 
-    if (!tmdb || !tmdb.ok) return [];
-
-    const data = await tmdb.json();
+    const data = await res.json();
 
     const title = data.title || data.name;
     const year = (data.release_date || data.first_air_date || "").split("-")[0];
 
-    const results = await searchMovies(title);
-    if (!results.length) return [];
+    const searchResults = await searchMovies(title);
+    if (!searchResults.length) return [];
 
-    const watchLinks = await extractWatchLinks(results[0].url);
+    const watchLinks = await extractWatchLinks(searchResults[0].url);
 
     const streams = [];
 
@@ -259,6 +278,7 @@ async function getStreams(tmdbId, mediaType = "movie") {
     }
 
     return streams;
+
   } catch {
     return [];
   }

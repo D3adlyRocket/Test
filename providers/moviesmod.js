@@ -2,6 +2,7 @@
 
 var WORKER_BASE = 'https://moviebox.s4nch1tt.workers.dev';
 
+// --- Cache Logic ---
 function Cache(max, ttl) {
   this.max = max; this.ttl = ttl; this.d = {}; this.ks = [];
 }
@@ -25,14 +26,15 @@ function buildStream(s, isTv, se, ep) {
   if (!streamUrl) return null;
 
   var quality = s.resolution ? (String(s.resolution).match(/\d+/) ? String(s.resolution).match(/\d+/)[0] + 'p' : s.resolution) : 'Auto';
-
-  // Attempt to find English/Original
-  var lang = 'Original/English';
-  var langMatch = (s.name || '').match(/\(([^)]+)\)/);
-  if (langMatch) {
-    lang = langMatch[1];
-  } else if ((s.name || '').toLowerCase().includes('hindi')) {
+  
+  // Detection Logic: Default to English unless Hindi is found
+  var rawName = (s.name || '').toLowerCase();
+  var lang = 'English'; 
+  
+  if (rawName.includes('hindi')) {
     lang = 'Hindi';
+  } else if (rawName.match(/\(([^)]+)\)/)) {
+    lang = (s.name || '').match(/\(([^)]+)\)/)[1];
   }
 
   var titleBase = (s.title || 'MovieBox').split(' S0')[0].split(' S1')[0].trim();
@@ -51,14 +53,30 @@ function getStreams(tmdbId, type, season, episode) {
   var mediaType = (type === 'series') ? 'tv' : 'movie';
   var se = season ? parseInt(season) : 1;
   var ep = episode ? parseInt(episode) : 1;
-  var url = WORKER_BASE + '/streams?tmdb_id=' + tmdbId + '&type=' + mediaType + '&proxy=' + encodeURIComponent(WORKER_BASE);
+  
+  // Added &lang=en in case the worker supports it
+  var url = WORKER_BASE + '/streams?tmdb_id=' + tmdbId + '&type=' + mediaType + '&lang=en&proxy=' + encodeURIComponent(WORKER_BASE);
   if (mediaType === 'tv') url += '&se=' + se + '&ep=' + ep;
 
   return fetch(url)
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var results = Array.isArray(data) ? data : (data.streams || []);
-      return results.map(function(s) { return buildStream(s, mediaType === 'tv', se, ep); }).filter(Boolean);
+      
+      var streams = results.map(function(s) { 
+        return buildStream(s, mediaType === 'tv', se, ep); 
+      }).filter(Boolean);
+
+      // Sorting Logic: Put English/Non-Hindi at the top
+      streams.sort(function(a, b) {
+        var aIsHindi = a.name.toLowerCase().indexOf('hindi') !== -1;
+        var bIsHindi = b.name.toLowerCase().indexOf('hindi') !== -1;
+        if (aIsHindi && !bIsHindi) return 1;
+        if (!aIsHindi && bIsHindi) return -1;
+        return 0;
+      });
+
+      return streams;
     })
     .catch(function() { return []; });
 }

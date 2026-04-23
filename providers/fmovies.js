@@ -1,5 +1,5 @@
 // StreamM4U Provider for Nuvio
-// Specific Fix for Avatar & RPMVIP Servers
+// Support for SV-Vr (NeonHorizon) and SV-Emb1 (RPMVIP)
 
 var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305';
 var BASE = 'https://streamm4u.com.co';
@@ -7,61 +7,61 @@ var UA = 'Mozilla/5.0 (Linux; Android 15; ALT-NX1 Build/HONORALT-N31; wv) AppleW
 
 function httpGet(url, headers) {
     return fetch(url, {
-        headers: Object.assign({ 'User-Agent': UA, 'Referer': BASE + '/' }, headers || {})
+        headers: Object.assign({ 'User-Agent': UA }, headers || {})
     }).then(function(r) { return r.text(); });
 }
 
 function getStreams(tmdbId, mediaType) {
     return new Promise(function(resolve) {
-        // 1. Get Movie Title from TMDB
         var tmdbUrl = 'https://api.themoviedb.org/3/' + mediaType + '/' + tmdbId + '?api_key=' + TMDB_KEY;
 
         fetch(tmdbUrl).then(function(r) { return r.json(); }).then(function(data) {
             var title = data.title || data.name;
-            // 2. Search StreamM4U
             var searchUrl = BASE + '/search/' + encodeURIComponent(title).replace(/%20/g, '+');
-            return httpGet(searchUrl);
+            return httpGet(searchUrl, { 'Referer': BASE + '/' });
         }).then(function(html) {
-            // 3. Extract the movie page URL (e.g., /movies/avatar-fire-and-ash-2025-ybec0)
             var match = html.match(/href="(https:\/\/streamm4u\.com\.co\/movies\/[^"]+)"/);
-            if (!match) throw new Error('Movie link not found');
-            var movieUrl = match[1];
-            return httpGet(movieUrl);
+            if (!match) throw new Error('Movie not found');
+            return httpGet(match[1], { 'Referer': BASE + '/' });
         }).then(function(moviePage) {
-            // 4. Extraction Logic for RPMVIP (SV Emb1)
-            // We look for the data-id or the direct rpmvip reference in the scripts
-            var rpmMatch = moviePage.match(/src="(https:\/\/youtube-prime\.rpmvip\.com\/[^"]+)"/i) ||
-                           moviePage.match(/https:\/\/youtube-prime\.rpmvip\.com\/hls\/[^"']+/i);
+            // Attempt to find the stream URL in the page source
+            // This regex looks for master.m3u8 links from neonhorizon or rpmvip
+            var streamRegex = /(https:\/\/[^"']+(?:neonhorizonworkshops|rpmvip|ppzj-youtube)[^"']+\.m3u8[^"']*)/i;
+            var streamMatch = moviePage.match(streamRegex);
 
-            if (!rpmMatch) {
-                // If the link is totally hidden, we use the ID and the known pattern from your Link 1
-                var idMatch = moviePage.match(/data-id="([^"]+)"/);
-                if (idMatch) {
-                   console.log('[StreamM4U] Found ID: ' + idMatch[1] + ' - attempting to resolve.');
+            if (!streamMatch) {
+                // If not directly in source, look for the iframe source to Cloudnestra/NeonHorizon
+                var iframeMatch = moviePage.match(/src="(https:\/\/(?:cloudnestra|youtube-prime|tmstr)[^"]+)"/i);
+                if (iframeMatch) {
+                    return httpGet(iframeMatch[1], { 'Referer': BASE + '/' }).then(function(iframeHtml) {
+                        var innerMatch = iframeHtml.match(streamRegex);
+                        return innerMatch ? innerMatch[1] : null;
+                    });
                 }
-                throw new Error('Stream link not visible in source');
             }
+            return streamMatch ? streamMatch[1] : null;
+        }).then(function(finalUrl) {
+            if (!finalUrl) { resolve([]); return; }
 
-            var streamUrl = rpmMatch[0].replace(/&amp;/g, '&');
-
-            // 5. Return the stream with your verified functional headers
+            // Determine headers based on the URL found
+            var isNeon = finalUrl.includes('neonhorizonworkshops');
+            
             resolve([{
-                name: '🎬 StreamM4U (SV Emb1)',
-                title: 'Hindi/English • 1080p',
-                url: streamUrl,
+                name: isNeon ? '🎬 SV-Vr (Neon)' : '🎬 SV-Emb1 (RPM)',
+                title: 'Full HD • Multi-Source',
+                url: finalUrl,
                 quality: '1080p',
                 headers: {
                     'User-Agent': UA,
-                    'Referer': 'https://youtube-prime.rpmvip.com/',
-                    'Origin': 'https://youtube-prime.rpmvip.com',
+                    'Referer': isNeon ? 'https://cloudnestra.com/' : 'https://youtube-prime.rpmvip.com/',
+                    'Origin': isNeon ? 'https://cloudnestra.com' : 'https://youtube-prime.rpmvip.com',
                     'Accept': '*/*',
                     'sec-ch-ua': '"Android WebView";v="147", "Not.A/Brand";v="8", "Chromium";v="147"',
-                    'sec-ch-ua-platform': '"Android"',
-                    'X-Requested-With': 'XMLHttpRequest'
+                    'sec-ch-ua-platform': '"Android"'
                 }
             }]);
         }).catch(function(err) {
-            console.error('[StreamM4U] ' + err.message);
+            console.log('[StreamM4U] Search failed or link hidden');
             resolve([]);
         });
     });

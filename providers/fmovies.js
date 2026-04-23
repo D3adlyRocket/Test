@@ -1,141 +1,120 @@
-// ================================================================
-// AnimeWorld India — Android TV Optimized
-// ================================================================
+// StreamM4U Provider for Nuvio
+// Updated for streamm4u.com.co 🌐
 
 var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305'
-var BASE     = 'https://watchanimeworld.net'
-var PLAYER   = 'https://play.zephyrflick.top'
-var UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+var BASE = 'https://streamm4u.com.co' 
+var UA = 'Mozilla/5.0 (Linux; Android 15; ALT-NX1 Build/HONORALT-N31; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/147.0.7727.55 Mobile Safari/537.36'
 
 function httpGet(url, headers) {
   return fetch(url, {
-    headers: Object.assign({ 'User-Agent': UA }, headers || {})
+    headers: Object.assign({ 
+        'User-Agent': UA,
+        'Referer': BASE + '/' 
+    }, headers || {})
   }).then(function(r) {
     if (!r.ok) throw new Error('HTTP ' + r.status)
     return r.text()
   })
 }
 
-function httpPost(url, body, headers) {
-  return fetch(url, {
-    method: 'POST',
-    headers: Object.assign({
-      'User-Agent': UA,
-      'Content-Type': 'application/x-www-form-urlencoded'
-    }, headers || {}),
-    body: body
-  }).then(function(r) {
-    if (!r.ok) throw new Error('HTTP ' + r.status)
-    return r.json()
-  })
+function cleanTitle(title) {
+  return title.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-function searchSite(title, mediaType) {
-  var url = BASE + '/?s=' + encodeURIComponent(title)
-  return httpGet(url, { 'Referer': BASE + '/' })
+function searchSite(title) {
+  // StreamM4U search endpoint
+  var url = BASE + '/search/' + encodeURIComponent(title).replace(/%20/g, '+')
+  return httpGet(url)
     .then(function(html) {
       var results = []
-      var re = /href="(https:\/\/watchanimeworld\.net\/(series|movies)\/([^\/\"]+)\/)"/g
-      var m
-      while ((m = re.exec(html)) !== null) {
-        var link = m[1], type = m[2], slug = m[3]
-        if (slug && slug !== 'page') {
-          results.push({ url: link, type: type, slug: slug })
-        }
-      }
-      return results.filter(function(r) {
-        return mediaType === 'movie' ? r.type === 'movies' : r.type === 'series'
-      })
-    })
-}
+      // Matches the movie boxes in the search results
+      var movieRegex = /<div class="movie-box">[\s\S]*?href="([^"]+)" title="([^"]+)"/g
+      var match
 
-function getEpisodeUrl(seriesUrl, season, episode) {
-  return httpGet(seriesUrl, { 'Referer': BASE + '/' })
-    .then(function(html) {
-      var pidM = html.match(/postid-(\d+)/) || html.match(/data-post="(\d+)"/)
-      if (!pidM) return null
-      var ajaxUrl = BASE + '/wp-admin/admin-ajax.php?action=action_select_season&season=' + season + '&post=' + pidM[1]
-      
-      return httpGet(ajaxUrl, { 'Referer': seriesUrl })
-        .then(function(epHtml) {
-          var suffix = season + 'x' + episode + '/'
-          var re = /href="(https:\/\/watchanimeworld\.net\/episode\/([^"]+))"/g
-          var m
-          while ((m = re.exec(epHtml)) !== null) {
-            if (m[1].indexOf(suffix) !== -1) return m[1]
-          }
-          return null
-        })
-    })
-}
-
-function getStreamFromPage(pageUrl) {
-  return httpGet(pageUrl, { 'Referer': BASE + '/' })
-    .then(function(html) {
-      var iframeM = html.match(/(?:src|data-src)="(https:\/\/play\.zephyrflick\.top\/video\/([a-f0-9]+))"/)
-      if (!iframeM) return null
-      
-      var videoHash = iframeM[2]
-      return httpPost(
-        PLAYER + '/player/index.php?data=' + videoHash + '&do=getVideo',
-        'hash=' + videoHash + '&r=' + encodeURIComponent(BASE + '/'),
-        {
-          'Referer': BASE + '/',
-          'Origin': PLAYER,
-          'X-Requested-With': 'XMLHttpRequest'
-        }
-      ).then(function(data) {
-        var m3u8 = data.videoSource || data.securedLink
-        if (!m3u8) return null
+      while ((match = movieRegex.exec(html)) !== null) {
+        var itemUrl = match[1]
+        var itemTitle = match[2]
         
-        var contentHashM = m3u8.match(/\/cdn\/hls\/([a-f0-9]+)\//)
-        var contentHash  = contentHashM ? contentHashM[1] : videoHash
-        var subtitleUrl = PLAYER + '/cdn/down/' + contentHash + '/Subtitle/subtitle_eng.srt'
+        // Basic year extraction from title if present
+        var yearMatch = itemTitle.match(/\d{4}/)
+        var itemYear = yearMatch ? parseInt(yearMatch[0]) : null
 
-        return { url: m3u8, subtitle: subtitleUrl }
-      })
+        results.push({ 
+            url: itemUrl, 
+            title: itemTitle, 
+            year: itemYear 
+        })
+      }
+      return results
+    })
+}
+
+function extractStream(movieUrl) {
+  return httpGet(movieUrl)
+    .then(function(html) {
+      // StreamM4U often uses an iframe or a specific player script
+      // We look for the source URL or the encoded 'mu' parameter from your Link 2
+      var iframeMatch = html.match(/<iframe[\s\S]*?src="([^"]+)"/i)
+      if (!iframeMatch) {
+          // Fallback: look for the HLS link directly in the scripts if rendered
+          var hlsMatch = html.match(/mu=(https%3A%2F%2F[^&"']+)/)
+          if (hlsMatch) return decodeURIComponent(hlsMatch[1])
+          return null
+      }
+      
+      var playerUrl = iframeMatch[1]
+      if (playerUrl.startsWith('//')) playerUrl = 'https:' + playerUrl
+      
+      return playerUrl
     })
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
   return new Promise(function(resolve) {
-    var tmdbUrl = 'https://api.themoviedb.org/3/' + (mediaType === 'movie' ? 'movie' : 'tv') + '/' + tmdbId + '?api_key=' + TMDB_KEY
-    
+    var tmdbUrl = mediaType === 'movie'
+      ? 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY
+      : 'https://api.themoviedb.org/3/tv/' + tmdbId + '?api_key=' + TMDB_KEY
+
+    console.log('[StreamM4U] Searching for TMDB ID: ' + tmdbId)
+
     fetch(tmdbUrl)
       .then(function(r) { return r.json() })
       .then(function(data) {
         var title = data.title || data.name
-        return searchSite(title, mediaType)
-      })
-      .then(function(results) {
-        if (!results || results.length === 0) { resolve([]); return null }
-        var target = results[0].url
+        var releaseDate = data.release_date || data.first_air_date || ''
+        var year = releaseDate ? parseInt(releaseDate.split('-')[0]) : null
         
-        if (mediaType === 'movie') return getStreamFromPage(target)
-        return getEpisodeUrl(target, season, episode).then(function(epUrl) {
-          return epUrl ? getStreamFromPage(epUrl) : null
+        return searchSite(title).then(function(results) {
+            // Filter by year if available
+            var candidate = results.find(function(r) {
+                return !year || (r.year && Math.abs(r.year - year) <= 1)
+            }) || results[0]
+            
+            if (!candidate) throw new Error('No results found')
+            return extractStream(candidate.url)
         })
       })
-      .then(function(streamData) {
-        if (!streamData) { resolve([]); return }
+      .then(function(finalStreamUrl) {
+        if (!finalStreamUrl) { resolve([]); return }
 
         resolve([{
-          name: '🗡️ AnimeWorld',
-          title: 'AnimeWorld • Multi-Audio 1080p',
-          url: streamData.url,
+          name: '🚀 StreamM4U',
+          title: 'Multi-Server • 1080p',
+          url: finalStreamUrl,
           quality: '1080p',
           headers: {
-            'Referer': PLAYER + '/',
-            'Origin': PLAYER,
             'User-Agent': UA,
-            'Connection': 'keep-alive'
-          },
-          subtitles: streamData.subtitle 
-            ? [{ url: streamData.subtitle, lang: 'en', name: 'English' }] 
-            : []
+            'Referer': BASE + '/',
+            'Origin': 'https://if9.ppzj-youtube.cfd', // As per your Link 1 data
+            'Accept': '*/*'
+          }
         }])
       })
-      .catch(function() {
+      .catch(function(err) {
+        console.error('[StreamM4U] Error: ' + err.message)
         resolve([])
       })
   })

@@ -1,112 +1,105 @@
-// ================================================================
-// Embed69 — Android TV Optimized (AnimeWorld Pattern)
-// ================================================================
+/**
+ * Movies4u - Android TV Optimized 
+ * Date: 2026-04-23
+ */
 
-var TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
-var BASE     = "https://embed69.org";
-var UA       = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+var TMDB_KEY = '1b3113663c9004682ed61086cf967c44';
+var MAIN_URL = 'https://new1.movies4u.style';
+var M4U_PLAY = 'https://m4uplay.store';
+var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+// Helper for standard HTTP GET
 function httpGet(url, headers) {
-  return fetch(url, {
-    headers: Object.assign({ 'User-Agent': UA }, headers || {})
-  }).then(function(r) {
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.text();
-  });
+    return fetch(url, {
+        headers: Object.assign({ 'User-Agent': UA }, headers || {})
+    }).then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+    });
 }
 
-function b64(str) {
-  try {
-    return atob(str.replace(/-/g, "+").replace(/_/g, "/"));
-  } catch (e) { return null; }
-}
-
-function resolveHost(url) {
-  return httpGet(url, { 'Referer': url }).then(function(html) {
-    // VOE Resolver
-    if (url.indexOf('voe.sx') !== -1) {
-      var m = html.match(/'hls'\s*:\s*'([^']+)'/i) || html.match(/"hls"\s*:\s*"([^"]+)"/i);
-      if (m) {
-        var hls = m[1].indexOf('aHR0') === 0 ? b64(m[1]) : m[1];
-        return { url: hls, headers: { 'Referer': url, 'User-Agent': UA } };
-      }
+// Simplified unpacker for protected JS
+function simpleUnpack(p, a, c, k) {
+    while (c--) {
+        if (k[c]) p = p.replace(new RegExp('\\b' + c.toString(a) + '\\b', 'g'), k[c]);
     }
-    // StreamWish Resolver
-    if (url.indexOf('wish') !== -1 || url.indexOf('vix') !== -1) {
-      var fm = html.match(/file\s*:\s*["']([^"']+)["']/i);
-      if (fm) {
-        return { url: fm[1], headers: { 'Referer': url, 'User-Agent': UA } };
-      }
-    }
-    return null;
-  });
+    return p;
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  return new Promise(function(resolve) {
-    var type = (mediaType === 'series' || mediaType === 'tv') ? 'tv' : 'movie';
-    var tmdbUrl = 'https://api.themoviedb.org/3/' + type + '/' + tmdbId + '/external_ids?api_key=' + TMDB_KEY;
+    return new Promise(function(resolve) {
+        var tmdbUrl = 'https://api.themoviedb.org/3/' + (mediaType === 'movie' ? 'movie' : 'tv') + '/' + tmdbId + '?api_key=' + TMDB_KEY;
 
-    fetch(tmdbUrl)
-      .then(function(r) { return r.json(); })
-      .then(function(ids) {
-        var imdbId = ids.imdb_id;
-        if (!imdbId) throw new Error('No IMDB');
+        fetch(tmdbUrl)
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var title = data.title || data.name;
+                var searchUrl = MAIN_URL + '/?s=' + encodeURIComponent(title);
+                return httpGet(searchUrl, { 'Referer': MAIN_URL + '/' });
+            })
+            .then(function(html) {
+                // Regex to find the movie link in search results
+                var linkMatch = html.match(/class="entry-title"><a href="([^"]+)"/);
+                if (!linkMatch) return null;
+                return httpGet(linkMatch[1], { 'Referer': MAIN_URL + '/' });
+            })
+            .then(function(pageHtml) {
+                if (!pageHtml) return null;
+                
+                // Find m4uplay embed/watch links
+                var streamMatch = pageHtml.match(/href="(https:\/\/m4uplay\.[^"]+)"/);
+                if (!streamMatch) return null;
+                
+                return httpGet(streamMatch[1], { 'Referer': MAIN_URL + '/' });
+            })
+            .then(function(embedHtml) {
+                if (!embedHtml) { resolve([]); return; }
 
-        var target;
-        if (type === 'movie') {
-          target = BASE + '/f/' + imdbId;
-        } else {
-          // Manual padding for Android TV (S1 E1 -> 1x01)
-          var epStr = episode < 10 ? '0' + episode : episode;
-          target = BASE + '/f/' + imdbId + '-' + season + 'x' + epStr;
-        }
-        return httpGet(target, { 'Referer': 'https://sololatino.net/' });
-      })
-      .then(function(html) {
-        var dataM = html.match(/let\s+dataLink\s*=\s*(\[.+\]);/);
-        if (!dataM) throw new Error('No Data');
-        
-        var dataLinks = JSON.parse(dataM[1]);
-        var results = [];
-        
-        // We only take the first working language category to keep it fast
-        // Priority: Latino (LAT) then Spanish (ESP)
-        var category = null;
-        for (var i = 0; i < dataLinks.length; i++) {
-          if (dataLinks[i].video_language === 'LAT') { category = dataLinks[i]; break; }
-        }
-        if (!category && dataLinks.length > 0) category = dataLinks[0];
+                // Look for packed JavaScript containing the file URL
+                var finalUrl = null;
+                var packerMatch = embedHtml.match(/eval\(function\(p,a,c,k,e,d\)\{.*?\}\((.*)\)\)/);
+                
+                var sourceToSearch = embedHtml;
+                if (packerMatch) {
+                    try {
+                        var args = packerMatch[1].split(',');
+                        var p = args[0].replace(/['"]/g, '');
+                        var a = parseInt(args[1]);
+                        var c = parseInt(args[2]);
+                        var k = args[3].split('|');
+                        sourceToSearch += simpleUnpack(p, a, c, k);
+                    } catch(e) { /* ignore unpack errors */ }
+                }
 
-        if (!category || !category.sortedEmbeds) { resolve([]); return; }
+                // Extract m3u8 playlist
+                var m3u8Match = sourceToSearch.match(/(https?:\/\/[^"']+\.m3u8[^"']*)/i) || 
+                                sourceToSearch.match(/file\s*:\s*"([^"]+)"/);
+                
+                if (m3u8Match) {
+                    finalUrl = m3u8Match[1];
+                    // Clean up potential relative paths
+                    if (finalUrl.startsWith('/')) finalUrl = M4U_PLAY + finalUrl;
 
-        var embeds = category.sortedEmbeds;
-        var firstEmbed = embeds[0]; // Try the first server (usually best)
-        
-        var parts = firstEmbed.link.split('.');
-        if (parts.length < 2) throw new Error('Bad Link');
-        
-        var decoded = JSON.parse(b64(parts[1]));
-        return resolveHost(decoded.link).then(function(stream) {
-          if (!stream) return [];
-          
-          return [{
-            name: '🌐 Embed69',
-            title: 'Embed69 • ' + firstEmbed.servername + ' (' + category.video_language + ')',
-            url: stream.url,
-            quality: '1080p',
-            headers: stream.headers
-          }];
-        });
-      })
-      .then(function(finalStreams) {
-        resolve(finalStreams || []);
-      })
-      .catch(function(err) {
-        console.log('Embed69 Error: ' + err.message);
-        resolve([]);
-      });
-  });
+                    resolve([{
+                        name: '🎬 Movies4u',
+                        title: 'Movies4u (Instant) • Auto Quality',
+                        url: finalUrl,
+                        quality: '720p', // Defaulting to 720p as a label
+                        headers: {
+                            'Referer': M4U_PLAY + '/',
+                            'Origin': M4U_PLAY,
+                            'User-Agent': UA
+                        }
+                    }]);
+                } else {
+                    resolve([]);
+                }
+            })
+            .catch(function(err) {
+                console.error('Movies4u Error: ' + err.message);
+                resolve([]);
+            });
+    });
 }
 
-module.exports = { getStreams: getStreams };
+module.exports = { getStreams };

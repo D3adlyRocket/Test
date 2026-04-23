@@ -1,102 +1,90 @@
 /**
- * Movies4u - Android TV Optimized 
- * Date: 2026-04-23
+ * Movies4u - Hardened Android TV Provider
+ * Optimized for CloudStream / Android JS Engines
  */
 
 var TMDB_KEY = '1b3113663c9004682ed61086cf967c44';
 var MAIN_URL = 'https://new1.movies4u.style';
 var M4U_PLAY = 'https://m4uplay.store';
-var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
 
-// Helper for standard HTTP GET
-function httpGet(url, headers) {
+function httpGet(url, referer) {
     return fetch(url, {
-        headers: Object.assign({ 'User-Agent': UA }, headers || {})
-    }).then(function(r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.text();
-    });
-}
-
-// Simplified unpacker for protected JS
-function simpleUnpack(p, a, c, k) {
-    while (c--) {
-        if (k[c]) p = p.replace(new RegExp('\\b' + c.toString(a) + '\\b', 'g'), k[c]);
-    }
-    return p;
+        headers: {
+            'User-Agent': UA,
+            'Referer': referer || MAIN_URL + '/',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,webp,*/*;q=0.8'
+        }
+    }).then(function(r) { return r.text(); });
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
     return new Promise(function(resolve) {
+        // 1. Get Title from TMDB
         var tmdbUrl = 'https://api.themoviedb.org/3/' + (mediaType === 'movie' ? 'movie' : 'tv') + '/' + tmdbId + '?api_key=' + TMDB_KEY;
 
-        fetch(tmdbUrl)
-            .then(function(r) { return r.json(); })
+        fetch(tmdbUrl).then(function(r) { return r.json(); })
             .then(function(data) {
                 var title = data.title || data.name;
-                var searchUrl = MAIN_URL + '/?s=' + encodeURIComponent(title);
-                return httpGet(searchUrl, { 'Referer': MAIN_URL + '/' });
+                // 2. Search the site
+                return httpGet(MAIN_URL + '/?s=' + encodeURIComponent(title));
             })
-            .then(function(html) {
-                // Regex to find the movie link in search results
-                var linkMatch = html.match(/class="entry-title"><a href="([^"]+)"/);
-                if (!linkMatch) return null;
-                return httpGet(linkMatch[1], { 'Referer': MAIN_URL + '/' });
+            .then(function(searchHtml) {
+                // Find the first valid post link
+                var postMatch = searchHtml.match(/href="(https:\/\/new1\.movies4u\.style\/[^"]+)"/);
+                if (!postMatch) throw new Error("No results found");
+                return httpGet(postMatch[1], MAIN_URL + '/');
             })
             .then(function(pageHtml) {
-                if (!pageHtml) return null;
+                // 3. Find M4UPlay Embed Links (usually in buttons or iframes)
+                var links = [];
+                var re = /href="(https:\/\/m4uplay\.[^"]+)"/g;
+                var m;
+                while ((m = re.exec(pageHtml)) !== null) {
+                    links.push(m[1]);
+                }
+
+                if (links.length === 0) throw new Error("No watch links found");
                 
-                // Find m4uplay embed/watch links
-                var streamMatch = pageHtml.match(/href="(https:\/\/m4uplay\.[^"]+)"/);
-                if (!streamMatch) return null;
-                
-                return httpGet(streamMatch[1], { 'Referer': MAIN_URL + '/' });
+                // Try the first link
+                return httpGet(links[0], MAIN_URL + '/');
             })
             .then(function(embedHtml) {
-                if (!embedHtml) { resolve([]); return; }
-
-                // Look for packed JavaScript containing the file URL
-                var finalUrl = null;
-                var packerMatch = embedHtml.match(/eval\(function\(p,a,c,k,e,d\)\{.*?\}\((.*)\)\)/);
+                // 4. Advanced Extraction (Looking for hidden m3u8 or packed sources)
+                var source = null;
                 
-                var sourceToSearch = embedHtml;
-                if (packerMatch) {
-                    try {
-                        var args = packerMatch[1].split(',');
-                        var p = args[0].replace(/['"]/g, '');
-                        var a = parseInt(args[1]);
-                        var c = parseInt(args[2]);
-                        var k = args[3].split('|');
-                        sourceToSearch += simpleUnpack(p, a, c, k);
-                    } catch(e) { /* ignore unpack errors */ }
+                // Look for direct .m3u8 or .txt (m4u uses .txt for playlists sometimes)
+                var sourceMatch = embedHtml.match(/file\s*:\s*["']([^"']+\.(?:m3u8|txt)[^"']*)["']/) ||
+                                 embedHtml.match(/source\s*:\s*["']([^"']+)["']/) ||
+                                 embedHtml.match(/(https?:\/\/[^"']+\.(?:m3u8|txt)(?:\?[^"']*)?)/);
+
+                if (sourceMatch) {
+                    source = sourceMatch[1];
+                } else if (embedHtml.indexOf('eval(function') !== -1) {
+                    // It's packed - look for common patterns inside the pack
+                    var packedUrl = embedHtml.match(/["'](https?:\/\/[^"']+\/master[^"']+)["']/);
+                    if (packedUrl) source = packedUrl[1];
                 }
 
-                // Extract m3u8 playlist
-                var m3u8Match = sourceToSearch.match(/(https?:\/\/[^"']+\.m3u8[^"']*)/i) || 
-                                sourceToSearch.match(/file\s*:\s*"([^"]+)"/);
-                
-                if (m3u8Match) {
-                    finalUrl = m3u8Match[1];
-                    // Clean up potential relative paths
-                    if (finalUrl.startsWith('/')) finalUrl = M4U_PLAY + finalUrl;
+                if (!source) throw new Error("Source extraction failed");
 
-                    resolve([{
-                        name: '🎬 Movies4u',
-                        title: 'Movies4u (Instant) • Auto Quality',
-                        url: finalUrl,
-                        quality: '720p', // Defaulting to 720p as a label
-                        headers: {
-                            'Referer': M4U_PLAY + '/',
-                            'Origin': M4U_PLAY,
-                            'User-Agent': UA
-                        }
-                    }]);
-                } else {
-                    resolve([]);
-                }
+                // Normalize URL
+                if (source.startsWith('/')) source = M4U_PLAY + source;
+
+                resolve([{
+                    name: '🎬 Movies4u',
+                    title: 'Movies4u • High Quality',
+                    url: source,
+                    quality: 'Auto',
+                    headers: {
+                        'User-Agent': UA,
+                        'Referer': M4U_PLAY + '/',
+                        'Origin': M4U_PLAY
+                    }
+                }]);
             })
             .catch(function(err) {
-                console.error('Movies4u Error: ' + err.message);
+                console.log("M4U Error: " + err.message);
                 resolve([]);
             });
     });

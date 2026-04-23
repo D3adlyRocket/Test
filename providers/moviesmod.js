@@ -1,85 +1,163 @@
 'use strict';
 
-var WORKER_BASE = 'https://moviebox.s4nch1tt.workers.dev';
+/**
+ * StreamFlix — Android TV Optimized
+ * Features: ES5 Syntax, Native WebSocket, Memory-efficient caching
+ */
 
-// --- Cache Logic ---
-function Cache(max, ttl) {
-  this.max = max; this.ttl = ttl; this.d = {}; this.ks = [];
+var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var STREAMFLIX_API_BASE = "https://api.streamflix.app";
+var CONFIG_URL = STREAMFLIX_API_BASE + "/config/config-streamflixapp.json";
+var DATA_URL = STREAMFLIX_API_BASE + "/data.json";
+
+// Global cache (using var for TV compatibility)
+var _cache = {
+  config: null,
+  data: null,
+  lastFetched: 0
+};
+
+var DEFAULT_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*'
+};
+
+// --- Core API Helpers ---
+
+function fetchJson(url) {
+  return fetch(url, { headers: DEFAULT_HEADERS })
+    .then(function(res) { return res.json(); })
+    .catch(function(err) { 
+      console.log('[StreamFlix] Fetch Error: ' + err.message); 
+      return null; 
+    });
 }
-Cache.prototype.get = function (k) {
-  var e = this.d[k];
-  if (!e) return undefined;
-  if (Date.now() - e.t > this.ttl) { delete this.d[k]; return undefined; }
-  return e.v;
-};
-Cache.prototype.set = function (k, v) {
-  if (this.d[k]) { this.d[k] = { v: v, t: Date.now() }; return; }
-  if (this.ks.length >= this.max) delete this.d[this.ks.shift()];
-  this.ks.push(k);
-  this.d[k] = { v: v, t: Date.now() };
-};
 
-var _cache = new Cache(300, 20 * 60 * 1000);
-
-function buildStream(s, isTv, se, ep) {
-  var streamUrl = s.proxy_url || s.url || '';
-  if (!streamUrl) return null;
-
-  var quality = s.resolution ? (String(s.resolution).match(/\d+/) ? String(s.resolution).match(/\d+/)[0] + 'p' : s.resolution) : 'Auto';
-  
-  // Detection Logic: Default to English unless Hindi is found
-  var rawName = (s.name || '').toLowerCase();
-  var lang = 'English'; 
-  
-  if (rawName.includes('hindi')) {
-    lang = 'Hindi';
-  } else if (rawName.match(/\(([^)]+)\)/)) {
-    lang = (s.name || '').match(/\(([^)]+)\)/)[1];
+function getRemoteData() {
+  var now = Date.now();
+  if (_cache.data && (now - _cache.lastFetched < 300000)) {
+    return Promise.resolve({ config: _cache.config, data: _cache.data });
   }
 
-  var titleBase = (s.title || 'MovieBox').split(' S0')[0].split(' S1')[0].trim();
-  var epTag = (isTv && se != null && ep != null) ? ' · S' + String(se).padStart(2, '0') + 'E' + String(ep).padStart(2, '0') : '';
-
-  return {
-    name: '📺 MovieBox | ' + quality + ' | ' + lang,
-    title: titleBase + epTag + '\n📺 ' + quality + '  🔊 ' + lang + (s.size_mb ? '\n💾 ' + s.size_mb + ' MB' : ''),
-    url: streamUrl,
-    quality: quality,
-    behaviorHints: { bingeGroup: 'moviebox' }
-  };
+  return fetchJson(CONFIG_URL).then(function(config) {
+    return fetchJson(DATA_URL).then(function(data) {
+      _cache.config = config;
+      _cache.data = data;
+      _cache.lastFetched = now;
+      return { config: config, data: data };
+    });
+  });
 }
 
-function getStreams(tmdbId, type, season, episode) {
-  var mediaType = (type === 'series') ? 'tv' : 'movie';
-  var se = season ? parseInt(season) : 1;
-  var ep = episode ? parseInt(episode) : 1;
-  
-  // Added &lang=en in case the worker supports it
-  var url = WORKER_BASE + '/streams?tmdb_id=' + tmdbId + '&type=' + mediaType + '&lang=en&proxy=' + encodeURIComponent(WORKER_BASE);
-  if (mediaType === 'tv') url += '&se=' + se + '&ep=' + ep;
+// --- WebSocket Episode Handler (TV Compatible) ---
 
-  return fetch(url)
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      var results = Array.isArray(data) ? data : (data.streams || []);
+function getEpisodesWS(movieKey, targetSeason) {
+  return new Promise(function(resolve, reject) {
+    // Android TV native WebSocket check
+    var WS = typeof WebSocket !== 'undefined' ? WebSocket : null;
+    if (!WS) return resolve({});
+
+    var url = "wss://chilflix-410be-default-rtdb.asia-southeast1.firebasedatabase.app/.ws?ns=chilflix-410be-default-rtdb&v=5";
+    var ws = new WS(url);
+    var episodes = {};
+    var timeout = setTimeout(function() { try { ws.close(); } catch(e){} resolve({}); }, 10000);
+
+    ws.onopen = function() {
+      var query = {
+        t: 'd',
+        d: { a: 'q', r: 1, b: { p: 'Data/' + movieKey + '/seasons/' + targetSeason + '/episodes', h: '' } }
+      };
+      ws.send(JSON.stringify(query));
+    };
+
+    ws.onmessage = function(event) {
+      try {
+        var msg = JSON.parse(event.data);
+        if (msg.t === 'd' && msg.d && msg.d.b && msg.d.b.d) {
+          clearTimeout(timeout);
+          ws.close();
+          resolve(msg.d.b.d);
+        }
+      } catch(e) {}
+    };
+
+    ws.onerror = function() { resolve({}); };
+  });
+}
+
+// --- Main Entry Point ---
+
+function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
+  var type = (mediaType === 'tv' || mediaType === 'series') ? 'tv' : 'movie';
+  var tmdbUrl = 'https://api.themoviedb.org/3/' + type + '/' + tmdbId + '?api_key=' + TMDB_API_KEY;
+
+  return fetchJson(tmdbUrl).then(function(tmdbData) {
+    if (!tmdbData) return [];
+    
+    var title = (type === 'tv' ? tmdbData.name : tmdbData.title).toLowerCase();
+    
+    return getRemoteData().then(function(remote) {
+      if (!remote.data || !remote.data.data) return [];
+
+      // Find Best Match
+      var match = null;
+      var items = remote.data.data;
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].moviename && items[i].moviename.toLowerCase() === title) {
+          match = items[i];
+          break;
+        }
+      }
+
+      if (!match) return [];
+
+      // Process Movie
+      if (type === 'movie') {
+        var streams = [];
+        var hosts = remote.config.premium || [];
+        for (var j = 0; j < hosts.length; j++) {
+          streams.push({
+            name: "StreamFlix | Movie",
+            title: match.moviename + "\nPremium Direct Server",
+            url: hosts[j] + match.movielink,
+            quality: "1080p",
+            behaviorHints: { notWebReady: false }
+          });
+        }
+        return streams;
+      } 
       
-      var streams = results.map(function(s) { 
-        return buildStream(s, mediaType === 'tv', se, ep); 
-      }).filter(Boolean);
+      // Process TV
+      if (type === 'tv' && seasonNum && episodeNum) {
+        return getEpisodesWS(match.moviekey, seasonNum).then(function(epData) {
+          var streams = [];
+          var epKey = (episodeNum - 1).toString();
+          var ep = epData[epKey];
+          
+          if (ep && ep.link) {
+            var hosts = remote.config.premium || [];
+            for (var k = 0; k < hosts.length; k++) {
+              streams.push({
+                name: "StreamFlix | S" + seasonNum + " E" + episodeNum,
+                title: ep.name || match.moviename,
+                url: hosts[k] + ep.link,
+                quality: "1080p",
+                behaviorHints: { notWebReady: false }
+              });
+            }
+          }
+          return streams;
+        });
+      }
 
-      // Sorting Logic: Put English/Non-Hindi at the top
-      streams.sort(function(a, b) {
-        var aIsHindi = a.name.toLowerCase().indexOf('hindi') !== -1;
-        var bIsHindi = b.name.toLowerCase().indexOf('hindi') !== -1;
-        if (aIsHindi && !bIsHindi) return 1;
-        if (!aIsHindi && bIsHindi) return -1;
-        return 0;
-      });
-
-      return streams;
-    })
-    .catch(function() { return []; });
+      return [];
+    });
+  }).catch(function(err) {
+    console.log('[StreamFlix] Fatal Error: ' + err.message);
+    return [];
+  });
 }
 
-if (typeof module !== 'undefined' && module.exports) { module.exports = { getStreams: getStreams }; } 
+// Export for Universal Use
+if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; } 
 else { global.getStreams = getStreams; }

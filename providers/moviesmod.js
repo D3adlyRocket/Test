@@ -1,94 +1,116 @@
 'use strict';
 
-var TMDB_KEY = '439c478a771f35c05022f9feabcca01c';
-var SF_BASE  = 'https://api.streamflix.app';
+var TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
+var SF_BASE      = 'https://api.streamflix.app';
+var SF_UA        = 'Mozilla/5.0 (Linux; Android 10; TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
-var DEFAULT_HEADERS = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-    'Accept': '*/*'
-};
+var st = { config: null, items: null, tf: null, lf: null, kf: null };
 
-// Fail-safe fetch from your HindMoviez code
-function safeFetch(url) {
-    return fetch(url, { headers: DEFAULT_HEADERS })
-        .then(function(res) { 
-            if (!res.ok) return null;
-            return res.text(); // TV engines prefer text() then manual JSON.parse
-        })
-        .catch(function() { return null; });
+// ─────────────────────────────────────────────────────────────────────────────
+// TV-Safe Fetch (No Object.assign, No WebSockets)
+// ─────────────────────────────────────────────────────────────────────────────
+function tvFetch(url) {
+    return fetch(url, {
+        method: 'GET',
+        headers: {
+            'User-Agent': SF_UA,
+            'Accept': 'application/json, text/plain, */*',
+            'Referer': 'https://streamflix.app/'
+        }
+    }).then(function(r) {
+        if (!r.ok) return null;
+        return r.text(); // Get text first to prevent JSON parse crashes
+    }).then(function(t) {
+        try { return JSON.parse(t); } catch(e) { return null; }
+    }).catch(function() { return null; });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The "Magic" TV Logic: Replaces WebSockets with Firebase REST
+// ─────────────────────────────────────────────────────────────────────────────
+function getTvEpisodes(movieKey, season) {
+    // Android TVs love REST, hate WebSockets. This is the direct Firebase link.
+    var url = "https://chilflix-410be-default-rtdb.asia-southeast1.firebasedatabase.app/Data/" + movieKey + "/seasons/" + season + "/episodes.json";
+    return tvFetch(url).then(function(data) {
+        if (!data) return null;
+        // Firebase returns either an array or an object
+        return data; 
+    });
 }
 
 function getStreams(tmdbId, type, season, episode) {
-    var isTV = (type === 'series' || type === 'tv');
-    var tmdbUrl = 'https://api.themoviedb.org/3/' + (isTV ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY;
+    var isSeries = (type === 'series' || type === 'tv');
+    var tmdbUrl = 'https://api.themoviedb.org/3/' + (isSeries ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_API_KEY;
 
-    return fetch(tmdbUrl)
-        .then(function(res) { return res.json(); })
-        .then(function(details) {
-            if (!details) return [];
-            var query = (isTV ? details.name : details.title).toLowerCase();
+    return fetch(tmdbUrl).then(function(res) { return res.json(); }).then(function(tmdb) {
+        var query = (isSeries ? tmdb.name : tmdb.title).toLowerCase();
 
-            // 1. Get Config
-            return safeFetch(SF_BASE + '/config/config-streamflixapp.json').then(function(configRaw) {
-                if (!configRaw) return [];
-                var config = JSON.parse(configRaw);
+        // 1. Get Config & Data (Sequential for TV stability)
+        return tvFetch(SF_BASE + '/config/config-streamflixapp.json').then(function(config) {
+            return tvFetch(SF_BASE + '/data.json').then(function(db) {
+                var items = db ? (db.data || db.movies || []) : [];
+                var match = null;
 
-                // 2. Get Data
-                return safeFetch(SF_BASE + '/data.json').then(function(dataRaw) {
-                    if (!dataRaw) return [];
-                    var db = JSON.parse(dataRaw);
-                    var list = db.data || [];
-                    var match = null;
+                for (var i = 0; i < items.length; i++) {
+                    var title = (items[i].moviename || items[i].title || "").toLowerCase();
+                    if (title.indexOf(query) !== -1) {
+                        match = items[i];
+                        break;
+                    }
+                }
 
-                    for (var i = 0; i < list.length; i++) {
-                        if (list[i] && list[i].moviename && list[i].moviename.toLowerCase().indexOf(query) !== -1) {
-                            match = list[i];
-                            break;
+                if (!match) return [];
+
+                var streams = [];
+                var hosts = [].concat(config.premium || [], config.movies || []);
+                var info = { 
+                    imdb: match.imdbrating || "N/A", 
+                    genre: (match.moviegenre || "Action").replace(/\|/g, ' · ') 
+                };
+
+                if (!isSeries) {
+                    // Movie Logic
+                    for (var j = 0; j < hosts.length; j++) {
+                        if (match.movielink) {
+                            streams.push(buildStreamObj(hosts[j] + match.movielink, "1080p", match.moviename, info));
                         }
                     }
-
-                    if (!match) return [];
-
-                    var streams = [];
-                    var hosts = [].concat(config.premium || [], config.movies || []);
-
-                    if (!isTV) {
-                        for (var j = 0; j < hosts.length; j++) {
-                            if (match.movielink) {
-                                streams.push({
-                                    name: '🎬 StreamFlix | Server ' + (j + 1),
-                                    title: '📺 1080p • ' + match.moviename,
-                                    url: hosts[j] + match.movielink,
-                                    quality: '1080p'
-                                });
+                    return streams;
+                } else {
+                    // TV Logic: Use the TV-Safe Firebase Fetch
+                    return getTvEpisodes(match.moviekey, season).then(function(eps) {
+                        var ep = eps ? (eps[episode - 1] || eps[episode.toString()]) : null;
+                        if (ep && ep.link) {
+                            for (var k = 0; k < hosts.length; k++) {
+                                streams.push(buildStreamObj(hosts[k] + ep.link, "1080p", "S" + season + " E" + episode, info));
                             }
                         }
                         return streams;
-                    } else {
-                        // 3. TV Episode Logic
-                        var fbUrl = 'https://chilflix-410be-default-rtdb.asia-southeast1.firebasedatabase.app/Data/' + match.moviekey + '/seasons/' + season + '/episodes.json';
-                        return safeFetch(fbUrl).then(function(epRaw) {
-                            if (!epRaw) return [];
-                            var episodes = JSON.parse(epRaw);
-                            var ep = episodes[episode - 1] || episodes[episode.toString()];
-                            
-                            if (ep && ep.link) {
-                                for (var k = 0; k < hosts.length; k++) {
-                                    streams.push({
-                                        name: '🎬 StreamFlix | Server ' + (k + 1),
-                                        title: '📺 1080p • S' + season + 'E' + episode,
-                                        url: hosts[k] + ep.link,
-                                        quality: '1080p'
-                                    });
-                                }
-                            }
-                            return streams;
-                        });
-                    }
-                });
+                    });
+                }
             });
-        })
-        .catch(function() { return []; });
+        });
+    }).catch(function() { return []; });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Nuvio Stream Builder (Optimized for TV Display)
+// ─────────────────────────────────────────────────────────────────────────────
+function buildStreamObj(url, quality, title, info) {
+    return {
+        name: '🎬 StreamFlix | ' + quality,
+        title: '📺 ' + title + '\n⭐ IMDb: ' + info.imdb + '  🎭 ' + info.genre + '\nSanchit TV-Fix Applied',
+        url: url,
+        quality: quality,
+        behaviorHints: {
+            notWebReady: false,
+            headers: {
+                'User-Agent': SF_UA,
+                'Referer': 'https://api.streamflix.app/',
+                'Origin': 'https://api.streamflix.app'
+            }
+        }
+    };
 }
 
 if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; }

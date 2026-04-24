@@ -1,7 +1,7 @@
 const BASE_URL = 'https://cinevibe.asia';
 const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
 
-// EXACT headers from your working example
+// EXACT headers from your Honor device sample
 const WORKING_HEADERS = {
     'Origin': 'https://cinevibe.asia',
     'Referer': 'https://cinevibe.asia/',
@@ -11,7 +11,7 @@ const WORKING_HEADERS = {
     'sec-ch-ua-mobile': '?1',
     'sec-ch-ua-platform': '"Android"',
     'Accept': '*/*',
-    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'identity;q=1, *;q=0',
 };
 
 const b64 = (s) => {
@@ -37,48 +37,61 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     if (mediaType !== 'movie') return [];
 
     try {
-        // 1. Fetch TMDB Data
+        // 1. TMDB Meta
         const metaRes = await fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}`);
         const meta = await metaRes.json();
         const title = meta.title;
-        const year = (meta.release_date || "2024").split('-')[0];
-        
-        // 2. Token Logic
-        const fingerPrint = "eyJzY3JlZW4iOiIzNjB4ODA2eDI0Iiwi"; // From your working sample
+        const year = (meta.release_date || "2026").split('-')[0];
+        const cleanTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+        // 2. Token generation
+        const fingerPrint = "eyJzY3JlZW4iOiIzNjB4ODA2eDI0Iiwi"; 
         const entropy = "pjght152dw2rb.ssst4bzleDI0Iiwibv78";
-        const timeWindow = Math.floor(Date.now() / 300000);
-        const timeStamp = Math.floor(Date.now() / 1000 / 600);
+        
+        // Use unix timestamp in seconds for the token windows
+        const nowSec = Math.floor(Date.now() / 1000);
+        const timeWindow = Math.floor(nowSec / 300); // 5 min
+        const timeStamp = Math.floor(nowSec / 600); // 10 min
         
         const hashedKey = fnv1a(`${timeWindow}_${fingerPrint}_cinevibe_2025`);
-        const cleanTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '');
         
+        // Payload construction
         const rawPayload = `${entropy}|${tmdbId}|${cleanTitle}|${year}||${hashedKey}|${timeStamp}|${fingerPrint}`;
         
+        // Encryption sequence
         let token = b64(rawPayload).split('').reverse().join('');
         token = token.replace(/[A-Za-z]/g, c => String.fromCharCode(c.charCodeAt(0) + (c.toUpperCase() <= 'M' ? 13 : -13)));
         const finalToken = b64(token).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 
-        // 3. Request to Cinevibe Fetch API
-        const apiUrl = `${BASE_URL}/api/stream/fetch?server=cinebox-1&type=movie&mediaId=${tmdbId}&title=${encodeURIComponent(title)}&releaseYear=${year}&_token=${finalToken}&_ts=${Date.now()}`;
+        // 3. API Request
+        // Note: Using seconds (nowSec) instead of milliseconds for _ts
+        const apiUrl = `${BASE_URL}/api/stream/fetch?server=cinebox-1&type=movie&mediaId=${tmdbId}&title=${encodeURIComponent(title)}&releaseYear=${year}&_token=${finalToken}&_ts=${nowSec}`;
 
         const response = await fetch(apiUrl, {
             method: 'GET',
             headers: WORKING_HEADERS
         });
 
-        const data = await response.json();
+        const text = await response.text();
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch(e) {
+            console.log("Cinevibe returned non-JSON: " + text.substring(0, 100));
+            return [];
+        }
+
         if (!data || !data.sources) return [];
 
-        // 4. Return sources with the headers they need to play
         return data.sources.map(s => ({
             name: "Cinevibe",
             title: `${title} (${year}) [${s.quality || 'HD'}]`,
             url: s.url,
             quality: s.quality || 'HD',
-            headers: WORKING_HEADERS // Pass the SAME headers for the video stream
+            headers: WORKING_HEADERS
         }));
 
-    } catch (e) {
+    } catch (err) {
         return [];
     }
 }

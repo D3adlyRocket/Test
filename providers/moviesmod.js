@@ -1,9 +1,9 @@
 const BASE_URL = 'https://cinevibe.asia';
 const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
 
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+const UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+const FINGERPRINT = "eyJzY3JlZW4iOiIzNjB4ODA2eDI0Iiwi";
 
-// Pure JS Base64 (No btoa/Buffer dependency)
 const b64 = (s) => {
     const t = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
     let o = "", i = 0;
@@ -24,63 +24,59 @@ const fnv1a = (s) => {
 };
 
 async function getStreams(tmdbId, mediaType, season, episode) {
-    // Cinevibe API typically only supports movies via this endpoint
     if (mediaType !== 'movie') return [];
 
     try {
-        // 1. Get TMDB Data
+        // 1. Metadata
         const metaRes = await fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}`);
         const meta = await metaRes.json();
-        if (!meta.title) return [];
-
         const title = meta.title;
-        const year = (meta.release_date || "2024").split('-')[0];
+        const year = (meta.release_date || "").split('-')[0];
         const cleanTitle = title.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-        // 2. Security Params
-        const fingerPrint = "eyJzY3JlZW4iOiIzNjB4ODA2eDI0Iiwi";
-        const entropy = "pjght152dw2rb.ssst4bzleDI0Iiwibv78";
+        // 2. Token Security
+        const timeWindow = Math.floor(Date.now() / 300000);
+        const timeStamp = Math.floor(Date.now() / 1000 / 600);
+        const hashedKey = fnv1a(`${timeWindow}_${FINGERPRINT}_cinevibe_2025`);
         
-        const timeWindow = Math.floor(Date.now() / 300000); // 5 min
-        const timeStamp = Math.floor(Date.now() / 1000 / 600); // 10 min
+        const rawPayload = `pjght152dw2rb.ssst4bzleDI0Iiwibv78|${tmdbId}|${cleanTitle}|${year}||${hashedKey}|${timeStamp}|${FINGERPRINT}`;
         
-        const hashedKey = fnv1a(`${timeWindow}_${fingerPrint}_cinevibe_2025`);
-        
-        // 3. Token Crafting (The "Double Wrap")
-        const rawPayload = `${entropy}|${tmdbId}|${cleanTitle}|${year}||${hashedKey}|${timeStamp}|${fingerPrint}`;
-        
-        // Step A: Base64 -> Reverse -> ROT13
         let token = b64(rawPayload).split('').reverse().join('');
         token = token.replace(/[A-Za-z]/g, c => String.fromCharCode(c.charCodeAt(0) + (c.toUpperCase() <= 'M' ? 13 : -13)));
-        
-        // Step B: Base64 again -> URL Safe
         const finalToken = b64(token).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 
-        // 4. API Request
+        // 3. API Call with Precise Headers
         const apiUrl = `${BASE_URL}/api/stream/fetch?server=cinebox-1&type=movie&mediaId=${tmdbId}&title=${encodeURIComponent(title)}&releaseYear=${year}&_token=${finalToken}&_ts=${Date.now()}`;
 
         const response = await fetch(apiUrl, {
+            method: 'GET',
             headers: {
                 'User-Agent': UA,
-                'Referer': BASE_URL + '/',
+                'Referer': 'https://cinevibe.asia/',
                 'X-Requested-With': 'XMLHttpRequest',
-                'X-CV-Fingerprint': fingerPrint
+                'X-CV-Fingerprint': FINGERPRINT,
+                'Accept': 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache'
             }
         });
 
+        if (!response.ok) return [];
         const data = await response.json();
 
         if (!data || !data.sources) return [];
 
         return data.sources.map(s => ({
             name: "Cinevibe",
-            title: `${title} (${year}) [${s.quality || '720p'}]`,
+            title: `${title} (${year}) [${s.label || s.quality || 'HD'}]`,
             url: s.url,
-            quality: s.quality || 'HD',
+            quality: s.label || s.quality || 'Unknown',
             headers: {
                 'User-Agent': UA,
-                'Referer': BASE_URL + '/',
-                'Origin': BASE_URL
+                'Referer': 'https://cinevibe.asia/',
+                'Origin': 'https://cinevibe.asia',
+                'Accept': '*/*'
             }
         }));
 

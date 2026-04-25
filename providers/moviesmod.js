@@ -508,7 +508,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
         console.log(`[StreamingCommunity] Proxy enabled, returning raw page URL: ${rawPageUrl}`);
         const result = {
-          name: `StreamingCommunity`,
+          name: `VixSrc`,
           title: finalDisplayName,
           url: rawPageUrl,
           easyProxySourceUrl: rawPageUrl,

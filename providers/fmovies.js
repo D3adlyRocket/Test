@@ -1,3 +1,4 @@
+// --- YOUR ORIGINAL UTILITIES ---
 function getJson(url, options) {
   return fetch(url, options || {}).then(function (response) {
     if (!response || !response.ok) {
@@ -51,130 +52,98 @@ function getTmdbMeta(tmdbId, mediaType) {
   return getJson(url);
 }
 
-// --- NEW VIXSRC RESOLVER ---
-
+// --- NEW VIXSRC RESOLVER (Integrated into your style) ---
 function resolveVixSrc(tmdbId, mediaType, season, episode) {
   var baseUrl = "https://vixsrc.to";
-  var typePath = mediaType === 'tv' ? 'tv' : 'movie';
-  var apiUrl = baseUrl + '/api/' + typePath + '/' + tmdbId + (mediaType === 'tv' ? '/' + (season || 1) + '/' + (episode || 1) : '');
+  var type = (mediaType === 'tv') ? 'tv' : 'movie';
+  var apiUrl = baseUrl + '/api/' + type + '/' + tmdbId + (mediaType === 'tv' ? '/' + (season || 1) + '/' + (episode || 1) : '');
   
-  return getJson(apiUrl, {
-    headers: { "User-Agent": "Mozilla/5.0", "Referer": baseUrl + "/" }
-  }).then(function (payload) {
-    var embedUrl = payload && payload.src;
-    if (!embedUrl) return [];
+  var reqHeaders = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": baseUrl + "/"
+  };
 
-    return getText(embedUrl, {
-      headers: { "User-Agent": "Mozilla/5.0", "Referer": baseUrl + "/" }
-    }).then(function (html) {
-      var tokenMatch = html.match(/['"]token['"]\s*:\s*['"]([^'"]+)['"]/i);
-      var expiresMatch = html.match(/['"]expires['"]\s*:\s*['"]([^'"]+)['"]/i);
-      var urlMatch = html.match(/url\s*:\s*['"]([^'"]+)['"]/i);
+  return getJson(apiUrl, { headers: reqHeaders })
+    .then(function (payload) {
+      var embedUrl = payload && payload.src;
+      if (!embedUrl) return [];
 
-      if (!tokenMatch || !expiresMatch || !urlMatch) return [];
+      return getText(embedUrl, { headers: reqHeaders }).then(function (html) {
+        var tMatch = html.match(/['"]token['"]\s*:\s*['"]([^'"]+)['"]/i);
+        var eMatch = html.match(/['"]expires['"]\s*:\s*['"]([^'"]+)['"]/i);
+        var uMatch = html.match(/url\s*:\s*['"]([^'"]+\/playlist\/[^'"]+)['"]/i);
 
-      var finalUrl = urlMatch[1] + "?token=" + tokenMatch[1] + "&expires=" + expiresMatch[1] + "&h=1";
-      
-      return [streamObject(
-        'VixSrc',
-        'VixSrc Player',
-        finalUrl,
-        '1080P',
-        { "Referer": embedUrl, "Origin": baseUrl }
-      )];
-    });
-  }).catch(function () { return []; });
+        if (!tMatch || !eMatch || !uMatch) return [];
+
+        var streamUrl = uMatch[1] + "?token=" + encodeURIComponent(tMatch[1]) + "&expires=" + encodeURIComponent(eMatch[1]) + "&h=1";
+        
+        return [streamObject(
+          'VixSrc',
+          'VixSrc Player',
+          streamUrl,
+          '1080P',
+          { "Referer": embedUrl, "Origin": baseUrl }
+        )];
+      });
+    })
+    .catch(function () { return []; });
 }
 
-// --- ORIGINAL RESOLVERS ---
+// --- YOUR ORIGINAL RESOLVERS ---
 
 function resolveVidEasy(tmdbId, mediaType, season, episode) {
   var typePath = mediaType === 'tv' ? 'tv' : 'movie';
   var dbUrl = 'https://db.videasy.net/3/' + typePath + '/' + tmdbId + '?append_to_response=external_ids&language=en&api_key=ad301b7cc82ffe19273e55e4d4206885';
-
-  return getJson(dbUrl)
-    .then(function (meta) {
-      var isTv = mediaType === 'tv';
-      var title = encodeURIComponent((isTv ? meta.name : meta.title) || '');
-      var dateText = isTv ? meta.first_air_date : meta.release_date;
-      var year = dateText ? new Date(dateText).getFullYear() : '';
-      var imdbId = (meta.external_ids && meta.external_ids.imdb_id) || '';
-      var fullUrl = 'https://api.videasy.net/cdn/sources-with-title?title=' + title + '&mediaType=' + (isTv ? 'tv' : 'movie') + '&year=' + year + '&episodeId=' + (isTv ? (episode || 1) : 1) + '&seasonId=' + (isTv ? (season || 1) : 1) + '&tmdbId=' + meta.id + '&imdbId=' + imdbId;
-      return getText(fullUrl).then(function (encryptedText) {
-        var body = JSON.stringify({ text: encryptedText, id: String(tmdbId) });
-        return getJson('https://enc-dec.app/api/dec-videasy', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: body
-        });
+  return getJson(dbUrl).then(function (meta) {
+    var isTv = mediaType === 'tv';
+    var title = encodeURIComponent((isTv ? meta.name : meta.title) || '');
+    var dateText = isTv ? meta.first_air_date : meta.release_date;
+    var year = dateText ? new Date(dateText).getFullYear() : '';
+    var imdbId = (meta.external_ids && meta.external_ids.imdb_id) || '';
+    var fullUrl = 'https://api.videasy.net/cdn/sources-with-title?title=' + title + '&mediaType=' + (isTv ? 'tv' : 'movie') + '&year=' + year + '&episodeId=' + (isTv ? (episode || 1) : 1) + '&seasonId=' + (isTv ? (season || 1) : 1) + '&tmdbId=' + meta.id + '&imdbId=' + imdbId;
+    return getText(fullUrl).then(function (encryptedText) {
+      return getJson('https://enc-dec.app/api/dec-videasy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ text: encryptedText, id: String(tmdbId) })
       });
-    })
-    .then(function (decryptedData) {
-      var result = (decryptedData && decryptedData.result) || {};
-      var sources = Array.isArray(result.sources) ? result.sources : [];
-      return sources
-        .filter(function (source) {
-          return source && source.url && !(source.quality || '').toUpperCase().includes('HDR');
-        })
-        .map(function (source) {
-          return streamObject(
-            'VidEasy',
-            'VidEasy ' + (source.quality || 'Auto'),
-            source.url,
-            normalizeQuality(source.quality),
-            { Origin: 'https://player.videasy.net', Referer: 'https://player.videasy.net/' }
-          );
-        })
-        .filter(Boolean);
-    })
-    .catch(function () { return []; });
+    });
+  }).then(function (decryptedData) {
+    var result = (decryptedData && decryptedData.result) || {};
+    var sources = Array.isArray(result.sources) ? result.sources : [];
+    return sources.filter(function (s) { return s && s.url && !(s.quality || '').toUpperCase().includes('HDR'); }).map(function (s) {
+      return streamObject('VidEasy', 'VidEasy ' + s.quality, s.url, normalizeQuality(s.quality), { Origin: 'https://player.videasy.net', Referer: 'https://player.videasy.net/' });
+    });
+  }).catch(function () { return []; });
 }
 
 function resolveVidLink(tmdbId, mediaType, season, episode) {
-  return getJson('https://enc-dec.app/api/enc-vidlink?text=' + encodeURIComponent(String(tmdbId)))
-    .then(function (encrypted) {
-      var encodedTmdb = encrypted && encrypted.result;
-      if (!encodedTmdb) return [];
-      var url = mediaType === 'tv'
-        ? 'https://vidlink.pro/api/b/tv/' + encodedTmdb + '/' + (season || 1) + '/' + (episode || 1) + '?multiLang=0'
-        : 'https://vidlink.pro/api/b/movie/' + encodedTmdb + '?multiLang=0';
-      return getJson(url).then(function (payload) {
-        var playlist = payload && payload.stream && payload.stream.playlist;
-        var stream = streamObject('VidLink', 'VidLink Primary', playlist, 'Auto', { Referer: 'https://vidlink.pro' });
-        return stream ? [stream] : [];
-      });
-    })
-    .catch(function () { return []; });
+  return getJson('https://enc-dec.app/api/enc-vidlink?text=' + encodeURIComponent(String(tmdbId))).then(function (encrypted) {
+    var encodedTmdb = encrypted && encrypted.result;
+    if (!encodedTmdb) return [];
+    var url = mediaType === 'tv' ? 'https://vidlink.pro/api/b/tv/' + encodedTmdb + '/' + (season || 1) + '/' + (episode || 1) + '?multiLang=0' : 'https://vidlink.pro/api/b/movie/' + encodedTmdb + '?multiLang=0';
+    return getJson(url).then(function (payload) {
+      var playlist = payload && payload.stream && payload.stream.playlist;
+      var stream = streamObject('VidLink', 'VidLink Primary', playlist, 'Auto', { Referer: 'https://vidlink.pro' });
+      return stream ? [stream] : [];
+    });
+  }).catch(function () { return []; });
 }
 
 function resolveVidmody(tmdbId, mediaType, season, episode) {
-  return getTmdbMeta(tmdbId, mediaType)
-    .then(function (meta) {
-      var imdbId = (mediaType === 'tv' ? (meta.external_ids && meta.external_ids.imdb_id) : meta.imdb_id);
-      if (!imdbId) return [];
+  return getTmdbMeta(tmdbId, mediaType).then(function (meta) {
+    var imdbId = (mediaType === 'tv' ? (meta.external_ids && meta.external_ids.imdb_id) : meta.imdb_id);
+    if (!imdbId) return [];
+    var sStr = "s" + (season || 1);
+    var eNum = episode || 1;
+    var eStr = "e" + (eNum < 10 ? "0" + eNum : eNum);
+    var targetUrl = (mediaType === "movie") ? "https://vidmody.com/vs/" + imdbId + "#.m3u8" : "https://vidmody.com/vs/" + imdbId + "/" + sStr + "/" + eStr + "#.m3u8";
+    return fetch(targetUrl.replace("#.m3u8", ""), { method: "HEAD" }).then(function (res) {
+      return res.status === 200 ? [streamObject("Vidmody", "Vidmody Player", targetUrl, "Auto", { "Referer": "https://vidmody.com/" })] : [];
+    });
+  }).catch(function () { return []; });
+}
 
-      var targetUrl = "";
-      if (mediaType === "movie") {
-        targetUrl = "https://vidmody.com/vs/" + imdbId + "#.m3u8";
-      } else {
-        var sStr = "s" + (season || 1);
-        var eNum = episode || 1;
-        var eStr = "e" + (eNum < 10 ? "0" + eNum : eNum);
-        targetUrl = "https://vidmody.com/vs/" + imdbId + "/" + sStr + "/" + eStr + "#.m3u8";
-      }
-
-      return fetch(targetUrl.replace("#.m3u8", ""), { method: "HEAD" })
-        .then(function (res) {
-          if (res.status === 200) {
-            return [streamObject(
-              "Vidmody",
-              "Vidmody Player",
-              targetUrl,
-              "Auto",
-              { "Referer": "https://vidmody.com/" }
-            )];
-          }
-          return [];
-        });
-    })
-    .catch(function () { return []; });
+function resolveVidSrc(tmdbId, mediaType, season, episode) {
+  return getTmdbMeta(tmdbId, mediaType).then(function (meta) {
+    var imdbId = mediaType === 'tv' ? (meta.external_ids && meta.external

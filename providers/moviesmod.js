@@ -558,7 +558,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         }
         const normalizedQuality = getQualityFromName(quality);
         const result = {
-          name: `StreamingCommunity`,
+          name: `VixSrc`,
           title: finalDisplayName,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,

@@ -80,8 +80,12 @@ var require_formatter = __commonJS({
         stream == null ? void 0 : stream.server,
         providerName
       ].filter(Boolean).join(" ").toLowerCase();
-      if (text.includes("mixdrop") || text.includes("m1xdrop") || text.includes("mxcontent")) return true;
-      if (text.includes("loadm") || text.includes("loadm.cam")) return true;
+      if (text.includes("mixdrop") || text.includes("m1xdrop") || text.includes("mxcontent")) {
+        return true;
+      }
+      if (text.includes("loadm") || text.includes("loadm.cam")) {
+        return true;
+      }
       return false;
     }
     function formatStream2(stream, providerName) {
@@ -92,13 +96,14 @@ var require_formatter = __commonJS({
       else if (quality === "720p") quality = "\u{1F4BF} HD";
       else if (quality === "576p" || quality === "480p" || quality === "360p" || quality === "240p") quality = "\u{1F4A9} Low Quality";
       else if (!quality || ["auto", "unknown", "unknow"].includes(String(quality).toLowerCase())) quality = "Unknow";
-      
+      let title = `\u{1F4C1} ${stream.title || "Stream"}`;
       let language = stream.language;
       if (!language) {
-        // UPDATED: Added English flag first, then Italian flag
-        language = "\u{1F1EC}\u{1F1E7} \u{1F1EE}\u{1F1F9}";
+        if (stream.name && (stream.name.includes("SUB ITA") || stream.name.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
+        else if (stream.title && (stream.title.includes("SUB ITA") || stream.title.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
+        // ADDED BOTH FLAGS: English (\u{1F1EC}\u{1F1E7}) + Italian (\u{1F1EE}\u{1F1F9})
+        else language = "\u{1F1EC}\u{1F1E7} \u{1F1EE}\u{1F1F9}";
       }
-
       let details = [];
       if (stream.size) details.push(`\u{1F4E6} ${stream.size}`);
       const desc = details.join(" | ");
@@ -141,7 +146,7 @@ var require_formatter = __commonJS({
       let finalTitle = `\u{1F4C1} ${stream.title || "Stream"}`;
       if (desc) finalTitle += ` | ${desc}`;
       
-      // UPDATED: Added "Language:" as a header before flags
+      // ADDED "Language:" Header prefix + Flags
       if (language) finalTitle += ` | Language: ${language}`;
 
       return __spreadProps(__spreadValues({}, stream), {
@@ -167,18 +172,30 @@ var require_fetch_helper = __commonJS({
     var FETCH_TIMEOUT = 3e4;
     function createTimeoutSignal(timeoutMs) {
       const parsed = Number.parseInt(String(timeoutMs), 10);
-      if (!Number.isFinite(parsed) || parsed <= 0) return { signal: void 0, cleanup: null, timed: false };
-      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") return { signal: AbortSignal.timeout(parsed), cleanup: null, timed: true };
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return { signal: void 0, cleanup: null, timed: false };
+      }
+      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+        return { signal: AbortSignal.timeout(parsed), cleanup: null, timed: true };
+      }
       if (typeof AbortController !== "undefined" && typeof setTimeout === "function") {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), parsed);
-        return { signal: controller.signal, cleanup: () => clearTimeout(timeoutId), timed: true };
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+        }, parsed);
+        return {
+          signal: controller.signal,
+          cleanup: () => clearTimeout(timeoutId),
+          timed: true
+        };
       }
       return { signal: void 0, cleanup: null, timed: false };
     }
     function fetchWithTimeout(_0) {
       return __async(this, arguments, function* (url, options = {}) {
-        if (typeof fetch === "undefined") throw new Error("No fetch implementation found!");
+        if (typeof fetch === "undefined") {
+          throw new Error("No fetch implementation found!");
+        }
         const _a = options, { timeout } = _a, fetchOptions = __objRest(_a, ["timeout"]);
         const requestTimeout = timeout || FETCH_TIMEOUT;
         const timeoutConfig = createTimeoutSignal(requestTimeout);
@@ -194,102 +211,5 @@ var require_fetch_helper = __commonJS({
           const response = yield fetch(url, requestOptions);
           return response;
         } catch (error) {
-          if (error && error.name === "AbortError" && timeoutConfig.timed) throw new Error(`Request to ${url} timed out after ${requestTimeout}ms`);
-          throw error;
-        } finally {
-          if (typeof timeoutConfig.cleanup === "function") timeoutConfig.cleanup();
-        }
-      });
-    }
-    module2.exports = { fetchWithTimeout, createTimeoutSignal };
-  }
-});
-
-// src/quality_helper.js
-var require_quality_helper = __commonJS({
-  "src/quality_helper.js"(exports2, module2) {
-    var { createTimeoutSignal } = require_fetch_helper();
-    var USER_AGENT2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
-    function checkQualityFromPlaylist(_0) {
-      return __async(this, arguments, function* (url, headers = {}) {
-        try {
-          if (!url.includes(".m3u8")) return null;
-          const finalHeaders = __spreadValues({}, headers);
-          if (!finalHeaders["User-Agent"]) finalHeaders["User-Agent"] = USER_AGENT2;
-          const timeoutConfig = createTimeoutSignal(3e3);
-          try {
-            const response = yield fetch(url, { headers: finalHeaders, signal: timeoutConfig.signal });
-            if (!response.ok) return null;
-            const text = yield response.text();
-            return checkQualityFromText2(text);
-          } finally {
-            if (typeof timeoutConfig.cleanup === "function") timeoutConfig.cleanup();
-          }
-        } catch (e) { return null; }
-      });
-    }
-    function checkQualityFromText2(text) {
-      if (!text) return null;
-      if (/RESOLUTION=\d+x2160/i.test(text) || /RESOLUTION=2160/i.test(text)) return "4K";
-      if (/RESOLUTION=\d+x1080/i.test(text) || /RESOLUTION=1080/i.test(text)) return "1080p";
-      if (/RESOLUTION=\d+x720/i.test(text) || /RESOLUTION=720/i.test(text)) return "720p";
-      return null;
-    }
-    function getQualityFromUrl(url) {
-      if (!url) return null;
-      const urlPath = url.split("?")[0].toLowerCase();
-      if (urlPath.includes("4k") || urlPath.includes("2160")) return "4K";
-      if (urlPath.includes("1080") || urlPath.includes("fhd")) return "1080p";
-      if (urlPath.includes("720") || urlPath.includes("hd")) return "720p";
-      return null;
-    }
-    module2.exports = { checkQualityFromPlaylist, getQualityFromUrl, checkQualityFromText: checkQualityFromText2 };
-  }
-});
-
-// src/streamingcommunity/index.js
-function getStreamingCommunityBaseUrl() { return "https://vixsrc.to"; }
-var { formatStream } = require_formatter();
-require_fetch_helper();
-var { checkQualityFromText } = require_quality_helper();
-var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
-var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
-
-function getCommonHeaders() {
-  return {
-    "User-Agent": USER_AGENT,
-    "Referer": `${getStreamingCommunityBaseUrl()}/`,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
-  };
-}
-
-function getPlaylistHeaders(embedUrl) {
-  return {
-    "User-Agent": USER_AGENT,
-    "Referer": embedUrl,
-    "Origin": getStreamingCommunityBaseUrl(),
-    "Accept": "*/*"
-  };
-}
-
-function getTmdbId(imdbId, type) {
-  return __async(this, null, function* () {
-    const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
-    try {
-      const response = yield fetch(findUrl);
-      if (!response.ok) return null;
-      const data = yield response.json();
-      const results = type === "movie" ? data.movie_results : data.tv_results;
-      return results && results.length > 0 ? results[0].id.toString() : null;
-    } catch (e) { return null; }
-  });
-}
-
-function getMetadata(id, type) {
-  return __async(this, null, function* () {
-    try {
-      const endpoint = type === "movie" ? "movie" : "tv";
-      const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&language=it-IT`;
-      const response = yield fetch(url);
-      return
+          if (error && error.name === "AbortError" && timeoutConfig.timed) {
+            throw new Error(`Request to ${url} timed out after ${requestTimeout}ms

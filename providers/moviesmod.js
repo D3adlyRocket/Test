@@ -1,4 +1,22 @@
-
+// VixSrc plugin per NuvioMobile comp-rewrite
+// v2.0.0 — riscrittura pulita e compatibile con QuickJS di comp-rewrite
+//
+// ROOT CAUSE ANALISI (perché funziona su TV ma non su comp-rewrite):
+//
+// 1. NuvioTV (easystreams) usa Node.js con async/await + __async polyfill,
+//    AbortController, new URL(), Promise.all, fetch annidate senza limiti.
+//
+// 2. NuvioMobile comp-rewrite usa un runtime QuickJS embedded che:
+//    - NON supporta AbortController / AbortSignal
+//    - NON supporta WHATWG URL API (new URL() fallisce)
+//    - Ha problemi con Promise chain annidate a più di 3 livelli
+//    - Non ha require() / CommonJS module system
+//    - Il fetch extra della playlist (quality check) causa il crash:
+//      la chain resolveId → fetch API → fetch embed → fetch playlist
+//      è troppo profonda per QuickJS
+//
+// SOLUZIONE: chain piatta max 3 livelli, no AbortController, no new URL(),
+// no fetch playlist extra, export tramite globalThis.
 
 var BASE = "https://vixsrc.to";
 var TMDB_KEY = "68e094699525b18a70bab2f86b1fa706";
@@ -172,7 +190,7 @@ function getStreams(id, type, season, episode) {
                   console.log("[VixSrc] Stream URL:", streamUrl);
 
                   return [{
-                    name: "\uD83D\uDCE1 VixSrc",
+                    name: "\uD83D\uDCE1 StreamingCommunity",
                     title: label,
                     url: streamUrl,
                     quality: "1080p",

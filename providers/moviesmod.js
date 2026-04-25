@@ -1,112 +1,221 @@
-'use strict';
+// VixSrc plugin per NuvioMobile comp-rewrite
+// v2.0.0 — riscrittura pulita e compatibile con QuickJS di comp-rewrite
+//
+// ROOT CAUSE ANALISI (perché funziona su TV ma non su comp-rewrite):
+//
+// 1. NuvioTV (easystreams) usa Node.js con async/await + __async polyfill,
+//    AbortController, new URL(), Promise.all, fetch annidate senza limiti.
+//
+// 2. NuvioMobile comp-rewrite usa un runtime QuickJS embedded che:
+//    - NON supporta AbortController / AbortSignal
+//    - NON supporta WHATWG URL API (new URL() fallisce)
+//    - Ha problemi con Promise chain annidate a più di 3 livelli
+//    - Non ha require() / CommonJS module system
+//    - Il fetch extra della playlist (quality check) causa il crash:
+//      la chain resolveId → fetch API → fetch embed → fetch playlist
+//      è troppo profonda per QuickJS
+//
+// SOLUZIONE: chain piatta max 3 livelli, no AbortController, no new URL(),
+// no fetch playlist extra, export tramite globalThis.
 
-var TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
-var SF_BASE      = 'https://api.streamflix.app';
-// Strict TV User-Agent to bypass Cloudflare "headless" blocks
-var TV_UA        = 'Mozilla/5.0 (Linux; Android 10; TV) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+var BASE = "https://vixsrc.to";
+var TMDB_KEY = "68e094699525b18a70bab2f86b1fa706";
+var UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TV-SAFE HELPERS (No AbortSignal, No Object.assign)
-// ─────────────────────────────────────────────────────────────────────────────
-
-function tvFetch(url) {
-    return fetch(url, {
-        headers: {
-            'User-Agent': TV_UA,
-            'Accept': 'application/json',
-            'Referer': 'https://api.streamflix.app/'
-        }
-    }).then(function(res) {
-        if (!res.ok) return null;
-        return res.json();
-    }).catch(function() { return null; });
+function commonHeaders() {
+  return {
+    "User-Agent": UA,
+    "Referer": BASE + "/",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Upgrade-Insecure-Requests": "1"
+  };
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// THE CORE LOGIC
-// ─────────────────────────────────────────────────────────────────────────────
+function embedHeaders() {
+  return {
+    "User-Agent": UA,
+    "Referer": BASE + "/",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+  };
+}
 
-function getStreams(tmdbId, type, season, episode) {
-    var isSeries = (type === 'series' || type === 'tv');
-    var tmdbUrl = 'https://api.themoviedb.org/3/' + (isSeries ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_API_KEY;
+function playlistHeaders(embedUrl) {
+  return {
+    "User-Agent": UA,
+    "Referer": embedUrl,
+    "Origin": BASE,
+    "Accept": "*/*",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin"
+  };
+}
 
-    return tvFetch(tmdbUrl).then(function(tmdb) {
-        if (!tmdb) return [];
-        var query = (isSeries ? tmdb.name : tmdb.title).toLowerCase();
+// Converte IMDb ID in TMDB ID. Se già numerico, restituisce direttamente.
+function resolveId(rawId, type) {
+  if (!rawId) return Promise.resolve(null);
+  // Rimuovi prefisso tmdb: se presente
+  var id = rawId.replace(/^tmdb[:/]/i, "").trim();
+  // Se già numerico, non serve conversione
+  if (/^\d+$/.test(id)) return Promise.resolve(id);
+  // Conversione IMDb → TMDB
+  if (!id.startsWith("tt")) return Promise.resolve(null);
+  var url = "https://api.themoviedb.org/3/find/" + id +
+    "?api_key=" + TMDB_KEY + "&external_source=imdb_id";
+  return fetch(url, { headers: { "User-Agent": UA, "Accept": "application/json" } })
+    .then(function(r) {
+      if (!r.ok) return null;
+      return r.json().catch(function() { return null; });
+    })
+    .then(function(data) {
+      if (!data) return null;
+      var norm = (type === "series" || type === "show") ? "tv" : (type || "movie");
+      if (norm === "movie" && data.movie_results && data.movie_results.length > 0)
+        return String(data.movie_results[0].id);
+      if (norm === "tv" && data.tv_results && data.tv_results.length > 0)
+        return String(data.tv_results[0].id);
+      return null;
+    })
+    .catch(function() { return null; });
+}
 
-        // 1. Get Config
-        return tvFetch(SF_BASE + '/config/config-streamflixapp.json').then(function(config) {
-            if (!config) return [];
+// Costruisce l'URL embed partendo dal payload API, senza new URL()
+function buildEmbedUrl(src) {
+  if (!src) return null;
+  var s = String(src).trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.charAt(0) === "/") return BASE + s;
+  return BASE + "/" + s;
+}
 
-            // 2. Get Data
-            return tvFetch(SF_BASE + '/data.json').then(function(db) {
-                var items = (db && db.data) ? db.data : [];
-                var match = null;
+// Estrae token, expires e url dal body HTML dell'embed
+function extractPlaylistInfo(html) {
+  if (!html || typeof html !== "string") return null;
+  // Prova con apici singoli
+  var t1 = html.match(/'token'\s*:\s*'([^']+)'/i);
+  var e1 = html.match(/'expires'\s*:\s*'([^']+)'/i);
+  var u1 = html.match(/url\s*:\s*'([^']+\/playlist\/\d+[^']*)'/i);
+  if (t1 && e1 && u1) return { token: t1[1], expires: e1[1], url: u1[1] };
+  // Fallback con virgolette doppie
+  var t2 = html.match(/"token"\s*:\s*"([^"]+)"/i);
+  var e2 = html.match(/"expires"\s*:\s*"([^"]+)"/i);
+  var u2 = html.match(/"url"\s*:\s*"([^"]+\/playlist\/\d+[^"]*)"/i);
+  if (t2 && e2 && u2) return { token: t2[1], expires: e2[1], url: u2[1] };
+  return null;
+}
 
-                // Simple loop matching (most stable for TV memory)
-                for (var i = 0; i < items.length; i++) {
-                    var itmName = (items[i].moviename || items[i].title || "").toLowerCase();
-                    if (itmName.indexOf(query) !== -1) {
-                        match = items[i];
-                        break;
+// Funzione principale esposta a NuvioMobile
+function getStreams(id, type, season, episode) {
+  var rawId = String(id || "").trim();
+  var normType = (type === "series" || type === "show") ? "tv" : (type || "movie");
+
+  console.log("[VixSrc] getStreams id=", rawId, "type=", normType, "s=", season, "e=", episode);
+
+  // LIVELLO 1: risolvi ID
+  return resolveId(rawId, normType)
+    .then(function(tmdbId) {
+      if (!tmdbId) {
+        console.error("[VixSrc] ID non risolvibile:", rawId);
+        return [];
+      }
+
+      var apiUrl = normType === "movie"
+        ? BASE + "/api/movie/" + tmdbId
+        : BASE + "/api/tv/" + tmdbId + "/" + season + "/" + episode;
+
+      console.log("[VixSrc] API URL:", apiUrl);
+
+      // LIVELLO 2: chiama API VixSrc
+      return fetch(apiUrl, { headers: commonHeaders() })
+        .then(function(r) {
+          if (!r.ok) {
+            console.error("[VixSrc] API HTTP error:", r.status);
+            return [];
+          }
+          return r.json()
+            .catch(function() { return null; })
+            .then(function(payload) {
+              if (!payload) {
+                console.error("[VixSrc] Payload API vuoto o non JSON");
+                return [];
+              }
+
+              var src = payload && typeof payload === "object" ? payload.src : null;
+              var embedUrl = buildEmbedUrl(src);
+              if (!embedUrl) {
+                console.error("[VixSrc] Nessun src nel payload:", JSON.stringify(payload));
+                return [];
+              }
+
+              console.log("[VixSrc] Embed URL:", embedUrl);
+
+              // LIVELLO 3: fetch embed HTML
+              return fetch(embedUrl, { headers: embedHeaders() })
+                .then(function(er) {
+                  if (!er.ok) {
+                    console.error("[VixSrc] Embed HTTP error:", er.status);
+                    return [];
+                  }
+                  return er.text();
+                })
+                .then(function(html) {
+                  if (!html || typeof html !== "string") {
+                    console.error("[VixSrc] HTML embed vuoto");
+                    return [];
+                  }
+
+                  var info = extractPlaylistInfo(html);
+                  if (!info) {
+                    console.error("[VixSrc] Token/playlist non trovati. HTML preview:",
+                      html.substring(0, 500));
+                    return [];
+                  }
+
+                  // Costruisci stream URL finale — NO fetch aggiuntivo (crasherebbe su comp-rewrite)
+                  var streamUrl = info.url +
+                    "?token=" + encodeURIComponent(info.token) +
+                    "&expires=" + encodeURIComponent(info.expires) +
+                    "&h=1&lang=it";
+
+                  var label = normType === "movie"
+                    ? "StreamingCommunity"
+                    : "StreamingCommunity S" + season + "E" + episode;
+
+                  console.log("[VixSrc] Stream URL:", streamUrl);
+
+                  return [{
+                    name: "\uD83D\uDCE1 StreamingCommunity",
+                    title: label,
+                    url: streamUrl,
+                    quality: "1080p",
+                    type: "direct",
+                    headers: playlistHeaders(embedUrl),
+                    behaviorHints: {
+                      notWebReady: false
                     }
-                }
-
-                if (!match) return [];
-
-                var streams = [];
-                var hosts = [].concat(config.premium || [], config.movies || []);
-                
-                // Meta info for Nuvio display
-                var info = {
-                    rating: match.imdbrating || "8.0",
-                    genre: (match.moviegenre || "Action").split('|').join(' · ')
-                };
-
-                if (!isSeries) {
-                    // Movie Logic
-                    for (var j = 0; j < hosts.length; j++) {
-                        if (match.movielink) {
-                            streams.push(createNuvioStream(hosts[j] + match.movielink, "1080p", match.moviename, info));
-                        }
-                    }
-                    return streams;
-                } else {
-                    // TV Logic - Direct Firebase REST (Replaces the broken WebSockets)
-                    var fbUrl = "https://chilflix-410be-default-rtdb.asia-southeast1.firebasedatabase.app/Data/" + match.moviekey + "/seasons/" + season + "/episodes.json";
-                    
-                    return tvFetch(fbUrl).then(function(epData) {
-                        var ep = epData ? (epData[episode - 1] || epData[episode.toString()]) : null;
-                        
-                        if (ep && ep.link) {
-                            for (var k = 0; k < hosts.length; k++) {
-                                streams.push(createNuvioStream(hosts[k] + ep.link, "1080p", "S" + season + "E" + episode + " - " + (ep.name || "Episode"), info));
-                            }
-                        }
-                        return streams;
-                    });
-                }
+                  }];
+                });
             });
         });
-    }).catch(function() { return []; });
+    })
+    .catch(function(err) {
+      console.error("[VixSrc] Errore fatale:",
+        err && err.message ? err.message : String(err));
+      return [];
+    });
 }
 
-function createNuvioStream(url, q, title, info) {
-    return {
-        name: '🎬 StreamFlix | ' + q,
-        title: '📺 ' + title + '\n⭐ ' + info.rating + '  🎭 ' + info.genre + '\nSanchit TV-Fix v2',
-        url: url,
-        quality: q,
-        behaviorHints: {
-            notWebReady: false,
-            headers: {
-                'User-Agent': TV_UA,
-                'Referer': 'https://api.streamflix.app/',
-                'Origin': 'https://api.streamflix.app'
-            }
-        }
-    };
+// Export compatibile sia con Node.js che con QuickJS (comp-rewrite)
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { getStreams: getStreams };
+} else if (typeof globalThis !== "undefined") {
+  globalThis.getStreams = getStreams;
+} else if (typeof global !== "undefined") {
+  global.getStreams = getStreams;
 }
-
-if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; }
-else { global.getStreams = getStreams; }

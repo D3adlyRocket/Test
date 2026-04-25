@@ -190,7 +190,7 @@ function getStreams(id, type, season, episode) {
                   console.log("[VixSrc] Stream URL:", streamUrl);
 
                   return [{
-                    name: "\uD83D\uDCE1 StreamingCommunity",
+                    name: "\uD83D\uDCE1 VixSrc",
                     title: label,
                     url: streamUrl,
                     quality: "1080p",

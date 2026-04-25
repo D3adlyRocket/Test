@@ -28,7 +28,7 @@ var __objRest = (source, exclude) => {
       if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop))
         target[prop] = source[prop];
     }
-  target;
+  return target;
 };
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
@@ -72,22 +72,6 @@ var require_formatter = __commonJS({
       }
       return normalized;
     }
-    function shouldForceNotWebReadyForPlugin(stream, providerName, headers, behaviorHints) {
-      const text = [
-        stream == null ? void 0 : stream.url,
-        stream == null ? void 0 : stream.name,
-        stream == null ? void 0 : stream.title,
-        stream == null ? void 0 : stream.server,
-        providerName
-      ].filter(Boolean).join(" ").toLowerCase();
-      if (text.includes("mixdrop") || text.includes("m1xdrop") || text.includes("mxcontent")) {
-        return true;
-      }
-      if (text.includes("loadm") || text.includes("loadm.cam")) {
-        return true;
-      }
-      return false;
-    }
     function formatStream2(stream, providerName) {
       let quality = stream.quality || "";
       if (quality === "2160p") quality = "\u{1F525}4K UHD";
@@ -95,128 +79,129 @@ var require_formatter = __commonJS({
       else if (quality === "1080p") quality = "\u{1F680} FHD";
       else if (quality === "720p") quality = "\u{1F4BF} HD";
       else if (quality === "576p" || quality === "480p" || quality === "360p" || quality === "240p") quality = "\u{1F4A9} Low Quality";
-      else if (!quality || ["auto", "unknown", "unknow"].includes(String(quality).toLowerCase())) quality = "Unknow";
+      else if (!quality || ["auto", "unknown", "unknow"].includes(String(quality).toLowerCase())) quality = "Unknown";
       
-      let title = `\u{1F4C1} ${stream.title || "Stream"}`;
       let language = stream.language;
       if (!language) {
-        // Checking for SUB ITA or general SUB
-        if (stream.name && (stream.name.includes("SUB ITA") || stream.name.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
-        else if (stream.title && (stream.title.includes("SUB ITA") || stream.title.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
-        // ADDED BOTH FLAGS: English (\u{1F1EC}\u{1F1E7}) + Italian (\u{1F1EE}\u{1F1F9})
-        else language = "\u{1F1EC}\u{1F1E7} \u{1F1EE}\u{1F1F9}";
+        // Updated to English Flag then Italian Flag
+        language = "\u{1F1EC}\u{1F1E7} \u{1F1EE}\u{1F1F9}";
       }
-      
+
       let details = [];
       if (stream.size) details.push(`\u{1F4E6} ${stream.size}`);
       const desc = details.join(" | ");
+      
       let pName = stream.name || stream.server || providerName;
       if (pName) {
         pName = pName.replace(/\s*\[?\(?\s*SUB\s*ITA\s*\)?\]?/i, "").replace(/\s*\[?\(?\s*ITA\s*\)?\]?/i, "").replace(/\s*\[?\(?\s*SUB\s*\)?\]?/i, "").replace(/\(\s*\)/g, "").replace(/\[\s*\]/g, "").trim();
+        pName = `\u{1F4E1} ${pName.charAt(0).toUpperCase() + pName.slice(1)}`;
       }
-      if (pName === providerName) {
-        pName = pName.charAt(0).toUpperCase() + pName.slice(1);
-      }
-      if (pName) {
-        pName = `\u{1F4E1} ${pName}`;
-      }
+
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
-      let finalHeaders = stream.headers;
-      if (behaviorHints.proxyHeaders && behaviorHints.proxyHeaders.request) {
-        finalHeaders = behaviorHints.proxyHeaders.request;
-      } else if (behaviorHints.headers) {
-        finalHeaders = behaviorHints.headers;
-      }
-      finalHeaders = normalizePlaybackHeaders(finalHeaders);
-      const isStreamingCommunityProvider = String(providerName || "").toLowerCase() === "streamingcommunity" || String((stream == null ? void 0 : stream.name) || "").toLowerCase().includes("streamingcommunity");
-      if (isStreamingCommunityProvider && !finalHeaders) {
-        delete behaviorHints.proxyHeaders;
-        delete behaviorHints.headers;
-        delete behaviorHints.notWebReady;
-      }
-      if (finalHeaders) {
-        behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
-        behaviorHints.proxyHeaders.request = finalHeaders;
-        behaviorHints.headers = finalHeaders;
-      }
-      const shouldForceNotWebReady = shouldForceNotWebReadyForPlugin(stream, providerName, finalHeaders, behaviorHints);
-      if (!isStreamingCommunityProvider && shouldForceNotWebReady) {
-        behaviorHints.notWebReady = true;
-      } else {
-        delete behaviorHints.notWebReady;
-      }
-      const finalName = pName;
+      let finalHeaders = normalizePlaybackHeaders(stream.headers || (behaviorHints.proxyHeaders ? behaviorHints.proxyHeaders.request : behaviorHints.headers));
+
       let finalTitle = `\u{1F4C1} ${stream.title || "Stream"}`;
       if (desc) finalTitle += ` | ${desc}`;
-      // ADDED "Language:" Header prefix
+      // Added Language Header
       if (language) finalTitle += ` | Language: ${language}`;
-      
+
       return __spreadProps(__spreadValues({}, stream), {
-        name: finalName,
+        name: pName,
         title: finalTitle,
-        providerName: pName,
         qualityTag: quality,
-        description: desc,
-        originalTitle: stream.title || "Stream",
         language,
         _nuvio_formatted: true,
-        behaviorHints,
-        headers: finalHeaders
+        behaviorHints: __spreadValues(behaviorHints, { headers: finalHeaders })
       });
     }
     module2.exports = { formatStream: formatStream2 };
   }
 });
 
-// ... (Rest of the fetch_helper and quality_helper stay the same)
+// src/fetch_helper.js
+var require_fetch_helper = __commonJS({
+  "src/fetch_helper.js"(exports2, module2) {
+    var FETCH_TIMEOUT = 3e4;
+    function createTimeoutSignal(timeoutMs) {
+      const parsed = Number.parseInt(String(timeoutMs), 10);
+      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+        return { signal: AbortSignal.timeout(parsed), cleanup: null, timed: true };
+      }
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), parsed);
+      return { signal: controller.signal, cleanup: () => clearTimeout(timeoutId), timed: true };
+    }
+    function fetchWithTimeout(url, options = {}) {
+      return __async(this, null, function* () {
+        const timeout = options.timeout || FETCH_TIMEOUT;
+        const { signal, cleanup } = createTimeoutSignal(timeout);
+        try {
+          return yield fetch(url, __spreadValues(__spreadValues({}, options), { signal }));
+        } finally {
+          if (cleanup) cleanup();
+        }
+      });
+    }
+    module2.exports = { fetchWithTimeout, createTimeoutSignal };
+  }
+});
+
+// src/quality_helper.js
+var require_quality_helper = __commonJS({
+  "src/quality_helper.js"(exports2, module2) {
+    function checkQualityFromText(text) {
+      if (!text) return null;
+      if (/RESOLUTION=\d+x2160/i.test(text)) return "4K";
+      if (/RESOLUTION=\d+x1080/i.test(text)) return "1080p";
+      if (/RESOLUTION=\d+x720/i.test(text)) return "720p";
+      return null;
+    }
+    function getQualityFromName(q) {
+      return q || "1080p";
+    }
+    module2.exports = { checkQualityFromText, getQualityFromName };
+  }
+});
 
 // src/streamingcommunity/index.js
-// ... (Metadata and Helper functions stay the same)
+const { formatStream } = require_formatter();
+const { checkQualityFromText, getQualityFromName } = require_quality_helper();
 
-function getStreams(id, type, season, episode, providerContext = null) {
-  return __async(this, null, function* () {
-    // ... (TMDB resolution logic stays the same)
+function getStreamingCommunityBaseUrl() { return "https://vixsrc.to"; }
 
-    try {
-      // ... (API and Embed fetching logic stays the same)
+async function getStreams(id, type, season, episode, providerContext = null) {
+  const baseUrl = getStreamingCommunityBaseUrl();
+  const tmdbId = id.toString().replace("tmdb:", "");
+  const apiUrl = type === "movie" ? `${baseUrl}/api/movie/${tmdbId}` : `${baseUrl}/api/tv/${tmdbId}/${season}/${episode}`;
 
-      if (masterPlaylist) {
-        // UPDATED: Added "lang=all" to help retrieve multiple audio tracks if the server supports it
-        const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=all`;
-        const streamHeaders = getPlaylistHeaders(embedUrl);
-        
-        let quality = "1080p";
-        try {
-          const playlistResponse = yield fetch(streamUrl, { headers: streamHeaders });
-          if (playlistResponse.ok) {
-            const playlistText = yield playlistResponse.text();
-            const detected = checkQualityFromText(playlistText);
-            if (detected) quality = detected;
-          }
-        } catch (e) {
-          console.warn(`[StreamingCommunity] Playlist pre-check failed`, e);
-        }
+  try {
+    const res = await fetch(apiUrl, { headers: { "User-Agent": "Mozilla/5.0" } });
+    const apiPayload = await res.json();
+    const embedUrl = apiPayload.src;
+    if (!embedUrl) return [];
 
-        const normalizedQuality = getQualityFromName(quality);
-        const result = {
-          name: `VixSrc`,
-          title: finalDisplayName,
-          url: streamUrl,
-          easyProxySourceUrl: embedUrl,
-          quality: normalizedQuality,
-          type: "direct",
-          headers: streamHeaders,
-          behaviorHints: {
-            notWebReady: false
-          }
-        };
-        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
-      } else {
-        return [];
-      }
-    } catch (error) {
-      return [];
+    const embedRes = await fetch(embedUrl);
+    const html = await embedRes.text();
+    
+    const token = html.match(/'token'\s*:\s*'([^']+)'/)?.[1];
+    const expires = html.match(/'expires'\s*:\s*'([^']+)'/)?.[1];
+    const playlistUrl = html.match(/url\s*:\s*'([^']+)'/)?.[1];
+
+    if (token && expires && playlistUrl) {
+      // Use lang=all to ensure both audio tracks are available
+      const streamUrl = `${playlistUrl}?token=${token}&expires=${expires}&h=1&lang=all`;
+      
+      return [formatStream({
+        title: type === "movie" ? "Movie" : `Episode ${episode}`,
+        url: streamUrl,
+        quality: "1080p"
+      }, "StreamingCommunity")];
     }
-  });
+    return [];
+  } catch (e) {
+    console.error(e);
+    return [];
+  }
 }
+
 module.exports = { getStreams };

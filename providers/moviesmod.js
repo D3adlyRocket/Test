@@ -80,27 +80,24 @@ var require_formatter = __commonJS({
         stream == null ? void 0 : stream.server,
         providerName
       ].filter(Boolean).join(" ").toLowerCase();
-      if (text.includes("mixdrop") || text.includes("m1xdrop") || text.includes("mxcontent")) {
-        return true;
-      }
-      if (text.includes("loadm") || text.includes("loadm.cam")) {
-        return true;
-      }
+      if (text.includes("mixdrop") || text.includes("m1xdrop") || text.includes("mxcontent")) return true;
+      if (text.includes("loadm") || text.includes("loadm.cam")) return true;
       return false;
     }
     function formatStream2(stream, providerName) {
       let quality = stream.quality || "";
-      if (quality === "2160p") quality = "\u{1F525}4K UHD";
+      // Visual formatting for resolutions
+      if (quality === "4K") quality = "\u{1F525}4K UHD";
       else if (quality === "1440p") quality = "\u2728 QHD";
       else if (quality === "1080p") quality = "\u{1F680} FHD";
       else if (quality === "720p") quality = "\u{1F4BF} HD";
-      else if (quality === "576p" || quality === "480p" || quality === "360p" || quality === "240p") quality = "\u{1F4A9} Low Quality";
-      else if (!quality || ["auto", "unknown", "unknow"].includes(String(quality).toLowerCase())) quality = "Unknow";
-      let title = `\u{1F4C1} ${stream.title || "Stream"}`;
+      else if (quality === "480p" || quality === "576p" || quality === "360p") quality = "\u{1F4A9} Low Quality";
+      else if (!quality || ["auto", "unknown", "unknow"].includes(String(quality).toLowerCase())) quality = "Unknown";
+      
       let language = stream.language;
       if (!language) {
-        if (stream.name && (stream.name.includes("SUB ITA") || stream.name.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
-        else if (stream.title && (stream.title.includes("SUB ITA") || stream.title.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
+        if (stream.name && (stream.name.includes("SUB ITA") || stream.name.includes("SUB"))) language = "Language: \u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
+        else if (stream.title && (stream.title.includes("SUB ITA") || stream.title.includes("SUB"))) language = "Language: \u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
         else language = "Language: \u{1F1EC}\u{1F1E7} \u{1F1EE}\u{1F1F9}";
       }
       let details = [];
@@ -110,56 +107,24 @@ var require_formatter = __commonJS({
       if (pName) {
         pName = pName.replace(/\s*\[?\(?\s*SUB\s*ITA\s*\)?\]?/i, "").replace(/\s*\[?\(?\s*ITA\s*\)?\]?/i, "").replace(/\s*\[?\(?\s*SUB\s*\)?\]?/i, "").replace(/\(\s*\)/g, "").replace(/\[\s*\]/g, "").trim();
       }
-      if (pName === providerName) {
-        pName = pName.charAt(0).toUpperCase() + pName.slice(1);
-      }
-      if (pName) {
-        pName = `\u{1F4E1} ${pName}`;
-      }
+      if (pName === providerName) pName = pName.charAt(0).toUpperCase() + pName.slice(1);
+      if (pName) pName = `\u{1F4E1} ${pName}`;
+      
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       let finalHeaders = stream.headers;
-      if (behaviorHints.proxyHeaders && behaviorHints.proxyHeaders.request) {
-        finalHeaders = behaviorHints.proxyHeaders.request;
-      } else if (behaviorHints.headers) {
-        finalHeaders = behaviorHints.headers;
-      }
       finalHeaders = normalizePlaybackHeaders(finalHeaders);
-      const isStreamingCommunityProvider = String(providerName || "").toLowerCase() === "streamingcommunity" || String((stream == null ? void 0 : stream.name) || "").toLowerCase().includes("streamingcommunity");
-      if (isStreamingCommunityProvider && !finalHeaders) {
-        delete behaviorHints.proxyHeaders;
-        delete behaviorHints.headers;
-        delete behaviorHints.notWebReady;
-      }
-      if (finalHeaders) {
-        behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
-        behaviorHints.proxyHeaders.request = finalHeaders;
-        behaviorHints.headers = finalHeaders;
-      }
-      const shouldForceNotWebReady = shouldForceNotWebReadyForPlugin(stream, providerName, finalHeaders, behaviorHints);
-      if (!isStreamingCommunityProvider && shouldForceNotWebReady) {
-        behaviorHints.notWebReady = true;
-      } else {
-        delete behaviorHints.notWebReady;
-      }
-      const finalName = pName;
+      
       let finalTitle = `\u{1F4C1} ${stream.title || "Stream"}`;
       if (desc) finalTitle += ` | ${desc}`;
       if (language) finalTitle += ` | ${language}`;
+      
       return __spreadProps(__spreadValues({}, stream), {
-        // Keep original properties
-        name: finalName,
+        name: pName,
         title: finalTitle,
-        // Metadata for Stremio UI reconstruction (safer names for RN)
-        providerName: pName,
         qualityTag: quality,
-        description: desc,
-        originalTitle: stream.title || "Stream",
-        // Ensure language is set for Stremio/Nuvio sorting
         language,
-        // Mark as formatted
         _nuvio_formatted: true,
         behaviorHints,
-        // Explicitly ensure root headers are preserved for Nuvio
         headers: finalHeaders
       });
     }
@@ -173,53 +138,21 @@ var require_fetch_helper = __commonJS({
     var FETCH_TIMEOUT = 3e4;
     function createTimeoutSignal(timeoutMs) {
       const parsed = Number.parseInt(String(timeoutMs), 10);
-      if (!Number.isFinite(parsed) || parsed <= 0) {
-        return { signal: void 0, cleanup: null, timed: false };
-      }
-      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
-        return { signal: AbortSignal.timeout(parsed), cleanup: null, timed: true };
-      }
-      if (typeof AbortController !== "undefined" && typeof setTimeout === "function") {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => {
-          controller.abort();
-        }, parsed);
-        return {
-          signal: controller.signal,
-          cleanup: () => clearTimeout(timeoutId),
-          timed: true
-        };
-      }
-      return { signal: void 0, cleanup: null, timed: false };
+      if (!Number.isFinite(parsed) || parsed <= 0) return { signal: void 0, cleanup: null, timed: false };
+      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") return { signal: AbortSignal.timeout(parsed), cleanup: null, timed: true };
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), parsed);
+      return { signal: controller.signal, cleanup: () => clearTimeout(timeoutId), timed: true };
     }
-    function fetchWithTimeout(_0) {
-      return __async(this, arguments, function* (url, options = {}) {
-        if (typeof fetch === "undefined") {
-          throw new Error("No fetch implementation found!");
-        }
+    function fetchWithTimeout(url, options = {}) {
+      return __async(this, null, function* () {
         const _a = options, { timeout } = _a, fetchOptions = __objRest(_a, ["timeout"]);
         const requestTimeout = timeout || FETCH_TIMEOUT;
         const timeoutConfig = createTimeoutSignal(requestTimeout);
-        const requestOptions = __spreadValues({}, fetchOptions);
-        if (timeoutConfig.signal) {
-          if (requestOptions.signal && typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
-            requestOptions.signal = AbortSignal.any([requestOptions.signal, timeoutConfig.signal]);
-          } else if (!requestOptions.signal) {
-            requestOptions.signal = timeoutConfig.signal;
-          }
-        }
         try {
-          const response = yield fetch(url, requestOptions);
-          return response;
-        } catch (error) {
-          if (error && error.name === "AbortError" && timeoutConfig.timed) {
-            throw new Error(`Request to ${url} timed out after ${requestTimeout}ms`);
-          }
-          throw error;
+          return yield fetch(url, __spreadProps(__spreadValues({}, fetchOptions), { signal: timeoutConfig.signal }));
         } finally {
-          if (typeof timeoutConfig.cleanup === "function") {
-            timeoutConfig.cleanup();
-          }
+          if (timeoutConfig.cleanup) timeoutConfig.cleanup();
         }
       });
     }
@@ -230,39 +163,9 @@ var require_fetch_helper = __commonJS({
 // src/quality_helper.js
 var require_quality_helper = __commonJS({
   "src/quality_helper.js"(exports2, module2) {
-    var { createTimeoutSignal } = require_fetch_helper();
-    var USER_AGENT2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
-    function checkQualityFromPlaylist(_0) {
-      return __async(this, arguments, function* (url, headers = {}) {
-        try {
-          if (!url.includes(".m3u8")) return null;
-          const finalHeaders = __spreadValues({}, headers);
-          if (!finalHeaders["User-Agent"]) {
-            finalHeaders["User-Agent"] = USER_AGENT2;
-          }
-          const timeoutConfig = createTimeoutSignal(3e3);
-          try {
-            const response = yield fetch(url, {
-              headers: finalHeaders,
-              signal: timeoutConfig.signal
-            });
-            if (!response.ok) return null;
-            const text = yield response.text();
-            const quality = checkQualityFromText2(text);
-            if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
-            return quality;
-          } finally {
-            if (typeof timeoutConfig.cleanup === "function") {
-              timeoutConfig.cleanup();
-            }
-          }
-        } catch (e) {
-          return null;
-        }
-      });
-    }
     function checkQualityFromText2(text) {
       if (!text) return null;
+      // Added priority for 4K and 2160p detection
       if (/RESOLUTION=\d+x2160/i.test(text) || /RESOLUTION=2160/i.test(text)) return "4K";
       if (/RESOLUTION=\d+x1440/i.test(text) || /RESOLUTION=1440/i.test(text)) return "1440p";
       if (/RESOLUTION=\d+x1080/i.test(text) || /RESOLUTION=1080/i.test(text)) return "1080p";
@@ -270,314 +173,86 @@ var require_quality_helper = __commonJS({
       if (/RESOLUTION=\d+x480/i.test(text) || /RESOLUTION=480/i.test(text)) return "480p";
       return null;
     }
-    function getQualityFromUrl(url) {
-      if (!url) return null;
-      const urlPath = url.split("?")[0].toLowerCase();
-      if (urlPath.includes("4k") || urlPath.includes("2160")) return "4K";
-      if (urlPath.includes("1440") || urlPath.includes("2k")) return "1440p";
-      if (urlPath.includes("1080") || urlPath.includes("fhd")) return "1080p";
-      if (urlPath.includes("720") || urlPath.includes("hd")) return "720p";
-      if (urlPath.includes("480") || urlPath.includes("sd")) return "480p";
-      if (urlPath.includes("360")) return "360p";
-      return null;
-    }
-    module2.exports = { checkQualityFromPlaylist, getQualityFromUrl, checkQualityFromText: checkQualityFromText2 };
+    module2.exports = { checkQualityFromText: checkQualityFromText2 };
   }
 });
 
 // src/streamingcommunity/index.js
-function getStreamingCommunityBaseUrl() {
-  return "https://vixsrc.to";
-}
+function getStreamingCommunityBaseUrl() { return "https://vixsrc.to"; }
 var { formatStream } = require_formatter();
-require_fetch_helper();
 var { checkQualityFromText } = require_quality_helper();
-function safeRequire(modulePath) {
-  try {
-    return require(modulePath);
-  } catch (e) {
-    return null;
-  }
-}
-var guardahd = safeRequire("../guardahd/index");
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
-var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+
 function getCommonHeaders() {
   return {
-    "User-Agent": USER_AGENT,
+    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
     "Referer": `${getStreamingCommunityBaseUrl()}/`,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1"
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
   };
 }
-function getEmbedHeaders(embedUrl) {
-  return {
-    "User-Agent": USER_AGENT,
-    "Referer": `${getStreamingCommunityBaseUrl()}/`,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
-  };
-}
-function getPlaylistHeaders(embedUrl) {
-  return {
-    "User-Agent": USER_AGENT,
-    "Referer": embedUrl,
-    "Origin": getStreamingCommunityBaseUrl(),
-    "Accept": "*/*",
-    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin"
-  };
-}
-function extractEmbedSrcFromApiPayload(payload) {
-  const rawSrc = payload && typeof payload === "object" ? payload.src : null;
-  if (!rawSrc) return null;
-  try {
-    return new URL(rawSrc, getStreamingCommunityBaseUrl()).toString();
-  } catch (e) {
-    return null;
-  }
-}
-function extractMasterPlaylistFromEmbedHtml(html) {
-  if (!html) return null;
-  const tokenMatch = html.match(/'token'\s*:\s*'([^']+)'/i);
-  const expiresMatch = html.match(/'expires'\s*:\s*'([^']+)'/i);
-  const urlMatch = html.match(/url\s*:\s*'([^']+\/playlist\/\d+[^']*)'/i);
-  if (!tokenMatch || !expiresMatch || !urlMatch) {
-    return null;
-  }
-  return {
-    token: tokenMatch[1],
-    expires: expiresMatch[1],
-    url: urlMatch[1]
-  };
-}
+
 function getQualityFromName(qualityStr) {
   if (!qualityStr) return "Unknown";
-  const quality = qualityStr.toUpperCase();
-  if (quality === "ORG" || quality === "ORIGINAL") return "Original";
-  if (quality === "4K" || quality === "2160P") return "4K";
-  if (quality === "1440P" || quality === "2K") return "1440p";
-  if (quality === "1080P" || quality === "FHD") return "1080p";
-  if (quality === "720P" || quality === "HD") return "720p";
-  if (quality === "480P" || quality === "SD") return "480p";
-  if (quality === "360P") return "360p";
-  if (quality === "240P") return "240p";
-  const match = qualityStr.match(/(\d{3,4})[pP]?/);
-  if (match) {
-    const resolution = parseInt(match[1]);
-    if (resolution >= 2160) return "4K";
-    if (resolution >= 1440) return "1440p";
-    if (resolution >= 1080) return "1080p";
-    if (resolution >= 720) return "720p";
-    if (resolution >= 480) return "480p";
-    if (resolution >= 360) return "360p";
-    return "240p";
-  }
+  const q = qualityStr.toUpperCase();
+  if (q.includes("4K") || q.includes("2160")) return "4K";
+  if (q.includes("1440") || q.includes("2K")) return "1440p";
+  if (q.includes("1080") || q.includes("FHD")) return "1080p";
+  if (q.includes("720") || q.includes("HD")) return "720p";
+  if (q.includes("480") || q.includes("SD")) return "480p";
   return "Unknown";
 }
-function getTmdbId(imdbId, type) {
-  return __async(this, null, function* () {
-    const normalizedType = String(type).toLowerCase();
-    const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
-    try {
-      const response = yield fetch(findUrl);
-      if (!response.ok) return null;
-      const data = yield response.json();
-      if (!data) return null;
-      if (normalizedType === "movie" && data.movie_results && data.movie_results.length > 0) {
-        return data.movie_results[0].id.toString();
-      } else if (normalizedType === "tv" && data.tv_results && data.tv_results.length > 0) {
-        return data.tv_results[0].id.toString();
-      }
-      return null;
-    } catch (e) {
-      console.error("[StreamingCommunity] Conversion error:", e);
-      return null;
-    }
-  });
-}
-function getMetadata(id, type) {
-  return __async(this, null, function* () {
-    try {
-      const normalizedType = String(type).toLowerCase();
-      let url;
-      if (String(id).startsWith("tt")) {
-        url = `https://api.themoviedb.org/3/find/${id}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=it-IT`;
-      } else {
-        const endpoint = normalizedType === "movie" ? "movie" : "tv";
-        url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&language=it-IT`;
-      }
-      const response = yield fetch(url);
-      if (!response.ok) return null;
-      const data = yield response.json();
-      if (String(id).startsWith("tt")) {
-        const results = normalizedType === "movie" ? data.movie_results : data.tv_results;
-        if (results && results.length > 0) return results[0];
-      } else {
-        return data;
-      }
-      return null;
-    } catch (e) {
-      console.error("[StreamingCommunity] Metadata error:", e);
-      return null;
-    }
-  });
-}
-function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
-  return __async(this, null, function* () {
-    const normalizedType = String(type).toLowerCase();
-    const checks = [];
-    if (normalizedType === "movie" && guardahd && typeof guardahd.getStreams === "function") {
-      checks.push(
-        guardahd.getStreams(id, normalizedType, season, episode).then((streams) => Array.isArray(streams) && streams.length > 0).catch((e) => {
-          console.warn("[StreamingCommunity] GuardaHD fallback check failed:", e);
-          return false;
-        })
-      );
-    }
-    if (checks.length === 0) return false;
-    const results = yield Promise.all(checks);
-    return results.some(Boolean);
-  });
-}
+
 function getStreams(id, type, season, episode, providerContext = null) {
   return __async(this, null, function* () {
-    const requestedType = String(type).toLowerCase();
-    const normalizedType = requestedType === "series" ? "tv" : requestedType;
     const baseUrl = getStreamingCommunityBaseUrl();
-    const commonHeaders = getCommonHeaders();
-    let tmdbId = id.toString();
-    let resolvedSeason = season;
-    const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
-    if (contextTmdbId) {
-      tmdbId = contextTmdbId;
-    } else if (tmdbId.startsWith("tmdb:")) {
-      tmdbId = tmdbId.replace("tmdb:", "");
-    } else if (tmdbId.startsWith("tt")) {
-      const convertedId = yield getTmdbId(tmdbId, normalizedType);
-      if (convertedId) {
-        console.log(`[StreamingCommunity] Converted ${id} to TMDB ID: ${convertedId}`);
-        tmdbId = convertedId;
-      } else {
-        console.warn(`[StreamingCommunity] Could not convert IMDb ID ${id} to TMDB ID.`);
-      }
-    }
-    let metadata = null;
+    const normalizedType = type === "series" ? "tv" : type;
+    
+    let apiUrl = normalizedType === "movie" 
+      ? `${baseUrl}/api/movie/${id}` 
+      : `${baseUrl}/api/tv/${id}/${season}/${episode}`;
+
     try {
-      metadata = yield getMetadata(tmdbId, type);
-    } catch (e) {
-      console.error("[StreamingCommunity] Error fetching metadata:", e);
-    }
-    const title = metadata && (metadata.title || metadata.name || metadata.original_title || metadata.original_name) ? metadata.title || metadata.name || metadata.original_title || metadata.original_name : normalizedType === "movie" ? "Film Sconosciuto" : "Serie TV";
-    const displayName = normalizedType === "movie" ? title : `${title} ${resolvedSeason}x${episode}`;
-    const finalDisplayName = displayName;
-    let url;
-    let apiUrl;
-    if (normalizedType === "movie") {
-      url = `${baseUrl}/movie/${tmdbId}`;
-      apiUrl = `${baseUrl}/api/movie/${tmdbId}`;
-    } else if (normalizedType === "tv") {
-      url = `${baseUrl}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
-      apiUrl = `${baseUrl}/api/tv/${tmdbId}/${resolvedSeason}/${episode}`;
-    } else {
-      return [];
-    }
-    try {
-      console.log(`[StreamingCommunity] Fetching API: ${apiUrl}`);
-      const response = yield fetch(apiUrl, {
-        headers: commonHeaders
-      });
-      if (!response.ok) {
-        console.error(`[StreamingCommunity] Failed to fetch page: ${response.status}`);
-        return [];
-      }
-      const apiPayload = yield response.json().catch(() => null);
-      const embedUrl = extractEmbedSrcFromApiPayload(apiPayload);
-      if (!embedUrl) {
-        console.log("[StreamingCommunity] Could not find embed src in API payload");
-        return [];
-      }
-      if (providerContext == null ? void 0 : providerContext.proxyUrl) {
-        const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
-        console.log(`[StreamingCommunity] Proxy enabled, returning raw page URL: ${rawPageUrl}`);
-        const result = {
-          name: `VixSrc`,
-          title: finalDisplayName,
-          url: rawPageUrl,
-          easyProxySourceUrl: rawPageUrl,
-          // Stremio addon uses EasyProxy path for StreamingCommunity, so expose default quality here too.
-          quality: "1080p",
-          type: "direct",
-          behaviorHints: {
-            notWebReady: false
-          }
-        };
-        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
-      }
-      console.log(`[StreamingCommunity] Fetching embed: ${embedUrl}`);
-      const embedResponse = yield fetch(embedUrl, {
-        headers: getEmbedHeaders(embedUrl)
-      });
-      if (!embedResponse.ok) {
-        console.error(`[StreamingCommunity] Failed to fetch embed: ${embedResponse.status}`);
-        return [];
-      }
-      const embedHtml = yield embedResponse.text();
-      if (!embedHtml) return [];
-      const masterPlaylist = extractMasterPlaylistFromEmbedHtml(embedHtml);
-      if (masterPlaylist) {
-        const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
-        const streamHeaders = getPlaylistHeaders(embedUrl);
-        console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
-        let quality = "1080p";
+      const response = yield fetch(apiUrl, { headers: getCommonHeaders() });
+      const apiPayload = yield response.json();
+      const embedUrl = apiPayload.src;
+      if (!embedUrl) return [];
+
+      const embedRes = yield fetch(embedUrl, { headers: getCommonHeaders() });
+      const embedHtml = yield embedRes.text();
+      
+      const tokenMatch = embedHtml.match(/'token'\s*:\s*'([^']+)'/i);
+      const expiresMatch = embedHtml.match(/'expires'\s*:\s*'([^']+)'/i);
+      const urlMatch = embedHtml.match(/url\s*:\s*'([^']+\/playlist\/\d+[^']*)'/i);
+
+      if (tokenMatch && expiresMatch && urlMatch) {
+        // We use lang=all to allow the user to select tracks, and h=1 for higher bitrate
+        const streamUrl = `${urlMatch[1]}?token=${encodeURIComponent(tokenMatch[1])}&expires=${encodeURIComponent(expiresMatch[1])}&h=1&lang=all`;
+        
+        // DEFAULT TO UNKNOWN: Don't guess 1080p. Let the detector find it.
+        let detectedQuality = "Unknown";
+        
         try {
-          const playlistResponse = yield fetch(streamUrl, {
-            headers: streamHeaders
-          });
-          if (playlistResponse.ok) {
-            const playlistText = yield playlistResponse.text();
-            const hasItalian = /#EXT-X-MEDIA:TYPE=AUDIO.*(?:LANGUAGE="it"|LANGUAGE="ita"|NAME="Italian"|NAME="Ita")/i.test(playlistText);
-            const detected = checkQualityFromText(playlistText);
-            if (detected) quality = detected;
-            const originalLanguageItalian = metadata && (metadata.original_language === "it" || metadata.original_language === "ita");
-            if (!hasItalian && !originalLanguageItalian) {
-              console.log(`[StreamingCommunity] No Italian audio found. Checking fallback.`);
-              const fallbackOk = yield hasGuardaFallbackResults(id, normalizedType, resolvedSeason, episode, providerContext);
-              if (!fallbackOk) return [];
-            }
+          const playlistRes = yield fetch(streamUrl, { headers: getCommonHeaders() });
+          if (playlistRes.ok) {
+            const playlistText = yield playlistRes.text();
+            const found = checkQualityFromText(playlistText);
+            if (found) detectedQuality = found;
           }
-        } catch (e) {
-          console.warn(`[StreamingCommunity] Playlist pre-check failed, continuing:`, e);
-        }
-        const normalizedQuality = getQualityFromName(quality);
+        } catch (e) {}
+
         const result = {
           name: `VixSrc`,
-          title: finalDisplayName,
+          title: apiPayload.title || "Stream",
           url: streamUrl,
-          easyProxySourceUrl: embedUrl,
-          quality: normalizedQuality,
+          quality: getQualityFromName(detectedQuality),
           type: "direct",
-          headers: streamHeaders,
-          behaviorHints: {
-            notWebReady: false
-          }
+          headers: { "Referer": embedUrl, "Origin": baseUrl }
         };
-        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
-      } else {
-        console.log("[StreamingCommunity] Could not find playlist info in HTML");
-        return [];
+        return [formatStream(result, "StreamingCommunity")];
       }
-    } catch (error) {
-      console.error("[StreamingCommunity] Error:", error);
       return [];
-    }
+    } catch (error) { return []; }
   });
 }
+
 module.exports = { getStreams };

@@ -101,7 +101,6 @@ var require_formatter = __commonJS({
       if (!language) {
         if (stream.name && (stream.name.includes("SUB ITA") || stream.name.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
         else if (stream.title && (stream.title.includes("SUB ITA") || stream.title.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
-        // UPDATED: Added English flag then Italian flag
         else language = "\u{1F1EC}\u{1F1E7} \u{1F1EE}\u{1F1F9}";
       }
       let details = [];
@@ -145,18 +144,22 @@ var require_formatter = __commonJS({
       const finalName = pName;
       let finalTitle = `\u{1F4C1} ${stream.title || "Stream"}`;
       if (desc) finalTitle += ` | ${desc}`;
-      // UPDATED: Added "Language:" label + Flags
-      if (language) finalTitle += ` | Language: ${language}`;
+      if (language) finalTitle += ` | ${language}`;
       return __spreadProps(__spreadValues({}, stream), {
+        // Keep original properties
         name: finalName,
         title: finalTitle,
+        // Metadata for Stremio UI reconstruction (safer names for RN)
         providerName: pName,
         qualityTag: quality,
         description: desc,
         originalTitle: stream.title || "Stream",
+        // Ensure language is set for Stremio/Nuvio sorting
         language,
+        // Mark as formatted
         _nuvio_formatted: true,
         behaviorHints,
+        // Explicitly ensure root headers are preserved for Nuvio
         headers: finalHeaders
       });
     }
@@ -380,4 +383,201 @@ function getQualityFromName(qualityStr) {
   return "Unknown";
 }
 function getTmdbId(imdbId, type) {
-  return
+  return __async(this, null, function* () {
+    const normalizedType = String(type).toLowerCase();
+    const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+    try {
+      const response = yield fetch(findUrl);
+      if (!response.ok) return null;
+      const data = yield response.json();
+      if (!data) return null;
+      if (normalizedType === "movie" && data.movie_results && data.movie_results.length > 0) {
+        return data.movie_results[0].id.toString();
+      } else if (normalizedType === "tv" && data.tv_results && data.tv_results.length > 0) {
+        return data.tv_results[0].id.toString();
+      }
+      return null;
+    } catch (e) {
+      console.error("[StreamingCommunity] Conversion error:", e);
+      return null;
+    }
+  });
+}
+function getMetadata(id, type) {
+  return __async(this, null, function* () {
+    try {
+      const normalizedType = String(type).toLowerCase();
+      let url;
+      if (String(id).startsWith("tt")) {
+        url = `https://api.themoviedb.org/3/find/${id}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=it-IT`;
+      } else {
+        const endpoint = normalizedType === "movie" ? "movie" : "tv";
+        url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&language=it-IT`;
+      }
+      const response = yield fetch(url);
+      if (!response.ok) return null;
+      const data = yield response.json();
+      if (String(id).startsWith("tt")) {
+        const results = normalizedType === "movie" ? data.movie_results : data.tv_results;
+        if (results && results.length > 0) return results[0];
+      } else {
+        return data;
+      }
+      return null;
+    } catch (e) {
+      console.error("[StreamingCommunity] Metadata error:", e);
+      return null;
+    }
+  });
+}
+function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
+  return __async(this, null, function* () {
+    const normalizedType = String(type).toLowerCase();
+    const checks = [];
+    if (normalizedType === "movie" && guardahd && typeof guardahd.getStreams === "function") {
+      checks.push(
+        guardahd.getStreams(id, normalizedType, season, episode).then((streams) => Array.isArray(streams) && streams.length > 0).catch((e) => {
+          console.warn("[StreamingCommunity] GuardaHD fallback check failed:", e);
+          return false;
+        })
+      );
+    }
+    if (checks.length === 0) return false;
+    const results = yield Promise.all(checks);
+    return results.some(Boolean);
+  });
+}
+function getStreams(id, type, season, episode, providerContext = null) {
+  return __async(this, null, function* () {
+    const requestedType = String(type).toLowerCase();
+    const normalizedType = requestedType === "series" ? "tv" : requestedType;
+    const baseUrl = getStreamingCommunityBaseUrl();
+    const commonHeaders = getCommonHeaders();
+    let tmdbId = id.toString();
+    let resolvedSeason = season;
+    const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
+    if (contextTmdbId) {
+      tmdbId = contextTmdbId;
+    } else if (tmdbId.startsWith("tmdb:")) {
+      tmdbId = tmdbId.replace("tmdb:", "");
+    } else if (tmdbId.startsWith("tt")) {
+      const convertedId = yield getTmdbId(tmdbId, normalizedType);
+      if (convertedId) {
+        console.log(`[StreamingCommunity] Converted ${id} to TMDB ID: ${convertedId}`);
+        tmdbId = convertedId;
+      } else {
+        console.warn(`[StreamingCommunity] Could not convert IMDb ID ${id} to TMDB ID.`);
+      }
+    }
+    let metadata = null;
+    try {
+      metadata = yield getMetadata(tmdbId, type);
+    } catch (e) {
+      console.error("[StreamingCommunity] Error fetching metadata:", e);
+    }
+    const title = metadata && (metadata.title || metadata.name || metadata.original_title || metadata.original_name) ? metadata.title || metadata.name || metadata.original_title || metadata.original_name : normalizedType === "movie" ? "Film Sconosciuto" : "Serie TV";
+    const displayName = normalizedType === "movie" ? title : `${title} ${resolvedSeason}x${episode}`;
+    const finalDisplayName = displayName;
+    let url;
+    let apiUrl;
+    if (normalizedType === "movie") {
+      url = `${baseUrl}/movie/${tmdbId}`;
+      apiUrl = `${baseUrl}/api/movie/${tmdbId}`;
+    } else if (normalizedType === "tv") {
+      url = `${baseUrl}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
+      apiUrl = `${baseUrl}/api/tv/${tmdbId}/${resolvedSeason}/${episode}`;
+    } else {
+      return [];
+    }
+    try {
+      console.log(`[StreamingCommunity] Fetching API: ${apiUrl}`);
+      const response = yield fetch(apiUrl, {
+        headers: commonHeaders
+      });
+      if (!response.ok) {
+        console.error(`[StreamingCommunity] Failed to fetch page: ${response.status}`);
+        return [];
+      }
+      const apiPayload = yield response.json().catch(() => null);
+      const embedUrl = extractEmbedSrcFromApiPayload(apiPayload);
+      if (!embedUrl) {
+        console.log("[StreamingCommunity] Could not find embed src in API payload");
+        return [];
+      }
+      if (providerContext == null ? void 0 : providerContext.proxyUrl) {
+        const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
+        console.log(`[StreamingCommunity] Proxy enabled, returning raw page URL: ${rawPageUrl}`);
+        const result = {
+          name: `VixSrc`,
+          title: finalDisplayName,
+          url: rawPageUrl,
+          easyProxySourceUrl: rawPageUrl,
+          // Stremio addon uses EasyProxy path for StreamingCommunity, so expose default quality here too.
+          quality: "1080p",
+          type: "direct",
+          behaviorHints: {
+            notWebReady: false
+          }
+        };
+        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
+      }
+      console.log(`[StreamingCommunity] Fetching embed: ${embedUrl}`);
+      const embedResponse = yield fetch(embedUrl, {
+        headers: getEmbedHeaders(embedUrl)
+      });
+      if (!embedResponse.ok) {
+        console.error(`[StreamingCommunity] Failed to fetch embed: ${embedResponse.status}`);
+        return [];
+      }
+      const embedHtml = yield embedResponse.text();
+      if (!embedHtml) return [];
+      const masterPlaylist = extractMasterPlaylistFromEmbedHtml(embedHtml);
+      if (masterPlaylist) {
+        const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
+        const streamHeaders = getPlaylistHeaders(embedUrl);
+        console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
+        let quality = "1080p";
+        try {
+          const playlistResponse = yield fetch(streamUrl, {
+            headers: streamHeaders
+          });
+          if (playlistResponse.ok) {
+            const playlistText = yield playlistResponse.text();
+            const hasItalian = /#EXT-X-MEDIA:TYPE=AUDIO.*(?:LANGUAGE="it"|LANGUAGE="ita"|NAME="Italian"|NAME="Ita")/i.test(playlistText);
+            const detected = checkQualityFromText(playlistText);
+            if (detected) quality = detected;
+            const originalLanguageItalian = metadata && (metadata.original_language === "it" || metadata.original_language === "ita");
+            if (!hasItalian && !originalLanguageItalian) {
+              console.log(`[StreamingCommunity] No Italian audio found. Checking fallback.`);
+              const fallbackOk = yield hasGuardaFallbackResults(id, normalizedType, resolvedSeason, episode, providerContext);
+              if (!fallbackOk) return [];
+            }
+          }
+        } catch (e) {
+          console.warn(`[StreamingCommunity] Playlist pre-check failed, continuing:`, e);
+        }
+        const normalizedQuality = getQualityFromName(quality);
+        const result = {
+          name: `VixSrc`,
+          title: finalDisplayName,
+          url: streamUrl,
+          easyProxySourceUrl: embedUrl,
+          quality: normalizedQuality,
+          type: "direct",
+          headers: streamHeaders,
+          behaviorHints: {
+            notWebReady: false
+          }
+        };
+        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
+      } else {
+        console.log("[StreamingCommunity] Could not find playlist info in HTML");
+        return [];
+      }
+    } catch (error) {
+      console.error("[StreamingCommunity] Error:", error);
+      return [];
+    }
+  });
+}
+module.exports = { getStreams };

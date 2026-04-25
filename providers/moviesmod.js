@@ -166,7 +166,7 @@ function getStreams(id, type, season, episode) {
                     "&h=1&lang=it";
 
                   var label = normType === "movie"
-                    ? "🌐 English + Italian"
+                    ? "StreamingCommunity"
                     : "StreamingCommunity S" + season + "E" + episode;
 
                   console.log("[VixSrc] Stream URL:", streamUrl);

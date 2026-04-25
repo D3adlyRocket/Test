@@ -101,7 +101,7 @@ var require_formatter = __commonJS({
       if (!language) {
         if (stream.name && (stream.name.includes("SUB ITA") || stream.name.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
         else if (stream.title && (stream.title.includes("SUB ITA") || stream.title.includes("SUB"))) language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
-        // ADDED BOTH FLAGS: English (\u{1F1EC}\u{1F1E7}) + Italian (\u{1F1EE}\u{1F1F9})
+        // UPDATED: Added English flag then Italian flag
         else language = "\u{1F1EC}\u{1F1E7} \u{1F1EE}\u{1F1F9}";
       }
       let details = [];
@@ -145,10 +145,8 @@ var require_formatter = __commonJS({
       const finalName = pName;
       let finalTitle = `\u{1F4C1} ${stream.title || "Stream"}`;
       if (desc) finalTitle += ` | ${desc}`;
-      
-      // ADDED "Language:" Header prefix + Flags
+      // UPDATED: Added "Language:" label + Flags
       if (language) finalTitle += ` | Language: ${language}`;
-
       return __spreadProps(__spreadValues({}, stream), {
         name: finalName,
         title: finalTitle,
@@ -212,4 +210,174 @@ var require_fetch_helper = __commonJS({
           return response;
         } catch (error) {
           if (error && error.name === "AbortError" && timeoutConfig.timed) {
-            throw new Error(`Request to ${url} timed out after ${requestTimeout}ms
+            throw new Error(`Request to ${url} timed out after ${requestTimeout}ms`);
+          }
+          throw error;
+        } finally {
+          if (typeof timeoutConfig.cleanup === "function") {
+            timeoutConfig.cleanup();
+          }
+        }
+      });
+    }
+    module2.exports = { fetchWithTimeout, createTimeoutSignal };
+  }
+});
+
+// src/quality_helper.js
+var require_quality_helper = __commonJS({
+  "src/quality_helper.js"(exports2, module2) {
+    var { createTimeoutSignal } = require_fetch_helper();
+    var USER_AGENT2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+    function checkQualityFromPlaylist(_0) {
+      return __async(this, arguments, function* (url, headers = {}) {
+        try {
+          if (!url.includes(".m3u8")) return null;
+          const finalHeaders = __spreadValues({}, headers);
+          if (!finalHeaders["User-Agent"]) {
+            finalHeaders["User-Agent"] = USER_AGENT2;
+          }
+          const timeoutConfig = createTimeoutSignal(3e3);
+          try {
+            const response = yield fetch(url, {
+              headers: finalHeaders,
+              signal: timeoutConfig.signal
+            });
+            if (!response.ok) return null;
+            const text = yield response.text();
+            const quality = checkQualityFromText2(text);
+            if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
+            return quality;
+          } finally {
+            if (typeof timeoutConfig.cleanup === "function") {
+              timeoutConfig.cleanup();
+            }
+          }
+        } catch (e) {
+          return null;
+        }
+      });
+    }
+    function checkQualityFromText2(text) {
+      if (!text) return null;
+      if (/RESOLUTION=\d+x2160/i.test(text) || /RESOLUTION=2160/i.test(text)) return "4K";
+      if (/RESOLUTION=\d+x1440/i.test(text) || /RESOLUTION=1440/i.test(text)) return "1440p";
+      if (/RESOLUTION=\d+x1080/i.test(text) || /RESOLUTION=1080/i.test(text)) return "1080p";
+      if (/RESOLUTION=\d+x720/i.test(text) || /RESOLUTION=720/i.test(text)) return "720p";
+      if (/RESOLUTION=\d+x480/i.test(text) || /RESOLUTION=480/i.test(text)) return "480p";
+      return null;
+    }
+    function getQualityFromUrl(url) {
+      if (!url) return null;
+      const urlPath = url.split("?")[0].toLowerCase();
+      if (urlPath.includes("4k") || urlPath.includes("2160")) return "4K";
+      if (urlPath.includes("1440") || urlPath.includes("2k")) return "1440p";
+      if (urlPath.includes("1080") || urlPath.includes("fhd")) return "1080p";
+      if (urlPath.includes("720") || urlPath.includes("hd")) return "720p";
+      if (urlPath.includes("480") || urlPath.includes("sd")) return "480p";
+      if (urlPath.includes("360")) return "360p";
+      return null;
+    }
+    module2.exports = { checkQualityFromPlaylist, getQualityFromUrl, checkQualityFromText: checkQualityFromText2 };
+  }
+});
+
+// src/streamingcommunity/index.js
+function getStreamingCommunityBaseUrl() {
+  return "https://vixsrc.to";
+}
+var { formatStream } = require_formatter();
+require_fetch_helper();
+var { checkQualityFromText } = require_quality_helper();
+function safeRequire(modulePath) {
+  try {
+    return require(modulePath);
+  } catch (e) {
+    return null;
+  }
+}
+var guardahd = safeRequire("../guardahd/index");
+var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
+var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+function getCommonHeaders() {
+  return {
+    "User-Agent": USER_AGENT,
+    "Referer": `${getStreamingCommunityBaseUrl()}/`,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1"
+  };
+}
+function getEmbedHeaders(embedUrl) {
+  return {
+    "User-Agent": USER_AGENT,
+    "Referer": `${getStreamingCommunityBaseUrl()}/`,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+  };
+}
+function getPlaylistHeaders(embedUrl) {
+  return {
+    "User-Agent": USER_AGENT,
+    "Referer": embedUrl,
+    "Origin": getStreamingCommunityBaseUrl(),
+    "Accept": "*/*",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin"
+  };
+}
+function extractEmbedSrcFromApiPayload(payload) {
+  const rawSrc = payload && typeof payload === "object" ? payload.src : null;
+  if (!rawSrc) return null;
+  try {
+    return new URL(rawSrc, getStreamingCommunityBaseUrl()).toString();
+  } catch (e) {
+    return null;
+  }
+}
+function extractMasterPlaylistFromEmbedHtml(html) {
+  if (!html) return null;
+  const tokenMatch = html.match(/'token'\s*:\s*'([^']+)'/i);
+  const expiresMatch = html.match(/'expires'\s*:\s*'([^']+)'/i);
+  const urlMatch = html.match(/url\s*:\s*'([^']+\/playlist\/\d+[^']*)'/i);
+  if (!tokenMatch || !expiresMatch || !urlMatch) {
+    return null;
+  }
+  return {
+    token: tokenMatch[1],
+    expires: expiresMatch[1],
+    url: urlMatch[1]
+  };
+}
+function getQualityFromName(qualityStr) {
+  if (!qualityStr) return "Unknown";
+  const quality = qualityStr.toUpperCase();
+  if (quality === "ORG" || quality === "ORIGINAL") return "Original";
+  if (quality === "4K" || quality === "2160P") return "4K";
+  if (quality === "1440P" || quality === "2K") return "1440p";
+  if (quality === "1080P" || quality === "FHD") return "1080p";
+  if (quality === "720P" || quality === "HD") return "720p";
+  if (quality === "480P" || quality === "SD") return "480p";
+  if (quality === "360P") return "360p";
+  if (quality === "240P") return "240p";
+  const match = qualityStr.match(/(\d{3,4})[pP]?/);
+  if (match) {
+    const resolution = parseInt(match[1]);
+    if (resolution >= 2160) return "4K";
+    if (resolution >= 1440) return "1440p";
+    if (resolution >= 1080) return "1080p";
+    if (resolution >= 720) return "720p";
+    if (resolution >= 480) return "480p";
+    if (resolution >= 360) return "360p";
+    return "240p";
+  }
+  return "Unknown";
+}
+function getTmdbId(imdbId, type) {
+  return

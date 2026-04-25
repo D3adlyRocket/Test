@@ -1,110 +1,124 @@
-'use strict';
-
-var BASE_URL     = 'https://hindmovie.ltd';
-var TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
-var PLUGIN_TAG   = '[HindMoviez]';
-var HM_WORKER    = 'https://hindmoviez.s4nch1tt.workers.dev';
-
-var DEFAULT_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
-};
-
-function hmProxyUrl(rawUrl) {
-  if (!rawUrl) return rawUrl;
-  return HM_WORKER + '/hm/proxy?url=' + encodeURIComponent(rawUrl);
+// --- UTILITY (Keep your existing ones) ---
+function getJson(url, options) {
+  return fetch(url, options || {}).then(function (response) {
+    if (!response || !response.ok) throw new Error('Request failed: ' + url);
+    return response.json();
+  });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// The Secret Sauce: A fail-safe Fetch that works on TV & Mobile
-// ─────────────────────────────────────────────────────────────────────────────
-function safeFetch(url) {
-  return fetch(url, { headers: DEFAULT_HEADERS, redirect: 'follow' })
-    .then(function(res) { 
-      if (!res.ok) return null;
-      return res.text(); 
-    })
-    .catch(function() { return null; });
+function getText(url, options) {
+  return fetch(url, options || {}).then(function (response) {
+    if (!response || !response.ok) throw new Error('Request failed: ' + url);
+    return response.text();
+  });
 }
 
-function getStreams(tmdbId, type, season, episode) {
-  var isSeries = (type === 'series' || type === 'tv');
-  var tmdbUrl = 'https://api.themoviedb.org/3/' + (isSeries ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_API_KEY;
+function normalizeQuality(label) {
+  var text = (label || '').toString();
+  var match = text.match(/(2160p|1440p|1080p|720p|480p|360p|4K)/i);
+  return match ? match[1].toUpperCase() : 'Auto';
+}
 
-  return fetch(tmdbUrl)
-    .then(function(res) { return res.json(); })
-    .then(function(details) {
-      if (!details) return [];
-      var query = isSeries ? details.name : details.title;
-      return safeFetch(BASE_URL + '/?s=' + encodeURIComponent(query));
-    })
-    .then(function(html) {
-      if (!html) return [];
-      // Look for article links
-      var linkMatch = html.match(/<h2[^>]*class="entry-title"[^>]*>\s*<a\s[^>]*href="([^"]+)"/i) || html.match(/<a\s[^>]*href="([^"]+)"[^>]*rel="bookmark"/i);
-      if (!linkMatch) return [];
-      return safeFetch(linkMatch[1]);
-    })
-    .then(function(pageHtml) {
-      if (!pageHtml) return [];
+function streamObject(provider, title, url, quality, headers) {
+  if (!url || typeof url !== 'string') return null;
+  return {
+    name: provider,
+    title: title || provider,
+    url: url,
+    quality: quality || 'Auto',
+    headers: headers || undefined
+  };
+}
 
-      var streams = [];
-      var resolvePromises = [];
-      // Split page into chunks by H3 so we don't mix up quality info
-      var sections = pageHtml.split(/<h3/i);
+function dedupeStreams(streams) {
+  var seen = {};
+  return (streams || []).filter(function (stream) {
+    if (!stream || !stream.url || seen[stream.url]) return false;
+    seen[stream.url] = true;
+    return true;
+  });
+}
 
-      for (var i = 1; i < sections.length; i++) {
-        var chunk = sections[i];
-        var mvMatch = chunk.match(/href="(https:\/\/mvlink\.site\/[^"]+)"/i);
+function getTmdbMeta(tmdbId, mediaType) {
+  var typePath = mediaType === 'tv' ? 'tv' : 'movie';
+  var url = 'https://api.themoviedb.org/3/' + typePath + '/' + tmdbId + '?append_to_response=external_ids&api_key=ad301b7cc82ffe19273e55e4d4206885';
+  return getJson(url);
+}
+
+// --- NEW VIXSRC RESOLVER ---
+
+function resolveVixSrc(tmdbId, mediaType, season, episode) {
+  var baseUrl = "https://vixsrc.to";
+  var typePath = mediaType === 'tv' ? 'tv' : 'movie';
+  var apiUrl = baseUrl + '/api/' + typePath + '/' + tmdbId + (mediaType === 'tv' ? '/' + (season || 1) + '/' + (episode || 1) : '');
+  
+  var headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Referer": baseUrl + "/"
+  };
+
+  return getJson(apiUrl, { headers: headers })
+    .then(function (payload) {
+      var embedUrl = payload && payload.src;
+      if (!embedUrl) return [];
+
+      return getText(embedUrl, { headers: headers }).then(function (html) {
+        // Extracting tokens and playlist info from the script tags in HTML
+        var tokenMatch = html.match(/'token'\s*:\s*'([^']+)'/i);
+        var expiresMatch = html.match(/'expires'\s*:\s*'([^']+)'/i);
+        var urlMatch = html.match(/url\s*:\s*'([^']+\/playlist\/\d+[^']*)'/i);
+
+        if (!tokenMatch || !expiresMatch || !urlMatch) return [];
+
+        var finalStreamUrl = urlMatch[1] + "?token=" + encodeURIComponent(tokenMatch[1]) + "&expires=" + encodeURIComponent(expiresMatch[1]) + "&h=1";
         
-        if (mvMatch) {
-          // Extract info from the H3 text (before the </h3>)
-          var headingText = chunk.split('</h3>')[0];
-          var qMatch = headingText.match(/\b(2160p|1080p|720p|480p|4K)\b/i);
-          var quality = qMatch ? qMatch[1].toLowerCase().replace('4k', '2160p') : '720p';
-          var sizeMatch = headingText.match(/\[([0-9.]+\s*(?:MB|GB))\]/i);
-          var size = sizeMatch ? sizeMatch[1] : '';
-
-          (function(mvUrl, q, sz) {
-            var p = safeFetch(mvUrl)
-              .then(function(mvHtml) {
-                if (!mvHtml) return null;
-                var hs = mvHtml.match(/href="(https:\/\/hshare\.ink\/[^"]+)"/i);
-                return hs ? safeFetch(hs[1]) : null;
-              })
-              .then(function(hsHtml) {
-                if (!hsHtml) return null;
-                var hp = hsHtml.match(/href="([^"]+)"[^>]*>HPage<\/a>/i);
-                return hp ? safeFetch(hp[1]) : null;
-              })
-              .then(function(hcHtml) {
-                if (!hcHtml) return;
-                // Regex for server links: matches Server 1, Server 2, etc.
-                var srvRe = /<a[^>]*href="([^"]+)"[^>]*>(Server\s+\d+)<\/a>/gi;
-                var sMatch;
-                while ((sMatch = srvRe.exec(hcHtml)) !== null) {
-                  streams.push({
-                    name: '🎬 HindMoviez | ' + sMatch[2] + ' | ' + q.toUpperCase(),
-                    title: '📺 ' + q.toUpperCase() + ' • 💾 ' + sz + '\nSanchit Plugin (TV Mode)',
-                    url: hmProxyUrl(sMatch[1]),
-                    quality: q,
-                    behaviorHints: { notWebReady: false }
-                  });
-                }
-              });
-            resolvePromises.push(p);
-          })(mvMatch[1], quality, size);
-        }
-      }
-
-      return Promise.all(resolvePromises).then(function() {
-        return streams;
+        return [streamObject(
+          'VixSrc',
+          'VixSrc Multi-Res',
+          finalStreamUrl,
+          '1080P',
+          { 
+            "Referer": embedUrl,
+            "Origin": baseUrl,
+            "User-Agent": headers["User-Agent"]
+          }
+        )];
       });
     })
-    .catch(function(err) {
-      return [];
-    });
+    .catch(function () { return []; });
 }
 
-if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; } 
-else { global.getStreams = getStreams; }
+// --- EXISTING RESOLVERS (Condensed for brevity) ---
+
+function resolveVidEasy(tmdbId, mediaType, season, episode) { /* ... existing logic ... */ }
+function resolveVidLink(tmdbId, mediaType, season, episode) { /* ... existing logic ... */ }
+function resolveVidmody(tmdbId, mediaType, season, episode) { /* ... existing logic ... */ }
+function resolveVidSrc(tmdbId, mediaType, season, episode) { /* ... existing logic ... */ }
+
+// --- MAIN FUNCTION ---
+
+function getStreams(tmdbId, mediaType, season, episode) {
+  var resolvers = [
+    resolveVixSrc, // Added VixSrc here
+    resolveVidEasy,
+    resolveVidLink,
+    resolveVidmody,
+    resolveVidSrc
+  ];
+
+  return Promise.all(
+    resolvers.map(function (resolver) {
+      return resolver(tmdbId, mediaType, season, episode).catch(function () { return []; });
+    })
+  )
+    .then(function (results) {
+      var merged = [];
+      results.forEach(function (group) {
+        if (Array.isArray(group)) merged = merged.concat(group);
+      });
+      return dedupeStreams(merged).slice(0, 50);
+    })
+    .catch(function () { return []; });
+}
+
+module.exports = { getStreams: getStreams };

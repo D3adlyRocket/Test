@@ -507,7 +507,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
           title: finalDisplayName,
           url: rawPageUrl,
           easyProxySourceUrl: rawPageUrl,
-          quality: "Auto",
+          quality: "Auto", // Explicitly set to Auto
           type: "direct",
           behaviorHints: {
             notWebReady: false
@@ -531,8 +531,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const streamHeaders = getPlaylistHeaders(embedUrl);
         console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
         
-        let quality = "Auto"; 
-        
         try {
           const playlistResponse = yield fetch(streamUrl, {
             headers: streamHeaders
@@ -540,11 +538,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
           if (playlistResponse.ok) {
             const playlistText = yield playlistResponse.text();
             const hasItalian = /#EXT-X-MEDIA:TYPE=AUDIO.*(?:LANGUAGE="it"|LANGUAGE="ita"|NAME="Italian"|NAME="Ita")/i.test(playlistText);
-            const detectedQuality = checkQualityFromText(playlistText);
-            if (detectedQuality) {
-              console.log(`[StreamingCommunity] Detected quality from playlist: ${detectedQuality}`);
-              quality = detectedQuality;
-            }
             const originalLanguageItalian = metadata && (metadata.original_language === "it" || metadata.original_language === "ita");
             if (!hasItalian && !originalLanguageItalian) {
               console.log(`[StreamingCommunity] No Italian audio found. Checking fallback.`);
@@ -558,14 +551,12 @@ function getStreams(id, type, season, episode, providerContext = null) {
           console.warn(`[StreamingCommunity] Playlist pre-check failed, continuing:`, e);
         }
         
-        const finalQualityLabel = getQualityFromName(quality);
-        
         const result = {
           name: `VixSrc`,
           title: finalDisplayName,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,
-          quality: finalQualityLabel, 
+          quality: "Auto", // Explicitly set to Auto to bypass formatter resolution logic
           type: "direct",
           headers: streamHeaders,
           behaviorHints: {

@@ -95,7 +95,7 @@ var require_formatter = __commonJS({
       else if (quality === "1080p") quality = "\u{1F680} FHD";
       else if (quality === "720p") quality = "\u{1F4BF} HD";
       else if (quality === "576p" || quality === "480p" || quality === "360p" || quality === "240p") quality = "\u{1F4A9} Low Quality";
-      else if (!quality || ["auto", "unknown", "unknow"].includes(String(quality).toLowerCase())) quality = "Unknown";
+      else if (!quality || ["auto", "unknown", "unknow"].includes(String(quality).toLowerCase())) quality = "Auto";
       let title = `\u{1F4C1} ${stream.title || "Stream"}`;
       let language = stream.language;
       if (!language) {
@@ -354,7 +354,7 @@ function extractMasterPlaylistFromEmbedHtml(html) {
   };
 }
 function getQualityFromName(qualityStr) {
-  if (!qualityStr) return "Unknown";
+  if (!qualityStr) return "Auto";
   const quality = qualityStr.toUpperCase();
   if (quality === "ORG" || quality === "ORIGINAL") return "Original";
   if (quality === "4K" || quality === "2160P") return "4K";
@@ -375,7 +375,7 @@ function getQualityFromName(qualityStr) {
     if (resolution >= 360) return "360p";
     return "240p";
   }
-  return "Unknown";
+  return "Auto";
 }
 function getTmdbId(imdbId, type) {
   return __async(this, null, function* () {
@@ -507,7 +507,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
           title: finalDisplayName,
           url: rawPageUrl,
           easyProxySourceUrl: rawPageUrl,
-          quality: "Unknown", // Corrected default
+          quality: "Auto",
           type: "direct",
           behaviorHints: {
             notWebReady: false
@@ -531,7 +531,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const streamHeaders = getPlaylistHeaders(embedUrl);
         console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
         
-        let quality = "Unknown"; // Corrected default
+        let quality = "Auto"; 
         
         try {
           const playlistResponse = yield fetch(streamUrl, {
@@ -558,7 +558,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
           console.warn(`[StreamingCommunity] Playlist pre-check failed, continuing:`, e);
         }
         
-        // Final Quality Formatting
         const finalQualityLabel = getQualityFromName(quality);
         
         const result = {
@@ -566,7 +565,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
           title: finalDisplayName,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,
-          quality: finalQualityLabel, // FIXED: Now uses the detected label instead of "1080p"
+          quality: finalQualityLabel, 
           type: "direct",
           headers: streamHeaders,
           behaviorHints: {

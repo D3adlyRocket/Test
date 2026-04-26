@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - 4k Priority & 429 Error Handling
+// Dahmer Movies Scraper - 4K/2160p Fix & 429 Playback Shield
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -11,7 +11,6 @@ async function makeRequest(url) {
         headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
     });
     if (res.status === 429) throw new Error('429');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res;
 }
 
@@ -22,16 +21,15 @@ async function resolveFinalUrl(startUrl, retryCount = 0) {
             redirect: 'follow',
             headers: { 
                 'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
-                'Referer': DAHMER_MOVIES_API + '/'
+                'Referer': DAHMER_MOVIES_API + '/',
+                'Range': 'bytes=0-' // Helps prevent 429 on some servers
             }
         });
         
-        if (response.status === 429 && retryCount < 2) {
-            console.log(`[DahmerMovies] 429 detected, waiting 2s...`);
-            await sleep(2000); // Wait for server cooldown
+        if (response.status === 429 && retryCount < 3) {
+            await sleep(3000); 
             return resolveFinalUrl(startUrl, retryCount + 1);
         }
-        
         return response.url;
     } catch (e) {
         return startUrl;
@@ -57,11 +55,16 @@ function parseLinks(html) {
 }
 
 async function invokeDahmerMovies(title, year, season = null, episode = null) {
-    const cleanTitle = title.replace(/:/g, '');
-    const variants = [
-        season === null ? `${cleanTitle} (${year})` : cleanTitle,
-        cleanTitle // Fallback for folders without the year
-    ];
+    // Advanced Title Cleaning to find 4K folders like "The Matrix" or "Matrix, The"
+    const cleanTitle = title.replace(/:/g, '').replace(/,/g, '');
+    const titleNoThe = cleanTitle.replace(/^the\s+/i, '').trim();
+    
+    const variants = [];
+    if (season === null) {
+        variants.push(`${cleanTitle} (${year})`, cleanTitle, `${titleNoThe} (${year})`, titleNoThe);
+    } else {
+        variants.push(cleanTitle, titleNoThe);
+    }
 
     let html = '';
     let usedUrl = '';
@@ -73,9 +76,11 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
         
         try {
             const res = await makeRequest(dirUrl);
-            html = await res.text();
-            usedUrl = dirUrl;
-            if (html.includes('<tr')) break;
+            if (res.ok) {
+                html = await res.text();
+                usedUrl = dirUrl;
+                if (html.includes('<tr')) break;
+            }
         } catch (e) { continue; }
     }
 
@@ -83,12 +88,11 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
     const paths = parseLinks(html);
     
-    // PRIORITY: Separate 4k and 1080p
-    const p2160 = paths.filter(p => /2160p|4k/i.test(p.text));
-    const p1080 = paths.filter(p => /1080p/i.test(p.text));
+    // Prioritize 2160p/4K above all else
+    const p2160 = paths.filter(p => /2160p|4k|uhd/i.test(p.text));
+    const p1080 = paths.filter(p => /1080p/i.test(p.text) && !/2160p|4k|uhd/i.test(p.text));
     
-    // Process 4k first, then 1080p up to a total of 5 links
-    const toProcess = [...p2160, ...p1080].slice(0, 5);
+    const toProcess = [...p2160, ...p1080].slice(0, 4);
     const results = [];
 
     for (const path of toProcess) {
@@ -103,16 +107,17 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
             name: "DahmerMovies",
             title: path.text,
             url: finalStreamUrl,
-            quality: /2160p|4k/i.test(path.text) ? '2160p' : '1080p',
+            quality: /2160p|4k|uhd/i.test(path.text) ? '2160p' : '1080p',
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
-                'Referer': DAHMER_MOVIES_API + '/'
+                'Referer': DAHMER_MOVIES_API + '/',
+                'Connection': 'keep-alive',
+                'Range': 'bytes=0-'
             },
             provider: "dahmermovies"
         });
         
-        // Brief pause between link resolutions to prevent 429
-        await sleep(300); 
+        await sleep(500); 
     }
     return results;
 }

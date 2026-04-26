@@ -1,17 +1,20 @@
-// Dahmer Movies Scraper - Simplified 4K/Playback Fix
+// Dahmer Movies Scraper - Final Logic Fix
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DAHMER_MOVIES_API = 'https://a.111477.xyz';
 
 async function makeRequest(url) {
-    const res = await fetch(url, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-    });
-    return res;
+    try {
+        const res = await fetch(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        });
+        return res;
+    } catch (e) {
+        return { ok: false };
+    }
 }
 
-// Resolves the link to ensure it plays, handles 429 with a simple wait
 async function resolveFinalUrl(startUrl) {
     try {
         const response = await fetch(startUrl, {
@@ -22,11 +25,6 @@ async function resolveFinalUrl(startUrl) {
                 'Referer': DAHMER_MOVIES_API + '/'
             }
         });
-        
-        if (response.status === 429) {
-            console.log('[DahmerMovies] Server busy (429), trying anyway...');
-            // If blocked, we return the original but add the range header later to help
-        }
         return response.url;
     } catch (e) {
         return startUrl;
@@ -43,7 +41,6 @@ function parseLinks(html) {
         if (linkMatch) {
             const href = linkMatch[1];
             const text = linkMatch[2].trim();
-            // Only accept video files, skip parent directories
             if (text && href !== '../' && /\.(mkv|mp4|avi)$/i.test(text)) {
                 links.push({ text, href });
             }
@@ -53,71 +50,84 @@ function parseLinks(html) {
 }
 
 async function invokeDahmerMovies(title, year, season = null, episode = null) {
-    // Keep folder names exactly as they appear on the server
     const cleanTitle = title.replace(/:/g, '');
-    const folderPath = season === null 
-        ? `/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`
-        : `/tvs/${encodeURIComponent(cleanTitle)}/Season ${season}/`;
+    
+    // We construct the path manually to avoid URLSearchParams over-encoding
+    let folderPath = "";
+    if (season === null) {
+        const folderName = `${cleanTitle} (${year})`;
+        folderPath = `/movies/${encodeURIComponent(folderName)}/`;
+    } else {
+        folderPath = `/tvs/${encodeURIComponent(cleanTitle)}/Season ${season}/`;
+    }
 
     const fullDirUrl = DAHMER_MOVIES_API + folderPath;
+    console.log(`[DahmerMovies] Fetching: ${fullDirUrl}`);
 
-    try {
-        const response = await makeRequest(fullDirUrl);
-        if (!response.ok) return [];
-        
-        const html = await response.text();
-        const paths = parseLinks(html);
-
-        // Sort: Move 2160p/4k to the front
-        const sortedPaths = paths.sort((a, b) => {
-            const a4k = /2160p|4k/i.test(a.text);
-            const b4k = /2160p|4k/i.test(b.text);
-            return b4k - a4k;
-        });
-
-        const results = [];
-        // Only process the first 3 links to prevent 429 triggers
-        for (const path of sortedPaths.slice(0, 3)) {
-            let initialUrl = path.href.startsWith('http') ? path.href : (fullDirUrl + path.href);
-            
-            // Fix double slashes
-            initialUrl = initialUrl.replace(/([^:]\/)\/+/g, "$1");
-
-            const streamUrl = await resolveFinalUrl(initialUrl);
-
-            results.push({
-                name: "DahmerMovies",
-                title: path.text,
-                url: streamUrl,
-                quality: /2160p|4k/i.test(path.text) ? '2160p' : '1080p',
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
-                    'Referer': DAHMER_MOVIES_API + '/',
-                    'Range': 'bytes=0-' // This is the fix for playback 429
-                },
-                provider: "dahmermovies"
-            });
-        }
-        return results;
-    } catch (e) {
+    const response = await makeRequest(fullDirUrl);
+    if (!response.ok) {
+        console.log(`[DahmerMovies] Folder not found: ${fullDirUrl}`);
         return [];
     }
+    
+    const html = await response.text();
+    const paths = parseLinks(html);
+
+    // Sort to put 4K / 2160p links first
+    const sortedPaths = paths.sort((a, b) => {
+        const a4k = /2160p|4k/i.test(a.text) ? 1 : 0;
+        const b4k = /2160p|4k/i.test(b.text) ? 1 : 0;
+        return b4k - a4k;
+    });
+
+    const results = [];
+    // Process top 3 to avoid 429 server blocks
+    for (const path of sortedPaths.slice(0, 3)) {
+        let rawUrl = path.href.startsWith('http') ? path.href : (fullDirUrl + path.href);
+        // Clean up double slashes
+        const absoluteUrl = rawUrl.replace(/([^:]\/)\/+/g, "$1");
+        
+        const streamUrl = await resolveFinalUrl(absoluteUrl);
+
+        results.push({
+            name: "DahmerMovies",
+            title: path.text,
+            url: streamUrl,
+            quality: /2160p|4k/i.test(path.text) ? '2160p' : '1080p',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
+                'Referer': DAHMER_MOVIES_API + '/',
+                'Range': 'bytes=0-'
+            },
+            provider: "dahmermovies"
+        });
+    }
+    return results;
 }
 
 async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
     try {
-        const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+        const type = mediaType === 'tv' ? 'tv' : 'movie';
+        const tmdbUrl = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
         const res = await makeRequest(tmdbUrl);
         const data = await res.json();
         
         const title = mediaType === 'tv' ? data.name : data.title;
         const year = (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4);
 
+        if (!title) return [];
+
+        // CRITICAL: Added 'return await' here to pass the results back
         return await invokeDahmerMovies(title, year, seasonNum, episodeNum);
     } catch (e) {
+        console.log(`[DahmerMovies] getStreams Error: ${e.message}`);
         return [];
     }
 }
 
-if (typeof module !== 'undefined') module.exports = { getStreams };
-else global.getStreams = getStreams;
+// Exporting
+if (typeof module !== 'undefined') {
+    module.exports = { getStreams };
+} else {
+    global.getStreams = getStreams;
+}

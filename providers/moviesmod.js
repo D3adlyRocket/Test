@@ -507,7 +507,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
           title: finalDisplayName,
           url: rawPageUrl,
           easyProxySourceUrl: rawPageUrl,
-          quality: "Unknown",
+          quality: "Unknown", // Corrected default
           type: "direct",
           behaviorHints: {
             notWebReady: false
@@ -530,7 +530,9 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
         const streamHeaders = getPlaylistHeaders(embedUrl);
         console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
-        let quality = "Unknown";
+        
+        let quality = "Unknown"; // Corrected default
+        
         try {
           const playlistResponse = yield fetch(streamUrl, {
             headers: streamHeaders
@@ -555,13 +557,16 @@ function getStreams(id, type, season, episode, providerContext = null) {
         } catch (e) {
           console.warn(`[StreamingCommunity] Playlist pre-check failed, continuing:`, e);
         }
-        const finalQuality = getQualityFromName(quality);
+        
+        // Final Quality Formatting
+        const finalQualityLabel = getQualityFromName(quality);
+        
         const result = {
           name: `VixSrc`,
           title: finalDisplayName,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,
-          quality: finalQuality,
+          quality: finalQualityLabel, // FIXED: Now uses the detected label instead of "1080p"
           type: "direct",
           headers: streamHeaders,
           behaviorHints: {

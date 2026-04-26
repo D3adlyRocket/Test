@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Doubling & 404 Final Fix
+// Dahmer Movies Scraper - Direct Link Fix (No Bulk Prefix)
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -13,8 +13,14 @@ async function makeRequest(url) {
 }
 
 async function resolveFinalUrl(startUrl) {
+    // If the URL contains the bulk redirector, extract only the part after 'u='
+    let cleanUrl = startUrl;
+    if (startUrl.includes('/bulk?u=')) {
+        cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
+    }
+
     try {
-        const response = await fetch(startUrl, {
+        const response = await fetch(cleanUrl, {
             method: 'HEAD',
             redirect: 'follow',
             headers: { 
@@ -23,7 +29,7 @@ async function resolveFinalUrl(startUrl) {
             }
         });
         return response.url;
-    } catch (e) { return startUrl; }
+    } catch (e) { return cleanUrl; }
 }
 
 function parseLinks(html) {
@@ -36,7 +42,6 @@ function parseLinks(html) {
         if (linkMatch) {
             const href = linkMatch[1];
             const text = linkMatch[2].trim();
-            // Only accept actual video files
             if (text && href !== '../' && /\.(mkv|mp4|avi|webm)$/i.test(text)) {
                 links.push({ text, href });
             }
@@ -48,8 +53,6 @@ function parseLinks(html) {
 async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const cleanTitle = title.replace(/:/g, '');
     const folderName = season === null ? `${cleanTitle} (${year})` : cleanTitle;
-    
-    // Base Directory
     const baseDir = season === null ? `/movies/` : `/tvs/`;
     const folderPath = `${baseDir}${encodeURIComponent(folderName)}/`;
     const fullDirUrl = DAHMER_MOVIES_API + folderPath;
@@ -60,7 +63,6 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const html = await response.text();
     const paths = parseLinks(html);
 
-    // Sort: 2160p first, then 1080p
     const sortedPaths = paths.sort((a, b) => {
         const a4k = /2160p|4k/i.test(a.text);
         const b4k = /2160p|4k/i.test(b.text);
@@ -71,20 +73,19 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     for (const path of sortedPaths.slice(0, 5)) {
         let finalUrl;
 
-        // SMART URL BUILDER: Prevents the doubling seen in your photo
+        // Logic to prevent doubling and strip redirectors
         if (path.href.startsWith('http')) {
             finalUrl = path.href;
         } else if (path.href.includes('/movies/') || path.href.includes('/tvs/')) {
-            // If the link already has the category in it, just join to the domain
             finalUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
         } else {
-            // It's just a filename, join to the full directory
             finalUrl = fullDirUrl + path.href;
         }
 
-        // Clean up any double slashes (e.g., //)
+        // Clean double slashes
         finalUrl = finalUrl.replace(/([^:]\/)\/+/g, "$1");
         
+        // Resolve and strip the 'bulk?u=' prefix if present
         const streamUrl = await resolveFinalUrl(finalUrl);
 
         results.push({

@@ -1,406 +1,181 @@
-// YFlix Scraper for Nuvio Local Scrapers
-// React Native compatible version - Uses enc-dec.app database for accurate matching
+// Dahmer Movies Scraper - Optimized for Mobile/TV
+// React Native compatible
 
-// Headers for requests
-const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-  'Connection': 'keep-alive'
+console.log('[DahmerMovies] Initializing Scraper');
+
+// Constants
+const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+const DAHMER_MOVIES_API = 'https://a.111477.xyz';
+const TIMEOUT = 15000; // 15 seconds for fetching, redirects might take longer
+
+// Quality mapping
+const Qualities = {
+    Unknown: 0,
+    P144: 144, P240: 240, P360: 360, P480: 480,
+    P720: 720, P1080: 1080, P1440: 1440, P2160: 2160
 };
 
-const API = 'https://enc-dec.app/api';
-const DB_API = 'https://enc-dec.app/db/flix';
-const YFLIX_AJAX = 'https://yflix.ws/ajax';
+// Helper function to make HTTP requests
+function makeRequest(url, options = {}) {
+    const requestOptions = {
+        timeout: TIMEOUT,
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Connection': 'keep-alive',
+            ...options.headers
+        },
+        ...options
+    };
 
-// Debug helpers
-function createRequestId() {
-  try {
-    const rand = Math.random().toString(36).slice(2, 8);
-    const ts = Date.now().toString(36).slice(-6);
-    return `${rand}${ts}`;
-  } catch (e) {
-    return String(Date.now());
-  }
-}
-
-function logRid(rid, msg, extra) {
-  try {
-    if (extra !== undefined) {
-      console.log(`[YFlix][rid:${rid}] ${msg}`, extra);
-    } else {
-      console.log(`[YFlix][rid:${rid}] ${msg}`);
-    }
-  } catch (e) {
-    // ignore logging errors
-  }
-}
-
-// Helper functions for HTTP requests (React Native compatible)
-function getText(url) {
-  return fetch(url, { headers: HEADERS })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      return response.text();
+    return fetch(url, requestOptions).then(response => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response;
     });
 }
 
-function getJson(url) {
-  return fetch(url, { headers: HEADERS })
-    .then(response => {
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-      return response.json();
-    });
-}
-
-function postJson(url, jsonBody, extraHeaders) {
-  const body = JSON.stringify(jsonBody);
-  const headers = Object.assign(
-    {},
-    HEADERS,
-    { 'Content-Type': 'application/json', 'Content-Length': body.length.toString() },
-    extraHeaders || {}
-  );
-
-  return fetch(url, {
-    method: 'POST',
-    headers,
-    body
-  }).then(response => {
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    return response.json();
-  });
-}
-
-// Enc/Dec helpers
-function encrypt(text) {
-  return getJson(`${API}/enc-movies-flix?text=${encodeURIComponent(text)}`).then(j => j.result);
-}
-
-function decrypt(text) {
-  return postJson(`${API}/dec-movies-flix`, { text: text }).then(j => j.result);
-}
-
-function parseHtml(html) {
-  return postJson(`${API}/parse-html`, { text: html }).then(j => j.result);
-}
-
-function decryptRapidMedia(embedUrl) {
-  const media = embedUrl.replace('/e/', '/media/').replace('/e2/', '/media/');
-  return getJson(media)
-    .then((mediaJson) => {
-      const encrypted = mediaJson && mediaJson.result;
-      if (!encrypted) throw new Error('No encrypted media result from RapidShare media endpoint');
-      return postJson(`${API}/dec-rapid`, { text: encrypted, agent: HEADERS['User-Agent'] });
-    })
-    .then(j => j.result);
-}
-
-// Database lookup - replaces title matching
-function findInDatabase(tmdbId, mediaType) {
-  const type = mediaType === 'movie' ? 'movie' : 'tv';
-  const url = `${DB_API}/find?tmdb_id=${tmdbId}&type=${type}`;
-
-  return getJson(url)
-    .then(results => {
-      if (!results || results.length === 0) {
-        return null;
-      }
-      return results[0]; // Return first match
-    });
-}
-
-// HLS helpers (Promise-based)
-function parseQualityFromM3u8(m3u8Text, baseUrl = '') {
-  const streams = [];
-  const lines = m3u8Text.split(/\r?\n/);
-  let currentInfo = null;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (line.startsWith('#EXT-X-STREAM-INF')) {
-      const bwMatch = line.match(/BANDWIDTH=\s*(\d+)/i);
-      const resMatch = line.match(/RESOLUTION=\s*(\d+)x(\d+)/i);
-
-      currentInfo = {
-        bandwidth: bwMatch ? parseInt(bwMatch[1]) : null,
-        width: resMatch ? parseInt(resMatch[1]) : null,
-        height: resMatch ? parseInt(resMatch[2]) : null,
-        quality: null
-      };
-
-      if (currentInfo.height) {
-        currentInfo.quality = `${currentInfo.height}p`;
-      } else if (currentInfo.bandwidth) {
-        const bps = currentInfo.bandwidth;
-        if (bps >= 6_000_000) currentInfo.quality = '2160p';
-        else if (bps >= 4_000_000) currentInfo.quality = '1440p';
-        else if (bps >= 2_500_000) currentInfo.quality = '1080p';
-        else if (bps >= 1_500_000) currentInfo.quality = '720p';
-        else if (bps >= 800_000) currentInfo.quality = '480p';
-        else if (bps >= 400_000) currentInfo.quality = '360p';
-        else currentInfo.quality = '240p';
-      }
-    } else if (line && !line.startsWith('#') && currentInfo) {
-      let streamUrl = line;
-      if (!streamUrl.startsWith('http') && baseUrl) {
-        try {
-          const url = new URL(streamUrl, baseUrl);
-          streamUrl = url.href;
-        } catch (e) {
-          // Ignore URL parsing errors
-        }
-      }
-
-      streams.push({
-        url: streamUrl,
-        quality: currentInfo.quality || 'unknown',
-        bandwidth: currentInfo.bandwidth,
-        width: currentInfo.width,
-        height: currentInfo.height,
-        type: 'hls'
-      });
-
-      currentInfo = null;
-    }
-  }
-
-  return {
-    isMaster: m3u8Text.includes('#EXT-X-STREAM-INF'),
-    streams: streams.sort((a, b) => (b.height || 0) - (a.height || 0))
-  };
-}
-
-function enhanceStreamsWithQuality(streams) {
-  const enhancedStreams = [];
-
-  const tasks = streams.map(s => {
-    if (s && s.url && typeof s.url === 'string' && s.url.includes('.m3u8')) {
-      return getText(s.url)
-        .then(text => {
-          const info = parseQualityFromM3u8(text, s.url);
-          if (info.isMaster && info.streams.length > 0) {
-            info.streams.forEach(qualityStream => {
-              enhancedStreams.push({
-                ...s,
-                ...qualityStream,
-                masterUrl: s.url
-              });
-            });
-          } else {
-            enhancedStreams.push({
-              ...s,
-              quality: s.quality || 'unknown'
-            });
-          }
-        })
-        .catch(() => {
-          enhancedStreams.push({
-            ...s,
-            quality: s.quality || 'Adaptive'
-          });
-        });
-    } else {
-      enhancedStreams.push(s);
-    }
-    return Promise.resolve();
-  });
-
-  return Promise.all(tasks).then(() => enhancedStreams);
-}
-
-function formatStreamsData(rapidResult) {
-  const streams = [];
-  const subtitles = [];
-  const thumbnails = [];
-  if (rapidResult && typeof rapidResult === 'object') {
-    (rapidResult.sources || []).forEach(src => {
-      const fileUrl = src && src.file;
-      if (fileUrl) {
-        streams.push({
-          url: fileUrl,
-          quality: fileUrl.includes('.m3u8') ? 'Adaptive' : 'unknown',
-          type: fileUrl.includes('.m3u8') ? 'hls' : 'file',
-          provider: 'rapidshare',
-        });
-      }
-    });
-    (rapidResult.tracks || []).forEach(tr => {
-      if (tr && tr.kind === 'thumbnails' && tr.file) {
-        thumbnails.push({ url: tr.file, type: 'vtt' });
-      } else if (tr && (tr.kind === 'captions' || tr.kind === 'subtitles') && tr.file) {
-        subtitles.push({ url: tr.file, language: tr.label || '', default: !!tr.default });
-      }
-    });
-  }
-  return { streams, subtitles, thumbnails, totalStreams: streams.length };
-}
-
-function runStreamFetch(eid, title, year, mediaType, seasonNum, episodeNum, rid) {
-  logRid(rid, `runStreamFetch: start eid=${eid}`);
-
-  return encrypt(eid)
-    .then(encEid => {
-      logRid(rid, 'links/list: enc(eid) ready');
-      return getJson(`${YFLIX_AJAX}/links/list?eid=${eid}&_=${encEid}`);
-    })
-    .then(serversResp => parseHtml(serversResp.result))
-    .then(servers => {
-      const serverTypes = Object.keys(servers || {});
-      const byTypeCounts = serverTypes.map(stype => ({ type: stype, count: Object.keys(servers[stype] || {}).length }));
-      logRid(rid, 'servers available', byTypeCounts);
-
-      const allStreams = [];
-      const allSubtitles = [];
-      const allThumbnails = [];
-
-      const serverPromises = [];
-      const lids = [];
-      Object.keys(servers).forEach(serverType => {
-        Object.keys(servers[serverType]).forEach(serverKey => {
-          const lid = servers[serverType][serverKey].lid;
-          lids.push(lid);
-          const p = encrypt(lid)
-            .then(encLid => {
-              logRid(rid, `links/view: enc(lid) ready`, { serverType, serverKey, lid });
-              return getJson(`${YFLIX_AJAX}/links/view?id=${lid}&_=${encLid}`);
-            })
-            .then(embedResp => {
-              logRid(rid, `decrypt(embed)`, { serverType, serverKey, lid });
-              return decrypt(embedResp.result);
-            })
-            .then(decrypted => {
-              if (decrypted && typeof decrypted === 'object' && decrypted.url && decrypted.url.includes('rapidshare.cc')) {
-                logRid(rid, `rapid.media → dec-rapid`, { lid });
-                return decryptRapidMedia(decrypted.url)
-                  .then(rapidData => formatStreamsData(rapidData))
-                  .then(formatted => enhanceStreamsWithQuality(formatted.streams)
-                    .then(enhanced => {
-                      enhanced.forEach(s => {
-                        s.serverType = serverType;
-                        s.serverKey = serverKey;
-                        s.serverLid = lid;
-                        allStreams.push(s);
-                      });
-                      allSubtitles.push(...formatted.subtitles);
-                      allThumbnails.push(...formatted.thumbnails);
-                    })
-                  );
-              }
-              return null;
-            })
-            .catch(() => null);
-          serverPromises.push(p);
-        });
-      });
-      const uniqueLids = Array.from(new Set(lids));
-      logRid(rid, `fan-out: lids`, { total: lids.length, unique: uniqueLids.length });
-
-      return Promise.all(serverPromises).then(() => {
-        // Deduplicate streams by URL
-        const seen = new Set();
-        let dedupedStreams = allStreams.filter(s => {
-          if (!s || !s.url) return false;
-          if (seen.has(s.url)) return false;
-          seen.add(s.url);
-          return true;
-        });
-        logRid(rid, `streams: deduped`, { count: dedupedStreams.length });
-
-        // Convert to Nuvio format
-        const nuvioStreams = dedupedStreams.map(stream => ({
-          name: `YFlix ${stream.serverType || 'Server'} - ${stream.quality || 'Unknown'}`,
-          title: `${title}${year ? ` (${year})` : ''}${mediaType === 'tv' && seasonNum && episodeNum ? ` S${seasonNum}E${episodeNum}` : ''}`,
-          url: stream.url,
-          quality: stream.quality || 'Unknown',
-          size: 'Unknown',
-          headers: HEADERS,
-          provider: 'yflix'
-        }));
-
-        return nuvioStreams;
-      });
-    });
-}
-
-// Main getStreams function
-function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
-  return new Promise((resolve, reject) => {
-    const rid = createRequestId();
-    logRid(rid, `getStreams start tmdbId=${tmdbId} type=${mediaType} S=${seasonNum || ''} E=${episodeNum || ''}`);
-
-    // Look up content in database by TMDB ID
-    findInDatabase(tmdbId, mediaType)
-      .then(dbResult => {
-        if (!dbResult) {
-          logRid(rid, 'no match found in database');
-          resolve([]);
-          return;
-        }
-
-        const info = dbResult.info;
-        const episodes = dbResult.episodes;
-
-        logRid(rid, `database match found`, {
-          title: info.title_en,
-          year: info.year,
-          flixId: info.flix_id,
-          episodeCount: info.episode_count
-        });
-
-        // Get the episode ID
-        let eid = null;
-        const selectedSeason = String(seasonNum || 1);
-        const selectedEpisode = String(episodeNum || 1);
-
-        if (episodes && episodes[selectedSeason] && episodes[selectedSeason][selectedEpisode]) {
-          eid = episodes[selectedSeason][selectedEpisode].eid;
-          logRid(rid, `found episode eid=${eid} for S${selectedSeason}E${selectedEpisode}`);
-        } else {
-          // Fallback: try to find any available episode
-          const seasons = Object.keys(episodes || {});
-          if (seasons.length > 0) {
-            const firstSeason = seasons[0];
-            const episodesInSeason = Object.keys(episodes[firstSeason] || {});
-            if (episodesInSeason.length > 0) {
-              const firstEp = episodesInSeason[0];
-              eid = episodes[firstSeason][firstEp].eid;
-              logRid(rid, `fallback: using S${firstSeason}E${firstEp}, eid=${eid}`);
+/**
+ * CRITICAL: This resolves the redirector links to actual playable MP4/MKV files.
+ * Without this, the player gets a HTML page or a 302 instead of a stream.
+ */
+async function resolveFinalUrl(startUrl) {
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
+    try {
+        const response = await fetch(startUrl, {
+            method: 'HEAD',
+            redirect: 'follow', // Automatically follow redirects
+            headers: { 
+                'User-Agent': userAgent, 
+                'Referer': DAHMER_MOVIES_API + '/' 
             }
-          }
-        }
-
-        if (!eid) {
-          logRid(rid, 'no episode ID found');
-          resolve([]);
-          return;
-        }
-
-        // Fetch streams using the episode ID
-        return runStreamFetch(eid, info.title_en, info.year, mediaType, seasonNum, episodeNum, rid);
-      })
-      .then(streams => {
-        if (streams) {
-          logRid(rid, `returning streams`, { count: streams.length });
-          resolve(streams);
-        } else {
-          resolve([]);
-        }
-      })
-      .catch(error => {
-        logRid(rid, `ERROR ${error && error.message ? error.message : String(error)}`);
-        resolve([]); // Return empty array on error, don't reject
-      });
-  });
+        });
+        return response.url; // Returns the final destination URL
+    } catch (e) {
+        return startUrl; // Fallback to original if HEAD fails
+    }
 }
 
-// Export for React Native compatibility
+// Utility functions
+function getEpisodeSlug(season, episode) {
+    const s = season < 10 ? `0${season}` : `${season}`;
+    const e = episode < 10 ? `0${episode}` : `${episode}`;
+    return [s, e];
+}
+
+function getIndexQuality(str) {
+    if (!str) return 0;
+    const match = str.match(/(\d{3,4})[pP]/);
+    return match ? parseInt(match[1]) : 0;
+}
+
+function getQualityWithCodecs(str) {
+    if (!str) return 'Unknown';
+    const match = str.match(/(\d{3,4})[pP]/);
+    let base = match ? `${match[1]}p` : '1080p';
+    const codecs = [];
+    if (/dv|dolby vision/i.test(str)) codecs.push('DV');
+    if (/hdr10\+/i.test(str)) codecs.push('HDR10+');
+    else if (/hdr/i.test(str)) codecs.push('HDR');
+    if (/remux/i.test(str)) codecs.push('REMUX');
+    return codecs.length > 0 ? `${base} | ${codecs.join(' | ')}` : base;
+}
+
+function parseLinks(html) {
+    const links = [];
+    const rowRegex = /<tr[^>]*>(.*?)<\/tr>/gis;
+    let rowMatch;
+
+    while ((rowMatch = rowRegex.exec(html)) !== null) {
+        const content = rowMatch[1];
+        const linkMatch = content.match(/<a[^>]*href=["']([^"']*)["'][^>]*>([^<]*)<\/a>/i);
+        if (!linkMatch) continue;
+
+        const href = linkMatch[1];
+        const text = linkMatch[2].trim();
+        if (!text || href === '../' || text === '../') continue;
+
+        let size = null;
+        const sizeMatch = content.match(/<td[^>]*data-sort=["']?(\d+)["']?/i) || 
+                          content.match(/(\d+(?:\.\d+)?\s*(?:GB|MB|KB|B))/i);
+        if (sizeMatch) size = sizeMatch[1];
+
+        links.push({ text, href, size });
+    }
+    return links;
+}
+
+async function invokeDahmerMovies(title, year, season = null, episode = null) {
+    console.log(`[DahmerMovies] Searching for: ${title}`);
+    
+    // Construct Path
+    const cleanTitle = title.replace(/:/g, '');
+    const encodedUrl = season === null 
+        ? `${DAHMER_MOVIES_API}/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`
+        : `${DAHMER_MOVIES_API}/tvs/${encodeURIComponent(cleanTitle)}/Season ${season}/`;
+
+    try {
+        const response = await makeRequest(encodedUrl);
+        const html = await response.text();
+        const paths = parseLinks(html);
+
+        let filtered = [];
+        if (season === null) {
+            filtered = paths.filter(p => /(1080p|2160p)/i.test(p.text));
+        } else {
+            const [s, e] = getEpisodeSlug(season, episode);
+            const pattern = new RegExp(`S${s}E${e}`, 'i');
+            filtered = paths.filter(p => pattern.test(p.text));
+        }
+
+        // Limit to top 3 results to keep TV loading times fast
+        const results = [];
+        const topPaths = filtered.slice(0, 3);
+
+        for (const path of topPaths) {
+            let initialUrl = path.href.startsWith('http') ? path.href : (encodedUrl + path.href);
+            
+            // Resolve the real link (the bit that makes it play)
+            const finalStreamUrl = await resolveFinalUrl(initialUrl);
+
+            results.push({
+                name: "DahmerMovies",
+                title: path.text,
+                url: finalStreamUrl,
+                quality: getQualityWithCodecs(path.text),
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer', // Better for TV/Mobile players
+                    'Referer': DAHMER_MOVIES_API + '/'
+                },
+                provider: "dahmermovies",
+                filename: path.text
+            });
+        }
+
+        return results.sort((a, b) => getIndexQuality(b.filename) - getIndexQuality(a.filename));
+    } catch (error) {
+        console.log(`[DahmerMovies] Error: ${error.message}`);
+        return [];
+    }
+}
+
+async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
+    try {
+        const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+        const res = await makeRequest(tmdbUrl);
+        const data = await res.json();
+        
+        const title = mediaType === 'tv' ? data.name : data.title;
+        const year = (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4);
+
+        return await invokeDahmerMovies(title, year, seasonNum, episodeNum);
+    } catch (e) {
+        return [];
+    }
+}
+
+// Export
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
+    module.exports = { getStreams };
 } else {
-  global.getStreams = getStreams;
+    global.getStreams = getStreams;
 }

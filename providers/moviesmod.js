@@ -9,7 +9,7 @@ const HEADERS = {
 
 const API = 'https://enc-dec.app/api';
 const DB_API = 'https://enc-dec.app/db/flix';
-const YFLIX_AJAX = 'https://yflix.lol/ajax';
+const YFLIX_AJAX = 'https://yflix.ws/ajax';
 
 // Debug helpers
 function createRequestId() {

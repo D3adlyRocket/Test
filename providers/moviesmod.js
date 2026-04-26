@@ -1,34 +1,28 @@
-// Dahmer Movies Scraper - Fix for 404 Doubled URLs
-// Optimized for Mobile/TV
+// Dahmer Movies Scraper - Final 404/Doubling Fix
+// Optimized for TV/Mobile Playback
 
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DAHMER_MOVIES_API = 'https://a.111477.xyz';
-const TIMEOUT = 15000;
 
-function makeRequest(url, options = {}) {
-    return fetch(url, {
-        timeout: TIMEOUT,
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            ...options.headers
-        },
-        ...options
-    }).then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res;
+async function makeRequest(url) {
+    const res = await fetch(url, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
     });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res;
 }
 
+// This gets the actual direct stream link
 async function resolveFinalUrl(startUrl) {
     try {
         const response = await fetch(startUrl, {
             method: 'HEAD',
             redirect: 'follow',
             headers: { 
-                'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer', 
-                'Referer': DAHMER_MOVIES_API + '/' 
+                'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
+                'Referer': DAHMER_MOVIES_API + '/'
             }
         });
         return response.url;
@@ -40,38 +34,38 @@ async function resolveFinalUrl(startUrl) {
 function parseLinks(html) {
     const links = [];
     const rowRegex = /<tr[^>]*>(.*?)<\/tr>/gis;
-    let rowMatch;
-    while ((rowMatch = rowRegex.exec(html)) !== null) {
-        const content = rowMatch[1];
+    let match;
+    while ((match = rowRegex.exec(html)) !== null) {
+        const content = match[1];
         const linkMatch = content.match(/<a[^>]*href=["']([^"']*)["'][^>]*>([^<]*)<\/a>/i);
-        if (!linkMatch) continue;
-        const href = linkMatch[1];
-        const text = linkMatch[2].trim();
-        if (!text || href === '../' || text === '../') continue;
-        links.push({ text, href });
+        if (linkMatch) {
+            const href = linkMatch[1];
+            const text = linkMatch[2].trim();
+            // Skip parent directories and only take video files
+            if (text && href !== '../' && /\.(mkv|mp4|avi|webm)$/i.test(text)) {
+                links.push({ text, href });
+            }
+        }
     }
     return links;
 }
 
 async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const cleanTitle = title.replace(/:/g, '');
-    const folderName = season === null 
-        ? `${cleanTitle} (${year})` 
-        : cleanTitle;
+    const folderName = season === null ? `${cleanTitle} (${year})` : cleanTitle;
     
-    const baseUrl = season === null 
+    // The directory we are scanning
+    const directoryUrl = season === null 
         ? `${DAHMER_MOVIES_API}/movies/${encodeURIComponent(folderName)}/`
         : `${DAHMER_MOVIES_API}/tvs/${encodeURIComponent(folderName)}/Season ${season}/`;
 
     try {
-        const response = await makeRequest(baseUrl);
+        const response = await makeRequest(directoryUrl);
         const html = await response.text();
         const paths = parseLinks(html);
 
-        let filtered = [];
-        if (season === null) {
-            filtered = paths.filter(p => /\.(mkv|mp4|avi)$/i.test(p.text));
-        } else {
+        let filtered = paths;
+        if (season !== null) {
             const s = season < 10 ? `0${season}` : season;
             const e = episode < 10 ? `0${episode}` : episode;
             const pattern = new RegExp(`S${s}E${e}`, 'i');
@@ -79,27 +73,28 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
         }
 
         const results = [];
-        // Only process top 2 to keep it lightning fast on TV
-        for (const path of filtered.slice(0, 2)) {
-            let finalPath;
-            
-            // FIX: Check if the href is a full URL or a relative path
+        for (const path of filtered.slice(0, 3)) {
+            let absoluteUrl;
+
             if (path.href.startsWith('http')) {
-                finalPath = path.href;
+                absoluteUrl = path.href;
             } else if (path.href.startsWith('/')) {
-                // If it's root-relative, join with the origin only
-                finalPath = new URL(DAHMER_MOVIES_API).origin + path.href;
+                // Join with domain only (prevents doubling)
+                absoluteUrl = new URL(DAHMER_MOVIES_API).origin + path.href;
             } else {
-                // If it's just a filename, join with the folder URL
-                finalPath = baseUrl + path.href;
+                // Filename only - join with directory
+                absoluteUrl = directoryUrl + path.href;
             }
 
-            const streamUrl = await resolveFinalUrl(finalPath);
+            // Clean up double slashes (except the one after http:)
+            absoluteUrl = absoluteUrl.replace(/([^:]\/)\/+/g, "$1");
+
+            const finalStreamUrl = await resolveFinalUrl(absoluteUrl);
 
             results.push({
                 name: "DahmerMovies",
                 title: path.text,
-                url: streamUrl,
+                url: finalStreamUrl,
                 quality: path.text.includes('2160p') ? '2160p' : '1080p',
                 headers: {
                     'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
@@ -110,6 +105,7 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
         }
         return results;
     } catch (e) {
+        console.log("[DahmerMovies] Error:", e.message);
         return [];
     }
 }

@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Complete Universal Fix
+// Dahmer Movies Scraper - Universal Smart Search Fix
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -17,7 +17,6 @@ async function resolveFinalUrl(startUrl) {
     if (startUrl.includes('/bulk?u=')) {
         cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
     }
-
     try {
         const response = await fetch(cleanUrl, {
             method: 'HEAD',
@@ -50,33 +49,44 @@ function parseLinks(html) {
 }
 
 async function invokeDahmerMovies(title, year, season = null, episode = null) {
-    const cleanTitle = title.replace(/:/g, '');
+    const cleanTitle = title.replace(/:/g, '').toLowerCase();
     let activeDirUrl = '';
     let html = '';
 
     if (season === null) {
-        // --- MOVIE LOGIC (Your working original) ---
-        const folderPath = `/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`;
+        // --- MOVIE LOGIC ---
+        const folderPath = `/movies/${encodeURIComponent(title.replace(/:/g, '') + ' (' + year + ')')}/`;
         activeDirUrl = DAHMER_MOVIES_API + folderPath;
         const response = await makeRequest(activeDirUrl);
         if (response.ok) html = await response.text();
     } else {
-        // --- TV SHOW LOGIC (Fixed for Daredevil/Paradise) ---
-        // Find the show folder by searching the root (solves "Daredevil - Born Again")
+        // --- SMART TV LOGIC (Fixes Daredevil & Paradise) ---
         const tvRootRes = await makeRequest(DAHMER_MOVIES_API + '/tvs/');
         if (!tvRootRes.ok) return [];
         const rootHtml = await tvRootRes.text();
         
-        const folderRegex = new RegExp(`<a href="([^"]*${encodeURIComponent(cleanTitle)}[^"]*)/"`, 'i');
-        const folderMatch = rootHtml.match(folderRegex);
-        const showFolderName = folderMatch ? folderMatch[1] : encodeURIComponent(cleanTitle);
+        // Find folder that CONTAINS the title (handles "Daredevil - Born Again" & "Paradise (2025)")
+        const folderRegex = /<a href="([^"]*)\/"[^>]*>([^<]*)<\/a>/gi;
+        let showFolder = '';
+        let folderMatch;
         
-        // Try both Season 1 and Season 01 (solves "Paradise")
+        while ((folderMatch = folderRegex.exec(rootHtml)) !== null) {
+            const folderHref = folderMatch[1];
+            const folderName = folderMatch[2].toLowerCase();
+            if (folderName.includes(cleanTitle)) {
+                showFolder = folderHref;
+                break;
+            }
+        }
+
+        if (!showFolder) showFolder = encodeURIComponent(title.replace(/:/g, ''));
+
+        // Try Season variations
         const sPad = season < 10 ? '0' + season : season;
         const seasonVariants = [`Season%20${season}`, `Season%20${sPad}`];
 
         for (const sVar of seasonVariants) {
-            const tryUrl = `${DAHMER_MOVIES_API}/tvs/${showFolderName}/${sVar}/`.replace(/([^:]\/)\/+/g, "$1");
+            const tryUrl = `${DAHMER_MOVIES_API}/tvs/${showFolder}/${sVar}/`.replace(/([^:]\/)\/+/g, "$1");
             const response = await makeRequest(tryUrl);
             if (response.ok) {
                 html = await response.text();
@@ -89,12 +99,12 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     if (!html) return [];
     
     const paths = parseLinks(html);
-
-    // Episode Filtering
     let filteredPaths = paths;
+
     if (season !== null && episode !== null) {
         const e = episode < 10 ? `0${episode}` : episode;
-        const pattern = new RegExp(`E${e}|E${episode}|[\\s-]${e}[\\s\\.]`, 'i');
+        // Robust pattern: Matches S01E01, E01, Episode 01, or just " 01 "
+        const pattern = new RegExp(`E${e}|E${episode}|Episode\\s${episode}|[\\s-]${e}[\\s\\.]`, 'i');
         filteredPaths = paths.filter(p => pattern.test(p.text));
     }
 

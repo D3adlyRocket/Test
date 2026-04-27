@@ -1,5 +1,5 @@
-// Dahmer Movies Scraper - Worker Extraction Version
-console.log('[DahmerMovies] Initializing Worker-Link Scraper');
+// Dahmer Movies Scraper - Unified Mobile/TV Fix
+console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DAHMER_MOVIES_API = 'https://a.111477.xyz';
@@ -8,50 +8,40 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// THIS IS THE KEY LOGIC FROM YOUR PROVIDED CODE
-// It manually hunts for the 'location' header to find the worker.dev link
+// THIS IS THE FIX FOR MOBILE: Manually follows redirects to find workers.dev
 async function resolveFinalUrl(startUrl, retryCount = 0) {
-    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36';
     const referer = 'https://a.111477.xyz/';
 
+    let cleanUrl = startUrl;
+    if (startUrl.includes('/bulk?u=')) {
+        cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
+    }
+
     try {
-        const response = await fetch(startUrl, {
+        const response = await fetch(cleanUrl, {
             method: 'HEAD',
-            redirect: 'manual', // STOPS the browser from hiding the redirect
+            redirect: 'manual', // Force manual tracking for mobile compatibility
             headers: { 'User-Agent': userAgent, 'Referer': referer }
         });
 
-        // Handle Rate Limiting (429) exactly like your reference code
-        if (response.status === 429) {
-            if (retryCount < 2) {
-                console.log(`[DahmerMovies] 429 received, waiting before retry...`);
-                await sleep(7500); 
-                return resolveFinalUrl(startUrl, retryCount + 1);
-            }
-            return null;
+        // Handle 429 errors with a wait
+        if (response.status === 429 && retryCount < 2) {
+            await sleep(5000);
+            return resolveFinalUrl(cleanUrl, retryCount + 1);
         }
 
-        // Catch the Redirect - This is where the workers.dev link lives
+        // Catch the Redirect header manually
         if (response.status >= 300 && response.status < 400) {
             const location = response.headers.get('location');
             if (location) {
-                const nextUrl = location.startsWith('http') ? location : new URL(location, startUrl).href;
-                
-                // If we found the worker link, return it immediately
-                if (nextUrl.includes('workers.dev')) {
-                    return nextUrl;
-                }
-                // Otherwise, follow the next hop (limit to 5 hops)
-                if (retryCount < 5) {
-                    return resolveFinalUrl(nextUrl, retryCount + 1);
-                }
+                const nextUrl = location.startsWith('http') ? location : new URL(location, cleanUrl).href;
+                if (nextUrl.includes('workers.dev')) return nextUrl;
+                if (retryCount < 5) return resolveFinalUrl(nextUrl, retryCount + 1);
             }
         }
 
-        // If it didn't redirect but it is a worker link, keep it
-        if (startUrl.includes('workers.dev')) return startUrl;
-
-        return null; 
+        return cleanUrl.includes('workers.dev') ? cleanUrl : null;
     } catch (e) {
         return null;
     }
@@ -77,47 +67,47 @@ function parseLinks(html) {
 
 async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const cleanTitle = title.replace(/:/g, '');
-    const folderName = season === null ? `${cleanTitle} (${year})` : cleanTitle;
     
-    // Exact encoding logic from your provided code
-    const safeVariant = folderName.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
-    const folderUrl = season === null 
-        ? `${DAHMER_MOVIES_API}/movies/${safeVariant}/`
-        : `${DAHMER_MOVIES_API}/tvs/${safeVariant}/${season < 10 ? 'Season%200' + season : 'Season%20' + season}/`;
+    // TV SHOW FOLDER FIX: Pad season number (e.g., Season 01)
+    let folderPath;
+    if (season === null) {
+        folderPath = `/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`;
+    } else {
+        const s = season < 10 ? `0${season}` : season;
+        folderPath = `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${s}/`;
+    }
+
+    const fullDirUrl = DAHMER_MOVIES_API + folderPath.replace(/\(/g, '%28').replace(/\)/g, '%29');
 
     try {
-        const response = await fetch(folderUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
-        });
+        const response = await fetch(fullDirUrl);
         if (!response.ok) return [];
         
         const html = await response.text();
         const paths = parseLinks(html);
 
-        // Sort: 2160p (4K) links first
-        const sortedPaths = paths.sort((a, b) => {
-            const a4k = /2160p|4k/i.test(a.text);
-            const b4k = /2160p|4k/i.test(b.text);
-            return b4k - a4k;
-        });
+        // Filter for specific TV episodes if applicable
+        let filtered = paths;
+        if (season !== null && episode !== null) {
+            const s = season < 10 ? `0${season}` : season;
+            const e = episode < 10 ? `0${episode}` : episode;
+            const pattern = new RegExp(`S${s}E${e}`, 'i');
+            filtered = paths.filter(p => pattern.test(p.text));
+        }
+
+        // Sort: 4K Priority
+        filtered.sort((a, b) => /2160p|4k/i.test(b.text) - /2160p|4k/i.test(a.text));
 
         const results = [];
-        // Process links until we find 3 working Worker links
-        for (const path of sortedPaths) {
-            if (results.length >= 3) break;
+        for (const path of filtered.slice(0, 5)) {
+            let initialUrl = (path.href.startsWith('http')) ? path.href :
+                             (path.href.includes('/movies/') || path.href.includes('/tvs/')) ? 
+                             DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href :
+                             fullDirUrl + path.href;
 
-            let fullPath;
-            if (path.href.startsWith('http')) {
-                fullPath = path.href;
-            } else if (path.href.startsWith('/')) {
-                fullPath = `${new URL(DAHMER_MOVIES_API).origin}${path.href}`;
-            } else {
-                fullPath = folderUrl + path.href;
-            }
-
-            // Cleanup and Resolve the Worker link
-            const cleanUrl = fullPath.replace(/([^:]\/)\/+/g, "$1");
-            const workerUrl = await resolveFinalUrl(cleanUrl);
+            initialUrl = initialUrl.replace(/([^:]\/)\/+/g, "$1");
+            
+            const workerUrl = await resolveFinalUrl(initialUrl);
 
             if (workerUrl) {
                 results.push({
@@ -147,7 +137,6 @@ async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episode
         const title = mediaType === 'tv' ? data.name : data.title;
         const year = (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4);
 
-        if (!title) return [];
         return await invokeDahmerMovies(title, year, seasonNum, episodeNum);
     } catch (e) { return []; }
 }

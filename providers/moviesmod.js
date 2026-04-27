@@ -8,50 +8,40 @@ function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// THE WORKER RESOLVER: This mimics the logic in your reference code
-async function resolveWorkerUrl(startUrl, retryCount = 0) {
-    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36';
+// THIS IS THE EXACT LOGIC FROM YOUR PROVIDED WORKING CODE
+// It uses a recursive attemptResolve to hunt down the worker URL
+async function resolveFinalUrl(url, count = 0) {
+    if (count >= 5) return null;
     const referer = 'https://a.111477.xyz/';
+    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
 
     try {
-        const response = await fetch(startUrl, {
+        const response = await fetch(url, {
             method: 'HEAD',
-            redirect: 'manual', // CRITICAL: This allows us to see the Location header
+            redirect: 'manual',
             headers: { 'User-Agent': userAgent, 'Referer': referer }
         });
 
-        // Handle 429 Rate Limiting
-        if (response.status === 429 && retryCount < 2) {
+        if (response.status === 429) {
             await sleep(2000);
-            return resolveWorkerUrl(startUrl, retryCount + 1);
+            return resolveFinalUrl(url, count + 1);
         }
 
-        // Hunt for the 'Location' header which contains the worker link
         if (response.status >= 300 && response.status < 400) {
             const location = response.headers.get('location');
             if (location) {
-                const nextUrl = location.startsWith('http') ? location : new URL(location, startUrl).href;
-                
-                // If we found a worker link, return it immediately
-                if (nextUrl.includes('workers.dev')) {
-                    return nextUrl;
-                }
-                
-                // Otherwise follow the chain (limit to 3 jumps)
-                if (retryCount < 3) {
-                    return resolveWorkerUrl(nextUrl, retryCount + 1);
-                }
+                const nextUrl = location.startsWith('http') ? location : new URL(location, url).href;
+                // If it's the worker link, we found gold
+                if (nextUrl.includes('workers.dev')) return nextUrl;
+                return resolveFinalUrl(nextUrl, count + 1);
             }
         }
 
-        // If the URL is already a worker, use it. Otherwise, return null to avoid playback error
-        return startUrl.includes('workers.dev') ? startUrl : null;
+        // If the URL already looks like a worker link, return it
+        if (url.includes('workers.dev')) return url;
+        
+        return null; 
     } catch (e) {
-        // Fallback for environments where 'manual' redirect fails: try one 'follow' attempt
-        try {
-            const followRes = await fetch(startUrl, { redirect: 'follow', method: 'HEAD' });
-            if (followRes.url && followRes.url.includes('workers.dev')) return followRes.url;
-        } catch (err) { return null; }
         return null;
     }
 }
@@ -78,7 +68,7 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const cleanTitle = title.replace(/:/g, '');
     const movieFolder = `${cleanTitle} (${year})`;
     
-    // Support both padded and unpadded Season folders
+    // Support both padded (Season 01) and unpadded folders
     const tvVariants = season !== null ? [
         `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season < 10 ? '0' + season : season}/`,
         `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season}/`
@@ -103,11 +93,11 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const paths = parseLinks(html);
     let filtered = paths;
 
-    // Filter for specific TV episodes if applicable
+    // TV Episode matching (S01E01 style)
     if (season !== null && episode !== null) {
         const s = season < 10 ? `0${season}` : season;
         const e = episode < 10 ? `0${episode}` : episode;
-        const pattern = new RegExp(`S${s}E${e}|E${e}|-${e}`, 'i');
+        const pattern = new RegExp(`S${s}E${e}|E${e}|[ .-]${e}[ .-]`, 'i');
         filtered = paths.filter(p => pattern.test(p.text));
     }
 
@@ -115,14 +105,14 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     filtered.sort((a, b) => /2160p|4k/i.test(b.text) - /2160p|4k/i.test(a.text));
 
     const results = [];
-    for (const file of filtered.slice(0, 5)) {
+    for (const file of filtered.slice(0, 8)) { // Search deeper to find a working link
         if (results.length >= 3) break;
 
         let link = file.href.startsWith('http') ? file.href : activeDir + file.href;
         link = link.replace(/([^:]\/)\/+/g, "$1");
 
-        // Force resolution to a Worker URL
-        const workerUrl = await resolveWorkerUrl(link);
+        // Force resolution to a Worker URL using the recursive logic
+        const workerUrl = await resolveFinalUrl(link);
 
         if (workerUrl) {
             results.push({

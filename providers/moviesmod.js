@@ -1,41 +1,34 @@
-// DahmerMovies Scraper - Movie & TV Integrated
-console.log('[DahmerMovies] Initializing scraper');
+// Dahmer Movies Scraper - Direct Link Fix (Movies + TV)
+console.log('[DahmerMovies] Initializing Scraper');
 
-const TMDB_API_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
+const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DAHMER_MOVIES_API = 'https://a.111477.xyz';
 
-function sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+async function makeRequest(url) {
+    try {
+        return await fetch(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        });
+    } catch (e) { return { ok: false }; }
 }
 
-// Your working playback logic
-function resolveFinalUrl(startUrl) {
-    const maxRedirects = 5;
-    const referer = 'https://a.111477.xyz/';
-    const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
-
-    function attemptResolve(url, count, retryCount = 0) {
-        if (count >= maxRedirects) return Promise.resolve({ url: url.includes('111477.xyz') ? null : url });
-
-        return fetch(url, {
-            method: 'HEAD',
-            redirect: 'manual',
-            headers: { 'User-Agent': userAgent, 'Referer': referer }
-        }).then(function (response) {
-            if (response.status === 429 && retryCount < 2) {
-                return sleep(2000).then(() => attemptResolve(url, count, retryCount + 1));
-            }
-            if (response.status >= 300 && response.status < 400) {
-                const location = response.headers.get('location');
-                if (location) {
-                    const nextUrl = location.startsWith('http') ? location : new URL(location, url).href;
-                    return attemptResolve(nextUrl, count + 1);
-                }
-            }
-            return url.includes('111477.xyz') ? { url: null } : { url };
-        }).catch(() => ({ url: null }));
+async function resolveFinalUrl(startUrl) {
+    let cleanUrl = startUrl;
+    if (startUrl.includes('/bulk?u=')) {
+        cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
     }
-    return attemptResolve(startUrl, 0);
+
+    try {
+        const response = await fetch(cleanUrl, {
+            method: 'HEAD',
+            redirect: 'follow',
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
+                'Referer': DAHMER_MOVIES_API + '/'
+            }
+        });
+        return response.url;
+    } catch (e) { return cleanUrl; }
 }
 
 function parseLinks(html) {
@@ -48,7 +41,7 @@ function parseLinks(html) {
         if (linkMatch) {
             const href = linkMatch[1];
             const text = linkMatch[2].trim();
-            if (text && href !== '../' && /\.(mkv|mp4|avi)$/i.test(text)) {
+            if (text && href !== '../' && /\.(mkv|mp4|avi|webm)$/i.test(text)) {
                 links.push({ text, href });
             }
         }
@@ -59,68 +52,80 @@ function parseLinks(html) {
 async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const cleanTitle = title.replace(/:/g, '');
     
-    // BUILD THE FOLDER URL
-    let folderUrl = "";
+    // --- START TV LOGIC ADDITION ---
+    let folderPath = "";
     if (season === null) {
-        // Movies
-        const safeName = `${cleanTitle} (${year})`.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
-        folderUrl = `${DAHMER_MOVIES_API}/movies/${safeName}/`;
+        // Movie Path
+        folderPath = `/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`;
     } else {
-        // TV Shows - Fixed folder structure
-        const sPad = season < 10 ? `0${season}` : season;
-        const safeTitle = cleanTitle.replace(/ /g, '%20');
-        folderUrl = `${DAHMER_MOVIES_API}/tvs/${safeTitle}/Season%20${sPad}/`;
+        // TV Path: Needs the Season folder to find episodes
+        const s = season < 10 ? '0' + season : season;
+        folderPath = `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${s}/`;
     }
+    // --- END TV LOGIC ADDITION ---
 
-    try {
-        const res = await fetch(folderUrl);
-        if (!res.ok) return [];
-        
-        const html = await res.text();
-        const paths = parseLinks(html);
+    const fullDirUrl = DAHMER_MOVIES_API + folderPath;
 
-        // Sort: 4K Priority
-        paths.sort((a, b) => /2160p|4k/i.test(b.text) - /2160p|4k/i.test(a.text));
+    const response = await makeRequest(fullDirUrl);
+    if (!response.ok) return [];
+    
+    const html = await response.text();
+    const paths = parseLinks(html);
 
-        const results = [];
-        for (const path of paths) {
-            // If it's a TV show, only pick the requested episode
-            if (season !== null && episode !== null) {
-                const ePad = episode < 10 ? `0${episode}` : episode;
-                const pattern = new RegExp(`E${ePad}|E${episode}`, 'i');
-                if (!pattern.test(path.text)) continue;
-            }
+    const sortedPaths = paths.sort((a, b) => {
+        const a4k = /2160p|4k/i.test(a.text);
+        const b4k = /2160p|4k/i.test(b.text);
+        return b4k - a4k;
+    });
 
-            if (results.length >= 3) break;
-
-            const fullUrl = (folderUrl + path.href).replace(/([^:]\/)\/+/g, "$1");
-            const resolved = await resolveFinalUrl(fullUrl);
-
-            if (resolved.url) {
-                results.push({
-                    name: "DahmerMovies",
-                    title: path.text,
-                    url: resolved.url,
-                    quality: /2160p|4k/i.test(path.text) ? '2160p' : '1080p',
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
-                        'Referer': DAHMER_MOVIES_API + '/'
-                    }
-                });
-            }
+    const results = [];
+    for (const path of sortedPaths.slice(0, 5)) {
+        // If it's a TV show, filter for the specific episode number
+        if (season !== null && episode !== null) {
+            const e = episode < 10 ? '0' + episode : episode;
+            const episodePattern = new RegExp(`E${e}|E${episode}`, 'i');
+            if (!episodePattern.test(path.text)) continue;
         }
-        return results;
-    } catch (e) { return []; }
+
+        let finalUrl;
+        if (path.href.startsWith('http')) {
+            finalUrl = path.href;
+        } else if (path.href.includes('/movies/') || path.href.includes('/tvs/')) {
+            finalUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
+        } else {
+            finalUrl = fullDirUrl + path.href;
+        }
+
+        finalUrl = finalUrl.replace(/([^:]\/)\/+/g, "$1");
+        const streamUrl = await resolveFinalUrl(finalUrl);
+
+        results.push({
+            name: "DahmerMovies",
+            title: path.text,
+            url: streamUrl,
+            quality: /2160p|4k/i.test(path.text) ? '2160p' : '1080p',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
+                'Referer': DAHMER_MOVIES_API + '/',
+                'Range': 'bytes=0-'
+            },
+            provider: "dahmermovies"
+        });
+    }
+    return results;
 }
 
 async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
     try {
         const type = mediaType === 'tv' ? 'tv' : 'movie';
-        const res = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`);
+        const tmdbUrl = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+        const res = await makeRequest(tmdbUrl);
         const data = await res.json();
+        
         const title = mediaType === 'tv' ? data.name : data.title;
         const year = (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4);
 
+        if (!title) return [];
         return await invokeDahmerMovies(title, year, seasonNum, episodeNum);
     } catch (e) { return []; }
 }

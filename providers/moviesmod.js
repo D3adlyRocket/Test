@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Direct Link Fix (TV Season Support)
+// Dahmer Movies Scraper - Complete Universal Fix
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -51,24 +51,38 @@ function parseLinks(html) {
 
 async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const cleanTitle = title.replace(/:/g, '');
-    
-    // Check multiple TV folder possibilities (Season 01 vs Season 1)
-    const folderVariants = season !== null ? [
-        `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season < 10 ? '0' + season : season}/`,
-        `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season}/`
-    ] : [`/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`];
-
-    let html = '';
     let activeDirUrl = '';
+    let html = '';
 
-    // Loop through variants to find the one that actually contains the files
-    for (const path of folderVariants) {
-        const fullDirUrl = DAHMER_MOVIES_API + path;
-        const response = await makeRequest(fullDirUrl);
-        if (response.ok) {
-            html = await response.text();
-            activeDirUrl = fullDirUrl;
-            break; 
+    if (season === null) {
+        // --- MOVIE LOGIC (Your working original) ---
+        const folderPath = `/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`;
+        activeDirUrl = DAHMER_MOVIES_API + folderPath;
+        const response = await makeRequest(activeDirUrl);
+        if (response.ok) html = await response.text();
+    } else {
+        // --- TV SHOW LOGIC (Fixed for Daredevil/Paradise) ---
+        // Find the show folder by searching the root (solves "Daredevil - Born Again")
+        const tvRootRes = await makeRequest(DAHMER_MOVIES_API + '/tvs/');
+        if (!tvRootRes.ok) return [];
+        const rootHtml = await tvRootRes.text();
+        
+        const folderRegex = new RegExp(`<a href="([^"]*${encodeURIComponent(cleanTitle)}[^"]*)/"`, 'i');
+        const folderMatch = rootHtml.match(folderRegex);
+        const showFolderName = folderMatch ? folderMatch[1] : encodeURIComponent(cleanTitle);
+        
+        // Try both Season 1 and Season 01 (solves "Paradise")
+        const sPad = season < 10 ? '0' + season : season;
+        const seasonVariants = [`Season%20${season}`, `Season%20${sPad}`];
+
+        for (const sVar of seasonVariants) {
+            const tryUrl = `${DAHMER_MOVIES_API}/tvs/${showFolderName}/${sVar}/`.replace(/([^:]\/)\/+/g, "$1");
+            const response = await makeRequest(tryUrl);
+            if (response.ok) {
+                html = await response.text();
+                activeDirUrl = tryUrl;
+                break;
+            }
         }
     }
 
@@ -76,11 +90,11 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     
     const paths = parseLinks(html);
 
-    // If it's a TV show, filter for the specific episode number
+    // Episode Filtering
     let filteredPaths = paths;
     if (season !== null && episode !== null) {
         const e = episode < 10 ? `0${episode}` : episode;
-        const pattern = new RegExp(`E${e}|E${episode}`, 'i');
+        const pattern = new RegExp(`E${e}|E${episode}|[\\s-]${e}[\\s\\.]`, 'i');
         filteredPaths = paths.filter(p => pattern.test(p.text));
     }
 
@@ -92,17 +106,9 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
     const results = [];
     for (const path of sortedPaths.slice(0, 5)) {
-        let finalUrl;
-
-        if (path.href.startsWith('http')) {
-            finalUrl = path.href;
-        } else if (path.href.includes('/movies/') || path.href.includes('/tvs/')) {
-            finalUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
-        } else {
-            finalUrl = activeDirUrl + path.href;
-        }
-
+        let finalUrl = path.href.startsWith('http') ? path.href : activeDirUrl + path.href;
         finalUrl = finalUrl.replace(/([^:]\/)\/+/g, "$1");
+
         const streamUrl = await resolveFinalUrl(finalUrl);
 
         results.push({

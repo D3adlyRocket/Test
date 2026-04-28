@@ -13,7 +13,7 @@ const TMDB_BASE = 'https://api.themoviedb.org/3';
  */
 async function safeFetch(url, options = {}) {
     // 1. Get this IP from the 'Every Proxy' app on your Android phone
-    const phoneProxy = "http://192.168.1.3:8080/"; 
+    const phoneProxy = "http://127.0.0.1:8080/"; 
     
     // 2. We prefix the URL to route it through your phone's connection
     const proxiedUrl = phoneProxy + url;

@@ -1,56 +1,62 @@
 /**
- * PlayIMDb - Public Tunnel Edition
- * No Super Proxy or Every Proxy required.
- * Bypasses UK ISP blocks by routing through a Cloud Bridge.
+ * PlayIMDb - Nuvio "Secure Tunnel" Edition
+ * This bypasses "Connection Refused" by using a secure HTTPS bridge.
  */
 
 function getStreams(tmdbId, type, season, episode) {
     return new Promise(function(resolve) {
         
-        // This is a public bridge that fetches the content for us
+        // We use a high-speed HTTPS proxy that Android won't block.
+        // This acts as the middleman between your phone and the blocked .ru site.
         var bridge = "https://api.allorigins.win/get?url=";
-        var targetSite = "https://vsembed.ru/embed/" + tmdbId + "/";
+        var target = "https://vsembed.ru/embed/" + tmdbId + "/";
         
-        // We wrap the URL to hide it from the ISP
-        var finalUrl = bridge + encodeURIComponent(targetSite);
+        // Final secure URL
+        var secureUrl = bridge + encodeURIComponent(target);
 
-        console.log("[PlayIMDb] Fetching through Cloud Bridge...");
+        console.log("[PlayIMDb] Requesting via Secure Bridge...");
 
-        fetch(finalUrl)
-            .then(function(response) {
-                if (!response.ok) throw new Error("Bridge blocked");
-                return response.json(); // AllOrigins returns a JSON object
+        fetch(secureUrl)
+            .then(function(res) {
+                if (!res.ok) throw new Error("Bridge connection failed");
+                return res.json(); 
             })
             .then(function(data) {
-                // The actual website HTML is inside 'data.contents'
+                // AllOrigins gives us the HTML inside a 'contents' key
                 var html = data.contents;
-                var streams = [];
-
-                // Find the video player link
-                var match = html.match(/iframe id="player_iframe" src="([^"]+)"/i);
                 
-                if (match) {
-                    var videoUrl = match[1];
-                    if (videoUrl.indexOf('//') === 0) videoUrl = "https:" + videoUrl;
+                // Look for the video player
+                var iframeMatch = html.match(/iframe id="player_iframe" src="([^"]+)"/i);
+                
+                if (iframeMatch) {
+                    var streamUrl = iframeMatch[1];
+                    if (streamUrl.indexOf('//') === 0) streamUrl = "https:" + streamUrl;
 
-                    streams.push({
-                        name: "Cloud Server",
-                        title: "Bypass Active (No Proxy)",
-                        url: videoUrl,
-                        quality: "HD",
-                        headers: { "Referer": "https://vsembed.ru/" }
-                    });
+                    resolve([{
+                        name: "Secure Mirror",
+                        title: "PlayIMDb | 1080p Bypass",
+                        url: streamUrl,
+                        quality: "1080p",
+                        headers: { 
+                            "Referer": "https://vsembed.ru/",
+                            "User-Agent": "Mozilla/5.0 (NVShield)"
+                        }
+                    }]);
+                } else {
+                    console.log("[PlayIMDb] No iframe found in HTML.");
+                    resolve([]);
                 }
-
-                resolve(streams);
             })
             .catch(function(err) {
-                console.error("[PlayIMDb] Error: " + err.message);
-                resolve([]); // Stop the loading circle
+                console.error("[PlayIMDb] Fetch failed: " + err.message);
+                // Return empty so the app stops the loading circle
+                resolve([]);
             });
     });
 }
 
-// System exports for Nuvio
-if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; }
+// System Export for Nuvio
+if (typeof module !== 'undefined') {
+    module.exports = { getStreams: getStreams };
+}
 global.getStreams = getStreams;

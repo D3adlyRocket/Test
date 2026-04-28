@@ -1,6 +1,6 @@
 /**
- * PlayIMDb - Enhanced with Every Proxy Bypass for UK ISPs
- * Environment: Nuvio (Android TV / Nvidia Shield)
+ * PlayIMDb - Enhanced with Web-Bridge Bypass for UK ISPs
+ * This version uses a CORS Bridge to bypass ISP blocks without a VPN.
  */
 
 const HOST = "https://vsembed.ru";
@@ -8,28 +8,27 @@ const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 
 /**
- * Updated safeFetch to route through your Android Phone (Every Proxy)
- * to bypass UK ISP blocking on Nvidia Shield.
+ * Option 1: Web-Bridge safeFetch
+ * Redirects traffic through a public bridge to jump over UK ISP filters.
  */
 async function safeFetch(url, options = {}) {
-    // 1. Get this IP from the 'Every Proxy' app on your Android phone
-    const phoneProxy = "http://127.0.0.1:8080/"; 
-    
-    // 2. We prefix the URL to route it through your phone's connection
-    const proxiedUrl = phoneProxy + url;
+    // This bridge server is located outside the UK
+    const bridgeUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
 
     if (typeof fetchv2 === 'function') {
         const headers = options.headers || {};
         const method = options.method || 'GET';
         const body = options.body || null;
         try {
-            // Nuvio's internal fetchv2 using the proxied path
-            return await fetchv2(proxiedUrl, headers, method, body, true, options.encoding || 'utf-8');
+            // Fetching via the bridge
+            return await fetchv2(bridgeUrl, headers, method, body, true, options.encoding || 'utf-8');
         } catch (e) {
-            console.error("Proxy Fetch failed:", url, e);
+            console.error("Bridge Fetch failed:", url, e);
         }
     }
-    return fetch(proxiedUrl, options);
+    
+    // Fallback for standard fetch environments
+    return fetch(bridgeUrl, options);
 }
 
 function toQualityLabel(text) {

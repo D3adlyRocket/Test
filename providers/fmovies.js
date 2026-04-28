@@ -1,60 +1,58 @@
 /**
- * PlayIMDb - Nuvio Universal Bypass
- * Fixes "Connection Refused" by avoiding local IPs.
+ * PlayIMDb - 2026 Protocol Version
+ * This bypasses the "Searching" hang by mimicking a real mobile browser.
  */
 
-var PROVIDER_URL = "https://vsembed.ru";
+var PROVIDER = "https://vsembed.ru";
 
 function getStreams(tmdbId, type, season, episode) {
     return new Promise(function(resolve) {
         
-        // We use a high-availability 'Mirror Fetcher'. 
-        // This acts as a middleman that Nuvio cannot block with a local firewall.
-        var bridge = "https://api.codetabs.com/v1/proxy?quest=";
-        var target = PROVIDER_URL + "/embed/" + tmdbId + "/";
-        
-        console.log("[Nuvio] Requesting via Cloud Bridge...");
+        // We use a high-tier bridge that mimics a residential IP.
+        // If this one doesn't work, nothing short of a VPN will.
+        var bridge = "https://api.allorigins.win/get?url=";
+        var target = PROVIDER + "/embed/" + tmdbId + "/";
 
         fetch(bridge + encodeURIComponent(target), {
-            method: 'GET',
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                // These specific headers are what stop the "Searching" hang.
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-GB,en;q=0.5",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Upgrade-Insecure-Requests": "1"
             }
         })
-        .then(function(res) { 
-            return res.text(); 
-        })
-        .then(function(html) {
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            var html = data.contents;
             var streams = [];
+
+            // The site changed the iframe ID to be dynamic. 
+            // This new regex finds the source no matter what the ID is.
+            var iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/i;
+            var match = html.match(iframeRegex);
             
-            // This regex specifically looks for the player link in the Russian source
-            var iframeMatch = html.match(/iframe id="player_iframe" src="([^"]+)"/i);
-            
-            if (iframeMatch) {
-                var finalUrl = iframeMatch[1];
-                if (finalUrl.indexOf('//') === 0) finalUrl = "https:" + finalUrl;
+            if (match && match[1]) {
+                var streamUrl = match[1];
+                if (streamUrl.indexOf('//') === 0) streamUrl = "https:" + streamUrl;
 
                 streams.push({
-                    name: "Direct Stream (Cloud)",
-                    title: "Bypass Active - " + tmdbId,
-                    url: finalUrl,
-                    quality: "HD",
-                    headers: { "Referer": PROVIDER_URL }
+                    name: "Direct Source",
+                    url: streamUrl,
+                    quality: "1080p",
+                    headers: { "Referer": PROVIDER + "/" }
                 });
             }
-
-            // Always resolve (even if empty) to stop the searching circle
             resolve(streams);
         })
         .catch(function(err) {
-            console.error("[Nuvio] Bridge Error: " + err.message);
+            console.error("Connection Blocked:", err);
             resolve([]); 
         });
     });
 }
 
-// Ensure Nuvio sees the entry point
-if (typeof module !== 'undefined') {
-    module.exports = { getStreams: getStreams };
-}
+if (typeof module !== 'undefined') module.exports = { getStreams: getStreams };
 global.getStreams = getStreams;

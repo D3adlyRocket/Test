@@ -1,11 +1,11 @@
+/**
+ * patronDizipal - Full Logic - Optimized for Android TV
+ * Generated: 2026-04-29T22:54:42.309Z
+ */
 "use strict";
 
-var cheerio = require("cheerio-without-node-native");
+const cheerio = require("cheerio-without-node-native");
 
-/**
- * patronDizipal - Built from src/patronDizipal/
- * Optimized for Android TV 
- */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
@@ -61,13 +61,19 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// --- HTTP CONFIGURATION ---
+// src/patronDizipal/index.js
+var patronDizipal_exports = {};
+__export(patronDizipal_exports, {
+  getStreams: () => getStreams
+});
+
+// src/patronDizipal/http.js
 var MAIN_URL = "https://dizipal2063.com";
-// TV FIX: Using a Sony Bravia User-Agent helps trigger TV-optimized streams (HLS/m3u8)
+// TV FIX: Updated User Agent
 var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Linux; Android 10; BRAVIA 4K VH2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "User-Agent": "Mozilla/5.0 (Linux; Android 11; Sony Bravia 4K Build/RP1A.200720.011) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-  "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8"
+  "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
 };
 var KNOWN_DOMAINS = [
   "https://dizipal2063.com",
@@ -84,11 +90,10 @@ function resolveMainUrl() {
     if (_resolvedUrl) return _resolvedUrl;
     for (const domain of KNOWN_DOMAINS) {
       try {
-        // TV FIX: Increased timeout to 8s for slower TV network modules
         const res = yield fetch(`${domain}/`, {
           method: "HEAD",
           headers: HEADERS,
-          signal: AbortSignal.timeout(8e3) 
+          signal: AbortSignal.timeout(8e3) // TV FIX: Higher timeout
         });
         if (res.ok || res.status === 302 || res.status === 301) {
           const finalUrl = new URL(res.url).origin;
@@ -118,7 +123,9 @@ function fetchWithResponse(_0) {
     const response = yield fetch(url, __spreadProps(__spreadValues({}, options), {
       headers: __spreadValues(__spreadValues({}, HEADERS), options.headers || {})
     }));
-    if (!response.ok) throw new Error(`HTTP ${response.status} -> ${url}`);
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} -> ${url}`);
+    }
     return response;
   });
 }
@@ -141,7 +148,7 @@ function fetchJSON(_0) {
   });
 }
 
-// --- TMDB MODULE ---
+// src/patronDizipal/tmdb.js
 var TMDB_API_KEY = "500330721680edb6d5f7f12ba7cd9023";
 var PROVIDER_TAG = "[Dizipal]";
 
@@ -161,10 +168,44 @@ function getTmdbTitleFromHtml(tmdbId, mediaType) {
       const ogMatch = html.match(/<meta property="og:title" content="([^"]+)">/i);
       if (ogMatch) {
         trTitle = decodeHtml(ogMatch[1]).split("(")[0].trim();
+      } else {
+        const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+        if (titleMatch) {
+          trTitle = decodeHtml(titleMatch[1]).split("(")[0].split("\u2014")[0].trim();
+        }
       }
+      if (!trTitle) return null;
+      let origTitle = trTitle;
+      const origMatch = html.match(/<h3 class="caption" dir="auto">([^<]+)<\/h3>/i) || html.match(/<strong class="original_title">([^<]+)<\/strong>/i);
+      if (origMatch) {
+        const cleaned = decodeHtml(origMatch[1]).replace("Orijinal Başlık", "").replace("Original Title", "").replace("Orijinal Adı", "").replace("Orijinal Adi", "").trim();
+        if (cleaned.length > 0) origTitle = cleaned;
+      }
+      const shortTitle = trTitle.split(" ").slice(0, 2).join(" ");
       const yearMatch = html.match(/\((\d{4})\)/);
       const year = yearMatch ? parseInt(yearMatch[1]) : null;
-      return { trTitle, year };
+      return { trTitle, origTitle, shortTitle, year };
+    } catch (e) {
+      return null;
+    }
+  });
+}
+
+function getTmdbTitleFromApi(tmdbId, mediaType) {
+  return __async(this, null, function* () {
+    try {
+      const type = mediaType === "movie" ? "movie" : "tv";
+      const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&language=tr-TR`;
+      const response = yield fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = yield response.json();
+      const trTitle = data.title || data.name || "";
+      const origTitle = data.original_title || data.original_name || trTitle;
+      const shortTitle = trTitle.split(" ").slice(0, 2).join(" ");
+      const dateStr = data.release_date || data.first_air_date || "";
+      const year = dateStr ? parseInt(dateStr.substring(0, 4)) : null;
+      if (!trTitle) return null;
+      return { trTitle, origTitle, shortTitle, year };
     } catch (e) {
       return null;
     }
@@ -174,29 +215,31 @@ function getTmdbTitleFromHtml(tmdbId, mediaType) {
 function getTmdbTitle(tmdbId, mediaType) {
   return __async(this, null, function* () {
     const htmlResult = yield getTmdbTitleFromHtml(tmdbId, mediaType);
-    if (htmlResult) return __spreadValues({ origTitle: "", shortTitle: "" }, htmlResult);
+    if (htmlResult) return htmlResult;
+    const apiResult = yield getTmdbTitleFromApi(tmdbId, mediaType);
+    if (apiResult) return apiResult;
     return { trTitle: "", origTitle: "", shortTitle: "", year: null };
   });
 }
 
-// --- EXTRACTOR MODULE ---
+// src/patronDizipal/extractor.js
 function resolveDizipal(url, activeUrl) {
   return __async(this, null, function* () {
     try {
+      const siteUrl = activeUrl || MAIN_URL;
       const response = yield fetchWithResponse(url);
       const html = yield response.text();
       const setCookie = response.headers.get("set-cookie");
       const cookies = setCookie ? setCookie.split(",").map((c) => c.split(";")[0]).join("; ") : "";
-      
       const configToken = extractConfigToken(html);
       if (configToken) {
-        const stream = yield resolveViaPlayerConfig(configToken, url, cookies, activeUrl);
+        const stream = yield resolveViaPlayerConfig(configToken, url, cookies, siteUrl);
         if (stream) return stream;
       }
-      
       const embedUrl = extractDirectEmbed(html);
       if (embedUrl) return yield resolveEmbed(embedUrl, url);
-      
+      const directM3u8 = extractM3u8FromPage(html);
+      if (directM3u8) return { url: directM3u8, quality: "Auto", headers: { "Referer": url } };
       return null;
     } catch (e) {
       return null;
@@ -208,6 +251,9 @@ function extractConfigToken(html) {
   const patterns = [
     /id="videoContainer"[^>]+data-cfg="([^"]+)"/,
     /data-cfg="([^"]+)"/,
+    /data-hash="([^"]+)"/,
+    /data-token="([^"]+)"/,
+    /data-key="([^"]+)"/,
     /playerConfig\s*=\s*["']([^"']+)["']/,
     /cfg\s*:\s*["']([^"']+)["']/
   ];
@@ -221,17 +267,26 @@ function extractConfigToken(html) {
 function extractDirectEmbed(html) {
   const patterns = [
     /iframe[^>]+src="([^"]*(?:embed|player|watch)[^"]+)"/i,
-    /data-frame="([^"]+)"/i
+    /data-frame="([^"]+)"/i,
+    /<iframe[^>]+src="([^"]+)"/i
   ];
   for (const pattern of patterns) {
     const match = html.match(pattern);
-    if (match && !match[1].includes("youtube")) return fixUrl(match[1]);
+    if (match && !match[1].includes("youtube") && !match[1].includes("google")) {
+      return fixUrl(match[1]);
+    }
   }
   return null;
 }
 
+function extractM3u8FromPage(html) {
+  const match = html.match(/["']([^"']*\.m3u8[^"']*)["']/);
+  return match ? match[1] : null;
+}
+
 function resolveViaPlayerConfig(configToken, refererUrl, cookies, siteUrl) {
   return __async(this, null, function* () {
+    var _a, _b, _c;
     try {
       const baseUrl = siteUrl || MAIN_URL;
       const configRes = yield fetch(`${baseUrl}/ajax-player-config`, {
@@ -244,13 +299,17 @@ function resolveViaPlayerConfig(configToken, refererUrl, cookies, siteUrl) {
         }), cookies ? { "Cookie": cookies } : {}),
         body: `cfg=${encodeURIComponent(configToken)}`
       });
-      const configJson = yield configRes.json();
-      const rawUrl = configJson?.config?.v || configJson?.url || configJson?.data?.url;
+      if (!configRes.ok) return null;
+      const configText = yield configRes.text();
+      let configJson;
+      try {
+        configJson = JSON.parse(configText);
+      } catch (e) { return null; }
+      const rawUrl = ((_a = configJson == null ? void 0 : configJson.config) == null ? void 0 : _a.v) || ((_b = configJson == null ? void 0 : configJson.config) == null ? void 0 : _b.url) || (configJson == null ? void 0 : configJson.url) || ((_c = configJson == null ? void 0 : configJson.data) == null ? void 0 : _c.url) || null;
       if (!rawUrl) return null;
-      return yield resolveEmbed(fixUrl(rawUrl.replace(/\\\//g, "/")), refererUrl);
-    } catch (e) {
-      return null;
-    }
+      const embedUrl = fixUrl(rawUrl.replace(/\\\//g, "/"));
+      return yield resolveEmbed(embedUrl, refererUrl);
+    } catch (e) { return null; }
   });
 }
 
@@ -263,15 +322,27 @@ function resolveEmbed(embedUrl, refererUrl) {
 
 function resolveImagestoo(embedUrl) {
   return __async(this, null, function* () {
+    var _a;
     const videoId = embedUrl.split("/").filter(Boolean).pop();
     const apiUrl = `https://imagestoo.com/player/index.php?data=${videoId}&do=getVideo`;
     const response = yield fetch(apiUrl, {
       method: "POST",
-      headers: __spreadProps(__spreadValues({}, HEADERS), { "X-Requested-With": "XMLHttpRequest", "Referer": embedUrl })
+      headers: __spreadProps(__spreadValues({}, HEADERS), {
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": embedUrl
+      })
     });
+    if (!response.ok) throw new Error(`Imagestoo API hatası: ${response.status}`);
+    const setCookie = response.headers.get("set-cookie");
+    const sessionCookie = setCookie ? ((_a = setCookie.split(",").find((c) => c.includes("fireplayer_player"))) == null ? void 0 : _a.split(";")[0]) || "" : "";
     const data = yield response.json();
-    if (data.securedLink) {
-      return { url: fixUrl(data.securedLink.replace(/\\\//g, "/")), quality: "Auto", headers: { "Referer": embedUrl } };
+    const securedLink = data.securedLink ? data.securedLink.replace(/\\\//g, "/") : null;
+    if (securedLink) {
+      return {
+        url: fixUrl(securedLink),
+        quality: "Auto",
+        headers: __spreadValues({ "Referer": embedUrl }, sessionCookie ? { "Cookie": sessionCookie } : {})
+      };
     }
     return null;
   });
@@ -280,41 +351,53 @@ function resolveImagestoo(embedUrl) {
 function resolveStandard(embedUrl, referer) {
   return __async(this, null, function* () {
     const html = yield fetchText(embedUrl, { headers: { "Referer": referer } });
-    const m3u8Match = html.match(/file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i) || html.match(/["']([^"']*\.m3u8[^"']*)["']/i);
+    const m3u8Match = html.match(/sources\s*:\s*\[\s*\{\s*file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i) || html.match(/file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i) || html.match(/["']([^"']*\.m3u8[^"']*)["']/i);
     if (m3u8Match) return { url: m3u8Match[1], quality: "Auto", headers: { "Referer": embedUrl } };
+    const mp4Match = html.match(/["']([^"']*\.mp4[^"']*)["']/i);
+    if (mp4Match) return { url: mp4Match[1], quality: "Auto", headers: { "Referer": embedUrl } };
     return null;
   });
 }
 
-// --- MAIN STREAM HANDLER (STREMIO/TV COMPATIBLE) ---
+// --- TV EXPORT LOGIC ---
 async function getStreams(tmdbId, type, season, episode) {
   return __async(this, null, function* () {
     try {
       const activeUrl = yield resolveMainUrl();
-      const { trTitle, year } = yield getTmdbTitle(tmdbId, type);
-      if (!trTitle) return [];
-
+      const { trTitle, origTitle, shortTitle, year } = yield getTmdbTitle(tmdbId, type);
+      if (!trTitle && !origTitle) return [];
+      
       const matchType = type === "movie" ? "Film" : "Dizi";
-      const searchUrl = `${activeUrl}/ajax-search?q=${encodeURIComponent(trTitle)}`;
-      const results = yield fetchJSON(searchUrl, {
-        headers: { "X-Requested-With": "XMLHttpRequest", "Referer": `${activeUrl}/` }
-      });
+      const queries = [...new Set([trTitle, origTitle, shortTitle].filter((q) => q && q.length > 1))];
+      let match = null;
 
-      if (!results?.success) return [];
-      const match = results.results.find((r) => {
-        if (r.type !== matchType) return false;
-        return !year || !r.year || Math.abs(year - r.year) <= 1;
-      });
+      for (const query of queries) {
+        const searchUrl = `${activeUrl}/ajax-search?q=${encodeURIComponent(query)}`;
+        try {
+          const results = yield fetchJSON(searchUrl, {
+            headers: { "X-Requested-With": "XMLHttpRequest", "Referer": `${activeUrl}/` }
+          });
+          if (!results?.success || !Array.isArray(results.results)) continue;
+          match = results.results.find((r) => {
+            if (r.type !== matchType) return false;
+            const normalize = (str) => (str || "").toLowerCase().replace(/[^a-z0-9ğüşıöç]/g, "");
+            const rTitle = normalize(r.title);
+            const titleMatches = rTitle === normalize(trTitle) || rTitle === normalize(origTitle);
+            const yearMatches = !year || !r.year || Math.abs(year - r.year) <= 1;
+            return titleMatches && yearMatches;
+          });
+          if (match) break;
+        } catch (err) {}
+      }
 
       if (!match) return [];
       let contentUrl = fixUrl(match.url, activeUrl);
 
-      if (type === "tv" || type === "series") {
+      if (type === "tv") {
         const seriesHtml = yield fetchText(contentUrl);
-        const epPattern = new RegExp(`${season}.*[Ss]ezon.*${episode}.*[Bb]ölüm`, "i");
         const $ = cheerio.load(seriesHtml);
+        const epPattern = new RegExp(`${season}.*[Ss]ezon.*${episode}.*[Bb]ölüm`, "i");
         let epUrl = null;
-        
         $("a").each((_, el) => {
           if (epPattern.test($(el).text())) {
             const href = $(el).attr("href");
@@ -327,17 +410,12 @@ async function getStreams(tmdbId, type, season, episode) {
 
       const stream = yield resolveDizipal(contentUrl, activeUrl);
       if (stream) {
-        // TV FIX: Returning array of objects with the specific keys TV apps look for
         return [{
-          name: `Dizipal TV`,
-          title: `${trTitle} ${type === 'tv' ? `S${season}E${episode}` : ''}\n${stream.quality || 'Auto'}`,
+          name: "Dizipal TV",
+          title: `[Dizipal] ${trTitle} ${type === 'tv' ? `S${season}E${episode}` : ''}`,
           url: stream.url,
-          // TV FIX: Passing headers inside the object for ExoPlayer
           headers: __spreadValues({ "User-Agent": HEADERS["User-Agent"] }, stream.headers || {}),
-          behaviorHints: {
-            bingeGroup: `dizipal-${tmdbId}`,
-            notWeb: true
-          }
+          behaviorHints: { notWeb: true }
         }];
       }
     } catch (e) {

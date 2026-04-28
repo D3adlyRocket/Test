@@ -1,61 +1,59 @@
 /**
- * PlayIMDb - Nuvio "Secure Tunnel" Edition
- * This bypasses "Connection Refused" by using a secure HTTPS bridge.
+ * PlayIMDb - Nuvio Universal Bypass
+ * Fixes "Connection Refused" by avoiding local IPs.
  */
+
+var PROVIDER_URL = "https://vsembed.ru";
 
 function getStreams(tmdbId, type, season, episode) {
     return new Promise(function(resolve) {
         
-        // We use a high-speed HTTPS proxy that Android won't block.
-        // This acts as the middleman between your phone and the blocked .ru site.
-        var bridge = "https://api.allorigins.win/get?url=";
-        var target = "https://vsembed.ru/embed/" + tmdbId + "/";
+        // We use a high-availability 'Mirror Fetcher'. 
+        // This acts as a middleman that Nuvio cannot block with a local firewall.
+        var bridge = "https://api.codetabs.com/v1/proxy?quest=";
+        var target = PROVIDER_URL + "/embed/" + tmdbId + "/";
         
-        // Final secure URL
-        var secureUrl = bridge + encodeURIComponent(target);
+        console.log("[Nuvio] Requesting via Cloud Bridge...");
 
-        console.log("[PlayIMDb] Requesting via Secure Bridge...");
+        fetch(bridge + encodeURIComponent(target), {
+            method: 'GET',
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            }
+        })
+        .then(function(res) { 
+            return res.text(); 
+        })
+        .then(function(html) {
+            var streams = [];
+            
+            // This regex specifically looks for the player link in the Russian source
+            var iframeMatch = html.match(/iframe id="player_iframe" src="([^"]+)"/i);
+            
+            if (iframeMatch) {
+                var finalUrl = iframeMatch[1];
+                if (finalUrl.indexOf('//') === 0) finalUrl = "https:" + finalUrl;
 
-        fetch(secureUrl)
-            .then(function(res) {
-                if (!res.ok) throw new Error("Bridge connection failed");
-                return res.json(); 
-            })
-            .then(function(data) {
-                // AllOrigins gives us the HTML inside a 'contents' key
-                var html = data.contents;
-                
-                // Look for the video player
-                var iframeMatch = html.match(/iframe id="player_iframe" src="([^"]+)"/i);
-                
-                if (iframeMatch) {
-                    var streamUrl = iframeMatch[1];
-                    if (streamUrl.indexOf('//') === 0) streamUrl = "https:" + streamUrl;
+                streams.push({
+                    name: "Direct Stream (Cloud)",
+                    title: "Bypass Active - " + tmdbId,
+                    url: finalUrl,
+                    quality: "HD",
+                    headers: { "Referer": PROVIDER_URL }
+                });
+            }
 
-                    resolve([{
-                        name: "Secure Mirror",
-                        title: "PlayIMDb | 1080p Bypass",
-                        url: streamUrl,
-                        quality: "1080p",
-                        headers: { 
-                            "Referer": "https://vsembed.ru/",
-                            "User-Agent": "Mozilla/5.0 (NVShield)"
-                        }
-                    }]);
-                } else {
-                    console.log("[PlayIMDb] No iframe found in HTML.");
-                    resolve([]);
-                }
-            })
-            .catch(function(err) {
-                console.error("[PlayIMDb] Fetch failed: " + err.message);
-                // Return empty so the app stops the loading circle
-                resolve([]);
-            });
+            // Always resolve (even if empty) to stop the searching circle
+            resolve(streams);
+        })
+        .catch(function(err) {
+            console.error("[Nuvio] Bridge Error: " + err.message);
+            resolve([]); 
+        });
     });
 }
 
-// System Export for Nuvio
+// Ensure Nuvio sees the entry point
 if (typeof module !== 'undefined') {
     module.exports = { getStreams: getStreams };
 }

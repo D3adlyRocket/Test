@@ -1,5 +1,5 @@
 /**
- * patronDizipal - TV Optimized Version
+ * patronDizipal - UHDMovies Template Optimized for Android TV
  * Generated: 2026-04-29
  */
 var __defProp = Object.defineProperty;
@@ -57,290 +57,148 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// src/patronDizipal/index.js
 var patronDizipal_exports = {};
 __export(patronDizipal_exports, {
   getStreams: () => getStreams
 });
 module.exports = __toCommonJS(patronDizipal_exports);
 
-// src/patronDizipal/http.js
-var MAIN_URL = "https://dizipal2063.com";
-// TV FIX: Sony Bravia 4K specific UA to bypass cloudflare/WAF checks
+// TV OPTIMIZED CONSTANTS (From UHDMovies Template)
 var TV_UA = "Mozilla/5.0 (Linux; Android 10; BRAVIA 4K VH2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-var HEADERS = {
+var TV_HEADERS = {
   "User-Agent": TV_UA,
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-  "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
-  "Sec-Fetch-Mode": "navigate",
-  "Connection": "keep-alive"
+  "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8",
+  "Connection": "keep-alive",
+  "Upgrade-Insecure-Requests": "1"
 };
+
 var KNOWN_DOMAINS = [
   "https://dizipal2064.com",
   "https://dizipal2063.com",
-  "https://dizipal2062.com",
-  "https://dizipal2065.com"
+  "https://dizipal2062.com"
 ];
+
 var _resolvedUrl = null;
+
 function resolveMainUrl() {
   return __async(this, null, function* () {
-    if (_resolvedUrl)
-      return _resolvedUrl;
+    if (_resolvedUrl) return _resolvedUrl;
     for (const domain of KNOWN_DOMAINS) {
       try {
         const res = yield fetch(`${domain}/`, {
           method: "HEAD",
-          headers: HEADERS,
-          signal: AbortSignal.timeout(4000) // Aggressive timeout to prevent TV UI locking
+          headers: TV_HEADERS,
+          mode: 'cors',
+          signal: AbortSignal.timeout(5000)
         });
-        if (res.ok || res.status === 302 || res.status === 301) {
+        if (res.ok) {
           _resolvedUrl = new URL(res.url).origin;
           return _resolvedUrl;
         }
-      } catch (_) {}
+      } catch (e) {}
     }
-    _resolvedUrl = KNOWN_DOMAINS[0];
-    return _resolvedUrl;
-  });
-}
-function fixUrl(url, baseUrl = MAIN_URL) {
-  if (!url) return "";
-  if (url.startsWith("http://") || url.startsWith("https://")) return url;
-  if (url.startsWith("//")) return `https:${url}`;
-  try {
-    return new URL(url, baseUrl).toString();
-  } catch (_) {
-    return url;
-  }
-}
-function fetchWithResponse(_0) {
-  return __async(this, arguments, function* (url, options = {}) {
-    const response = yield fetch(url, __spreadProps(__spreadValues({}, options), {
-      headers: __spreadValues(__spreadValues({}, HEADERS), options.headers || {}),
-      signal: AbortSignal.timeout(15e3) // TV stability timeout
-    }));
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status} -> ${url}`);
-    }
-    return response;
-  });
-}
-function fetchText(_0) {
-  return __async(this, arguments, function* (url, options = {}) {
-    const res = yield fetchWithResponse(url, options);
-    return yield res.text();
-  });
-}
-function fetchJSON(_0) {
-  return __async(this, arguments, function* (url, options = {}) {
-    const text = yield fetchText(url, options);
-    try {
-      return JSON.parse(text.replace(/^\ufeff/, ""));
-    } catch (e) {
-      throw new Error(`JSON Error: ${e.message}`);
-    }
+    return KNOWN_DOMAINS[0];
   });
 }
 
-// src/patronDizipal/tmdb.js
-var TMDB_API_KEY = "500330721680edb6d5f7f12ba7cd9023";
-function decodeHtml(text) {
-  return (text || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#039;/g, "'");
-}
-function getTmdbTitleFromHtml(tmdbId, mediaType) {
+function fetchTV(url, options = {}) {
   return __async(this, null, function* () {
-    try {
-      const type = mediaType === "movie" ? "movie" : "tv";
-      const url = `https://www.themoviedb.org/${type}/${tmdbId}?language=tr-TR`;
-      const response = yield fetch(url, {
-        headers: { "User-Agent": TV_UA },
-        signal: AbortSignal.timeout(10e3)
-      });
-      if (!response.ok) throw new Error();
-      const html = yield response.text();
-      let trTitle = "";
-      const ogMatch = html.match(/<meta property="og:title" content="([^"]+)">/i);
-      if (ogMatch) trTitle = decodeHtml(ogMatch[1]).split("(")[0].trim();
-      const yearMatch = html.match(/\((\d{4})\)/);
-      const year = yearMatch ? parseInt(yearMatch[1]) : null;
-      return { trTitle, origTitle: trTitle, shortTitle: trTitle.split(" ")[0], year };
-    } catch (e) {
-      return null;
-    }
-  });
-}
-function getTmdbTitleFromApi(tmdbId, mediaType) {
-  return __async(this, null, function* () {
-    try {
-      const type = mediaType === "movie" ? "movie" : "tv";
-      const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&language=tr-TR`;
-      const response = yield fetch(url, { signal: AbortSignal.timeout(8e3) });
-      const data = yield response.json();
-      const trTitle = data.title || data.name || "";
-      const dateStr = data.release_date || data.first_air_date || "";
-      const year = dateStr ? parseInt(dateStr.substring(0, 4)) : null;
-      return { trTitle, origTitle: data.original_title || trTitle, shortTitle: trTitle.split(" ")[0], year };
-    } catch (e) {
-      return null;
-    }
-  });
-}
-function getTmdbTitle(tmdbId, mediaType) {
-  return __async(this, null, function* () {
-    const htmlResult = yield getTmdbTitleFromHtml(tmdbId, mediaType);
-    if (htmlResult) return htmlResult;
-    const apiResult = yield getTmdbTitleFromApi(tmdbId, mediaType);
-    return apiResult || { trTitle: "", origTitle: "", shortTitle: "", year: null };
+    return yield fetch(url, __spreadValues({
+      headers: __spreadValues(__spreadValues({}, TV_HEADERS), options.headers || {}),
+      method: options.method || "GET",
+      mode: 'cors',
+      credentials: 'omit',
+      signal: AbortSignal.timeout(15000)
+    }, options));
   });
 }
 
-// src/patronDizipal/extractor.js
+// Extraction Logic
 function resolveDizipal(url, activeUrl) {
   return __async(this, null, function* () {
     try {
-      const response = yield fetchWithResponse(url);
-      const html = yield response.text();
-      const setCookie = response.headers.get("set-cookie");
-      const cookies = setCookie ? setCookie.split(",").map((c) => c.split(";")[0]).join("; ") : "";
-      const configToken = extractConfigToken(html);
-      if (configToken) {
-        return yield resolveViaPlayerConfig(configToken, url, cookies, activeUrl);
+      const res = yield fetchTV(url);
+      const html = yield res.text();
+      
+      // Look for data-cfg (Player Config)
+      const cfgMatch = html.match(/data-cfg="([^"]+)"/);
+      if (cfgMatch) {
+        const configRes = yield fetchTV(`${activeUrl}/ajax-player-config`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": url
+          },
+          body: `cfg=${encodeURIComponent(cfgMatch[1])}`
+        });
+        const configJson = yield configRes.json();
+        const streamUrl = configJson?.config?.v || configJson?.url;
+        if (streamUrl) return { url: streamUrl.replace(/\\\//g, "/"), ref: url };
       }
-      const directM3u8 = extractM3u8FromPage(html);
-      if (directM3u8) {
-        return { url: directM3u8, quality: "Auto", headers: { "Referer": url, "User-Agent": TV_UA } };
-      }
+
+      // Fallback to M3U8 regex
+      const m3u8Match = html.match(/["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/);
+      if (m3u8Match) return { url: m3u8Match[1], ref: url };
+
       return null;
     } catch (e) {
       return null;
     }
-  });
-}
-function extractConfigToken(html) {
-  const patterns = [/data-cfg="([^"]+)"/, /data-hash="([^"]+)"/, /playerConfig\s*=\s*["']([^"']+)["']/];
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
-    if (match) return match[1];
-  }
-  return null;
-}
-function extractM3u8FromPage(html) {
-  const match = html.match(/["']([^"']*\.m3u8[^"']*)["']/);
-  return match ? match[1] : null;
-}
-function resolveViaPlayerConfig(configToken, refererUrl, cookies, siteUrl) {
-  return __async(this, null, function* () {
-    try {
-      const baseUrl = siteUrl || MAIN_URL;
-      const configRes = yield fetch(`${baseUrl}/ajax-player-config`, {
-        method: "POST",
-        headers: __spreadValues(__spreadProps(__spreadValues({}, HEADERS), {
-          "Content-Type": "application/x-www-form-urlencoded",
-          "X-Requested-With": "XMLHttpRequest",
-          "Referer": refererUrl
-        }), cookies ? { "Cookie": cookies } : {}),
-        body: `cfg=${encodeURIComponent(configToken)}`
-      });
-      const configJson = yield configRes.json();
-      const rawUrl = configJson?.config?.v || configJson?.url || null;
-      if (!rawUrl) return null;
-      const embedUrl = fixUrl(rawUrl.replace(/\\\//g, "/"));
-      return yield resolveEmbed(embedUrl, refererUrl);
-    } catch (e) {
-      return null;
-    }
-  });
-}
-function resolveEmbed(embedUrl, refererUrl) {
-  return __async(this, null, function* () {
-    if (embedUrl.includes("imagestoo")) return yield resolveImagestoo(embedUrl);
-    return yield resolveStandard(embedUrl, refererUrl);
-  });
-}
-function resolveImagestoo(embedUrl) {
-  return __async(this, null, function* () {
-    try {
-      const videoId = embedUrl.split("/").filter(Boolean).pop();
-      const apiUrl = `https://imagestoo.com/player/index.php?data=${videoId}&do=getVideo`;
-      const response = yield fetch(apiUrl, {
-        method: "POST",
-        headers: __spreadProps(__spreadValues({}, HEADERS), { "X-Requested-With": "XMLHttpRequest", "Referer": embedUrl })
-      });
-      const data = yield response.json();
-      if (data.securedLink) {
-        return { url: fixUrl(data.securedLink), quality: "Auto", headers: { "Referer": embedUrl, "User-Agent": TV_UA } };
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  });
-}
-function resolveStandard(embedUrl, referer) {
-  return __async(this, null, function* () {
-    const html = yield fetchText(embedUrl, { headers: { "Referer": referer } });
-    const m3u8Match = html.match(/file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i) || html.match(/["']([^"']*\.m3u8[^"']*)["']/i);
-    if (m3u8Match) {
-      return { url: m3u8Match[1], quality: "Auto", headers: { "Referer": embedUrl, "User-Agent": TV_UA } };
-    }
-    return null;
   });
 }
 
-// src/patronDizipal/index.js
-function getStreams(tmdbId, type, season, episode) {
-  return __async(this, null, function* () {
-    try {
-      const activeUrl = yield resolveMainUrl();
-      const { trTitle, origTitle, year } = yield getTmdbTitle(tmdbId, type);
-      if (!trTitle && !origTitle) return [];
-      const matchType = type === "movie" ? "Film" : "Dizi";
-      const queries = [...new Set([trTitle, origTitle].filter(q => q.length > 2))];
-      let match = null;
-      for (const query of queries) {
-        const searchUrl = `${activeUrl}/ajax-search?q=${encodeURIComponent(query)}`;
-        const results = yield fetchJSON(searchUrl, { headers: { "X-Requested-With": "XMLHttpRequest", "Referer": `${activeUrl}/` } });
-        if (results?.success && Array.isArray(results.results)) {
-          match = results.results.find(r => r.type === matchType && (!year || !r.year || Math.abs(year - r.year) <= 1));
-          if (match) break;
-        }
-      }
-      if (!match) return [];
-      let contentUrl = fixUrl(match.url, activeUrl);
-      if (type === "tv") {
-        contentUrl = yield getEpisodeUrl(contentUrl, season, episode, activeUrl);
-        if (!contentUrl) return [];
-      }
-      const stream = yield resolveDizipal(contentUrl, activeUrl);
-      if (stream) {
-        return [{
-          name: "Dizipal TV",
-          url: stream.url,
-          quality: "Auto",
-          headers: stream.headers
-        }];
-      }
-    } catch (e) {
-      console.error("Stream Error: " + e.message);
-    }
-    return [];
-  });
-}
-function getEpisodeUrl(seriesUrl, season, episode, activeUrl) {
-  return __async(this, null, function* () {
-    try {
-      const html = yield fetchText(seriesUrl);
-      const epPattern = new RegExp(`${season}[.\\s]*sezon[\\s.]*${episode}[.\\s]*b[oö]l[uü]m`, "i");
-      const blocks = html.split('class="detail-episode-item');
+async function getStreams(tmdbId, type, season, episode) {
+  try {
+    const activeUrl = yield resolveMainUrl();
+    
+    // TMDB Search Logic (Simplified for TV Speed)
+    const tmdbUrl = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=500330721680edb6d5f7f12ba7cd9023&language=tr-TR`;
+    const tmdbRes = yield fetch(tmdbUrl);
+    const tmdbData = yield tmdbRes.json();
+    const query = tmdbData.title || tmdbData.name;
+    
+    if (!query) return [];
+
+    const searchUrl = `${activeUrl}/ajax-search?q=${encodeURIComponent(query)}`;
+    const searchRes = yield fetchTV(searchUrl, { headers: { "X-Requested-With": "XMLHttpRequest" }});
+    const searchData = yield searchRes.json();
+    
+    if (!searchData.success || !searchData.results.length) return [];
+
+    // Find closest match
+    const match = searchData.results[0];
+    let targetUrl = match.url.startsWith('http') ? match.url : `${activeUrl}${match.url}`;
+
+    if (type === "tv") {
+      const pageRes = yield fetchTV(targetUrl);
+      const pageHtml = yield pageRes.text();
+      const epPattern = new RegExp(`${season}.*sezon.*${episode}.*b\xF6l\xFCm`, "i");
+      const blocks = pageHtml.split('class="detail-episode-item');
+      
       for (const block of blocks) {
         if (epPattern.test(block)) {
-          const hrefMatch = block.match(/href="([^"]+)"/);
-          if (hrefMatch) return fixUrl(hrefMatch[1], activeUrl);
+          const href = block.match(/href="([^"]+)"/);
+          if (href) targetUrl = href[1].startsWith('http') ? href[1] : `${activeUrl}${href[1]}`;
         }
       }
-      return null;
-    } catch (e) {
-      return null;
     }
-  });
+
+    const stream = yield resolveDizipal(targetUrl, activeUrl);
+    if (stream) {
+      return [{
+        name: "Dizipal TV",
+        url: stream.url,
+        quality: "Auto",
+        headers: {
+          "User-Agent": TV_UA,
+          "Referer": stream.ref,
+          "Origin": activeUrl
+        }
+      }];
+    }
+  } catch (e) {
+    console.log("TV Fetch Error: " + e.message);
+  }
+  return [];
 }

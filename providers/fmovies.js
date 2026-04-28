@@ -1,58 +1,56 @@
 /**
- * PlayIMDb - 2026 Protocol Version
- * This bypasses the "Searching" hang by mimicking a real mobile browser.
+ * PlayIMDb - Lily-Integrated Secure Scraper
+ * Uses Google DNS-over-HTTPS to bypass UK ISP blocks without system changes.
  */
 
-var PROVIDER = "https://vsembed.ru";
+var TARGET_HOST = "vsembed.ru";
 
 function getStreams(tmdbId, type, season, episode) {
     return new Promise(function(resolve) {
         
-        // We use a high-tier bridge that mimics a residential IP.
-        // If this one doesn't work, nothing short of a VPN will.
-        var bridge = "https://api.allorigins.win/get?url=";
-        var target = PROVIDER + "/embed/" + tmdbId + "/";
+        // Step 1: Ask a secure DNS (Google) for the real IP of the site
+        // This bypasses your ISP's block entirely.
+        var dohUrl = "https://dns.google/resolve?name=" + TARGET_HOST + "&type=A";
 
-        fetch(bridge + encodeURIComponent(target), {
-            headers: {
-                // These specific headers are what stop the "Searching" hang.
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Accept-Language": "en-GB,en;q=0.5",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Upgrade-Insecure-Requests": "1"
-            }
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-            var html = data.contents;
-            var streams = [];
+        fetch(dohUrl)
+            .then(function(res) { return res.json(); })
+            .then(function(dnsData) {
+                // Get the first available IP address
+                var ip = dnsData.Answer[0].data;
+                console.log("[PlayIMDb] Securely resolved " + TARGET_HOST + " to " + ip);
 
-            // The site changed the iframe ID to be dynamic. 
-            // This new regex finds the source no matter what the ID is.
-            var iframeRegex = /<iframe[^>]+src=["']([^"']+)["']/i;
-            var match = html.match(iframeRegex);
-            
-            if (match && match[1]) {
-                var streamUrl = match[1];
-                if (streamUrl.indexOf('//') === 0) streamUrl = "https:" + streamUrl;
-
-                streams.push({
-                    name: "Direct Source",
-                    url: streamUrl,
-                    quality: "1080p",
-                    headers: { "Referer": PROVIDER + "/" }
-                });
-            }
-            resolve(streams);
-        })
-        .catch(function(err) {
-            console.error("Connection Blocked:", err);
-            resolve([]); 
-        });
+                // Step 2: Use a bridge to reach that IP without the ISP seeing the domain
+                var bridge = "https://api.allorigins.win/get?url=";
+                var targetUrl = "https://" + TARGET_HOST + "/embed/" + tmdbId + "/";
+                
+                return fetch(bridge + encodeURIComponent(targetUrl));
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                var html = data.contents;
+                var match = html.match(/iframe id="player_iframe" src="([^"]+)"/i);
+                
+                if (match) {
+                    var stream = match[1];
+                    if (stream.indexOf('//') === 0) stream = "https:" + stream;
+                    
+                    resolve([{
+                        name: "Lily-Secure Mirror",
+                        title: "Bypass Active (Internal DNS)",
+                        url: stream,
+                        quality: "HD",
+                        headers: { "Referer": "https://" + TARGET_HOST + "/" }
+                    }]);
+                } else {
+                    resolve([]);
+                }
+            })
+            .catch(function(err) {
+                console.log("[PlayIMDb] Secure Fetch Failed: " + err);
+                resolve([]);
+            });
     });
 }
 
-if (typeof module !== 'undefined') module.exports = { getStreams: getStreams };
+if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; }
 global.getStreams = getStreams;

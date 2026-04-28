@@ -1,34 +1,39 @@
 /**
- * PlayIMDb - Enhanced with Web-Bridge Bypass for UK ISPs
- * This version uses a CORS Bridge to bypass ISP blocks without a VPN.
+ * PlayIMDb - Enhanced 2026 Edition
+ * Optimized for UK ISPs (Nvidia Shield / Nuvio)
+ * Uses CORS-SH Proxy for high-speed bypass.
  */
 
-const HOST = "https://vsembed.ru";
+const HOST = "https://vsembed.io"; // Updated to .io mirror for better stability
 const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 
 /**
- * Option 1: Web-Bridge safeFetch
- * Redirects traffic through a public bridge to jump over UK ISP filters.
+ * Advanced safeFetch: Uses a dedicated proxy to bypass UK ISP blocks.
+ * This does not require any local apps or VPNs.
  */
 async function safeFetch(url, options = {}) {
-    // This bridge server is located outside the UK
-    const bridgeUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
+    // We use proxy.cors.sh to route around the UK blockade
+    const proxiedUrl = "https://proxy.cors.sh/" + url;
+
+    const headers = options.headers || {};
+    // Tell the proxy to grant access and mimic a real Nvidia Shield TV
+    headers["x-cors-grants"] = "true"; 
+    headers["User-Agent"] = "Mozilla/5.0 (Linux; Android 11; NVShield Build/RD2A.211001.002) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
     if (typeof fetchv2 === 'function') {
-        const headers = options.headers || {};
         const method = options.method || 'GET';
         const body = options.body || null;
         try {
-            // Fetching via the bridge
-            return await fetchv2(bridgeUrl, headers, method, body, true, options.encoding || 'utf-8');
+            // Nuvio internal engine fetch
+            return await fetchv2(proxiedUrl, headers, method, body, true, options.encoding || 'utf-8');
         } catch (e) {
-            console.error("Bridge Fetch failed:", url, e);
+            console.error("Shield Proxy failed:", url, e);
         }
     }
     
-    // Fallback for standard fetch environments
-    return fetch(bridgeUrl, options);
+    // Standard web fetch fallback
+    return fetch(proxiedUrl, { ...options, headers });
 }
 
 function toQualityLabel(text) {
@@ -138,6 +143,7 @@ async function resolveDirectStreams(media, type, season, episode) {
             if (hidden) {
                 const divId = hidden[1];
                 const divText = hidden[2];
+                // We also proxy the decryption call just in case
                 const decRes = await safeFetch('https://enc-dec.app/api/dec-cloudnestra', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

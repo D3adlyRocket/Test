@@ -69,7 +69,7 @@ var MAIN_URL = "https://dizipal2063.com";
 var HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-  "Accept-Language": "en-US,en;q=0.9" // Changed to English
+  "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7" // REVERTED: Needed for Turkish content
 };
 var KNOWN_DOMAINS = [
   "https://dizipal2063.com",
@@ -155,41 +155,41 @@ function getTmdbTitleFromHtml(tmdbId, mediaType) {
   return __async(this, null, function* () {
     try {
       const type = mediaType === "movie" ? "movie" : "tv";
-      const url = `https://www.themoviedb.org/${type}/${tmdbId}?language=en-US`; // Changed to English
+      const url = `https://www.themoviedb.org/${type}/${tmdbId}?language=tr-TR`; // REVERTED: Search needs Turkish titles
       const response = yield fetch(url, {
         headers: {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-          "Accept-Language": "en-US,en;q=0.9"
+          "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7"
         }
       });
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
       const html = yield response.text();
-      let enTitle = "";
+      let trTitle = "";
       const ogMatch = html.match(/<meta property="og:title" content="([^"]+)">/i);
       if (ogMatch) {
-        enTitle = decodeHtml(ogMatch[1]).split("(")[0].trim();
+        trTitle = decodeHtml(ogMatch[1]).split("(")[0].trim();
       } else {
         const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
         if (titleMatch) {
-          enTitle = decodeHtml(titleMatch[1]).split("(")[0].split("\u2014")[0].trim();
+          trTitle = decodeHtml(titleMatch[1]).split("(")[0].split("\u2014")[0].trim();
         }
       }
-      if (!enTitle)
+      if (!trTitle)
         return null;
-      let origTitle = enTitle;
+      let origTitle = trTitle;
       const origMatch = html.match(/<h3 class="caption" dir="auto">([^<]+)<\/h3>/i) || html.match(/<strong class="original_title">([^<]+)<\/strong>/i);
       if (origMatch) {
         const cleaned = decodeHtml(origMatch[1]).replace("Orijinal Başlık", "").replace("Original Title", "").replace("Orijinal Adı", "").replace("Orijinal Adi", "").trim();
         if (cleaned.length > 0)
           origTitle = cleaned;
       }
-      const shortTitle = enTitle.split(" ").slice(0, 2).join(" ");
+      const shortTitle = trTitle.split(" ").slice(0, 2).join(" ");
       const yearMatch = html.match(/\((\d{4})\)/);
       const year = yearMatch ? parseInt(yearMatch[1]) : null;
-      console.log(`${PROVIDER_TAG} [HTML] Title: ${enTitle} | Original: ${origTitle} | Year: ${year}`);
-      return { trTitle: enTitle, origTitle, shortTitle, year };
+      console.log(`${PROVIDER_TAG} [HTML] Title: ${trTitle} | Original: ${origTitle} | Year: ${year}`);
+      return { trTitle, origTitle, shortTitle, year };
     } catch (e) {
       console.warn(`${PROVIDER_TAG} [HTML] Scraping failed: ${e.message}`);
       return null;
@@ -200,21 +200,21 @@ function getTmdbTitleFromApi(tmdbId, mediaType) {
   return __async(this, null, function* () {
     try {
       const type = mediaType === "movie" ? "movie" : "tv";
-      const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US`; // Changed to English
+      const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&language=tr-TR`; // REVERTED: Need Turkish titles
       const response = yield fetch(url);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
       const data = yield response.json();
-      const enTitle = data.title || data.name || "";
-      const origTitle = data.original_title || data.original_name || enTitle;
-      const shortTitle = enTitle.split(" ").slice(0, 2).join(" ");
+      const trTitle = data.title || data.name || "";
+      const origTitle = data.original_title || data.original_name || trTitle;
+      const shortTitle = trTitle.split(" ").slice(0, 2).join(" ");
       const dateStr = data.release_date || data.first_air_date || "";
       const year = dateStr ? parseInt(dateStr.substring(0, 4)) : null;
-      if (!enTitle)
+      if (!trTitle)
         return null;
-      console.log(`${PROVIDER_TAG} [API] Title: ${enTitle} | Original: ${origTitle} | Year: ${year}`);
-      return { trTitle: enTitle, origTitle, shortTitle, year };
+      console.log(`${PROVIDER_TAG} [API] Title: ${trTitle} | Original: ${origTitle} | Year: ${year}`);
+      return { trTitle, origTitle, shortTitle, year };
     } catch (e) {
       console.warn(`${PROVIDER_TAG} [API] REST API failed: ${e.message}`);
       return null;
@@ -263,7 +263,7 @@ function resolveDizipal(url, activeUrl) {
         console.log(`${PROVIDER_TAG2} Inline m3u8: ${directM3u8}`);
         return { url: directM3u8, quality: "Auto", headers: { "Referer": url } };
       }
-      console.error(`${PROVIDER_TAG2} No extraction method worked: ${url}`);
+      console.error(`${PROVIDER_TAG2} No method worked: ${url}`);
       return null;
     } catch (e) {
       console.error(`${PROVIDER_TAG2} resolveDizipal error: ${e.message}`);
@@ -322,7 +322,7 @@ function resolveViaPlayerConfig(configToken, refererUrl, cookies, siteUrl) {
         body: `cfg=${encodeURIComponent(configToken)}`
       });
       if (!configRes.ok) {
-        console.warn(`${PROVIDER_TAG2} ajax-player-config response: ${configRes.status}`);
+        console.warn(`${PROVIDER_TAG2} ajax-player-config status: ${configRes.status}`);
         return null;
       }
       const configText = yield configRes.text();
@@ -335,7 +335,7 @@ function resolveViaPlayerConfig(configToken, refererUrl, cookies, siteUrl) {
       }
       const rawUrl = ((_a = configJson == null ? void 0 : configJson.config) == null ? void 0 : _a.v) || ((_b = configJson == null ? void 0 : configJson.config) == null ? void 0 : _b.url) || (configJson == null ? void 0 : configJson.url) || ((_c = configJson == null ? void 0 : configJson.data) == null ? void 0 : _c.url) || null;
       if (!rawUrl) {
-        console.error(`${PROVIDER_TAG2} URL not found in Config JSON. Response: ${configText.substring(0, 200)}`);
+        console.error(`${PROVIDER_TAG2} URL not found in Config JSON.`);
         return null;
       }
       const embedUrl = fixUrl(rawUrl.replace(/\\\//g, "/"));
@@ -344,3 +344,216 @@ function resolveViaPlayerConfig(configToken, refererUrl, cookies, siteUrl) {
     } catch (e) {
       console.error(`${PROVIDER_TAG2} resolveViaPlayerConfig error: ${e.message}`);
       return null;
+    }
+  });
+}
+function resolveEmbed(embedUrl, refererUrl) {
+  return __async(this, null, function* () {
+    if (embedUrl.includes("imagestoo")) {
+      return yield resolveImagestoo(embedUrl);
+    }
+    return yield resolveStandard(embedUrl, refererUrl);
+  });
+}
+function resolveImagestoo(embedUrl) {
+  return __async(this, null, function* () {
+    var _a;
+    console.log(`${PROVIDER_TAG2} Resolving Imagestoo: ${embedUrl}`);
+    const videoId = embedUrl.split("/").filter(Boolean).pop();
+    const apiUrl = `https://imagestoo.com/player/index.php?data=${videoId}&do=getVideo`;
+    const response = yield fetch(apiUrl, {
+      method: "POST",
+      headers: __spreadProps(__spreadValues({}, HEADERS), {
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": embedUrl
+      })
+    });
+    if (!response.ok) {
+      throw new Error(`Imagestoo API error: ${response.status}`);
+    }
+    const setCookie = response.headers.get("set-cookie");
+    const sessionCookie = setCookie ? ((_a = setCookie.split(",").find((c) => c.includes("fireplayer_player"))) == null ? void 0 : _a.split(";")[0]) || "" : "";
+    const data = yield response.json();
+    const securedLink = data.securedLink ? data.securedLink.replace(/\\\//g, "/") : null;
+    if (securedLink) {
+      return {
+        url: fixUrl(securedLink),
+        quality: "Auto",
+        headers: __spreadValues({
+          "Referer": embedUrl
+        }, sessionCookie ? { "Cookie": sessionCookie } : {})
+      };
+    }
+    return null;
+  });
+}
+function resolveStandard(embedUrl, referer) {
+  return __async(this, null, function* () {
+    console.log(`${PROVIDER_TAG2} Resolving standard embed: ${embedUrl}`);
+    const html = yield fetchText(embedUrl, {
+      headers: { "Referer": referer }
+    });
+    const m3u8Match = html.match(/sources\s*:\s*\[\s*\{\s*file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i) || html.match(/file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i) || html.match(/["']([^"']*\.m3u8[^"']*)["']/i);
+    if (m3u8Match) {
+      return {
+        url: m3u8Match[1],
+        quality: "Auto",
+        headers: { "Referer": embedUrl }
+      };
+    }
+    const mp4Match = html.match(/["']([^"']*\.mp4[^"']*)["']/i);
+    if (mp4Match) {
+      return {
+        url: mp4Match[1],
+        quality: "Auto",
+        headers: { "Referer": embedUrl }
+      };
+    }
+    return null;
+  });
+}
+
+// src/patronDizipal/index.js
+var PROVIDER_TAG3 = "[Dizipal]";
+function getStreams(tmdbId, type, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      console.log(`${PROVIDER_TAG3} getStreams: ${type} | TMDB: ${tmdbId} | S${season}E${episode}`);
+      const activeUrl = yield resolveMainUrl();
+      console.log(`${PROVIDER_TAG3} Active domain: ${activeUrl}`);
+      const { trTitle, origTitle, shortTitle, year } = yield getTmdbTitle(tmdbId, type);
+      console.log(`${PROVIDER_TAG3} Title: ${trTitle} | Original: ${origTitle} | Year: ${year}`);
+      if (!trTitle && !origTitle) {
+        console.warn(`${PROVIDER_TAG3} Title not found, exiting.`);
+        return [];
+      }
+      const matchType = type === "movie" ? "Film" : "Dizi"; // REVERTED: Match site logic
+      const queries = [...new Set([trTitle, origTitle, shortTitle].filter((q) => q && q.length > 1))];
+      let match = null;
+      for (const query of queries) {
+        console.log(`${PROVIDER_TAG3} Searching for: "${query}"`);
+        const searchUrl = `${activeUrl}/ajax-search?q=${encodeURIComponent(query)}`;
+        try {
+          const results = yield fetchJSON(searchUrl, {
+            headers: {
+              "X-Requested-With": "XMLHttpRequest",
+              "Referer": `${activeUrl}/`
+            }
+          });
+          if (!(results == null ? void 0 : results.success) || !Array.isArray(results.results))
+            continue;
+          match = results.results.find((r) => {
+            if (r.type !== matchType)
+              return false;
+            const normalize = (str) => (str || "").toLowerCase().replace(/[^a-z0-9ğüşıöç]/g, "");
+            const rTitle = normalize(r.title);
+            const cleanTr = normalize(trTitle);
+            const cleanOrig = normalize(origTitle);
+            const cleanSh = normalize(shortTitle);
+            const cleanQ = normalize(query);
+            const titleMatches = rTitle === cleanTr || rTitle === cleanOrig || rTitle === cleanSh || rTitle === cleanQ || rTitle.includes(cleanQ) || cleanQ.includes(rTitle);
+            const yearMatches = !year || !r.year || Math.abs(year - r.year) <= 1;
+            return titleMatches && yearMatches;
+          });
+          if (match) {
+            console.log(`${PROVIDER_TAG3} Match found: "${match.title}" -> ${match.url}`);
+            break;
+          }
+        } catch (err) {
+          console.error(`${PROVIDER_TAG3} Search error (${query}): ${err.message}`);
+        }
+      }
+      if (!match) {
+        console.warn(`${PROVIDER_TAG3} Content not found on site.`);
+        return [];
+      }
+      let contentUrl = fixUrl(match.url, activeUrl);
+      if (type === "tv") {
+        contentUrl = yield getEpisodeUrl(contentUrl, season, episode, activeUrl);
+        if (!contentUrl) {
+          console.warn(`${PROVIDER_TAG3} S${season}E${episode} not found.`);
+          return [];
+        }
+      }
+      const stream = yield resolveDizipal(contentUrl, activeUrl);
+      if (stream) {
+        return [{
+          url: stream.url,
+          quality: stream.quality || "Auto",
+          headers: stream.headers || {}
+        }];
+      }
+    } catch (e) {
+      console.error(`${PROVIDER_TAG3} General error: ${e.message}`);
+    }
+    return [];
+  });
+}
+function getEpisodeUrl(seriesUrl, season, episode, activeUrl) {
+  return __async(this, null, function* () {
+    try {
+      const html = yield fetchText(seriesUrl);
+      const epNumPattern = new RegExp(
+        `${season}[.\\s]*[Ss]ezon[\\s.]*${episode}[.\\s]*[Bb][oö]l[uü]m`, // REVERTED: Needed for page parsing
+        "i"
+      );
+      const anchorPattern = /href="([^"]+\/bolum\/[^"]+)"[^>]*>([^<]*<[^>]+>[^<]*<[^>]+>[^<]*)*\s*<div class="ep-num">([^<]+)<\/div>/gi;
+      let anchorMatch;
+      while ((anchorMatch = anchorPattern.exec(html)) !== null) {
+        const href = anchorMatch[1];
+        const epNum = anchorMatch[3] || "";
+        if (epNumPattern.test(epNum)) {
+          const url = fixUrl(href, activeUrl);
+          console.log(`${PROVIDER_TAG3} Episode URL found: ${url}`);
+          return url;
+        }
+      }
+      const slugPattern = new RegExp(
+        `href="([^"]+)-${season}-sezon-${episode}-bolum"`, // REVERTED: Needed for URL match
+        "i"
+      );
+      const slugMatch = html.match(slugPattern);
+      if (slugMatch) {
+        const url = fixUrl(slugMatch[1] + `-${season}-sezon-${episode}-bolum`, activeUrl);
+        console.log(`${PROVIDER_TAG3} Episode URL (slug): ${url}`);
+        return url;
+      }
+      const splitMarkers = [
+        'class="detail-episode-item',
+        "class='detail-episode-item",
+        'class="episode-item',
+        "class='episode-item",
+        "detail-episode-item-wrap"
+      ];
+      for (const marker of splitMarkers) {
+        const blocks = html.split(marker);
+        for (const block of blocks) {
+          if (epNumPattern.test(block)) {
+            const hrefMatch = block.match(/href="([^"]+)"/);
+            if (hrefMatch) {
+              const url = fixUrl(hrefMatch[1], activeUrl);
+              console.log(`${PROVIDER_TAG3} Episode URL (block split): ${url}`);
+              return url;
+            }
+          }
+        }
+      }
+      const seriesSlug = seriesUrl.split("/").filter(Boolean).pop();
+      if (seriesSlug) {
+        const guessUrl = `${activeUrl}/bolum/${seriesSlug}-${season}-sezon-${episode}-bolum`; // REVERTED: URL structure
+        console.log(`${PROVIDER_TAG3} URL Guessing: ${guessUrl}`);
+        try {
+          const testRes = yield fetch(guessUrl, { method: "HEAD", headers: HEADERS });
+          if (testRes.ok)
+            return guessUrl;
+        } catch (_) {
+        }
+      }
+      console.warn(`${PROVIDER_TAG3} Episode URL not found: S${season}E${episode}`);
+      return null;
+    } catch (e) {
+      console.error(`${PROVIDER_TAG3} getEpisodeUrl error: ${e.message}`);
+      return null;
+    }
+  });
+}

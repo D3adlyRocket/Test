@@ -1,67 +1,56 @@
 /**
- * PlayIMDb - Nuvio Local Bypass
- * Requires: Simple HTTP Server running on phone
+ * PlayIMDb - Public Tunnel Edition
+ * No Super Proxy or Every Proxy required.
+ * Bypasses UK ISP blocks by routing through a Cloud Bridge.
  */
-
-// CHANGE THIS to your phone's IP from the app
-var SERVER = "http://192.168.1.3:8080"; 
 
 function getStreams(tmdbId, type, season, episode) {
     return new Promise(function(resolve) {
-        console.log("[PlayIMDb] Search started for: " + tmdbId);
+        
+        // This is a public bridge that fetches the content for us
+        var bridge = "https://api.allorigins.win/get?url=";
+        var targetSite = "https://vsembed.ru/embed/" + tmdbId + "/";
+        
+        // We wrap the URL to hide it from the ISP
+        var finalUrl = bridge + encodeURIComponent(targetSite);
 
-        // 1. Get the instructions from your phone
-        fetch(SERVER + "/config.json")
-            .then(function(res) { return res.json(); })
-            .then(function(config) {
-                
-                // 2. Get the cookies from your phone
-                return fetch(SERVER + "/cookie.txt")
-                    .then(function(res) { return res.text(); })
-                    .then(function(cookies) {
-                        
-                        // 3. Build the bridged URL to jump the UK block
-                        var target = config.host + "/embed/" + tmdbId + "/";
-                        var bridged = config.proxy + encodeURIComponent(target);
+        console.log("[PlayIMDb] Fetching through Cloud Bridge...");
 
-                        return fetch(bridged, {
-                            method: 'GET',
-                            headers: {
-                                'User-Agent': 'Mozilla/5.0 (NVShield)',
-                                'Cookie': cookies.trim()
-                            }
-                        });
-                    });
+        fetch(finalUrl)
+            .then(function(response) {
+                if (!response.ok) throw new Error("Bridge blocked");
+                return response.json(); // AllOrigins returns a JSON object
             })
-            .then(function(res) { return res.text(); })
-            .then(function(html) {
+            .then(function(data) {
+                // The actual website HTML is inside 'data.contents'
+                var html = data.contents;
                 var streams = [];
-                // Look for the video player iframe
+
+                // Find the video player link
                 var match = html.match(/iframe id="player_iframe" src="([^"]+)"/i);
                 
                 if (match) {
-                    var link = match[1];
-                    if (link.indexOf('//') === 0) link = "https:" + link;
+                    var videoUrl = match[1];
+                    if (videoUrl.indexOf('//') === 0) videoUrl = "https:" + videoUrl;
 
                     streams.push({
-                        name: "Local Config Link",
-                        title: "Bypass Active",
-                        url: link,
+                        name: "Cloud Server",
+                        title: "Bypass Active (No Proxy)",
+                        url: videoUrl,
                         quality: "HD",
                         headers: { "Referer": "https://vsembed.ru/" }
                     });
                 }
-                
-                // Return found links (or empty array if none)
+
                 resolve(streams);
             })
             .catch(function(err) {
-                console.log("[PlayIMDb] Error: " + err);
-                resolve([]); // Always resolve empty so Nuvio stops the loading circle
+                console.error("[PlayIMDb] Error: " + err.message);
+                resolve([]); // Stop the loading circle
             });
     });
 }
 
-// Export for the Shield
+// System exports for Nuvio
 if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; }
 global.getStreams = getStreams;

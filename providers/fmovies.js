@@ -1,83 +1,67 @@
 /**
- * Nuvio Local Scraper: PlayIMDb
- * Version: 2.0.0 (2026 Bypass)
- * Setup: Requires 'Simple HTTP Server' app running on phone
+ * PlayIMDb - Nuvio Local Bypass
+ * Requires: Simple HTTP Server running on phone
  */
 
-// --- CONFIGURATION ---
-var PHONE_SERVER = "http://192.168.1.3:8080"; 
-var FALLBACK_HOST = "https://vsembed.ru";
+// CHANGE THIS to your phone's IP from the app
+var SERVER = "http://192.168.1.3:8080"; 
 
-/**
- * Main function Nuvio calls to find streams.
- * Note: Must return a Promise. Async/Await is NOT supported here.
- */
-function getStreams(tmdbId, mediaType, season, episode) {
-    console.log("[PlayIMDb] Starting search for: " + tmdbId);
+function getStreams(tmdbId, type, season, episode) {
+    return new Promise(function(resolve) {
+        console.log("[PlayIMDb] Search started for: " + tmdbId);
 
-    return new Promise(function(resolve, reject) {
-        
-        // 1. Fetch Configuration from your Phone's Simple HTTP Server
-        fetch(PHONE_SERVER + "/config.json")
-            .then(function(res) { 
-                if (!res.ok) throw new Error("Local Config Server Unreachable");
-                return res.json(); 
-            })
+        // 1. Get the instructions from your phone
+        fetch(SERVER + "/config.json")
+            .then(function(res) { return res.json(); })
             .then(function(config) {
-                // 2. Fetch Cookie Data from your Phone
-                return fetch(PHONE_SERVER + "/cookie.txt")
+                
+                // 2. Get the cookies from your phone
+                return fetch(SERVER + "/cookie.txt")
                     .then(function(res) { return res.text(); })
-                    .then(function(cookieData) {
+                    .then(function(cookies) {
                         
-                        var targetUrl = (config.host || FALLBACK_HOST) + "/embed/" + tmdbId + "/";
-                        var bridgedUrl = config.proxy + encodeURIComponent(targetUrl);
+                        // 3. Build the bridged URL to jump the UK block
+                        var target = config.host + "/embed/" + tmdbId + "/";
+                        var bridged = config.proxy + encodeURIComponent(target);
 
-                        console.log("[PlayIMDb] Requesting via Bridge: " + bridgedUrl);
-
-                        // 3. Request the actual video site
-                        return fetch(bridgedUrl, {
+                        return fetch(bridged, {
                             method: 'GET',
                             headers: {
-                                "User-Agent": config.userAgent || "Mozilla/5.0",
-                                "Cookie": cookieData.trim()
+                                'User-Agent': 'Mozilla/5.0 (NVShield)',
+                                'Cookie': cookies.trim()
                             }
                         });
                     });
             })
             .then(function(res) { return res.text(); })
             .then(function(html) {
-                // 4. Extract the stream URL
                 var streams = [];
-                var iframeMatch = html.match(/iframe id="player_iframe" src="([^"]+)"/i);
+                // Look for the video player iframe
+                var match = html.match(/iframe id="player_iframe" src="([^"]+)"/i);
                 
-                if (iframeMatch) {
-                    var finalUrl = iframeMatch[1];
-                    if (finalUrl.startsWith('//')) finalUrl = "https:" + finalUrl;
+                if (match) {
+                    var link = match[1];
+                    if (link.indexOf('//') === 0) link = "https:" + link;
 
                     streams.push({
-                        name: "Bypass Link",
-                        title: "Server 1 (Local Config Active)",
-                        url: finalUrl,
+                        name: "Local Config Link",
+                        title: "Bypass Active",
+                        url: link,
                         quality: "HD",
                         headers: { "Referer": "https://vsembed.ru/" }
                     });
                 }
-
-                console.log("[PlayIMDb] Found " + streams.length + " streams.");
+                
+                // Return found links (or empty array if none)
                 resolve(streams);
             })
             .catch(function(err) {
-                console.error("[PlayIMDb] Critical Error: " + err.message);
-                // Return empty array so the app doesn't crash
-                resolve([]); 
+                console.log("[PlayIMDb] Error: " + err);
+                resolve([]); // Always resolve empty so Nuvio stops the loading circle
             });
     });
 }
 
-// --- NUVIO SYSTEM EXPORTS ---
-// This part ensures the Nuvio Hermes engine sees the code correctly
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { getStreams: getStreams };
-} else {
-    global.getStreams = getStreams;
-}
+// Export for the Shield
+if (typeof module !== 'undefined') { module.exports = { getStreams: getStreams }; }
+global.getStreams = getStreams;

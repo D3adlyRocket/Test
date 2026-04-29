@@ -2,7 +2,7 @@ const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const PROVIDER_ID = 'alas-vidfast';
 
-// Use the working static configuration
+// WORKING STATIC CONFIG (from your 2nd code)
 const CONFIG = {
     aesKey: "732d61323330343734612d313165622d",
     aesIv: "61316232633364346535663637383930",
@@ -20,12 +20,12 @@ async function safeFetch(url, options = {}) {
         const body = options.body || null;
         try {
             return await fetchv2(url, headers, method, body, true, options.encoding || 'utf-8');
-        } catch (e) {}
+        } catch {}
     }
     return fetch(url, options);
 }
 
-// Encryption Helpers
+// ENCRYPTION HELPERS (Aligned with the working logic)
 function hexToBytes(hex) {
     const clean = String(hex || '').replace(/^0x/i, '');
     const out = new Uint8Array(clean.length / 2);
@@ -57,12 +57,12 @@ async function aesCbcEncrypt(plainText, keyBytes, ivBytes) {
     return new Uint8Array(cipherBuf);
 }
 
-// Main Logic
+// MAIN FETCHER
 async function getStreams(tmdbId, mediaType, seasonNum = 1, episodeNum = 1) {
     try {
         const type = mediaType === 'tv' ? 'tv' : 'movie';
         
-        // 1. Get IMDB ID (Crucial for Vidfast URL structure)
+        // 1. Get IMDB ID via TMDB
         const tmdbUrl = type === 'movie' 
             ? `${TMDB_BASE}/movie/${tmdbId}?api_key=${TMDB_API_KEY}`
             : `${TMDB_BASE}/tv/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
@@ -71,22 +71,16 @@ async function getStreams(tmdbId, mediaType, seasonNum = 1, episodeNum = 1) {
         const imdbId = tmdbData.imdb_id;
         if (!imdbId) return [];
 
-        // 2. Load the Vidfast page to get the 'en' token
+        // 2. Fetch the 'en' token from the page
         const pageUrl = type === 'tv'
             ? `https://vidfast.pro/tv/${imdbId}/${seasonNum}/${episodeNum}`
             : `https://vidfast.pro/movie/${imdbId}`;
-
-        const pageRes = await safeFetch(pageUrl, { 
-            headers: { 'User-Agent': CONFIG.userAgent } 
-        });
+        const pageRes = await safeFetch(pageUrl, { headers: { 'User-Agent': CONFIG.userAgent } });
         const pageText = await pageRes.text();
-        
-        // Use a more robust regex to find the token
-        const tokenMatch = pageText.match(/"en"\s*:\s*"([^"]+)"/);
-        const rawToken = tokenMatch ? tokenMatch[1] : null;
+        const rawToken = pageText.match(/"en"\s*:\s*"([^"]+)"/)?.[1];
         if (!rawToken) return [];
 
-        // 3. Encrypt the token (Matching your working code's logic)
+        // 3. Encrypt & Map (The logic that makes code #2 work)
         const cipherBytes = await aesCbcEncrypt(rawToken, hexToBytes(CONFIG.aesKey), hexToBytes(CONFIG.aesIv));
         const xorBytes = hexToBytes(CONFIG.xorKey);
         const xorResult = cipherBytes.map((b, i) => b ^ xorBytes[i % xorBytes.length]);
@@ -98,49 +92,39 @@ async function getStreams(tmdbId, mediaType, seasonNum = 1, episodeNum = 1) {
             encodedFinal += idx !== -1 ? CONFIG.encodeDst[idx] : ch;
         }
 
-        // 4. Fetch the Server List with the CORRECT HEADERS
+        // 4. API Request for Servers
         const apiServers = `https://vidfast.pro/${CONFIG.staticPath}/wfPFjh__qQ/${encodedFinal}`;
         const serversRes = await safeFetch(apiServers, { 
             headers: { 
                 'User-Agent': CONFIG.userAgent, 
-                'Referer': pageUrl, // Must be the specific movie page
-                'X-Requested-With': 'XMLHttpRequest', // Mandatory for Vidfast API
-                'Accept': 'application/json, text/javascript, */*; q=0.01'
+                'Referer': pageUrl,
+                'X-Requested-With': 'XMLHttpRequest'
             } 
         });
-        
         const serverList = await serversRes.json();
         if (!Array.isArray(serverList)) return [];
 
-        // 5. Final stream extraction
+        // 5. Final Stream Resolution
         const streams = [];
         for (const srv of serverList) {
             const apiStream = `https://vidfast.pro/${CONFIG.staticPath}/AddlBFe5/${srv.data}`;
-            const streamRes = await safeFetch(apiStream, { 
-                headers: { 
-                    'User-Agent': CONFIG.userAgent,
-                    'Referer': 'https://vidfast.pro/',
-                    'X-Requested-With': 'XMLHttpRequest'
-                } 
+            const sRes = await safeFetch(apiStream, { 
+                headers: { 'Referer': 'https://vidfast.pro/', 'User-Agent': CONFIG.userAgent } 
             });
-            const data = await streamRes.json();
-
-            if (data && data.url) {
+            const data = await sRes.json();
+            
+            if (data?.url) {
                 streams.push({
-                    name: `${PROVIDER_ID} - ${srv.name || 'Server'}`,
+                    name: `${PROVIDER_ID} - ${srv.name}`,
                     url: data.url,
                     quality: data.url.includes('m3u8') ? 'Auto' : '1080p',
-                    headers: { 
-                        'Referer': 'https://vidfast.pro/',
-                        'User-Agent': CONFIG.userAgent
-                    }
+                    headers: { 'Referer': 'https://vidfast.pro/' }
                 });
             }
         }
-
         return streams;
+
     } catch (e) {
-        console.error("Vidfast Error:", e);
         return [];
     }
 }

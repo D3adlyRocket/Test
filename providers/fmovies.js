@@ -53,136 +53,82 @@ function getTmdbMeta(tmdbId, mediaType) {
   return getJson(url);
 }
 
-// --- VIDFAST SPECIFIC UTILS ---
-
-async function parseM3U8Playlist(playlistUrl) {
-    try {
-        const response = await fetch(playlistUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
-                'Referer': 'https://vidfast.pro/'
-            }
-        });
-        if (!response.ok) return null;
-        const playlistText = await response.text();
-        if (!playlistText.includes('#EXT-X-STREAM-INF')) return null;
-        const variants = [];
-        const lines = playlistText.split('\n');
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i].trim();
-            if (line.startsWith('#EXT-X-STREAM-INF')) {
-                const resolutionMatch = line.match(/RESOLUTION=(\d+)x(\d+)/i);
-                const urlLine = lines[i + 1]?.trim();
-                if (!urlLine || urlLine.startsWith('#')) continue;
-                let variantUrl = urlLine;
-                if (!urlLine.startsWith('http')) {
-                    const baseUrl = playlistUrl.substring(0, playlistUrl.lastIndexOf('/') + 1);
-                    variantUrl = baseUrl + urlLine;
-                }
-                let quality = 'Unknown';
-                if (resolutionMatch) {
-                    const height = parseInt(resolutionMatch[2]);
-                    if (height >= 2160) quality = '2160p';
-                    else if (height >= 1080) quality = '1080p';
-                    else if (height >= 720) quality = '720p';
-                    else quality = `${height}p`;
-                }
-                variants.push({ url: variantUrl, quality: quality });
-            }
-        }
-        return variants.length > 0 ? variants : null;
-    } catch (error) {
-        return null;
-    }
-}
-
 // --- RESOLVERS ---
 
 async function resolveVidFast(tmdbId, mediaType, season, episode) {
-    try {
-        const VIDFAST_BASE = 'https://vidfast.pro';
-        const ENCRYPT_API = 'https://enc-dec.app/api/enc-vidfast';
-        const DECRYPT_API = 'https://enc-dec.app/api/dec-vidfast';
-        
-        const pageUrl = mediaType === 'tv'
-            ? `${VIDFAST_BASE}/tv/${tmdbId}/${season || 1}/${episode || 1}`
-            : `${VIDFAST_BASE}/movie/${tmdbId}`;
+  try {
+    const VIDFAST_BASE = 'https://vidfast.pro';
+    const pageUrl = mediaType === 'tv'
+      ? `${VIDFAST_BASE}/tv/${tmdbId}/${season || 1}/${episode || 1}`
+      : `${VIDFAST_BASE}/movie/${tmdbId}`;
 
-        const headers = {
-            'Origin': 'https://vidfast.pro',
-            'Referer': pageUrl,
-            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.3 Safari/605.1.15',
-            'X-Requested-With': 'XMLHttpRequest'
-        };
+    const headers = {
+      'Origin': VIDFAST_BASE,
+      'Referer': pageUrl,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      'X-Requested-With': 'XMLHttpRequest'
+    };
 
-        const pageText = await getText(pageUrl, { headers });
-        let rawData = null;
-        const nextDataMatch = pageText.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
-        if (nextDataMatch) {
-            try {
-                const jsonData = JSON.parse(nextDataMatch[1]);
-                const propsStr = JSON.stringify(jsonData);
-                const dataMatch = propsStr.match(/"en":"([^"]+)"/);
-                if (dataMatch) rawData = dataMatch[1];
-            } catch (e) {}
-        }
-        if (!rawData) {
-            const match = pageText.match(/"en":"([^"]+)"/) || pageText.match(/data\s*=\s*"([^"]+)"/);
-            if (match) rawData = match[1];
-        }
-        if (!rawData) return [];
+    const html = await getText(pageUrl, { headers });
+    let rawData = null;
 
-        const apiData = await getJson(`${ENCRYPT_API}?text=${encodeURIComponent(rawData)}&version=1`);
-        if (apiData.status !== 200 || !apiData.result) return [];
+    // Look for the encrypted string in __NEXT_DATA__
+    const nextMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
+    if (nextMatch) {
+      const jsonData = JSON.parse(nextMatch[1]);
+      // VidFast hides it in pageProps.en or pageProps.data
+      rawData = jsonData.props?.pageProps?.en || jsonData.props?.pageProps?.data;
+    }
 
-        if (apiData.result.token) headers['X-CSRF-Token'] = apiData.result.token;
+    if (!rawData) {
+      const regexMatch = html.match(/"en":"([^"]+)"/) || html.match(/data\s*=\s*"([^"]+)"/);
+      if (regexMatch) rawData = regexMatch[1];
+    }
 
-        const serversEncrypted = await getText(apiData.result.servers, { method: 'POST', headers });
-        const decryptServers = await getJson(DECRYPT_API, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: serversEncrypted, version: '1' })
+    if (!rawData) return [];
+
+    // Get API info from enc-dec
+    const apiConfig = await getJson(`https://enc-dec.app/api/enc-vidfast?text=${encodeURIComponent(rawData)}&version=1`);
+    if (!apiConfig || !apiConfig.result) return [];
+
+    const res = apiConfig.result;
+    if (res.token) headers['X-CSRF-Token'] = res.token;
+
+    // Fetch Servers
+    const encServers = await getText(res.servers, { method: 'POST', headers });
+    const decServers = await getJson('https://enc-dec.app/api/dec-vidfast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: encServers, version: '1' })
+    });
+
+    const serverList = decServers.result || [];
+    const streamPromises = serverList.map(async (srv) => {
+      try {
+        const encStr = await getText(`${res.stream}/${srv.data}`, { method: 'POST', headers });
+        const decStr = await getJson('https://enc-dec.app/api/dec-vidfast', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: encStr, version: '1' })
         });
 
-        let serverList = decryptServers.result || [];
-        const rawStreams = [];
-
-        for (const serverObj of serverList) {
-            try {
-                const streamEncrypted = await getText(`${apiData.result.stream}/${serverObj.data}`, { method: 'POST', headers });
-                const streamDecrypt = await getJson(DECRYPT_API, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: streamEncrypted, version: '1' })
-                });
-                const data = streamDecrypt.result;
-                if (data && data.url) {
-                    rawStreams.push({
-                        serverName: serverObj.name,
-                        url: data.url,
-                        isM3U8: data.url.includes('.m3u8')
-                    });
-                }
-            } catch (e) {}
+        if (decStr.result?.url) {
+          return streamObject(
+            'VidFast',
+            `VidFast ${srv.name || 'Server'}`,
+            decStr.result.url,
+            normalizeQuality(decStr.result.quality || decStr.result.label),
+            { 'Referer': VIDFAST_BASE + '/', 'Origin': VIDFAST_BASE }
+          );
         }
+      } catch (e) { return null; }
+    });
 
-        const finalStreams = [];
-        for (const stream of rawStreams) {
-            if (stream.isM3U8) {
-                const variants = await parseM3U8Playlist(stream.url);
-                if (variants) {
-                    variants.forEach(v => {
-                        finalStreams.push(streamObject('VidFast', `VidFast ${stream.serverName}`, v.url, v.quality, { 'Referer': 'https://vidfast.pro/' }));
-                    });
-                    continue;
-                }
-            }
-            finalStreams.push(streamObject('VidFast', `VidFast ${stream.serverName}`, stream.url, 'Auto', { 'Referer': 'https://vidfast.pro/' }));
-        }
-        return finalStreams.filter(Boolean);
-    } catch (error) {
-        return [];
-    }
+    const streams = await Promise.all(streamPromises);
+    return streams.filter(Boolean);
+  } catch (err) {
+    return [];
+  }
 }
 
 function resolveVidEasy(tmdbId, mediaType, season, episode) {
@@ -334,7 +280,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   ];
 
   const results = await Promise.all(
-    resolvers.map(resolver => resolver(tmdbId, mediaType, season, episode).catch(() => []))
+    resolvers.map(resolver => Promise.resolve(resolver(tmdbId, mediaType, season, episode)).catch(() => []))
   );
 
   let merged = [];

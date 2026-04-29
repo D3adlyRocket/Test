@@ -1,6 +1,7 @@
 /**
- * patronDizipal - Built from src/patronDizipal/
- * Optimized for Android TV - High Stability 2026 Edition
+ * patronDizipal - Full TV Template Integration
+ * Built from the 559-line HDHub4u / UHDMovies Architecture
+ * Generated: 2026-04-29
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -52,130 +53,180 @@ var __async = (__this, __arguments, generator) => {
 
 // --- CONSTANTS ---
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var TMDB_BASE_URL = "https://api.themoviedb.org/3";
 var MAIN_URL = "https://dizipal2063.com";
-var TV_UA = "Mozilla/5.0 (Linux; Android 10; BRAVIA 4K VH2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 var HEADERS = {
-  "User-Agent": TV_UA,
+  "User-Agent": "Mozilla/5.0 (Linux; Android 10; BRAVIA 4K VH2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   "Referer": `${MAIN_URL}/`,
-  "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8"
+  "X-Requested-With": "XMLHttpRequest"
 };
 
-// --- UTILS (From HDHub4u Template) ---
+// --- UTILS (Full 559-line Template Utilities) ---
+function rot13(value) {
+  return value.replace(/[a-zA-Z]/g, function(c) {
+    return String.fromCharCode((c <= "Z" ? 90 : 122) >= (c = c.charCodeAt(0) + 13) ? c : c - 26);
+  });
+}
+
 function atob(value) {
   if (!value) return "";
   let input = String(value).replace(/=+$/, "");
   let output = "";
   let bc = 0, bs, buffer, idx = 0;
+  const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=";
   while (buffer = input.charAt(idx++)) {
-    buffer = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=".indexOf(buffer);
+    buffer = BASE64_CHARS.indexOf(buffer);
     if (~buffer) {
       bs = bc % 4 ? bs * 64 + buffer : buffer;
-      if (bc++ % 4) output += String.fromCharCode(255 & bs >> (-2 * bc & 6));
+      if (bc++ % 4) {
+        output += String.fromCharCode(255 & bs >> (-2 * bc & 6));
+      }
     }
   }
   return output;
 }
 
-// --- DIZIPAL CORE LOGIC ---
-async function resolveMainUrl() {
+function normalizeTitle(title) {
+  if (!title) return "";
+  return title.toLowerCase().replace(/\b(the|a|an)\b/g, "").replace(/[:\-_]/g, " ").replace(/\s+/g, " ").replace(/[^\w\s]/g, "").trim();
+}
+
+function calculateTitleSimilarity(title1, title2) {
+  const norm1 = normalizeTitle(title1);
+  const norm2 = normalizeTitle(title2);
+  if (norm1 === norm2) return 1;
+  const words1 = norm1.split(/\s+/).filter((w) => w.length > 0);
+  const words2 = norm2.split(/\s+/).filter((w) => w.length > 0);
+  if (words1.length === 0 || words2.length === 0) return 0;
+  const set2 = new Set(words2);
+  const intersection = words1.filter((w) => set2.has(w));
+  return intersection.length / new Set([...words1, ...words2]).size;
+}
+
+// --- CORE FETCHERS ---
+async function getCurrentDomain() {
   const domains = ["https://dizipal2064.com", "https://dizipal2063.com", "https://dizipal2065.com"];
   for (const domain of domains) {
     try {
-      const res = await fetch(domain, { 
-        method: "HEAD", 
-        headers: { "User-Agent": TV_UA },
-        signal: AbortSignal.timeout(4000) 
-      });
+      const res = await fetch(domain, { method: "HEAD", signal: AbortSignal.timeout(3000) });
       if (res.ok) return domain;
     } catch (e) {}
   }
-  return domains[0];
+  return MAIN_URL;
 }
 
-async function extractStream(url, activeUrl) {
+async function getTMDBDetails(tmdbId, mediaType) {
+  return __async(this, null, function* () {
+    const endpoint = mediaType === "tv" ? "tv" : "movie";
+    const url = `${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}&language=tr-TR`;
+    const response = yield fetch(url, { headers: { "Accept": "application/json" } });
+    if (!response.ok) throw new Error(`TMDB Error`);
+    const data = yield response.json();
+    return { 
+      title: mediaType === "tv" ? data.name : data.title, 
+      year: parseInt((data.release_date || data.first_air_date || "0000").split("-")[0]) 
+    };
+  });
+}
+
+// --- EXTRACTION ENGINE ---
+async function extractDizipalStream(targetUrl, domain) {
   try {
-    const response = await fetch(url, { 
-        headers: HEADERS,
-        signal: AbortSignal.timeout(10000)
-    });
-    const html = await response.text();
+    const res = await fetch(targetUrl, { headers: HEADERS, signal: AbortSignal.timeout(10000) });
+    const html = await res.text();
     
-    // Config Token Extractor
-    const cfg = html.match(/data-cfg="([^"]+)"/) || html.match(/data-hash="([^"]+)"/);
-    if (cfg) {
-      const ajaxRes = await fetch(`${activeUrl}/ajax-player-config`, {
+    // Dizipal specific Player Config Token
+    const cfgMatch = html.match(/data-cfg="([^"]+)"/) || html.match(/data-hash="([^"]+)"/);
+    if (cfgMatch) {
+      const ajaxRes = await fetch(`${domain}/ajax-player-config`, {
         method: "POST",
-        headers: __spreadProps(__spreadValues({}, HEADERS), { "Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "XMLHttpRequest" }),
-        body: `cfg=${encodeURIComponent(cfg[1])}`,
+        headers: __spreadProps(__spreadValues({}, HEADERS), { "Content-Type": "application/x-www-form-urlencoded" }),
+        body: `cfg=${encodeURIComponent(cfgMatch[1])}`,
         signal: AbortSignal.timeout(8000)
       });
-      const json = await ajaxRes.json();
-      const streamUrl = json?.config?.v || json?.url;
-      if (streamUrl) return streamUrl.replace(/\\\//g, "/");
+      const config = await ajaxRes.json();
+      let streamUrl = config?.config?.v || config?.url;
+      if (streamUrl) {
+        streamUrl = streamUrl.replace(/\\\//g, "/");
+        return { 
+          url: streamUrl, 
+          headers: { "User-Agent": HEADERS["User-Agent"], "Referer": targetUrl, "Origin": domain } 
+        };
+      }
     }
     return null;
   } catch (e) { return null; }
 }
 
-// --- MAIN EXPORT (getStreams) ---
-async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
-  console.log(`[Dizipal] TV Fetching: ${tmdbId}`);
+// --- SEARCH & EPISODE LOGIC ---
+async function dizipalSearch(query, domain) {
   try {
-    const activeUrl = await resolveMainUrl();
-    
-    // TMDB Info
-    const tmdbRes = await fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&language=tr-TR`);
-    const tmdbData = await tmdbRes.json();
-    const query = tmdbData.title || tmdbData.name;
-    if (!query) return [];
+    const searchUrl = `${domain}/ajax-search?q=${encodeURIComponent(query)}`;
+    const res = await fetch(searchUrl, { headers: HEADERS });
+    const data = await res.json();
+    if (!data.success) return [];
+    return data.results.map(r => ({
+      title: r.title || r.name,
+      url: r.url.startsWith('http') ? r.url : domain + r.url,
+      type: r.type // 'Film' or 'Dizi'
+    }));
+  } catch (e) { return []; }
+}
 
-    // Search Dizipal (Native AJAX search)
-    const searchRes = await fetch(`${activeUrl}/ajax-search?q=${encodeURIComponent(query)}`, {
-        headers: __spreadProps(__spreadValues({}, HEADERS), { "X-Requested-With": "XMLHttpRequest" })
+// --- EXPORTED getStreams FUNCTION ---
+async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
+  console.log(`[Dizipal] TV Start: ${tmdbId}`);
+  try {
+    const domain = await getCurrentDomain();
+    const mediaInfo = await getTMDBDetails(tmdbId, mediaType);
+    
+    const results = await dizipalSearch(mediaInfo.title, domain);
+    if (!results.length) return [];
+
+    // Title matching logic from your template
+    let bestMatch = results[0];
+    let maxScore = 0;
+    results.forEach(res => {
+      const score = calculateTitleSimilarity(mediaInfo.title, res.title);
+      if (score > maxScore) {
+        maxScore = score;
+        bestMatch = res;
+      }
     });
-    const searchData = await searchRes.json();
-    
-    if (!searchData.success || !searchData.results.length) return [];
 
-    // Filter Match
-    const matchType = mediaType === "movie" ? "Film" : "Dizi";
-    const bestMatch = searchData.results.find(r => r.type === matchType) || searchData.results[0];
-    let contentUrl = bestMatch.url.startsWith('http') ? bestMatch.url : activeUrl + bestMatch.url;
+    let targetUrl = bestMatch.url;
 
-    // Episode Handling
+    // TV Show Episode Navigator
     if (mediaType === "tv" && season && episode) {
-      const pageRes = await fetch(contentUrl, { headers: HEADERS });
+      const pageRes = await fetch(targetUrl, { headers: HEADERS });
       const pageHtml = await pageRes.text();
       const epPattern = new RegExp(`${season}.*sezon.*${episode}.*b\xF6l\xFCm`, "i");
       const blocks = pageHtml.split('class="detail-episode-item');
       for (const block of blocks) {
         if (epPattern.test(block)) {
-          const href = block.match(/href="([^"]+)"/);
-          if (href) contentUrl = href[1].startsWith('http') ? href[1] : activeUrl + href[1];
+          const hrefMatch = block.match(/href="([^"]+)"/);
+          if (hrefMatch) {
+            targetUrl = hrefMatch[1].startsWith('http') ? hrefMatch[1] : domain + hrefMatch[1];
+            break;
+          }
         }
       }
     }
 
-    const videoUrl = await extractStream(contentUrl, activeUrl);
+    const stream = await extractDizipalStream(targetUrl, domain);
     
-    if (videoUrl) {
+    if (stream) {
       return [{
-        name: "Dizipal TV [1080p]",
-        url: videoUrl,
-        quality: "Auto",
-        headers: {
-          "User-Agent": TV_UA,
-          "Referer": contentUrl,
-          "Origin": activeUrl,
-          "Connection": "keep-alive"
-        }
+        name: "Dizipal TV",
+        url: stream.url,
+        quality: "1080p",
+        headers: stream.headers
       }];
     }
   } catch (err) {
-    console.error("[Dizipal] TV Critical Error:", err.message);
+    console.error(`[Dizipal Error] ${err.message}`);
   }
   return [];
 }
 
-// Module Export
 module.exports = { getStreams };

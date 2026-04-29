@@ -1,5 +1,3 @@
-// --- UTILS ---
-
 function getJson(url, options) {
   return fetch(url, options || {}).then(function (response) {
     if (!response || !response.ok) {
@@ -55,9 +53,6 @@ function getTmdbMeta(tmdbId, mediaType) {
 
 // --- RESOLVERS ---
 
-/**
- * VidFast Resolver
- */
 function resolveVidFast(tmdbId, mediaType, season, episode) {
   var baseUrl = 'https://vidfast.pro';
   var pageUrl = mediaType === 'tv' 
@@ -65,34 +60,40 @@ function resolveVidFast(tmdbId, mediaType, season, episode) {
     : baseUrl + '/movie/' + tmdbId;
 
   var headers = {
-    'Referer': pageUrl,
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    'Referer': baseUrl + '/',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   };
 
   return getText(pageUrl, { headers: headers })
     .then(function (html) {
-      // Extract the encrypted data string from the page
       var rawData = null;
-      var patterns = [/"en":"([^"]+)"/, /data\s*=\s*"([^"]+)"/];
-      for (var i = 0; i < patterns.length; i++) {
-        var match = html.match(patterns[i]);
-        if (match) { rawData = match[1]; break; }
+      var nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
+      if (nextDataMatch) {
+        try {
+          var jsonData = JSON.parse(nextDataMatch[1]);
+          var props = jsonData.props.pageProps || {};
+          rawData = props.en || props.data || null;
+        } catch (e) {}
       }
-      if (!rawData) throw new Error('VidFast: No data found');
+      if (!rawData) {
+        var patterns = [/"en"\s*:\s*"([^"]+)"/, /data\s*=\s*"([^"]+)"/];
+        for (var i = 0; i < patterns.length; i++) {
+          var match = html.match(patterns[i]);
+          if (match) { rawData = match[1]; break; }
+        }
+      }
+      if (!rawData) throw new Error('No data');
 
-      // Get server and stream configurations
       return getJson('https://enc-dec.app/api/enc-vidfast?text=' + encodeURIComponent(rawData) + '&version=1');
     })
     .then(function (apiData) {
       if (!apiData || !apiData.result) return [];
       var result = apiData.result;
       var streamBase = result.stream;
-      
-      var serverHeaders = Object.assign({}, headers);
-      if (result.token) serverHeaders['X-CSRF-Token'] = result.token;
+      var apiHeaders = { 'Referer': pageUrl, 'User-Agent': headers['User-Agent'], 'Origin': baseUrl };
+      if (result.token) apiHeaders['X-CSRF-Token'] = result.token;
 
-      // Fetch the server list
-      return getText(result.servers, { method: 'POST', headers: serverHeaders })
+      return getText(result.servers, { method: 'POST', headers: apiHeaders })
         .then(function (encServers) {
           return getJson('https://enc-dec.app/api/dec-vidfast', {
             method: 'POST',
@@ -104,10 +105,9 @@ function resolveVidFast(tmdbId, mediaType, season, episode) {
           var serverList = decServers.result || [];
           if (!Array.isArray(serverList)) return [];
 
-          // For each server, get the actual stream URL
           var streamPromises = serverList.map(function (serverObj) {
             var streamApiUrl = streamBase + '/' + serverObj.data;
-            return getText(streamApiUrl, { method: 'POST', headers: serverHeaders })
+            return getText(streamApiUrl, { method: 'POST', headers: apiHeaders })
               .then(function (encStream) {
                 return getJson('https://enc-dec.app/api/dec-vidfast', {
                   method: 'POST',
@@ -118,29 +118,21 @@ function resolveVidFast(tmdbId, mediaType, season, episode) {
               .then(function (decStream) {
                 var data = decStream.result;
                 if (!data || !data.url) return null;
-                
-                var quality = normalizeQuality(data.quality || data.label || (data.url.includes('.m3u8') ? 'Auto' : ''));
                 return streamObject(
                   'VidFast',
                   'VidFast ' + (serverObj.name || 'Server'),
                   data.url,
-                  quality,
-                  { 'Referer': 'https://vidfast.pro/', 'User-Agent': 'Mozilla/5.0' }
+                  normalizeQuality(data.quality || data.label || 'Auto'),
+                  { 'Referer': baseUrl + '/', 'Origin': baseUrl }
                 );
               })
               .catch(function() { return null; });
           });
-
           return Promise.all(streamPromises);
         });
     })
-    .then(function (streams) {
-      return streams.filter(Boolean);
-    })
-    .catch(function (err) {
-      console.log('[VidFast] Error:', err.message);
-      return [];
-    });
+    .then(function (streams) { return streams.filter(Boolean); })
+    .catch(function () { return []; });
 }
 
 function resolveVidEasy(tmdbId, mediaType, season, episode) {
@@ -292,7 +284,7 @@ function resolveVidSrc(tmdbId, mediaType, season, episode) {
 
 function getStreams(tmdbId, mediaType, season, episode) {
   var resolvers = [
-    resolveVidFast, // Added VidFast
+    resolveVidFast,
     resolveVidEasy,
     resolveVidLink,
     resolveVidmody,

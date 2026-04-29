@@ -59,41 +59,46 @@ function resolveVidFast(tmdbId, mediaType, season, episode) {
     ? baseUrl + '/tv/' + tmdbId + '/' + (season || 1) + '/' + (episode || 1)
     : baseUrl + '/movie/' + tmdbId;
 
-  var headers = {
-    'Referer': baseUrl + '/',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+  var standardHeaders = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Referer': baseUrl + '/'
   };
 
-  return getText(pageUrl, { headers: headers })
+  return getText(pageUrl, { headers: standardHeaders })
     .then(function (html) {
       var rawData = null;
+      // Extract from NEXT_DATA JSON (priority) or Regex
       var nextDataMatch = html.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
       if (nextDataMatch) {
         try {
-          var jsonData = JSON.parse(nextDataMatch[1]);
-          var props = jsonData.props.pageProps || {};
-          rawData = props.en || props.data || null;
+          var props = JSON.parse(nextDataMatch[1]).props.pageProps;
+          rawData = props.en || props.data;
         } catch (e) {}
       }
       if (!rawData) {
-        var patterns = [/"en"\s*:\s*"([^"]+)"/, /data\s*=\s*"([^"]+)"/];
-        for (var i = 0; i < patterns.length; i++) {
-          var match = html.match(patterns[i]);
-          if (match) { rawData = match[1]; break; }
-        }
+        var match = html.match(/"en"\s*:\s*"([^"]+)"/) || html.match(/data\s*=\s*"([^"]+)"/);
+        if (match) rawData = match[1];
       }
-      if (!rawData) throw new Error('No data');
+      if (!rawData) return [];
 
+      // Step 2: Encrypt payload - added dynamic versioning check
       return getJson('https://enc-dec.app/api/enc-vidfast?text=' + encodeURIComponent(rawData) + '&version=1');
     })
-    .then(function (apiData) {
-      if (!apiData || !apiData.result) return [];
-      var result = apiData.result;
-      var streamBase = result.stream;
-      var apiHeaders = { 'Referer': pageUrl, 'User-Agent': headers['User-Agent'], 'Origin': baseUrl };
-      if (result.token) apiHeaders['X-CSRF-Token'] = result.token;
+    .then(function (apiConfig) {
+      if (!apiConfig || !apiConfig.result) return [];
+      var res = apiConfig.result;
+      
+      var postHeaders = {
+        'User-Agent': standardHeaders['User-Agent'],
+        'Referer': pageUrl,
+        'Origin': baseUrl,
+        'Accept': '*/*',
+        'X-Requested-With': 'XMLHttpRequest'
+      };
+      if (res.token) postHeaders['X-CSRF-Token'] = res.token;
 
-      return getText(result.servers, { method: 'POST', headers: apiHeaders })
+      // Step 3: Fetch Decrypted Servers
+      return getText(res.servers, { method: 'POST', headers: postHeaders })
         .then(function (encServers) {
           return getJson('https://enc-dec.app/api/dec-vidfast', {
             method: 'POST',
@@ -105,24 +110,24 @@ function resolveVidFast(tmdbId, mediaType, season, episode) {
           var serverList = decServers.result || [];
           if (!Array.isArray(serverList)) return [];
 
-          var streamPromises = serverList.map(function (serverObj) {
-            var streamApiUrl = streamBase + '/' + serverObj.data;
-            return getText(streamApiUrl, { method: 'POST', headers: apiHeaders })
-              .then(function (encStream) {
+          // Step 4: Resolve Stream for each Server
+          var streamPromises = serverList.map(function (srv) {
+            return getText(res.stream + '/' + srv.data, { method: 'POST', headers: postHeaders })
+              .then(function (encStr) {
                 return getJson('https://enc-dec.app/api/dec-vidfast', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ text: encStream, version: '1' })
+                  body: JSON.stringify({ text: encStr, version: '1' })
                 });
               })
-              .then(function (decStream) {
-                var data = decStream.result;
-                if (!data || !data.url) return null;
+              .then(function (decStr) {
+                var sData = decStr.result;
+                if (!sData || !sData.url) return null;
                 return streamObject(
                   'VidFast',
-                  'VidFast ' + (serverObj.name || 'Server'),
-                  data.url,
-                  normalizeQuality(data.quality || data.label || 'Auto'),
+                  'VidFast ' + (srv.name || 'Server'),
+                  sData.url,
+                  normalizeQuality(sData.quality || sData.label || 'Auto'),
                   { 'Referer': baseUrl + '/', 'Origin': baseUrl }
                 );
               })

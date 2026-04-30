@@ -1,6 +1,6 @@
 /**
  * 4KHDHub - Built from src/FourKHDHub/
- * Generated: 2026-04-29T15:14:47.784Z
+ * Generated: 2026-04-30T15:14:47.784Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -266,54 +266,25 @@ function buildDisplayMeta(sourceTitle = "", url = "") {
     displayTitle: `${source} | ${lang}`
   };
 }
+
+// Improved Quality Parser to stop "Unknown" results
 function parseQuality(text) {
   const value = (text || "").toLowerCase();
-  if (/2160p|4k|uhd/.test(value))
-    return "4K";
-  if (/1440p/.test(value))
-    return "1440p";
-  if (/1080p/.test(value))
-    return "1080p";
-  if (/720p/.test(value))
-    return "720p";
-  if (/480p/.test(value))
-    return "480p";
+  if (/2160p|4k|uhd|ultra[ .]hd/i.test(value)) return "4K";
+  if (/1440p|2k/i.test(value)) return "1440p";
+  if (/1080p|fhd|full[ .]hd/i.test(value)) return "1080p";
+  if (/720p|hd/i.test(value)) return "720p";
+  if (/480p|sd/i.test(value)) return "480p";
+  if (/bluray|brrip|bdrip/i.test(value)) return "1080p"; // Default high quality for bluray rips
   return "Auto";
 }
+
 function cleanFileDetails(title) {
   const normalized = (title || "").replace(/\.[a-z0-9]{2,4}$/i, "").replace(/WEB[-_. ]?DL/gi, "WEB-DL").replace(/WEB[-_. ]?RIP/gi, "WEBRIP").replace(/H[ .]?265/gi, "H265").replace(/H[ .]?264/gi, "H264").replace(/DDP[ .]?([0-9]\.[0-9])/gi, "DDP$1");
   const allowed = /* @__PURE__ */ new Set([
-    "WEB-DL",
-    "WEBRIP",
-    "BLURAY",
-    "HDRIP",
-    "DVDRIP",
-    "HDTV",
-    "CAM",
-    "TS",
-    "BRRIP",
-    "BDRIP",
-    "H264",
-    "H265",
-    "X264",
-    "X265",
-    "HEVC",
-    "AVC",
-    "AAC",
-    "AC3",
-    "DTS",
-    "MP3",
-    "FLAC",
-    "DD",
-    "ATMOS",
-    "HDR",
-    "HDR10",
-    "HDR10+",
-    "DV",
-    "DOLBYVISION",
-    "NF",
-    "CR",
-    "SDR"
+    "WEB-DL", "WEBRIP", "BLURAY", "HDRIP", "DVDRIP", "HDTV", "CAM", "TS", "BRRIP", "BDRIP",
+    "H264", "H265", "X264", "X265", "HEVC", "AVC", "AAC", "AC3", "DTS", "MP3", "FLAC",
+    "DD", "ATMOS", "HDR", "HDR10", "HDR10+", "DV", "DOLBYVISION", "NF", "CR", "SDR"
   ]);
   const parts = normalized.split(/[ ._]+/).map((part) => part.toUpperCase());
   const filtered = [];
@@ -325,6 +296,7 @@ function cleanFileDetails(title) {
   }
   return [...new Set(filtered)].join(" ");
 }
+
 function getRedirectLinks(url) {
   return __async(this, null, function* () {
     let html = "";
@@ -359,6 +331,7 @@ function getRedirectLinks(url) {
     }
   });
 }
+
 function searchContent(query, mediaType) {
   return __async(this, null, function* () {
     var _a, _b, _c;
@@ -382,6 +355,7 @@ function searchContent(query, mediaType) {
     return ((_a = results.find((item) => normalizeTitle(item.title) === q)) == null ? void 0 : _a.href) || ((_b = results.find((item) => normalizeTitle(item.title).startsWith(q))) == null ? void 0 : _b.href) || ((_c = results.find((item) => normalizeTitle(item.title).includes(q))) == null ? void 0 : _c.href) || null;
   });
 }
+
 function collectMovieLinks($, pageUrl) {
   const links = [];
   $("div.download-item a[href]").each((_, el) => {
@@ -400,6 +374,7 @@ function collectMovieLinks($, pageUrl) {
     return true;
   });
 }
+
 function collectEpisodeLinks($, pageUrl, season, episode) {
   const directEpisodeLinks = [];
   $("div.episodes-list div.season-item").each((_, seasonEl) => {
@@ -454,20 +429,25 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
     return true;
   });
 }
+
 function buildStream(title, url, quality = "Auto", headers = {}) {
   let finalUrl = url;
   if (!/\.(m3u8|mp4|mkv)/i.test(finalUrl)) {
     finalUrl += finalUrl.includes("#") ? "" : "#.mkv";
   }
   const meta = buildDisplayMeta(title, finalUrl);
+  // Re-run parseQuality on the title if quality is still Auto/Unknown
+  const finalQuality = (quality === "Auto" || quality === "Unknown") ? parseQuality(title) : quality;
+
   return {
     name: meta.displayName,
     title: meta.displayTitle,
     url: finalUrl,
-    quality,
+    quality: finalQuality,
     headers: Object.keys(headers).length ? headers : void 0
   };
 }
+
 function resolveHubcdnDirect(url, sourceTitle) {
   return __async(this, null, function* () {
     var _a, _b, _c;
@@ -478,9 +458,10 @@ function resolveHubcdnDirect(url, sourceTitle) {
     const decoded = decodeBase64(encoded).split("link=").pop();
     if (!decoded || decoded === encoded)
       return [];
-    return [buildStream(`${sourceTitle} - HUBCDN`, decoded, "Auto", { Referer: url })];
+    return [buildStream(`${sourceTitle} - HUBCDN`, decoded, parseQuality(sourceTitle), { Referer: url })];
   });
 }
+
 function resolveHubdrive(url, sourceTitle) {
   return __async(this, null, function* () {
     const html = yield fetchText(url);
@@ -491,6 +472,7 @@ function resolveHubdrive(url, sourceTitle) {
     return yield resolveLink(fixUrl(href, url), `${sourceTitle} - HubDrive`, url);
   });
 }
+
 function resolveHblinks(url, sourceTitle) {
   return __async(this, null, function* () {
     const html = yield fetchText(url);
@@ -508,6 +490,7 @@ function resolveHblinks(url, sourceTitle) {
     return nested;
   });
 }
+
 function resolveHubcloud(url, sourceTitle, referer) {
   return __async(this, null, function* () {
     const baseHeaders = referer ? { Referer: referer } : {};
@@ -553,16 +536,17 @@ function resolveHubcloud(url, sourceTitle, referer) {
         streams.push(buildStream(`${sourceTitle}${titleSuffix}`, link, quality, { Referer: entryUrl }));
         return;
       }
-      streams.push(...[]);
     });
     return streams;
   });
 }
+
 function resolveDirectFile(url, sourceTitle, referer) {
   return __async(this, null, function* () {
-    return [buildStream(sourceTitle, url, parseQuality(url), referer ? { Referer: referer } : {})];
+    return [buildStream(sourceTitle, url, parseQuality(sourceTitle || url), referer ? { Referer: referer } : {})];
   });
 }
+
 function resolveLink(rawUrl, sourceTitle, referer = "") {
   return __async(this, null, function* () {
     let url = rawUrl;
@@ -591,7 +575,7 @@ function resolveLink(rawUrl, sourceTitle, referer = "") {
         return yield resolveHblinks(url, sourceTitle);
       }
       if (lower.includes("pixeldrain")) {
-        return [buildStream(`${sourceTitle} - Pixeldrain`, url, "Auto", referer ? { Referer: referer } : {})];
+        return [buildStream(`${sourceTitle} - Pixeldrain`, url, parseQuality(sourceTitle), referer ? { Referer: referer } : {})];
       }
     } catch (error) {
       console.error(`[${PROVIDER_NAME}] Link resolution error (${url}): ${error.message}`);
@@ -599,6 +583,7 @@ function resolveLink(rawUrl, sourceTitle, referer = "") {
     return [];
   });
 }
+
 function extractStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     const { trTitle, origTitle, shortTitle } = yield getTmdbTitle(tmdbId, mediaType);
@@ -622,7 +607,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
     const $ = import_cheerio_without_node_native2.default.load(html);
     const isMoviePage = $("div.episodes-list").length === 0;
     let links = [];
-    if (mediaType === "movie" || mediaType !== "movie" && isMoviePage) {
+    if (mediaType === "movie" || (mediaType !== "movie" && isMoviePage)) {
       links = collectMovieLinks($, contentUrl);
     } else {
       links = collectEpisodeLinks($, contentUrl, season, episode);
@@ -635,7 +620,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
     for (const linkItem of links) {
       allStreams.push(...yield resolveLink(linkItem.url, linkItem.label || PROVIDER_NAME, contentUrl));
     }
-    const directLinks = links.filter((linkItem) => /\.(m3u8|mp4|mkv)(\?|$)/i.test(linkItem.url)).map((linkItem) => buildStream(linkItem.label || PROVIDER_NAME, linkItem.url, parseQuality(linkItem.url), { Referer: contentUrl }));
+    const directLinks = links.filter((linkItem) => /\.(m3u8|mp4|mkv)(\?|$)/i.test(linkItem.url)).map((linkItem) => buildStream(linkItem.label || PROVIDER_NAME, linkItem.url, parseQuality(linkItem.label), { Referer: contentUrl }));
     return dedupeStreams([...allStreams, ...directLinks]);
   });
 }

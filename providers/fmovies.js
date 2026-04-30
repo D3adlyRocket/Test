@@ -1,6 +1,6 @@
 /**
  * FourKHDHub - Original Logic Restored
- * Fix: Quality mapping in Display Title and Stream Object
+ * Fix: Direct assignment of quality property for UI badges
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -252,14 +252,12 @@ function parseQuality(text) {
   return "Auto";
 }
 
-// FIXED: Now includes Quality in the displayTitle for the UI
 function buildDisplayMeta(sourceTitle = "", url = "") {
   const source = inferSourceLabel(sourceTitle, url);
   const lang = inferLanguageLabel(sourceTitle);
-  const quality = parseQuality(sourceTitle);
   return {
     displayName: `${PROVIDER_NAME} - ${lang}`,
-    displayTitle: `${source} | ${quality} | ${lang}`
+    displayTitle: `${source} | ${lang}`
   };
 }
 
@@ -391,19 +389,24 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
   });
 }
 
+// FIXED: Prioritizes parsed resolution for the .quality property
 function buildStream(title, url, quality = "Auto", headers = {}) {
   let finalUrl = url;
   if (!/\.(m3u8|mp4|mkv)/i.test(finalUrl)) {
     finalUrl += finalUrl.includes("#") ? "" : "#.mkv";
   }
-  // Use parsed quality if provided quality is generic
-  const q = (quality === "Auto" || quality === "Unknown") ? parseQuality(title) : quality;
+  
+  // Find resolution from the title/label
+  const parsed = parseQuality(title);
+  // If parsed resolution is found, use it; otherwise use the passed quality
+  const finalQuality = parsed !== "Auto" ? parsed : quality;
+
   const meta = buildDisplayMeta(title, finalUrl);
   return {
     name: meta.displayName,
     title: meta.displayTitle,
     url: finalUrl,
-    quality: q,
+    quality: finalQuality,
     headers: Object.keys(headers).length ? headers : void 0
   };
 }

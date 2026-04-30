@@ -1,6 +1,6 @@
 /**
- * FourKHDHub - Restored Original Logic
- * Fix: Corrected Resolution Parsing Only
+ * FourKHDHub - Original Logic Restored
+ * Fix: Forced Resolution Mapping for UI
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -63,17 +63,14 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// src/FourKHDHub/index.js
 var FourKHDHub_exports = {};
 __export(FourKHDHub_exports, {
   getStreams: () => getStreams
 });
 module.exports = __toCommonJS(FourKHDHub_exports);
 
-// src/FourKHDHub/extractor.js
 var import_cheerio_without_node_native2 = __toESM(require("cheerio-without-node-native"));
 
-// src/FourKHDHub/http.js
 var DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 var HEADERS = {
@@ -133,7 +130,6 @@ function fetchText(_0) {
   });
 }
 
-// src/FourKHDHub/tmdb.js
 var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
 function getTmdbTitle(tmdbId, mediaType) {
   return __async(this, null, function* () {
@@ -193,7 +189,6 @@ function getTmdbTitle(tmdbId, mediaType) {
   });
 }
 
-// src/FourKHDHub/extractor.js
 var PROVIDER_NAME = "FourKHDHub";
 var REDIRECT_REGEX = /s\('o','([A-Za-z0-9+/=]+)'|ck\('_wp_http_\d+','([^']+)'/g;
 function dedupeStreams(streams) {
@@ -266,8 +261,6 @@ function buildDisplayMeta(sourceTitle = "", url = "") {
     displayTitle: `${source} | ${lang}`
   };
 }
-
-// FIXED: parseQuality now correctly identifies resolutions from text
 function parseQuality(text) {
   const value = (text || "").toLowerCase();
   if (/2160p|4k|uhd/i.test(value))
@@ -282,7 +275,6 @@ function parseQuality(text) {
     return "480p";
   return "Auto";
 }
-
 function cleanFileDetails(title) {
   const normalized = (title || "").replace(/\.[a-z0-9]{2,4}$/i, "").replace(/WEB[-_. ]?DL/gi, "WEB-DL").replace(/WEB[-_. ]?RIP/gi, "WEBRIP").replace(/H[ .]?265/gi, "H265").replace(/H[ .]?264/gi, "H264").replace(/DDP[ .]?([0-9]\.[0-9])/gi, "DDP$1");
   const allowed = /* @__PURE__ */ new Set([
@@ -457,26 +449,22 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
     return true;
   });
 }
-
 function buildStream(title, url, quality = "Auto", headers = {}) {
   let finalUrl = url;
   if (!/\.(m3u8|mp4|mkv)/i.test(finalUrl)) {
     finalUrl += finalUrl.includes("#") ? "" : "#.mkv";
   }
   const meta = buildDisplayMeta(title, finalUrl);
-  
-  // FIXED: quality now uses the parsed value from the title/text
-  const finalQuality = parseQuality(title) !== "Auto" ? parseQuality(title) : quality;
-
+  // Ensure we use parsed quality if passed as Auto
+  const q = quality === "Auto" ? parseQuality(title) : quality;
   return {
     name: meta.displayName,
     title: meta.displayTitle,
     url: finalUrl,
-    quality: finalQuality,
+    quality: q,
     headers: Object.keys(headers).length ? headers : void 0
   };
 }
-
 function resolveHubcdnDirect(url, sourceTitle) {
   return __async(this, null, function* () {
     var _a, _b, _c;
@@ -648,7 +636,6 @@ function extractStreams(tmdbId, mediaType, season, episode) {
   });
 }
 
-// src/FourKHDHub/index.js
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {

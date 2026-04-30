@@ -1,6 +1,6 @@
 /**
  * 4KHDHub - Built from src/4KHDHub/
- * Amended: Description format to (Quality | Language | Size | Tech)
+ * Amended: Expanded Multi-Language Detection + (Quality | Language | Size | Tech) format.
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -223,19 +223,30 @@ function normalizeTitle(value) {
   return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-/** AMENDED HELPERS **/
+/** UPDATED: Comprehensive Language Detection **/
 function inferLanguageLabel(text = "") {
   const v = text.toLowerCase();
-  if (v.includes("hindi")) return "Hindi";
+  const langs = [];
+  
+  if (v.includes("hindi")) langs.push("Hindi");
+  if (v.includes("tamil")) langs.push("Tamil");
+  if (v.includes("telugu")) langs.push("Telugu");
+  if (v.includes("malayalam")) langs.push("Malayalam");
+  if (v.includes("kannada")) langs.push("Kannada");
+  if (v.includes("bengali")) langs.push("Bengali");
+  if (v.includes("punjabi")) langs.push("Punjabi");
+  if (v.includes("english")) langs.push("English");
+
+  if (langs.length > 2) return "Multi Audio";
+  if (langs.length === 2) return langs.join("-");
+  if (langs.length === 1) return langs[0];
+  
   if (v.includes("dual audio") || v.includes("dual")) return "Dual Audio";
-  if (v.includes("english")) return "English";
-  if (v.includes("multi")) return "Multi Audio";
   return "EN";
 }
 
 function buildDisplayMeta(sourceTitle = "", url = "", quality = "Auto", size = "", tech = "") {
   const lang = inferLanguageLabel(sourceTitle);
-  // Strictly Quality | Language | Size | Technical Details
   const titleParts = [quality, lang, size, tech].filter(part => part && part !== "Auto");
   
   return {
@@ -489,7 +500,7 @@ function resolveHubcloud(url, sourceTitle, referer, quality) {
       else if (text.includes("pixel")) subSource += " - Pixeldrain";
 
       const finalUrl = (text.includes("pixel") && !link.includes("/api/file/")) 
-                       ? link.split('/').pop() ? `${new URL(link).origin}/api/file/${link.split('/').pop()}?download` : link 
+                       ? (link.split('/').pop() ? `${new URL(link).origin}/api/file/${link.split('/').pop()}?download` : link) 
                        : link;
 
       streams.push(buildStream(subSource, finalUrl, foundQuality, { Referer: entryUrl }, size, tech));
@@ -576,11 +587,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       const quality = parseQuality(linkItem.rawHtml || linkItem.label);
       allStreams.push(...yield resolveLink(linkItem.url, linkItem.label || PROVIDER_NAME, contentUrl, quality));
     }
-    const directLinks = links.filter((linkItem) => /\.(m3u8|mp4|mkv)(\?|$)/i.test(linkItem.url)).map((linkItem) => {
-        const quality = parseQuality(linkItem.rawHtml || linkItem.label);
-        return buildStream(linkItem.label || PROVIDER_NAME, linkItem.url, quality, { Referer: contentUrl });
-    });
-    return dedupeStreams([...allStreams, ...directLinks]);
+    return dedupeStreams(allStreams);
   });
 }
 

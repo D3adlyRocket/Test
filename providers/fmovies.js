@@ -1,6 +1,6 @@
 /**
  * 4KHDHub - Built from src/4KHDHub/
- * Amended: Expanded Multi-Language Detection + (Quality | Language | Size | Tech) format.
+ * Amended: Fixed stubborn duplication + (Quality | Language | Size | Tech) format.
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -196,16 +196,20 @@ function getTmdbTitle(tmdbId, mediaType) {
 // src/4KHDHub/extractor.js
 var PROVIDER_NAME = "4KHDHub";
 var REDIRECT_REGEX = /s\('o','([A-Za-z0-9+/=]+)'|ck\('_wp_http_\d+','([^']+)'/g;
+
+/** UPDATED: Stronger Deduplication **/
 function dedupeStreams(streams) {
-  const seen = /* @__PURE__ */ new Set();
+  const seen = new Set();
   return streams.filter((stream) => {
-    const key = `${stream.url}|${JSON.stringify(stream.headers || {})}`;
-    if (seen.has(key))
-      return false;
+    // Normalize URL for comparison (ignore hash/mkv extension trick)
+    const pureUrl = stream.url.split('#')[0];
+    const key = `${pureUrl}|${stream.quality}`;
+    if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
+
 function rot13(value) {
   return value.replace(/[A-Za-z]/g, (char) => {
     const base = char <= "Z" ? 65 : 97;
@@ -223,11 +227,9 @@ function normalizeTitle(value) {
   return (value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
-/** UPDATED: Comprehensive Language Detection **/
 function inferLanguageLabel(text = "") {
   const v = text.toLowerCase();
   const langs = [];
-  
   if (v.includes("hindi")) langs.push("Hindi");
   if (v.includes("tamil")) langs.push("Tamil");
   if (v.includes("telugu")) langs.push("Telugu");
@@ -240,7 +242,6 @@ function inferLanguageLabel(text = "") {
   if (langs.length > 2) return "Multi Audio";
   if (langs.length === 2) return langs.join("-");
   if (langs.length === 1) return langs[0];
-  
   if (v.includes("dual audio") || v.includes("dual")) return "Dual Audio";
   return "EN";
 }
@@ -542,7 +543,9 @@ function resolveLink(rawUrl, sourceTitle, referer = "", quality = "Auto") {
         return yield resolveHblinks(url, sourceTitle, quality);
       }
       if (lower.includes("pixeldrain")) {
-        return [buildStream(`${sourceTitle} - Pixeldrain`, url, quality, referer ? { Referer: referer } : {})];
+        const pdId = url.split('/').pop();
+        const pdUrl = `https://pixeldrain.com/api/file/${pdId}?download`;
+        return [buildStream(`${sourceTitle} - Pixeldrain`, pdUrl, quality, referer ? { Referer: referer } : {})];
       }
     } catch (error) {
       console.error(`[${PROVIDER_NAME}] Link resolution error (${url}): ${error.message}`);
@@ -550,10 +553,10 @@ function resolveLink(rawUrl, sourceTitle, referer = "", quality = "Auto") {
     return [];
   });
 }
+
 function extractStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     const { trTitle, origTitle, shortTitle } = yield getTmdbTitle(tmdbId, mediaType);
-    console.log(`[${PROVIDER_NAME}] TMDB: ${tmdbId} | TR: ${trTitle} | ORIG: ${origTitle} | SHORT: ${shortTitle}`);
     if (!trTitle && !origTitle)
       return [];
     let contentUrl = null;
@@ -566,7 +569,6 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       contentUrl = yield searchContent(shortTitle, mediaType);
     }
     if (!contentUrl) {
-      console.warn(`[${PROVIDER_NAME}] Content not found`);
       return [];
     }
     const html = yield fetchText(contentUrl);
@@ -579,11 +581,15 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       links = collectEpisodeLinks($, contentUrl, season, episode);
     }
     if (!links.length) {
-      console.warn(`[${PROVIDER_NAME}] No suitable links found on page`);
       return [];
     }
     const allStreams = [];
+    // Use a temporary set to ensure we don't even TRY to resolve the same URL twice in this loop
+    const processedLinks = new Set();
     for (const linkItem of links) {
+      if (processedLinks.has(linkItem.url)) continue;
+      processedLinks.add(linkItem.url);
+
       const quality = parseQuality(linkItem.rawHtml || linkItem.label);
       allStreams.push(...yield resolveLink(linkItem.url, linkItem.label || PROVIDER_NAME, contentUrl, quality));
     }
@@ -595,7 +601,6 @@ function extractStreams(tmdbId, mediaType, season, episode) {
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
-      console.log(`[4KHDHub] Request: ${mediaType} | TMDB: ${tmdbId} | S:${season} E:${episode}`);
       return yield extractStreams(tmdbId, mediaType, season, episode);
     } catch (error) {
       console.error(`[4KHDHub] Error: ${error.message}`);

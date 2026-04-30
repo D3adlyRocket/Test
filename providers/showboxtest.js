@@ -1,5 +1,5 @@
 /**
- * patrondortkhd - Built from src/patrondortkhd/
+ * FourKHDHub - Built from src/FourKHDHub/
  * Generated: 2026-04-29T15:14:47.784Z
  */
 var __create = Object.create;
@@ -38,10 +38,6 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
@@ -67,17 +63,17 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// src/patrondortkhd/index.js
-var patrondortkhd_exports = {};
-__export(patrondortkhd_exports, {
+// src/FourKHDHub/index.js
+var FourKHDHub_exports = {};
+__export(FourKHDHub_exports, {
   getStreams: () => getStreams
 });
-module.exports = __toCommonJS(patrondortkhd_exports);
+module.exports = __toCommonJS(FourKHDHub_exports);
 
-// src/patrondortkhd/extractor.js
+// src/FourKHDHub/extractor.js
 var import_cheerio_without_node_native2 = __toESM(require("cheerio-without-node-native"));
 
-// src/patrondortkhd/http.js
+// src/FourKHDHub/http.js
 var DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 var HEADERS = {
@@ -96,7 +92,7 @@ function getDomains() {
         throw new Error(`HTTP ${res.status}`);
       cachedDomains = yield res.json();
     } catch (error) {
-      console.warn(`[PatronDortKHD] domains.json alinamadi: ${error.message}`);
+      console.warn(`[FourKHDHub] domains.json could not be fetched: ${error.message}`);
       cachedDomains = {};
     }
     return cachedDomains;
@@ -137,7 +133,7 @@ function fetchText(_0) {
   });
 }
 
-// src/patrondortkhd/tmdb.js
+// src/FourKHDHub/tmdb.js
 var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
 function getTmdbTitle(tmdbId, mediaType) {
   return __async(this, null, function* () {
@@ -154,7 +150,7 @@ function getTmdbTitle(tmdbId, mediaType) {
         }
       });
       if (!response.ok) {
-        throw new Error(`TMDB HTML fetch hatasi: ${response.status}`);
+        throw new Error(`TMDB HTML fetch error: ${response.status}`);
       }
       const html = yield response.text();
       let title = "";
@@ -191,14 +187,14 @@ function getTmdbTitle(tmdbId, mediaType) {
       }
       return { trTitle: title, origTitle, shortTitle };
     } catch (error) {
-      console.error(`[PatronDortKHD] TMDB baslik hatasi: ${error.message}`);
+      console.error(`[FourKHDHub] TMDB title error: ${error.message}`);
       return { trTitle: "", origTitle: "", shortTitle: "" };
     }
   });
 }
 
-// src/patrondortkhd/extractor.js
-var PROVIDER_NAME = "PatronDortKHD";
+// src/FourKHDHub/extractor.js
+var PROVIDER_NAME = "FourKHDHub";
 var REDIRECT_REGEX = /s\('o','([A-Za-z0-9+/=]+)'|ck\('_wp_http_\d+','([^']+)'/g;
 function dedupeStreams(streams) {
   const seen = /* @__PURE__ */ new Set();
@@ -233,14 +229,14 @@ function inferLanguageLabel(text = "") {
   if (/\ben\b|english/.test(v))
     return "EN";
   if (v.includes("dublaj") || v.includes("dubbed") || v.includes("hindi"))
-    return "Dublaj";
+    return "Dubbed";
   if (v.includes("altyazi") || v.includes("altyaz\u0131") || v.includes("sub"))
-    return "Altyazi";
+    return "Subtitles";
   if (v.includes("dual audio"))
     return "Dual";
   if (v.includes("original"))
-    return "Orijinal";
-  return "Bilinmiyor";
+    return "Original";
+  return "Unknown";
 }
 function inferSourceLabel(text = "", url = "") {
   const raw = (text || "").trim();
@@ -260,7 +256,7 @@ function inferSourceLabel(text = "", url = "") {
     return "HBLinks";
   if (lower.includes("pixeldrain"))
     return "Pixeldrain";
-  return "Kaynak";
+  return "Source";
 }
 function buildDisplayMeta(sourceTitle = "", url = "") {
   const source = inferSourceLabel(sourceTitle, url);
@@ -335,7 +331,7 @@ function getRedirectLinks(url) {
     try {
       html = yield fetchText(url);
     } catch (error) {
-      console.error(`[${PROVIDER_NAME}] Redirect sayfasi alinamadi: ${error.message}`);
+      console.error(`[${PROVIDER_NAME}] Redirect page could not be fetched: ${error.message}`);
       return "";
     }
     let combined = "";
@@ -358,7 +354,7 @@ function getRedirectLinks(url) {
       const finalText = yield fetchText(`${blogUrl}?re=${encodeURIComponent(data)}`);
       return finalText.trim();
     } catch (error) {
-      console.error(`[${PROVIDER_NAME}] Redirect cozumleme hatasi: ${error.message}`);
+      console.error(`[${PROVIDER_NAME}] Redirect resolution error: ${error.message}`);
       return "";
     }
   });
@@ -393,7 +389,7 @@ function collectMovieLinks($, pageUrl) {
     if (!href)
       return;
     const text = $(el).text().trim() || $(el).attr("title") || $(el).closest("div.download-item").text().trim();
-    links.push({ url: href, label: text || "Film" });
+    links.push({ url: href, label: text || "Movie" });
   });
   const seen = /* @__PURE__ */ new Set();
   return links.filter((item) => {
@@ -598,7 +594,7 @@ function resolveLink(rawUrl, sourceTitle, referer = "") {
         return [buildStream(`${sourceTitle} - Pixeldrain`, url, "Auto", referer ? { Referer: referer } : {})];
       }
     } catch (error) {
-      console.error(`[${PROVIDER_NAME}] Link cozumleme hatasi (${url}): ${error.message}`);
+      console.error(`[${PROVIDER_NAME}] Link resolution error (${url}): ${error.message}`);
     }
     return [];
   });
@@ -619,7 +615,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       contentUrl = yield searchContent(shortTitle, mediaType);
     }
     if (!contentUrl) {
-      console.warn(`[${PROVIDER_NAME}] Icerik bulunamadi`);
+      console.warn(`[${PROVIDER_NAME}] Content not found`);
       return [];
     }
     const html = yield fetchText(contentUrl);
@@ -632,7 +628,7 @@ function extractStreams(tmdbId, mediaType, season, episode) {
       links = collectEpisodeLinks($, contentUrl, season, episode);
     }
     if (!links.length) {
-      console.warn(`[${PROVIDER_NAME}] Sayfada uygun link bulunamadi`);
+      console.warn(`[${PROVIDER_NAME}] No suitable links found on page`);
       return [];
     }
     const allStreams = [];
@@ -644,14 +640,14 @@ function extractStreams(tmdbId, mediaType, season, episode) {
   });
 }
 
-// src/patrondortkhd/index.js
+// src/FourKHDHub/index.js
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
-      console.log(`[PatronDortKHD] Istek: ${mediaType} | TMDB: ${tmdbId} | S:${season} E:${episode}`);
+      console.log(`[FourKHDHub] Request: ${mediaType} | TMDB: ${tmdbId} | S:${season} E:${episode}`);
       return yield extractStreams(tmdbId, mediaType, season, episode);
     } catch (error) {
-      console.error(`[PatronDortKHD] Hata: ${error.message}`);
+      console.error(`[FourKHDHub] Error: ${error.message}`);
       return [];
     }
   });

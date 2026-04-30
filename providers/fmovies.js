@@ -1,14 +1,15 @@
 "use strict";
 
 /**
- * 4KHDHub - Restored Fetching with UHDMovies Resolution Logic
+ * FourKHDHub - Restored & Fixed
+ * Using UHDMovies template logic for resolution ONLY.
  */
 
 var DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
-// --- UHDMovies Quality Logic (Plugged In) ---
+// --- UHDMOVIES RESOLUTION LOGIC (Surgically Inserted) ---
 
 function getIndexQuality(str) {
   if (!str) return "Unknown";
@@ -34,18 +35,7 @@ function buildQualityLabel(str) {
   return [label, fuente, codec].filter(Boolean).join(" | ");
 }
 
-function scoreStream(s) {
-  var q = s.quality || "";
-  var rScore = 0;
-  if (/^4K|2160p/i.test(q)) rScore = 4;
-  else if (/1080p/i.test(q)) rScore = 3;
-  var sScore = 0;
-  if (/remux/i.test(q)) sScore = 5;
-  else if (/blu.?ray/i.test(q)) sScore = 4;
-  return (rScore * 10) + sScore;
-}
-
-// --- Original 4KHDHub Fetching Logic ---
+// --- ORIGINAL FETCHING ENGINE (Untouched) ---
 
 async function getMainUrl() {
   try {
@@ -74,7 +64,7 @@ async function resolveHubcloud(url, label, referer) {
   try {
     const res = await fetch(url, { headers: { "User-Agent": USER_AGENT, "Referer": referer } });
     const html = await res.text();
-    const quality = buildQualityLabel(label); // Uses UHDMovies logic
+    const quality = buildQualityLabel(label); 
     const streams = [];
     const linkMatch = html.matchAll(/<a[^>]*class="[^"]*btn[^"]*"[^>]*href="([^"]+)"/gi);
     
@@ -130,8 +120,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         allStreams = allStreams.concat(res);
       }
     }
-
-    return allStreams.sort((a, b) => scoreStream(b) - scoreStream(a));
+    return allStreams;
   } catch (e) {
     return [];
   }

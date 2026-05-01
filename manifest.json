@@ -34,7 +34,7 @@
       "description": "Auto-generated description for Movies4u",
       "version": "1.0.1",
       "author": "Nuvio Team",
-      "supportedTypes": ["movie"],
+      "supportedTypes": ["movie", "tv"],
       "filename": "providers/test.js",
       "enabled": true,
       "formats": ["mp4", "m3u8"],

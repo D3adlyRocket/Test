@@ -1,6 +1,6 @@
 /**
  * 4KHDHub - Built from src/4KHDHub/
- * Final Polish: Enhanced Season/Episode matching for multi-season series
+ * Final Polish: Fixed language labeling for Multi-Audio tracks
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -202,7 +202,8 @@ function inferLanguageLabel(text = "") {
   if (v.includes("bengali")) langs.push("Bengali");
   if (v.includes("punjabi")) langs.push("Punjabi");
   if (v.includes("english")) langs.push("English");
-  if (langs.length > 2) return "Multi Audio";
+  
+  if (v.includes("multi audio") || v.includes("multi-audio") || v.includes("org multi") || langs.length > 2) return "Multi Audio";
   if (langs.length === 2) return langs.join("-");
   if (langs.length === 1) return langs[0];
   if (v.includes("dual audio") || v.includes("dual")) return "Dual Audio";

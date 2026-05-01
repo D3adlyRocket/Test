@@ -211,10 +211,18 @@ function inferLanguageLabel(text = "") {
 
 function buildDisplayMeta(sourceTitle = "", url = "", quality = "Auto", size = "", tech = "") {
   const lang = inferLanguageLabel(sourceTitle);
+  // PRESERVE: Logic for movie titles, but if it's an episode label like S1 E1, use it.
   const titleParts = [quality, lang, size, tech].filter(part => part && part !== "Auto");
+  
+  // If sourceTitle contains "S" and "E" (our new label), show it clearly
+  let displayTitle = titleParts.join(" | ") || "Stream";
+  if (sourceTitle.includes("S") && sourceTitle.includes("E")) {
+      displayTitle = `${sourceTitle} | ${displayTitle}`;
+  }
+
   return {
     displayName: `${PROVIDER_NAME} - ${lang}`,
-    displayTitle: titleParts.join(" | ") || "Stream"
+    displayTitle: displayTitle
   };
 }
 
@@ -301,21 +309,21 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
   const sNum = Number(season);
   const eNum = Number(episode);
   const foundLinks = [];
+  // Use a cleaner display label
+  const displayLabel = `S${sNum} E${eNum}`;
 
   // 1. REFINED ARCHIVE LOOKUP (Seasons 1-6)
   $(".episode-item").each((_, item) => {
     const itemHtml = $(item).html();
-    // Check if this container is for the correct season
     const hasSeason = new RegExp(`S(?:eason)?\\s*0*${sNum}\\b`, "i").test(itemHtml);
     if (!hasSeason) return;
 
     $(item).find("a[href]").each((__, a) => {
       const linkText = $(a).parent().text() || $(a).text();
-      // Match "Episode 01", "Ep 01", "E01"
       const epRegex = new RegExp(`(?:Episode|Ep|E)\\s*0*${eNum}\\b`, "i");
       if (epRegex.test(linkText)) {
         const href = fixUrl($(a).attr("href"), pageUrl);
-        if (href) foundLinks.push({ url: href, label: linkText.trim(), rawHtml: itemHtml });
+        if (href) foundLinks.push({ url: href, label: displayLabel, rawHtml: itemHtml });
       }
     });
   });
@@ -334,7 +342,7 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
       if (epMatch && parseInt(epMatch[1], 10) === eNum) {
         $(episodeEl).find("a[href]").each((___, linkEl) => {
           const href = fixUrl($(linkEl).attr("href"), pageUrl);
-          if (href) foundLinks.push({ url: href, label: epText.trim(), rawHtml: $(episodeEl).html() });
+          if (href) foundLinks.push({ url: href, label: displayLabel, rawHtml: $(episodeEl).html() });
         });
       }
     });
@@ -348,7 +356,7 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
     if (new RegExp(`S(?:eason)?\\s*0*${sNum}\\b`, "i").test(text)) {
       $(item).find("a[href]").each((__, a) => {
         const href = fixUrl($(a).attr("href"), pageUrl);
-        if (href) foundLinks.push({ url: href, label: text.trim(), rawHtml: $(item).html() });
+        if (href) foundLinks.push({ url: href, label: `S${sNum} Pack`, rawHtml: $(item).html() });
       });
     }
   });

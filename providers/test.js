@@ -78,6 +78,7 @@ var DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 
+// AMENDED: Modernized User-Agent and headers to prevent mobile blocking
 var HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -312,7 +313,6 @@ function getRedirectLinks(url) {
     }
   });
 }
-
 function searchContent(query, mediaType) {
   return __async(this, null, function* () {
     var _a, _b, _c;
@@ -321,7 +321,7 @@ function searchContent(query, mediaType) {
     const html = yield fetchText(searchUrl);
     const $ = import_cheerio_without_node_native2.default.load(html);
     const results = [];
-    $("div.card-grid a, div.card-grid-small a, article a").each((_, el) => {
+    $("div.card-grid a, div.card-grid-small a").each((_, el) => {
       const href = fixUrl($(el).attr("href"), mainUrl);
       if (!href || href.includes("/category/") || href.includes("/tag/"))
         return;
@@ -335,53 +335,53 @@ function searchContent(query, mediaType) {
     return ((_a = results.find((item) => normalizeTitle(item.title) === q)) == null ? void 0 : _a.href) || ((_b = results.find((item) => normalizeTitle(item.title).startsWith(q))) == null ? void 0 : _b.href) || ((_c = results.find((item) => normalizeTitle(item.title).includes(q))) == null ? void 0 : _c.href) || null;
   });
 }
-
 function collectMovieLinks($, pageUrl) {
   const links = [];
-  $("div.download-item, .entry-content a").each((_, el) => {
-    const anchor = $(el).is('a') ? $(el) : $(el).find("a[href]").first();
+  $("div.download-item").each((_, el) => {
+    const anchor = $(el).find("a[href]").first();
     const href = fixUrl(anchor.attr("href"), pageUrl);
-    if (!href || !href.includes('hub')) return;
-    links.push({ url: href, label: $(el).text().trim() || "Download", rawHtml: $(el).html() });
+    if (!href) return;
+    const text = $(el).text().trim();
+    links.push({ url: href, label: text || "Movie", rawHtml: $(el).html() });
   });
   return links;
 }
-
 function collectEpisodeLinks($, pageUrl, season, episode) {
-  const results = [];
-  const s = parseInt(season, 10);
-  const e = parseInt(episode, 10);
-
-  // Strategy 1: Grid Based Episodes (Common for new shows)
+  const directEpisodeLinks = [];
   $("div.episodes-list div.season-item").each((_, seasonEl) => {
     const seasonText = $(seasonEl).find("div.episode-number").first().text();
-    if (!seasonText.includes(s.toString())) return;
-    $(seasonEl).find("div.episode-download-item").each((__, epEl) => {
-      const epText = $(epEl).text();
-      const epMatch = epText.match(/Episode[- ]?0*(\d+)/i) || epText.match(/E0*(\d+)/i);
-      if (epMatch && parseInt(epMatch[1], 10) === e) {
-        $(epEl).find("a[href]").each((___, a) => {
-          results.push({ url: fixUrl($(a).attr("href"), pageUrl), label: $(epEl).text().trim(), rawHtml: $(epEl).html() });
-        });
-      }
+    const seasonMatch = seasonText.match(/S?([1-9][0-9]*)/i);
+    if (!seasonMatch || parseInt(seasonMatch[1], 10) !== Number(season))
+      return;
+    $(seasonEl).find("div.episode-download-item").each((__, episodeEl) => {
+      const episodeText = $(episodeEl).find("div.episode-file-info span.badge-psa").text() || $(episodeEl).text();
+      const episodeMatch = episodeText.match(/Episode-?0*([1-9][0-9]*)/i) || episodeText.match(/E0*([1-9][0-9]*)/i);
+      if (!episodeMatch || parseInt(episodeMatch[1], 10) !== Number(episode))
+        return;
+      $(episodeEl).find("a[href]").each((___, linkEl) => {
+        const href = fixUrl($(linkEl).attr("href"), pageUrl);
+        if (!href) return;
+        const text = $(episodeEl).text().trim();
+        directEpisodeLinks.push({ url: href, label: text || `S${season}E${episode}`, rawHtml: $(episodeEl).html() });
+      });
     });
   });
-
-  // Strategy 2: Button Groups / Season Packs (Common for GoT / The Rookie)
-  if (results.length === 0) {
-    $(".entry-content p, .entry-content h4, .entry-content h3").each((_, el) => {
-      const text = $(el).text().toLowerCase();
-      if (text.includes(`season ${s}`) || text.includes(`s${s < 10 ? '0' + s : s}`)) {
-        $(el).parent().find('a[href]').each((__, a) => {
-            const btnUrl = fixUrl($(a).attr("href"), pageUrl);
-            if (btnUrl && btnUrl.includes('hub')) {
-                results.push({ url: btnUrl, label: $(a).text().trim() || "Season Link", rawHtml: text });
-            }
-        });
-      }
-    });
-  }
-  return results;
+  if (directEpisodeLinks.length) return directEpisodeLinks;
+  
+  const packLinks = [];
+  $("div.download-item, .entry-content p").each((_, item) => {
+    const text = $(item).text().toLowerCase();
+    const seasonRegex = new RegExp(`season[\\s\\-]?0*${season}\\b|s0*${season}\\b`, 'i');
+    if (seasonRegex.test(text)) {
+      $(item).find("a[href]").each((__, linkEl) => {
+        const href = fixUrl($(linkEl).attr("href"), pageUrl);
+        if (!href || !href.includes('hub')) return;
+        const linkText = $(linkEl).text().trim();
+        packLinks.push({ url: href, label: linkText || text, rawHtml: text });
+      });
+    }
+  });
+  return packLinks;
 }
 
 function buildStream(title, url, quality = "Auto", headers = {}, size = "", tech = "") {
@@ -428,7 +428,7 @@ function resolveHubcloud(url, sourceTitle, referer, quality) {
     if (!/hubcloud\.php/i.test(url)) {
       const html2 = yield fetchText(url, { headers: baseHeaders });
       const $2 = import_cheerio_without_node_native2.default.load(html2);
-      const raw = $2("#download").attr("href") || $2("a.btn-success").attr("href");
+      const raw = $2("#download").attr("href");
       if (!raw) return [];
       entryUrl = fixUrl(raw, url);
     }
@@ -443,7 +443,7 @@ function resolveHubcloud(url, sourceTitle, referer, quality) {
     $("a.btn[href]").each((_, el) => {
       const link = fixUrl($(el).attr("href"), entryUrl);
       const text = $(el).text().trim().toLowerCase();
-      if (!link || link.includes("worker")) return;
+      if (!link) return;
 
       let subSource = sourceTitle;
       if (text.includes("buzzserver")) subSource += " - BuzzServer";
@@ -473,7 +473,8 @@ function resolveLink(rawUrl, sourceTitle, referer = "", quality = "Auto") {
         return [buildStream(sourceTitle, url, quality, referer ? { Referer: referer } : {})];
       }
       if (lower.includes("hubdrive")) return yield resolveHubdrive(url, sourceTitle, quality);
-      if (lower.includes("hubcloud") || lower.includes("hubcdn")) return yield resolveHubcloud(url, sourceTitle, referer, quality);
+      if (lower.includes("hubcloud")) return yield resolveHubcloud(url, sourceTitle, referer, quality);
+      if (lower.includes("hubcdn")) return yield resolveHubcdnDirect(url, sourceTitle, quality);
       if (lower.includes("pixeldrain")) {
         const pdId = url.split('/').pop();
         const pdUrl = `https://pixeldrain.com/api/file/${pdId}?download`;
@@ -487,15 +488,18 @@ function resolveLink(rawUrl, sourceTitle, referer = "", quality = "Auto") {
 function extractStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     const { trTitle, origTitle, shortTitle } = yield getTmdbTitle(tmdbId, mediaType);
-    let contentUrl = yield searchContent(origTitle, mediaType);
-    if (!contentUrl && trTitle) contentUrl = yield searchContent(trTitle, mediaType);
+    if (!trTitle && !origTitle) return [];
+    
+    let contentUrl = yield searchContent(trTitle, mediaType);
+    if (!contentUrl && origTitle && origTitle !== trTitle) contentUrl = yield searchContent(origTitle, mediaType);
     if (!contentUrl && shortTitle) contentUrl = yield searchContent(shortTitle, mediaType);
     if (!contentUrl) return [];
 
     const html = yield fetchText(contentUrl);
     const $ = import_cheerio_without_node_native2.default.load(html);
+    const isMoviePage = $("div.episodes-list").length === 0;
     
-    let links = (mediaType === "movie") 
+    let links = (mediaType === "movie" || isMoviePage) 
                 ? collectMovieLinks($, contentUrl) 
                 : collectEpisodeLinks($, contentUrl, season, episode);
 

@@ -79,7 +79,7 @@ var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 
 var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9",
   "Connection": "keep-alive",
@@ -171,7 +171,7 @@ var REDIRECT_REGEX = /s\('o','([A-Za-z0-9+/=]+)'|ck\('_wp_http_\d+','([^']+)'/g;
 function dedupeStreams(streams) {
   const seenFingerprints = new Set();
   return streams.filter((stream) => {
-    const fingerprint = `${stream.url}`.toLowerCase();
+    const fingerprint = `${stream.title}|${stream.quality}`.toLowerCase().replace(/\s/g, "");
     if (seenFingerprints.has(fingerprint)) return false;
     seenFingerprints.add(fingerprint);
     return true;
@@ -316,31 +316,23 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
   const foundLinks = [];
   const displayLabel = `S${sNum} E${eNum}`;
 
-  // PRIMARY FIX: Handle Game of Thrones style tables/items (S1-6 often in tables)
-  const queryStrings = [
-    `.episode-item:contains("S${sNum}")`,
-    `.episode-item:contains("Season ${sNum}")`,
-    `tr:contains("S${sNum}")`,
-    `tr:contains("Season ${sNum}")`
-  ].join(",");
+  $(".episode-item").each((_, item) => {
+    const itemHtml = $(item).html();
+    const hasSeason = new RegExp(`S(?:eason)?\\s*0*${sNum}\\b`, "i").test(itemHtml);
+    if (!hasSeason) return;
 
-  $(queryStrings).each((_, item) => {
-    const context = $(item).text().toLowerCase();
-    const epRegex = new RegExp(`(?:Episode|Ep|E)\\s*0*${eNum}\\b`, "i");
-    
-    if (epRegex.test(context)) {
-      $(item).find("a[href]").each((__, a) => {
+    $(item).find("a[href]").each((__, a) => {
+      const linkText = $(a).parent().text() || $(a).text();
+      const epRegex = new RegExp(`(?:Episode|Ep|E)\\s*0*${eNum}\\b`, "i");
+      if (epRegex.test(linkText)) {
         const href = fixUrl($(a).attr("href"), pageUrl);
-        if (href && !href.includes("#")) {
-          foundLinks.push({ url: href, label: displayLabel, rawHtml: $(item).html() });
-        }
-      });
-    }
+        if (href) foundLinks.push({ url: href, label: displayLabel, rawHtml: itemHtml });
+      }
+    });
   });
 
   if (foundLinks.length) return foundLinks;
 
-  // FALLBACK 1: Standard structured list
   $("div.episodes-list div.season-item").each((_, seasonEl) => {
     const seasonText = $(seasonEl).find("div.episode-number").first().text();
     const seasonMatch = seasonText.match(/S?([0-9]+)/i);
@@ -360,15 +352,13 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
 
   if (foundLinks.length) return foundLinks;
 
-  // FALLBACK 2: Season Packs (If specific episode not found)
-  $("div.download-item, .card-body").each((_, item) => {
-    const text = $(item).text().toLowerCase();
-    const isSeason = new RegExp(`s(?:eason)?\\s*0*${sNum}\\b`, "i").test(text);
-    const isPack = text.includes("pack") || text.includes("complete") || text.includes("zip");
-    
-    if (isSeason && isPack) {
+  // REFINED FALLBACK: Only if we found absolutely no episodes, look for the Zip/Pack
+  $("div.download-item").each((_, item) => {
+    const text = $(item).text();
+    if (new RegExp(`S(?:eason)?\\s*0*${sNum}\\b`, "i").test(text)) {
       $(item).find("a[href]").each((__, a) => {
         const href = fixUrl($(a).attr("href"), pageUrl);
+        // Label it clearly as a Pack so the user knows why it's different
         if (href) foundLinks.push({ url: href, label: `S${sNum} Pack`, rawHtml: $(item).html() });
       });
     }

@@ -1,6 +1,6 @@
 /**
  * 4KHDHub - Built from src/4KHDHub/
- * Final Polish: Updated User-Agent for Mobile/Desktop compatibility
+ * Final Polish: Enhanced Season/Episode matching for multi-season series
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -83,11 +83,7 @@ var HEADERS = {
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.9",
   "Connection": "keep-alive",
-  "Upgrade-Insecure-Requests": "1",
-  "Sec-Fetch-Dest": "document",
-  "Sec-Fetch-Mode": "navigate",
-  "Sec-Fetch-Site": "none",
-  "Sec-Fetch-User": "?1"
+  "Upgrade-Insecure-Requests": "1"
 };
 
 var cachedDomains = null;
@@ -323,7 +319,7 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
 
     $(item).find("a[href]").each((__, a) => {
       const linkText = $(a).parent().text() || $(a).text();
-      const epRegex = new RegExp(`(?:Episode|Ep|E)\\s*0*${eNum}\\b`, "i");
+      const epRegex = new RegExp(`(?:Episode|Ep|E|x)\\s*0*${eNum}\\b`, "i");
       if (epRegex.test(linkText)) {
         const href = fixUrl($(a).attr("href"), pageUrl);
         if (href) foundLinks.push({ url: href, label: displayLabel, rawHtml: itemHtml });
@@ -334,13 +330,13 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
   if (foundLinks.length) return foundLinks;
 
   $("div.episodes-list div.season-item").each((_, seasonEl) => {
-    const seasonText = $(seasonEl).find("div.episode-number").first().text();
+    const seasonText = $(seasonEl).find("div.episode-number, .season-title").first().text();
     const seasonMatch = seasonText.match(/S?([0-9]+)/i);
     if (!seasonMatch || parseInt(seasonMatch[1], 10) !== sNum) return;
 
-    $(seasonEl).find("div.episode-download-item").each((__, episodeEl) => {
+    $(seasonEl).find("div.episode-download-item, .episode-link").each((__, episodeEl) => {
       const epText = $(episodeEl).text();
-      const epMatch = epText.match(/Episode-?0*([0-9]+)/i) || epText.match(/E0*([0-9]+)/i);
+      const epMatch = epText.match(/Episode-?0*([0-9]+)/i) || epText.match(/E0*([0-9]+)/i) || epText.match(/x0*([0-9]+)/i);
       if (epMatch && parseInt(epMatch[1], 10) === eNum) {
         $(episodeEl).find("a[href]").each((___, linkEl) => {
           const href = fixUrl($(linkEl).attr("href"), pageUrl);
@@ -352,14 +348,19 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
 
   if (foundLinks.length) return foundLinks;
 
-  // REFINED FALLBACK: Only if we found absolutely no episodes, look for the Zip/Pack
-  $("div.download-item").each((_, item) => {
+  $("div.download-item, .post-content p").each((_, item) => {
     const text = $(item).text();
     if (new RegExp(`S(?:eason)?\\s*0*${sNum}\\b`, "i").test(text)) {
       $(item).find("a[href]").each((__, a) => {
         const href = fixUrl($(a).attr("href"), pageUrl);
-        // Label it clearly as a Pack so the user knows why it's different
-        if (href) foundLinks.push({ url: href, label: `S${sNum} Pack`, rawHtml: $(item).html() });
+        if (href) {
+            const epText = $(a).text();
+            if (new RegExp(`E0*${eNum}\\b|Ep0*${eNum}\\b|x0*${eNum}\\b`, "i").test(epText)) {
+                foundLinks.push({ url: href, label: displayLabel, rawHtml: $(item).html() });
+            } else if (text.toLowerCase().includes("complete") || text.toLowerCase().includes("zip") || text.toLowerCase().includes("pack")) {
+                foundLinks.push({ url: href, label: `S${sNum} Pack`, rawHtml: $(item).html() });
+            }
+        }
       });
     }
   });
@@ -369,7 +370,9 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
 
 function buildStream(title, url, quality = "Auto", headers = {}, size = "", tech = "") {
   let finalUrl = url;
-  if (!/\.(m3u8|mp4|mkv)/i.test(finalUrl)) finalUrl += finalUrl.includes("#") ? "" : "#.mkv";
+  if (!/\.(m3u8|mp4|mkv|avi|mpd)/i.test(finalUrl.split('#')[0].split('?')[0])) {
+      finalUrl += finalUrl.includes("#") ? "" : "#.mkv";
+  }
   const meta = buildDisplayMeta(title, finalUrl, quality, size, tech);
   return { name: meta.displayName, title: meta.displayTitle, url: finalUrl, quality: quality, headers: Object.keys(headers).length ? headers : void 0 };
 }
@@ -390,7 +393,7 @@ function resolveHubdrive(url, sourceTitle, quality) {
   return __async(this, null, function* () {
     const html = yield fetchText(url);
     const $ = import_cheerio_without_node_native2.default.load(html);
-    const href = $("a.btn.btn-primary.btn-user.btn-success1.m-1").attr("href");
+    const href = $("a.btn.btn-primary.btn-user.btn-success1.m-1, a.btn-success").attr("href");
     if (!href) return [];
     return yield resolveLink(fixUrl(href, url), `${sourceTitle} - HubDrive`, url, quality);
   });
@@ -403,24 +406,25 @@ function resolveHubcloud(url, sourceTitle, referer, quality) {
     if (!/hubcloud\.php/i.test(url)) {
       const html2 = yield fetchText(url, { headers: baseHeaders });
       const $2 = import_cheerio_without_node_native2.default.load(html2);
-      const raw = $2("#download").attr("href");
+      const raw = $2("#download").attr("href") || $2("a.btn-primary").attr("href");
       if (!raw) return [];
       entryUrl = fixUrl(raw, url);
     }
     const html = yield fetchText(entryUrl, { headers: __spreadValues({ Referer: url }, baseHeaders) });
     const $ = import_cheerio_without_node_native2.default.load(html);
     const size = $("i#size").first().text().trim();
-    const header = $("div.card-header").first().text().trim();
+    const header = $("div.card-header, .filename").first().text().trim();
     const tech = cleanFileDetails(header);
     const foundQuality = quality !== "Auto" ? quality : parseQuality(header);
     const streams = [];
     $("a.btn[href]").each((_, el) => {
       const link = fixUrl($(el).attr("href"), entryUrl);
       const text = $(el).text().trim().toLowerCase();
-      if (!link) return;
+      if (!link || text.includes("login")) return;
       let subSource = sourceTitle;
       if (text.includes("buzzserver")) subSource += " - BuzzServer";
       else if (text.includes("pixel")) subSource += " - Pixeldrain";
+      else if (text.includes("direct")) subSource += " - Direct";
       const finalUrl = (text.includes("pixel") && !link.includes("/api/file/")) ? (link.split('/').pop() ? `${new URL(link).origin}/api/file/${link.split('/').pop()}?download` : link) : link;
       streams.push(buildStream(subSource, finalUrl, foundQuality, { Referer: entryUrl }, size, tech));
     });
@@ -438,7 +442,7 @@ function resolveLink(rawUrl, sourceTitle, referer = "", quality = "Auto") {
     }
     const lower = url.toLowerCase();
     try {
-      if (/\.(m3u8|mp4|mkv)(\?|$)/i.test(url)) return [buildStream(sourceTitle, url, quality, referer ? { Referer: referer } : {})];
+      if (/\.(m3u8|mp4|mkv|avi|mpd)(\?|$)/i.test(url)) return [buildStream(sourceTitle, url, quality, referer ? { Referer: referer } : {})];
       if (lower.includes("hubdrive")) return yield resolveHubdrive(url, sourceTitle, quality);
       if (lower.includes("hubcloud")) return yield resolveHubcloud(url, sourceTitle, referer, quality);
       if (lower.includes("hubcdn")) return yield resolveHubcdnDirect(url, sourceTitle, quality);

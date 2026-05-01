@@ -211,18 +211,22 @@ function inferLanguageLabel(text = "") {
 
 function buildDisplayMeta(sourceTitle = "", url = "", quality = "Auto", size = "", tech = "") {
   const lang = inferLanguageLabel(sourceTitle);
-  // PRESERVE: Logic for movie titles, but if it's an episode label like S1 E1, use it.
   const titleParts = [quality, lang, size, tech].filter(part => part && part !== "Auto");
   
-  // If sourceTitle contains "S" and "E" (our new label), show it clearly
-  let displayTitle = titleParts.join(" | ") || "Stream";
-  if (sourceTitle.includes("S") && sourceTitle.includes("E")) {
-      displayTitle = `${sourceTitle} | ${displayTitle}`;
+  let baseInfo = titleParts.join(" | ") || "Stream";
+  
+  // FIX: Only prepend S1 E1 if sourceTitle actually starts with 'S' and a digit.
+  // This keeps movie titles clean (Resolution | Language | Size | Tech)
+  if (/^S\d+/i.test(sourceTitle)) {
+      return {
+          displayName: `${PROVIDER_NAME} - ${lang}`,
+          displayTitle: `${sourceTitle} | ${baseInfo}`
+      };
   }
 
   return {
     displayName: `${PROVIDER_NAME} - ${lang}`,
-    displayTitle: displayTitle
+    displayTitle: baseInfo
   };
 }
 
@@ -309,10 +313,8 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
   const sNum = Number(season);
   const eNum = Number(episode);
   const foundLinks = [];
-  // Use a cleaner display label
   const displayLabel = `S${sNum} E${eNum}`;
 
-  // 1. REFINED ARCHIVE LOOKUP (Seasons 1-6)
   $(".episode-item").each((_, item) => {
     const itemHtml = $(item).html();
     const hasSeason = new RegExp(`S(?:eason)?\\s*0*${sNum}\\b`, "i").test(itemHtml);
@@ -330,7 +332,6 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
 
   if (foundLinks.length) return foundLinks;
 
-  // 2. STANDARD LIST LOOKUP (Seasons 7-8)
   $("div.episodes-list div.season-item").each((_, seasonEl) => {
     const seasonText = $(seasonEl).find("div.episode-number").first().text();
     const seasonMatch = seasonText.match(/S?([0-9]+)/i);
@@ -350,7 +351,6 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
 
   if (foundLinks.length) return foundLinks;
 
-  // 3. SEASON PACK FALLBACK
   $("div.download-item").each((_, item) => {
     const text = $(item).text();
     if (new RegExp(`S(?:eason)?\\s*0*${sNum}\\b`, "i").test(text)) {

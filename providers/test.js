@@ -212,11 +212,8 @@ function inferLanguageLabel(text = "") {
 function buildDisplayMeta(sourceTitle = "", url = "", quality = "Auto", size = "", tech = "") {
   const lang = inferLanguageLabel(sourceTitle);
   const titleParts = [quality, lang, size, tech].filter(part => part && part !== "Auto");
-  
   let baseInfo = titleParts.join(" | ") || "Stream";
   
-  // FIX: Only prepend S1 E1 if sourceTitle actually starts with 'S' and a digit.
-  // This keeps movie titles clean (Resolution | Language | Size | Tech)
   if (/^S\d+/i.test(sourceTitle)) {
       return {
           displayName: `${PROVIDER_NAME} - ${lang}`,
@@ -351,11 +348,13 @@ function collectEpisodeLinks($, pageUrl, season, episode) {
 
   if (foundLinks.length) return foundLinks;
 
+  // REFINED FALLBACK: Only if we found absolutely no episodes, look for the Zip/Pack
   $("div.download-item").each((_, item) => {
     const text = $(item).text();
     if (new RegExp(`S(?:eason)?\\s*0*${sNum}\\b`, "i").test(text)) {
       $(item).find("a[href]").each((__, a) => {
         const href = fixUrl($(a).attr("href"), pageUrl);
+        // Label it clearly as a Pack so the user knows why it's different
         if (href) foundLinks.push({ url: href, label: `S${sNum} Pack`, rawHtml: $(item).html() });
       });
     }

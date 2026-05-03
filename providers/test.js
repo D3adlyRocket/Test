@@ -388,8 +388,8 @@ function hubCloudExtractor(url, referer) {
     let currentUrl = url;
 
     // Replicate domain change logic from HubCloud extractor
-    if (currentUrl.includes("hubcloud.foo")) {
-        currentUrl = currentUrl.replace("hubcloud.foo", "hubcloud.dad");
+    if (currentUrl.includes("hubcloud.foo/drive")) {
+        currentUrl = currentUrl.replace("hubcloud.foo/drive", "hubcloud.dad");
     }
 
     if (/\/(video|drive)\//i.test(currentUrl)) {

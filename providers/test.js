@@ -388,7 +388,7 @@ function hubCloudExtractor(url, referer) {
     let currentUrl = url;
 
     // Replicate domain change logic from HubCloud extractor
-    if (currentUrl.includes("hubcloud.ink")) {
+    if (currentUrl.includes("hubcloud.foo")) {
         currentUrl = currentUrl.replace("hubcloud.ink", "hubcloud.dad");
     }
 
@@ -669,12 +669,12 @@ async function gdFlixExtractor(url, referer = null) {
 
             /* INDEX LINKS */
             else if (text.includes('index')) {
-                const indexPage = await fetch(`https://new6.gdflix.dad${href}`).then(r => r.text());
+                const indexPage = await fetch(`https://new17.gdflix.net${href}`).then(r => r.text());
                 const $$ = cheerio.load(indexPage);
 
                 const btns = $$('a.btn-outline-info').get();
                 for (const b of btns) {
-                    const serverUrl = 'https://new6.gdflix.dad' + $$(b).attr('href');
+                    const serverUrl = 'https://new17.gdflix.net' + $$(b).attr('href');
                     const serverPage = await fetch(serverUrl).then(r => r.text());
                     const $$$ = cheerio.load(serverPage);
 
@@ -896,7 +896,7 @@ function loadExtractor(url, referer = MAIN_URL) {
 function search(imdbId, page = 1) {
     return getCurrentDomain()
         .then(currentDomain => {
-            const apiUrl = `${currentDomain}/search.php?q=${encodeURIComponent(imdbId)}&page=${page}`;
+            const apiUrl = `${currentDomain}/searchapi.php?q=${encodeURIComponent(imdbId)}&page=${page}`;
             console.log(`[Moviesdrive] Searching API: ${apiUrl}`);
             return fetch(apiUrl, { headers: HEADERS });
         })

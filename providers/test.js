@@ -1,97 +1,112 @@
 const cheerio = require('cheerio-without-node-native');
 
-// Keeping your original configuration
 const MAIN_URL = "https://new2.moviesdrives.my";
 const HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Referer": `${MAIN_URL}/`,
 };
 
-// Keeping your original utility
-function formatBytes(bytes) {
-    if (!bytes) return 'N/A';
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + ['B', 'KB', 'MB', 'GB', 'TB'][i];
-}
+// --- Extractors based on Cloudstream Kotlin logic ---
 
-// Fixed Extractor: Uses Nuvio fetcher and finds the direct BusyCDN link
-async function gdFlixExtractor(ctx, url, referer, label) {
+async function resolveHubCloud(ctx, url, referer) {
     try {
+        // Cloudstream logic: Visit /drive/ or /vfile/ page
         const res = await ctx.fetcher.get(url, { headers: { ...HEADERS, Referer: referer } });
         const $ = cheerio.load(res.body);
-        const directLink = $('a[href*="busycdn"], a:contains("Instant")').attr('href');
-        return directLink ? [{
-            name: "MoviesDrives (GDFlix)",
-            title: label,
-            url: directLink,
-            quality: label.match(/\d{3,4}p/)?.[0] || '1080p'
-        }] : [];
+        
+        // Find the "Download" or "Stream" button that isn't a redirect
+        const streamUrl = $('a.btn-success, a.btn-primary, a:contains("Download")')
+            .filter((i, el) => {
+                const href = $(el).attr('href') || '';
+                return !href.includes('hubcloud') && !href.includes('cryptonewz');
+            }).attr('href');
+
+        return streamUrl ? [{ name: "HubCloud", url: streamUrl }] : [];
     } catch (e) { return []; }
 }
 
-async function hubCloudExtractor(ctx, url, referer, label) {
+async function resolveGDFlix(ctx, url, referer) {
     try {
+        // Cloudstream logic: Visit the /file/ landing page
         const res = await ctx.fetcher.get(url, { headers: { ...HEADERS, Referer: referer } });
         const $ = cheerio.load(res.body);
-        const serverLink = $('a:contains("Download"), a:contains("Server")')
-            .filter((i, el) => !$(el).attr('href').includes('hubcloud'))
-            .attr('href');
-        return serverLink ? [{
-            name: "MoviesDrives (HubCloud)",
-            title: label,
-            url: serverLink,
-            quality: label.match(/\d{3,4}p/)?.[0] || '720p'
-        }] : [];
+        
+        // Look for the "Instant Download" button or the link to busycdn/pixeldrain
+        const directLink = $('a[href*="busycdn"], a[href*="pixeldrain"], a:contains("Instant")').attr('href');
+        
+        if (directLink) {
+            return [{ name: "GDFlix", url: directLink }];
+        }
+        
+        // If not found, look for a "Generate Link" script or button
+        const generate = $('a:contains("Download Now")').attr('href');
+        if (generate && generate !== url) return await resolveGDFlix(ctx, generate, url);
+        
     } catch (e) { return []; }
+    return [];
 }
 
-// THE FIX: This replaces the old "find links on page" logic
+// --- Main Scraper Flow ---
+
 async function getDownloadLinks(ctx, mediaUrl) {
-    const res = await ctx.fetcher.get(mediaUrl, { headers: HEADERS });
+    const res = await ctx.fetcher.get(mediaUrl, { headers: { ...HEADERS, Referer: MAIN_URL } });
     const $ = cheerio.load(res.body);
-    const finalLinks = [];
+    const finalStreams = [];
 
-    // Step A: Find all the 'Download Now' buttons (which are now mdrive.lol links)
+    // 1. Get all mdrive.lol archives
     const archives = [];
     $('a[href*="mdrive.lol/archives"]').each((i, el) => {
-        // Find the quality text (usually in the heading above the button)
-        const label = $(el).closest('h5, p').prev().text().trim() || "Download";
-        archives.push({ url: $(el).attr('href'), label: label });
+        const parentText = $(el).closest('h5, p').text() || "";
+        const qualityMatch = parentText.match(/\d{3,4}p/i);
+        archives.push({
+            url: $(el).attr('href'),
+            quality: qualityMatch ? qualityMatch[0] : '720p'
+        });
     });
 
-    // Step B: Visit each mdrive page to get the actual hosters
     for (const archive of archives) {
         try {
+            // 2. Fetch the mdrive intermediate page
             const archiveRes = await ctx.fetcher.get(archive.url, { headers: { ...HEADERS, Referer: mediaUrl } });
             const $$ = cheerio.load(archiveRes.body);
 
-            // Look for the GDFlix/HubCloud buttons on the mdrive page
-            const hosterUrls = $$('a[href*="gdflix"], a[href*="hubcloud"]')
-                .map((i, el) => $$(el).attr('href')).get();
+            // 3. Find HubCloud (hubcloud.foo/drive) and GDFlix (gdflix.net/file)
+            const links = $$('a[href*="hubcloud"], a[href*="gdflix"]').map((i, el) => $$(el).attr('href')).get();
 
-            for (const hUrl of hosterUrls) {
-                if (hUrl.includes('gdflix')) {
-                    const links = await gdFlixExtractor(ctx, hUrl, archive.url, archive.label);
-                    finalLinks.push(...links);
-                } else if (hUrl.includes('hubcloud')) {
-                    const links = await hubCloudExtractor(ctx, hUrl, archive.url, archive.label);
-                    finalLinks.push(...links);
+            for (const link of links) {
+                let resolved = [];
+                if (link.includes('hubcloud')) {
+                    resolved = await resolveHubCloud(ctx, link, archive.url);
+                } else if (link.includes('gdflix')) {
+                    resolved = await resolveGDFlix(ctx, link, archive.url);
                 }
+
+                resolved.forEach(s => {
+                    finalStreams.push({
+                        name: `MoviesDrive [${s.name}]`,
+                        title: `Quality: ${archive.quality}`,
+                        url: s.url,
+                        quality: archive.quality,
+                        headers: { "Referer": link }
+                    });
+                });
             }
         } catch (e) { continue; }
     }
-    return finalLinks;
+    return finalStreams;
 }
 
-// Entry point: Stays mostly the same, but uses JSON.parse for Nuvio compatibility
+// --- Nuvio getStreams ---
+
 async function getStreams(ctx, tmdbId, type) {
     try {
+        // Use TMDB API to get the name/IMDB ID
         const tmdbRes = await ctx.fetcher.get(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=439c478a771f35c05022f9feabcca01c&append_to_response=external_ids`);
         const tmdbData = JSON.parse(tmdbRes.body);
         const query = tmdbData.external_ids?.imdb_id || tmdbData.title || tmdbData.name;
 
+        // Search API
         const searchUrl = `${MAIN_URL}/searchapi.php?q=${encodeURIComponent(query)}&page=1`;
-        const sRes = await ctx.fetcher.get(searchUrl, { headers: HEADERS });
+        const sRes = await ctx.fetcher.get(searchUrl, { headers: { "Referer": MAIN_URL } });
         const sJson = JSON.parse(sRes.body);
 
         if (!sJson?.hits?.length) return [];

@@ -5,113 +5,125 @@ const HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
 };
 
-// --- Extractors based on Cloudstream Kotlin logic ---
-
-async function resolveHubCloud(ctx, url, referer) {
-    try {
-        // Cloudstream logic: Visit /drive/ or /vfile/ page
-        const res = await ctx.fetcher.get(url, { headers: { ...HEADERS, Referer: referer } });
-        const $ = cheerio.load(res.body);
-        
-        // Find the "Download" or "Stream" button that isn't a redirect
-        const streamUrl = $('a.btn-success, a.btn-primary, a:contains("Download")')
-            .filter((i, el) => {
-                const href = $(el).attr('href') || '';
-                return !href.includes('hubcloud') && !href.includes('cryptonewz');
-            }).attr('href');
-
-        return streamUrl ? [{ name: "HubCloud", url: streamUrl }] : [];
-    } catch (e) { return []; }
-}
-
+/**
+ * FIXED GDFlix Resolver (Based on SkyStream)
+ * Handles the 'new17.gdflix.net/file' landing pages
+ */
 async function resolveGDFlix(ctx, url, referer) {
     try {
-        // Cloudstream logic: Visit the /file/ landing page
         const res = await ctx.fetcher.get(url, { headers: { ...HEADERS, Referer: referer } });
         const $ = cheerio.load(res.body);
         
-        // Look for the "Instant Download" button or the link to busycdn/pixeldrain
-        const directLink = $('a[href*="busycdn"], a[href*="pixeldrain"], a:contains("Instant")').attr('href');
-        
-        if (directLink) {
-            return [{ name: "GDFlix", url: directLink }];
+        // SkyStream looks for the "Instant Download" button or a specific 'busycdn' script
+        let direct = $('a[href*="busycdn"]').attr('href') || 
+                     $('a:contains("Instant")').attr('href');
+
+        // If not found, GDFlix sometimes has a "Generate Link" button
+        if (!direct) {
+            const genLink = $('a:contains("Download Now")').attr('href');
+            if (genLink && genLink !== url) {
+                const res2 = await ctx.fetcher.get(genLink, { headers: { ...HEADERS, Referer: url } });
+                const $2 = cheerio.load(res2.body);
+                direct = $2('a[href*="busycdn"]').attr('href');
+            }
         }
-        
-        // If not found, look for a "Generate Link" script or button
-        const generate = $('a:contains("Download Now")').attr('href');
-        if (generate && generate !== url) return await resolveGDFlix(ctx, generate, url);
-        
-    } catch (e) { return []; }
-    return [];
+        return direct;
+    } catch (e) { return null; }
 }
 
-// --- Main Scraper Flow ---
+/**
+ * FIXED HubCloud Resolver (Based on SkyStream)
+ * Handles the 'hubcloud.foo/drive' landing pages
+ */
+async function resolveHubCloud(ctx, url, referer) {
+    try {
+        const res = await ctx.fetcher.get(url, { headers: { ...HEADERS, Referer: referer } });
+        const $ = cheerio.load(res.body);
+        
+        // SkyStream logic: HubCloud usually has multiple "Download" buttons. 
+        // We need the one that points to a file server (fsl, vcloud, etc.)
+        const streamUrl = $('a[href]').filter((i, el) => {
+            const href = $(el).attr('href') || '';
+            const text = $(el).text().toLowerCase();
+            return (text.includes('download') || text.includes('server')) && 
+                   !href.includes('hubcloud') && !href.includes('cryptonewz');
+        }).attr('href');
+
+        return streamUrl;
+    } catch (e) { return null; }
+}
 
 async function getDownloadLinks(ctx, mediaUrl) {
     const res = await ctx.fetcher.get(mediaUrl, { headers: { ...HEADERS, Referer: MAIN_URL } });
     const $ = cheerio.load(res.body);
-    const finalStreams = [];
+    const streams = [];
 
-    // 1. Get all mdrive.lol archives
+    // SkyStream logic: Find 'mdrive.lol/archives' links
     const archives = [];
     $('a[href*="mdrive.lol/archives"]').each((i, el) => {
-        const parentText = $(el).closest('h5, p').text() || "";
-        const qualityMatch = parentText.match(/\d{3,4}p/i);
-        archives.push({
-            url: $(el).attr('href'),
-            quality: qualityMatch ? qualityMatch[0] : '720p'
-        });
+        // Find quality from the nearest heading or the button text itself
+        const containerText = $(el).closest('div, h5, p').text() + $(el).prev().text();
+        const quality = containerText.match(/\d{3,4}p/i)?.[0] || "720p";
+        archives.push({ url: $(el).attr('href'), quality: quality });
     });
 
     for (const archive of archives) {
         try {
-            // 2. Fetch the mdrive intermediate page
-            const archiveRes = await ctx.fetcher.get(archive.url, { headers: { ...HEADERS, Referer: mediaUrl } });
-            const $$ = cheerio.load(archiveRes.body);
+            const mRes = await ctx.fetcher.get(archive.url, { headers: { ...HEADERS, Referer: mediaUrl } });
+            const $$ = cheerio.load(mRes.body);
 
-            // 3. Find HubCloud (hubcloud.foo/drive) and GDFlix (gdflix.net/file)
-            const links = $$('a[href*="hubcloud"], a[href*="gdflix"]').map((i, el) => $$(el).attr('href')).get();
+            // Find HubCloud and GDFlix buttons
+            const buttons = $$('a[href*="hubcloud"], a[href*="gdflix"]').map((i, el) => $$(el).attr('href')).get();
 
-            for (const link of links) {
-                let resolved = [];
-                if (link.includes('hubcloud')) {
-                    resolved = await resolveHubCloud(ctx, link, archive.url);
-                } else if (link.includes('gdflix')) {
-                    resolved = await resolveGDFlix(ctx, link, archive.url);
+            for (const bUrl of buttons) {
+                let finalUrl = null;
+                let server = "MD";
+
+                if (bUrl.includes('gdflix')) {
+                    finalUrl = await resolveGDFlix(ctx, bUrl, archive.url);
+                    server = "GDFlix";
+                } else if (bUrl.includes('hubcloud')) {
+                    finalUrl = await resolveHubCloud(ctx, bUrl, archive.url);
+                    server = "HubCloud";
                 }
 
-                resolved.forEach(s => {
-                    finalStreams.push({
-                        name: `MoviesDrive [${s.name}]`,
+                if (finalUrl) {
+                    streams.push({
+                        name: `MoviesDrive [${server}]`,
                         title: `Quality: ${archive.quality}`,
-                        url: s.url,
+                        url: finalUrl,
                         quality: archive.quality,
-                        headers: { "Referer": link }
+                        headers: { "Referer": bUrl }
                     });
-                });
+                }
             }
         } catch (e) { continue; }
     }
-    return finalStreams;
+    return streams;
 }
 
-// --- Nuvio getStreams ---
-
-async function getStreams(ctx, tmdbId, type) {
+async function getStreams(ctx, tmdbId, type, season, episode) {
     try {
-        // Use TMDB API to get the name/IMDB ID
+        // 1. TMDB Details
         const tmdbRes = await ctx.fetcher.get(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=439c478a771f35c05022f9feabcca01c&append_to_response=external_ids`);
         const tmdbData = JSON.parse(tmdbRes.body);
-        const query = tmdbData.external_ids?.imdb_id || tmdbData.title || tmdbData.name;
+        const name = tmdbData.title || tmdbData.name;
+        const imdbId = tmdbData.external_ids?.imdb_id;
 
-        // Search API
-        const searchUrl = `${MAIN_URL}/searchapi.php?q=${encodeURIComponent(query)}&page=1`;
+        // 2. Search using IMDB ID if possible (SkyStream preference)
+        const searchUrl = `${MAIN_URL}/searchapi.php?q=${encodeURIComponent(imdbId || name)}&page=1`;
         const sRes = await ctx.fetcher.get(searchUrl, { headers: { "Referer": MAIN_URL } });
         const sJson = JSON.parse(sRes.body);
 
         if (!sJson?.hits?.length) return [];
 
-        const match = sJson.hits[0];
+        // 3. Score search results (SkyStream logic: check title/year)
+        const match = sJson.hits.find(h => {
+            const t = h.document.post_title.toLowerCase();
+            if (type === 'series' && season) return t.includes(name.toLowerCase()) && t.includes(`season ${season}`);
+            return t.includes(name.toLowerCase());
+        }) || sJson.hits[0];
+
         const pageUrl = match.document.permalink.startsWith('http') 
             ? match.document.permalink 
             : `${MAIN_URL}${match.document.permalink}`;

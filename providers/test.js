@@ -1,121 +1,116 @@
-const cheerio = require('cheerio-without-node-native');
-
-const MoviesDrives = {
-    baseUrl: "https://new2.moviesdrives.my",
-
-    /**
-     * NUVIO ENTRY POINT
-     */
-    getStreams: async function (ctx, tmdbId, type, season, episode) {
-        const fetcher = ctx.fetcher;
-        const streams = [];
-
-        try {
-            // 1. Get IMDB ID (MoviesDrive search works 100x better with tt ID)
-            const tmdbRes = await fetcher.get(`https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=439c478a771f35c05022f9feabcca01c&append_to_response=external_ids`);
-            const tmdbData = JSON.parse(tmdbRes.body);
-            const imdbId = tmdbData.external_ids?.imdb_id;
-            const title = tmdbData.title || tmdbData.name;
-
-            // 2. SEARCH API (Mirroring Skystream/Cloudstream)
-            // Use IMDB ID if available, otherwise title
-            const searchUrl = `${this.baseUrl}/searchapi.php?q=${encodeURIComponent(imdbId || title)}&page=1`;
-            const searchRes = await fetcher.get(searchUrl, {
-                headers: { 'Referer': this.baseUrl, 'X-Requested-With': 'XMLHttpRequest' }
-            });
-            
-            const searchData = JSON.parse(searchRes.body);
-            if (!searchData?.hits?.length) return [];
-
-            // 3. FIND MATCHING POST
-            const match = searchData.hits.find(h => {
-                const postTitle = h.document.post_title.toLowerCase();
-                if (type === 'series' && season) {
-                    return postTitle.includes(`season ${season}`) || postTitle.includes(`s${season.toString().padStart(2, '0')}`);
-                }
-                return true;
-            }) || searchData.hits[0];
-
-            const pageUrl = match.document.permalink.startsWith('http') 
-                ? match.document.permalink 
-                : `${this.baseUrl}${match.document.permalink}`;
-
-            // 4. SCRAPE MOVIE PAGE FOR MDRIVE ARCHIVES
-            const pageRes = await fetcher.get(pageUrl);
-            const $ = cheerio.load(pageRes.body);
-
-            const archives = [];
-            $('a[href*="mdrive.lol/archives"]').each((i, el) => {
-                const href = $(el).attr('href');
-                // Get quality from the text inside the button or the parent <h5>
-                const label = $(el).text() + " " + $(el).closest('h5, p').text();
-                const quality = label.match(/\d{3,4}p/i)?.[0] || "720p";
-                archives.push({ url: href, quality });
-            });
-
-            // 5. RESOLVE MDRIVE -> HOSTER -> DIRECT LINK
-            for (const archive of archives) {
-                try {
-                    const archiveRes = await fetcher.get(archive.url, { headers: { 'Referer': pageUrl } });
-                    const $$ = cheerio.load(archiveRes.body);
-
-                    // Find HubCloud (hubcloud.foo/drive) and GDFlix (gdflix.net/file) links
-                    const hosterLinks = $$('a[href*="hubcloud"], a[href*="gdflix"]').map((i, el) => $$(el).attr('href')).get();
-
-                    for (const hUrl of hosterLinks) {
-                        const stream = await this.resolveHoster(ctx, hUrl, archive.url, archive.quality);
-                        if (stream) streams.push(stream);
-                    }
-                } catch (e) { continue; }
-            }
-        } catch (err) {
-            console.error("MoviesDrive Error: ", err);
-        }
-
-        return streams;
-    },
-
-    /**
-     * RESOLVER FOR HUBCLOUD / GDFLIX
-     */
-    resolveHoster: async function (ctx, url, referer, quality) {
-        try {
-            const res = await ctx.fetcher.get(url, { headers: { 'Referer': referer } });
-            const $ = cheerio.load(res.body);
-
-            // CASE 1: GDFlix (new17.gdflix.net/file/...)
-            if (url.includes('gdflix')) {
-                // Look for "Instant Download" or BusyCDN
-                let direct = $('a[href*="busycdn"]').attr('href') || $('a:contains("Instant")').attr('href');
-                
-                // If not there, click the "Download Now" button to get to the final page
-                if (!direct) {
-                    const next = $('a:contains("Download Now")').attr('href');
-                    if (next && next !== url) {
-                        const res2 = await ctx.fetcher.get(next, { headers: { 'Referer': url } });
-                        const $2 = cheerio.load(res2.body);
-                        direct = $2('a[href*="busycdn"]').attr('href');
-                    }
-                }
-                
-                if (direct) return { name: "MoviesDrive (GDFlix)", url: direct, quality };
-            }
-
-            // CASE 2: HubCloud (hubcloud.foo/drive/...)
-            if (url.includes('hubcloud')) {
-                // Find the button that isn't a redirect/ad
-                const direct = $('a[href]').filter((i, el) => {
-                    const href = $(el).attr('href') || "";
-                    const text = $(el).text().toLowerCase();
-                    return (text.includes('download') || text.includes('server')) && 
-                           !href.includes('hubcloud') && !href.includes('cryptonewz');
-                }).attr('href');
-
-                if (direct) return { name: "MoviesDrive (HubCloud)", url: direct, quality };
-            }
-        } catch (e) { return null; }
-        return null;
-    }
+/**
+ * hashhackers - Built from src/hashhackers/
+ * Generated: 2026-05-03T01:20:12.696Z
+ */
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
 };
 
-module.exports = MoviesDrives;
+// src/hashhackers/index.js
+var hashhackers_exports = {};
+__export(hashhackers_exports, {
+  getStreams: () => getStreams
+});
+module.exports = __toCommonJS(hashhackers_exports);
+function getStreams(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    if (mediaType !== "movie")
+      return [];
+    try {
+      const tmdbRes = yield fetch(`https://tmdb.vidsrc.wtf/tmdb/3/movie/${tmdbId}`);
+      if (!tmdbRes.ok)
+        return [];
+      const tmdbData = yield tmdbRes.json();
+      const title = tmdbData.title;
+      const year = tmdbData.release_date ? tmdbData.release_date.split("-")[0] : "";
+      const query = encodeURIComponent(`${title} ${year}`.trim());
+      const tokenRes = yield fetch(`https://your-va-player-app.vercel.app/api/token`);
+      const tokenData = yield tokenRes.json();
+      const token = tokenData.token;
+      if (!token)
+        return [];
+      const searchRes = yield fetch(`https://tga-hd.api.hashhackers.com/mix_media_files/search?q=${query}&page=1`, {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Origin": "https://bollywood.eu.org",
+          "Referer": "https://bollywood.eu.org/"
+        }
+      });
+      const searchData = yield searchRes.json();
+      const files = searchData.files || [];
+      if (files.length === 0)
+        return [];
+      const topFiles = files.slice(0, 5);
+      const streams = [];
+      yield Promise.all(topFiles.map((file) => __async(this, null, function* () {
+        try {
+          const linkRes = yield fetch(`https://tga-hd.api.hashhackers.com/genLink?type=mix_media&id=${file.id}`, {
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Origin": "https://bollywood.eu.org",
+              "Referer": "https://bollywood.eu.org/"
+            }
+          });
+          const linkData = yield linkRes.json();
+          if (linkData.success && linkData.url) {
+            let quality = "Auto";
+            const fileNameLower = file.file_name.toLowerCase();
+            if (fileNameLower.includes("2160p") || fileNameLower.includes("4k"))
+              quality = "4K";
+            else if (fileNameLower.includes("1080p"))
+              quality = "1080p";
+            else if (fileNameLower.includes("720p"))
+              quality = "720p";
+            streams.push({
+              name: "Hashhackers",
+              title: file.file_name.substring(0, 35) + "...",
+              // Clean UI
+              url: linkData.url,
+              quality
+            });
+          }
+        } catch (e) {
+          console.error("Link Gen Error for ID", file.id, e);
+        }
+      })));
+      return streams;
+    } catch (error) {
+      console.error("Hashhackers Error:", error);
+      return [];
+    }
+  });
+}

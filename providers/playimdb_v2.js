@@ -3,7 +3,7 @@
  * Enhanced with Cloudnestra Decryption
  */
 
-const TMDB_API_KEY = '1b3113663c9004682ed61086cf967c44';
+const TMDB_API_KEY = '1c29a5198ee1854bd5eb45dbe8d17d92';
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 
 async function safeFetch(url, options = {}) {

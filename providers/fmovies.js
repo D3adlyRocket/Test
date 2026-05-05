@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Multi-Language UI Fix
+// Dahmer Movies Scraper - Deep Language Logic & UI Icons
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -104,36 +104,39 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // --- IMPROVED MULTI-LANGUAGE DETECTION ---
+        // --- 1. DEEP LANGUAGE ANALYSIS ---
         let detectedLangs = [];
+        const isDual = /\b(Dual|Multi|DUB|Org)\b/i.test(fileName);
         
-        if (/\b(Hindi|Hin|HIN)\b/i.test(fileName)) detectedLangs.push("Hindi");
-        if (/\b(Kor|Korean)\b/i.test(fileName)) detectedLangs.push("Korean");
-        if (/\b(Ger|German)\b/i.test(fileName)) detectedLangs.push("German");
-        if (/\b(Tamil|Tam)\b/i.test(fileName)) detectedLangs.push("Tamil");
-        if (/\b(Telugu|Tel)\b/i.test(fileName)) detectedLangs.push("Telugu");
-        if (/\b(Spa|Spanish|Esp)\b/i.test(fileName)) detectedLangs.push("Spanish");
-        if (/\b(Fre|French)\b/i.test(fileName)) detectedLangs.push("French");
-        
-        // Check for specific movie title bias (e.g., Korean movies)
-        const isKoreanTitle = /Sarah|Parasite|Train to Busan/i.test(title);
-        if (isKoreanTitle && detectedLangs.length === 0) detectedLangs.push("Korean");
+        // Scan for all possible language matches
+        if (/\b(Kor|Korean)\b/i.test(fileName) || /Sarah/i.test(title)) detectedLangs.push("Kor");
+        if (/\b(Hin|Hindi)\b/i.test(fileName)) detectedLangs.push("Hin");
+        if (/\b(Ger|German)\b/i.test(fileName)) detectedLangs.push("Ger");
+        if (/\b(Tam|Tamil)\b/i.test(fileName)) detectedLangs.push("Tam");
+        if (/\b(Tel|Telugu)\b/i.test(fileName)) detectedLangs.push("Tel");
+        if (/\b(Eng|English)\b/i.test(fileName)) detectedLangs.push("Eng");
 
-        // Handle Dual/Multi markers
-        const hasDualTag = /\b(Dual|Multi|DUB|Org)\b/i.test(fileName);
-        
-        let language = "English";
-        if (detectedLangs.length > 0) {
-            language = detectedLangs.join(" + ");
-            if (hasDualTag && !language.includes("Eng")) language += " + Eng";
-        } else if (hasDualTag) {
-            language = "Dual Audio";
+        // --- 2. DUAL AUDIO LOGIC ---
+        let languageStr = "Eng"; // Default
+
+        if (isDual) {
+            if (detectedLangs.length >= 2) {
+                languageStr = detectedLangs.join(" + ");
+            } else if (detectedLangs.length === 1) {
+                // If it's a Korean movie and says Dual, it's likely Kor + Hin or Kor + Eng
+                // On this server, "Dual" almost always includes Hindi if it's an Asian or Hollywood film
+                languageStr = `${detectedLangs[0]} + Hin/Eng`;
+            } else {
+                languageStr = "Dual Audio";
+            }
+        } else if (detectedLangs.length > 0) {
+            languageStr = detectedLangs[0];
         }
 
+        // --- 3. UI FORMATTING ---
         const resolution = fileName.match(/\b(2160p|1080p|720p|480p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
-        // Clean Extra Info
         let extraInfo = fileName
             .replace(/\.(mkv|mp4|avi|webm)$/i, '')
             .replace(new RegExp(resolution, 'gi'), '')
@@ -143,7 +146,7 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         results.push({
             name: "DahmerMovies",
-            title: `📺 ${resolution} | 🌐 ${language} | 💾 ${fileSize} | ℹ️ ${extraInfo}`,
+            title: `📺 ${resolution} | 🌐 ${languageStr} | 💾 ${fileSize} | ℹ️ ${extraInfo}`,
             url: streamUrl,
             quality: resolution.toLowerCase(),
             headers: {

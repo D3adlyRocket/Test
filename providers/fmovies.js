@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Clean UI & Simplified Language Logic
+// Dahmer Movies Scraper - Final Language & UI Fix
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -104,20 +104,35 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // --- SIMPLIFIED LANGUAGE LOGIC ---
-        let language = "English"; 
+        // --- NEW STRICT LANGUAGE LOGIC ---
+        let language = "Hindi"; // Default to Hindi for this server
 
-        if (/\b(Dual|Multi|DUB|Org)\b/i.test(fileName)) {
+        const hasHin = /\b(Hin|Hindi)\b/i.test(fileName);
+        const hasTam = /\b(Tam|Tamil)\b/i.test(fileName);
+        const hasTel = /\b(Tel|Telugu)\b/i.test(fileName);
+        const hasDual = /\b(Dual|Multi|DUB|Org|Multi-Audio)\b/i.test(fileName);
+        const hasKor = /\b(Kor|Korean)\b/i.test(fileName);
+        const hasGer = /\b(Ger|German)\b/i.test(fileName);
+        const hasEng = /\b(Eng|English)\b/i.test(fileName);
+
+        // 1. If it has multiple regional tags, it's Dual Audio
+        if ((hasHin && hasTam) || (hasHin && hasTel) || (hasTam && hasTel) || hasDual) {
             language = "Dual Audio";
-        } else if (/\b(Hin|Hindi|हिन्दी)\b/i.test(fileName) || /Dhurandhar|Border/i.test(title)) {
-            language = "Hindi";
-        } else if (/\b(Kor|Korean)\b/i.test(fileName)) {
+        } 
+        // 2. Specific Language Overrides
+        else if (hasKor) {
             language = "Korean";
-        } else if (/\b(Ger|German)\b/i.test(fileName)) {
+        } 
+        else if (hasGer) {
             language = "German";
-        } else if (/\b(Tam|Tamil)\b/i.test(fileName)) {
+        }
+        else if (hasEng && !hasHin) {
+            language = "English";
+        }
+        else if (hasTam) {
             language = "Tamil";
-        } else if (/\b(Tel|Telugu)\b/i.test(fileName)) {
+        }
+        else if (hasTel) {
             language = "Telugu";
         }
 

@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Updated with Custom Description Format
+// Dahmer Movies Scraper - Enhanced Language & Size Detection
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -17,7 +17,6 @@ async function resolveFinalUrl(startUrl) {
     if (startUrl.includes('/bulk?u=')) {
         cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
     }
-
     try {
         const response = await fetch(cleanUrl, {
             method: 'HEAD',
@@ -33,16 +32,20 @@ async function resolveFinalUrl(startUrl) {
 
 function parseLinks(html) {
     const links = [];
-    const rowRegex = /<tr[^>]*>(.*?)<\/tr>/gis;
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
     let match;
     while ((match = rowRegex.exec(html)) !== null) {
-        const content = match[1];
-        const linkMatch = content.match(/<a[^>]*href=["']([^"']*)["'][^>]*>([^<]*)<\/a>/i);
+        const rowContent = match[1];
+        const linkMatch = rowContent.match(/<a[^>]*href=["']([^"']*)["'][^>]*>([^<]*)<\/a>/i);
+        const sizeMatch = rowContent.match(/<td[^>]*>(\d+(?:\.\d+)?\s?[KMGT]B)<\/td>/i);
+
         if (linkMatch) {
             const href = linkMatch[1];
             const text = linkMatch[2].trim();
+            const size = sizeMatch ? sizeMatch[1].trim() : 'N/A';
+
             if (text && href !== '../' && /\.(mkv|mp4|avi|webm)$/i.test(text)) {
-                links.push({ text, href });
+                links.push({ text, href, size });
             }
         }
     }
@@ -51,7 +54,6 @@ function parseLinks(html) {
 
 async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const cleanTitle = title.replace(/:/g, '');
-    
     const folderVariants = season !== null ? [
         `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season < 10 ? '0' + season : season}/`,
         `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season}/`
@@ -71,7 +73,6 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     }
 
     if (!html) return [];
-    
     const paths = parseLinks(html);
 
     let filteredPaths = paths;
@@ -90,7 +91,6 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const results = [];
     for (const path of sortedPaths.slice(0, 5)) {
         let finalUrl;
-
         if (path.href.startsWith('http')) {
             finalUrl = path.href;
         } else if (path.href.includes('/movies/') || path.href.includes('/tvs/')) {
@@ -102,27 +102,31 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
         finalUrl = finalUrl.replace(/([^:]\/)\/+/g, "$1");
         const streamUrl = await resolveFinalUrl(finalUrl);
 
-        // --- CUSTOM DESCRIPTION LOGIC ---
         const fileName = path.text;
         
-        // Regex to extract info from the filename
-        const resolution = fileName.match(/\b(2160p|1080p|720p|480p|4k)\b/i)?.[0] || '1080p';
-        const language = fileName.match(/\b(Hindi|English|Dual|Multi|Tamil|Telugu)\b/i)?.[0] || 'Multi';
-        const size = fileName.match(/\b(\d+(?:\.\d+)?\s?[GM]B)\b/i)?.[0] || 'N/A';
+        // --- IMPROVED LANGUAGE DETECTION ---
+        let language = 'English'; // Default
+        if (/\b(Hindi|Hin)\b/i.test(fileName)) language = 'Hindi';
+        else if (/\b(Tamil|Tam)\b/i.test(fileName)) language = 'Tamil';
+        else if (/\b(Telugu|Tel)\b/i.test(fileName)) language = 'Telugu';
+        else if (/\b(Spanish|Esp)\b/i.test(fileName)) language = 'Spanish';
+        else if (/\b(Dual|Multi)\b/i.test(fileName)) language = 'Multi Audio';
+
+        const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
+        const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
-        // Clean up remaining text for Extra Info
+        // Extra Info: Filter out common junk
         let extraInfo = fileName
             .replace(/\.(mkv|mp4|avi|webm)$/i, '')
             .replace(new RegExp(resolution, 'gi'), '')
-            .replace(new RegExp(language, 'gi'), '')
-            .replace(new RegExp(size, 'gi'), '')
+            .replace(new RegExp(language.split(' ')[0], 'gi'), '')
             .replace(/[\[\]()._-]/g, ' ')
             .replace(/\s+/g, ' ')
             .trim();
 
         results.push({
             name: "DahmerMovies",
-            title: `${resolution} | ${language} | ${size} | ${extraInfo}`,
+            title: `${resolution} | ${language} | ${fileSize} | ${extraInfo}`,
             url: streamUrl,
             quality: resolution.toLowerCase(),
             headers: {
@@ -142,10 +146,8 @@ async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episode
         const tmdbUrl = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
         const res = await makeRequest(tmdbUrl);
         const data = await res.json();
-        
         const title = mediaType === 'tv' ? data.name : data.title;
         const year = (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4);
-
         if (!title) return [];
         return await invokeDahmerMovies(title, year, seasonNum, episodeNum);
     } catch (e) { return []; }

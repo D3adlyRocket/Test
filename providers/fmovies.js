@@ -1,131 +1,155 @@
-/**
- * Hashhackers - Pure Promise Version (TV Support, Quality, Size, Strict Filter)
- */
+// Dahmer Movies Scraper - Updated with Custom Description Format
+console.log('[DahmerMovies] Initializing Scraper');
 
-function formatBytes(bytes) {
-    if (!bytes || bytes == 0) return "Unknown";
-    var k = 1024;
-    var sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-    var i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-}
+const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+const DAHMER_MOVIES_API = 'https://a.111477.xyz';
 
-function fetchJson(url, options) {
-    console.log("[Hashhackers] Fetching: " + url);
-    return fetch(url, options || {}).then(function(res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
-    }).catch(function(err) {
-        console.error("[Hashhackers] Fetch Failed: " + err.message);
-        throw err;
-    });
-}
-
-function getStreams(tmdbId, mediaType, season, episode) {
-    console.log("[Hashhackers] getStreams: " + tmdbId + " | Type: " + mediaType);
-    
-    // Support both movies and TV shows
-    if (mediaType !== 'movie' && mediaType !== 'tv') return Promise.resolve([]);
-
-    var isTv = mediaType === 'tv';
-    var isImdb = String(tmdbId).startsWith("tt");
-    
-    // 1. Get TMDB info
-    var tmdbUrl = isImdb 
-        ? "https://api.themoviedb.org/3/find/" + tmdbId + "?api_key=d131017ccc6e5462a81c9304d21476de&external_source=imdb_id&language=en-US"
-        : "https://api.themoviedb.org/3/" + (isTv ? "tv" : "movie") + "/" + tmdbId + "?api_key=d131017ccc6e5462a81c9304d21476de&language=en-US";
-
-    return fetchJson(tmdbUrl)
-        .then(function(tmdbData) {
-            var mediaData;
-            if (isImdb) {
-                mediaData = isTv ? (tmdbData.tv_results && tmdbData.tv_results[0]) : (tmdbData.movie_results && tmdbData.movie_results[0]);
-            } else {
-                mediaData = tmdbData;
-            }
-            
-            if (!mediaData) return [];
-
-            var title = isTv ? mediaData.name : mediaData.title;
-            var releaseDate = isTv ? mediaData.first_air_date : mediaData.release_date;
-            var year = releaseDate ? releaseDate.split('-')[0] : '';
-            
-            // Format Query (e.g. "The Boys 2019 S01E01" or "Fight Club 1999")
-            var queryStr = title + " " + year;
-            if (isTv && season !== undefined && episode !== undefined) {
-                var s = season < 10 ? '0' + season : season;
-                var e = episode < 10 ? '0' + episode : episode;
-                queryStr += " S" + s + "E" + e;
-            }
-            var query = encodeURIComponent(queryStr.trim());
-
-            // 2. Get Token from Vercel (Cache Buster included)
-            var tokenUrl = "https://test2-mu-drab.vercel.app/api/token?nocache=" + new Date().getTime();
-            
-            return fetchJson(tokenUrl)
-                .then(function(tokenData) {
-                    var token = tokenData.token;
-                    if (!token) return [];
-
-                    var HASH_HEADERS = {
-                        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0.1 Mobile/15E148 Safari/604.1",
-                        "Accept": "*/*",
-                        "Authorization": "Bearer " + token,
-                        "Origin": "https://bollywood.eu.org",
-                        "Referer": "https://bollywood.eu.org/"
-                    };
-
-                    var searchUrl = "https://tga-hd.api.hashhackers.com/mix_media_files/search?q=" + query + "&page=1";
-                    
-                    // 3. Search Hashhackers
-                    return fetchJson(searchUrl, { headers: HASH_HEADERS })
-                        .then(function(searchData) {
-                            var files = searchData.files || [];
-                            
-                            // STRICT FILTERING: Only pure .mkv or .mp4 files allowed
-                            var validFiles = files.filter(function(f) {
-                                var fn = f.file_name.toLowerCase().trim();
-                                return /\.(mkv|mp4)$/.test(fn);
-                            });
-
-                            if (validFiles.length === 0) return [];
-
-                            var topFiles = validFiles.slice(0, 6);
-                            var streamPromises = topFiles.map(function(file) {
-                                
-                                // 4. Generate Links
-                                return fetchJson("https://tga-hd.api.hashhackers.com/genLink?type=mix_media&id=" + file.id, { headers: HASH_HEADERS })
-                                    .then(function(linkData) {
-                                        if (linkData.success && linkData.url) {
-                                            var fn = file.file_name.toLowerCase();
-                                            var quality = "Auto";
-                                            
-                                            if (fn.includes("2160p") || fn.includes("4k")) quality = "4K";
-                                            else if (fn.includes("1080p")) quality = "1080p";
-                                            else if (fn.includes("720p")) quality = "720p";
-                                            else if (fn.includes("480p")) quality = "480p";
-
-                                            return {
-                                                name: "Hashhackers",
-                                                title: file.file_name,
-                                                url: linkData.url,
-                                                quality: quality,
-                                                size: formatBytes(parseInt(file.file_size))
-                                            };
-                                        }
-                                        return null;
-                                    }).catch(function() { return null; });
-                            });
-
-                            return Promise.all(streamPromises).then(function(results) {
-                                return results.filter(function(r) { return r !== null; });
-                            });
-                        });
-                });
-        }).catch(function(error) {
-            console.error("[Hashhackers] Error: " + error.message);
-            return [];
+async function makeRequest(url) {
+    try {
+        return await fetch(url, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
         });
+    } catch (e) { return { ok: false }; }
 }
 
-module.exports = { getStreams: getStreams };
+async function resolveFinalUrl(startUrl) {
+    let cleanUrl = startUrl;
+    if (startUrl.includes('/bulk?u=')) {
+        cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
+    }
+
+    try {
+        const response = await fetch(cleanUrl, {
+            method: 'HEAD',
+            redirect: 'follow',
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
+                'Referer': DAHMER_MOVIES_API + '/'
+            }
+        });
+        return response.url;
+    } catch (e) { return cleanUrl; }
+}
+
+function parseLinks(html) {
+    const links = [];
+    const rowRegex = /<tr[^>]*>(.*?)<\/tr>/gis;
+    let match;
+    while ((match = rowRegex.exec(html)) !== null) {
+        const content = match[1];
+        const linkMatch = content.match(/<a[^>]*href=["']([^"']*)["'][^>]*>([^<]*)<\/a>/i);
+        if (linkMatch) {
+            const href = linkMatch[1];
+            const text = linkMatch[2].trim();
+            if (text && href !== '../' && /\.(mkv|mp4|avi|webm)$/i.test(text)) {
+                links.push({ text, href });
+            }
+        }
+    }
+    return links;
+}
+
+async function invokeDahmerMovies(title, year, season = null, episode = null) {
+    const cleanTitle = title.replace(/:/g, '');
+    
+    const folderVariants = season !== null ? [
+        `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season < 10 ? '0' + season : season}/`,
+        `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season}/`
+    ] : [`/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`];
+
+    let html = '';
+    let activeDirUrl = '';
+
+    for (const path of folderVariants) {
+        const fullDirUrl = DAHMER_MOVIES_API + path;
+        const response = await makeRequest(fullDirUrl);
+        if (response.ok) {
+            html = await response.text();
+            activeDirUrl = fullDirUrl;
+            break; 
+        }
+    }
+
+    if (!html) return [];
+    
+    const paths = parseLinks(html);
+
+    let filteredPaths = paths;
+    if (season !== null && episode !== null) {
+        const e = episode < 10 ? `0${episode}` : episode;
+        const pattern = new RegExp(`E${e}|E${episode}`, 'i');
+        filteredPaths = paths.filter(p => pattern.test(p.text));
+    }
+
+    const sortedPaths = filteredPaths.sort((a, b) => {
+        const a4k = /2160p|4k/i.test(a.text);
+        const b4k = /2160p|4k/i.test(b.text);
+        return b4k - a4k;
+    });
+
+    const results = [];
+    for (const path of sortedPaths.slice(0, 5)) {
+        let finalUrl;
+
+        if (path.href.startsWith('http')) {
+            finalUrl = path.href;
+        } else if (path.href.includes('/movies/') || path.href.includes('/tvs/')) {
+            finalUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
+        } else {
+            finalUrl = activeDirUrl + path.href;
+        }
+
+        finalUrl = finalUrl.replace(/([^:]\/)\/+/g, "$1");
+        const streamUrl = await resolveFinalUrl(finalUrl);
+
+        // --- CUSTOM DESCRIPTION LOGIC ---
+        const fileName = path.text;
+        
+        // Regex to extract info from the filename
+        const resolution = fileName.match(/\b(2160p|1080p|720p|480p|4k)\b/i)?.[0] || '1080p';
+        const language = fileName.match(/\b(Hindi|English|Dual|Multi|Tamil|Telugu)\b/i)?.[0] || 'Multi';
+        const size = fileName.match(/\b(\d+(?:\.\d+)?\s?[GM]B)\b/i)?.[0] || 'N/A';
+        
+        // Clean up remaining text for Extra Info
+        let extraInfo = fileName
+            .replace(/\.(mkv|mp4|avi|webm)$/i, '')
+            .replace(new RegExp(resolution, 'gi'), '')
+            .replace(new RegExp(language, 'gi'), '')
+            .replace(new RegExp(size, 'gi'), '')
+            .replace(/[\[\]()._-]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        results.push({
+            name: "DahmerMovies",
+            title: `${resolution} | ${language} | ${size} | ${extraInfo}`,
+            url: streamUrl,
+            quality: resolution.toLowerCase(),
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Android) ExoPlayer',
+                'Referer': DAHMER_MOVIES_API + '/',
+                'Range': 'bytes=0-'
+            },
+            provider: "dahmermovies"
+        });
+    }
+    return results;
+}
+
+async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
+    try {
+        const type = mediaType === 'tv' ? 'tv' : 'movie';
+        const tmdbUrl = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+        const res = await makeRequest(tmdbUrl);
+        const data = await res.json();
+        
+        const title = mediaType === 'tv' ? data.name : data.title;
+        const year = (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4);
+
+        if (!title) return [];
+        return await invokeDahmerMovies(title, year, seasonNum, episodeNum);
+    } catch (e) { return []; }
+}
+
+if (typeof module !== 'undefined') module.exports = { getStreams };
+else global.getStreams = getStreams;

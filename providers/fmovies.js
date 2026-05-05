@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Enhanced Language & Size Detection
+// Dahmer Movies Scraper - Advanced Language & Size Extraction
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -37,6 +37,7 @@ function parseLinks(html) {
     while ((match = rowRegex.exec(html)) !== null) {
         const rowContent = match[1];
         const linkMatch = rowContent.match(/<a[^>]*href=["']([^"']*)["'][^>]*>([^<]*)<\/a>/i);
+        // Scrapes the size from the <td> tags
         const sizeMatch = rowContent.match(/<td[^>]*>(\d+(?:\.\d+)?\s?[KMGT]B)<\/td>/i);
 
         if (linkMatch) {
@@ -104,22 +105,29 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // --- IMPROVED LANGUAGE DETECTION ---
-        let language = 'English'; // Default
-        if (/\b(Hindi|Hin)\b/i.test(fileName)) language = 'Hindi';
-        else if (/\b(Tamil|Tam)\b/i.test(fileName)) language = 'Tamil';
-        else if (/\b(Telugu|Tel)\b/i.test(fileName)) language = 'Telugu';
-        else if (/\b(Spanish|Esp)\b/i.test(fileName)) language = 'Spanish';
-        else if (/\b(Dual|Multi)\b/i.test(fileName)) language = 'Multi Audio';
+        // --- DEEP LANGUAGE SCAN ---
+        let language = 'English'; 
+        
+        // Check for common regional markers
+        const isHindi = /\b(Hindi|Hin|HIN)\b/i.test(fileName);
+        const isTamil = /\b(Tamil|Tam|TAM)\b/i.test(fileName);
+        const isTelugu = /\b(Telugu|Tel|TEL)\b/i.test(fileName);
+        const isDual = /\b(Dual|Multi|DD[+ ]?5\.1)\b/i.test(fileName);
 
-        const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
+        if (isHindi && isDual) language = 'Hindi + Eng';
+        else if (isHindi) language = 'Hindi';
+        else if (isTamil) language = 'Tamil';
+        else if (isTelugu) language = 'Telugu';
+        else if (isDual) language = 'Dual Audio';
+
+        const resolution = fileName.match(/\b(2160p|1080p|720p|480p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
-        // Extra Info: Filter out common junk
+        // Clean Extra Info (removes year and common tags to keep it short)
         let extraInfo = fileName
             .replace(/\.(mkv|mp4|avi|webm)$/i, '')
+            .replace(new RegExp(year, 'g'), '')
             .replace(new RegExp(resolution, 'gi'), '')
-            .replace(new RegExp(language.split(' ')[0], 'gi'), '')
             .replace(/[\[\]()._-]/g, ' ')
             .replace(/\s+/g, ' ')
             .trim();

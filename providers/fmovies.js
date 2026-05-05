@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Advanced Language & Size Extraction
+// Dahmer Movies Scraper - Icon UI & Regional Language Fix
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -37,7 +37,6 @@ function parseLinks(html) {
     while ((match = rowRegex.exec(html)) !== null) {
         const rowContent = match[1];
         const linkMatch = rowContent.match(/<a[^>]*href=["']([^"']*)["'][^>]*>([^<]*)<\/a>/i);
-        // Scrapes the size from the <td> tags
         const sizeMatch = rowContent.match(/<td[^>]*>(\d+(?:\.\d+)?\s?[KMGT]B)<\/td>/i);
 
         if (linkMatch) {
@@ -105,25 +104,25 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // --- DEEP LANGUAGE SCAN ---
-        let language = 'English'; 
+        // --- 1. ENHANCED LANGUAGE DETECTION ---
+        // We check for Hindi keywords, OR if the movie is a known Hindi title (via a simple regex check)
+        const isHindiTitle = /Border|Dhurandhar|Jawan|Pathaan|Tiger|Brahmastra/i.test(title);
+        const isHindiFile = /\b(Hindi|Hin|HIN|हिन्दी)\b/i.test(fileName);
+        const isDual = /\b(Dual|Multi|DD[+ ]?5\.1|Org)\b/i.test(fileName);
         
-        // Check for common regional markers
-        const isHindi = /\b(Hindi|Hin|HIN)\b/i.test(fileName);
-        const isTamil = /\b(Tamil|Tam|TAM)\b/i.test(fileName);
-        const isTelugu = /\b(Telugu|Tel|TEL)\b/i.test(fileName);
-        const isDual = /\b(Dual|Multi|DD[+ ]?5\.1)\b/i.test(fileName);
-
-        if (isHindi && isDual) language = 'Hindi + Eng';
-        else if (isHindi) language = 'Hindi';
-        else if (isTamil) language = 'Tamil';
-        else if (isTelugu) language = 'Telugu';
+        let language = 'English';
+        if (isHindiFile && isDual) language = 'Hindi + Eng';
+        else if (isHindiFile) language = 'Hindi';
+        else if (isHindiTitle && !/\b(Eng|English)\b/i.test(fileName)) language = 'Hindi'; // Bias toward Hindi for these titles
+        else if (/\b(Tamil|Tam)\b/i.test(fileName)) language = 'Tamil';
+        else if (/\b(Telugu|Tel)\b/i.test(fileName)) language = 'Telugu';
         else if (isDual) language = 'Dual Audio';
 
+        // --- 2. RESOLUTION & ICONS ---
         const resolution = fileName.match(/\b(2160p|1080p|720p|480p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
-        // Clean Extra Info (removes year and common tags to keep it short)
+        // --- 3. CLEAN EXTRA INFO ---
         let extraInfo = fileName
             .replace(/\.(mkv|mp4|avi|webm)$/i, '')
             .replace(new RegExp(year, 'g'), '')
@@ -132,9 +131,12 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
             .replace(/\s+/g, ' ')
             .trim();
 
+        // Final UI String with Icons
+        const displayTitle = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  ℹ️ ${extraInfo}`;
+
         results.push({
             name: "DahmerMovies",
-            title: `${resolution} | ${language} | ${fileSize} | ${extraInfo}`,
+            title: displayTitle,
             url: streamUrl,
             quality: resolution.toLowerCase(),
             headers: {

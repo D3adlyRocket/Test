@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Deep Language Logic & UI Icons
+// Dahmer Movies Scraper - Clean UI & Simplified Language Logic
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -104,40 +104,28 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // --- 1. DEEP LANGUAGE ANALYSIS ---
-        let detectedLangs = [];
-        const isDual = /\b(Dual|Multi|DUB|Org)\b/i.test(fileName);
-        
-        // Scan for all possible language matches
-        if (/\b(Kor|Korean)\b/i.test(fileName) || /Sarah/i.test(title)) detectedLangs.push("Kor");
-        if (/\b(Hin|Hindi)\b/i.test(fileName)) detectedLangs.push("Hin");
-        if (/\b(Ger|German)\b/i.test(fileName)) detectedLangs.push("Ger");
-        if (/\b(Tam|Tamil)\b/i.test(fileName)) detectedLangs.push("Tam");
-        if (/\b(Tel|Telugu)\b/i.test(fileName)) detectedLangs.push("Tel");
-        if (/\b(Eng|English)\b/i.test(fileName)) detectedLangs.push("Eng");
+        // --- SIMPLIFIED LANGUAGE LOGIC ---
+        let language = "English"; 
 
-        // --- 2. DUAL AUDIO LOGIC ---
-        let languageStr = "Eng"; // Default
-
-        if (isDual) {
-            if (detectedLangs.length >= 2) {
-                languageStr = detectedLangs.join(" + ");
-            } else if (detectedLangs.length === 1) {
-                // If it's a Korean movie and says Dual, it's likely Kor + Hin or Kor + Eng
-                // On this server, "Dual" almost always includes Hindi if it's an Asian or Hollywood film
-                languageStr = `${detectedLangs[0]} + Hin/Eng`;
-            } else {
-                languageStr = "Dual Audio";
-            }
-        } else if (detectedLangs.length > 0) {
-            languageStr = detectedLangs[0];
+        if (/\b(Dual|Multi|DUB|Org)\b/i.test(fileName)) {
+            language = "Dual Audio";
+        } else if (/\b(Hin|Hindi|हिन्दी)\b/i.test(fileName) || /Dhurandhar|Border/i.test(title)) {
+            language = "Hindi";
+        } else if (/\b(Kor|Korean)\b/i.test(fileName)) {
+            language = "Korean";
+        } else if (/\b(Ger|German)\b/i.test(fileName)) {
+            language = "German";
+        } else if (/\b(Tam|Tamil)\b/i.test(fileName)) {
+            language = "Tamil";
+        } else if (/\b(Tel|Telugu)\b/i.test(fileName)) {
+            language = "Telugu";
         }
 
-        // --- 3. UI FORMATTING ---
-        const resolution = fileName.match(/\b(2160p|1080p|720p|480p|4k)\b/i)?.[0] || '1080p';
+        const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
-        let extraInfo = fileName
+        // --- CLEANER INFO ---
+        let info = fileName
             .replace(/\.(mkv|mp4|avi|webm)$/i, '')
             .replace(new RegExp(resolution, 'gi'), '')
             .replace(/[\[\]()._-]/g, ' ')
@@ -146,7 +134,7 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         results.push({
             name: "DahmerMovies",
-            title: `📺 ${resolution} | 🌐 ${languageStr} | 💾 ${fileSize} | ℹ️ ${extraInfo}`,
+            title: `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  ℹ️ ${info}`,
             url: streamUrl,
             quality: resolution.toLowerCase(),
             headers: {

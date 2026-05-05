@@ -40,13 +40,6 @@ var __async = (__this, __arguments, generator) => {
 
 const cheerio = require("cheerio-without-node-native");
 
-/**
- * ANDROID TV OPTIMIZATION: 
- * We use a Desktop Chrome User-Agent because Android TV's default 
- * often triggers MoviesMod's "Access Denied" firewalls.
- */
-const TV_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-
 function escapeRegExp(string) {
   return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -57,6 +50,9 @@ const DOMAIN_CACHE_TTL = 4 * 60 * 60 * 1e3;
 let moviesModDomain = FALLBACK_DOMAIN;
 let domainCacheTimestamp = 0;
 
+// Forced Desktop UA for TV Bypass
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
+
 function getMoviesModDomain() {
   return __async(this, null, function* () {
     const now = Date.now();
@@ -66,9 +62,7 @@ function getMoviesModDomain() {
     try {
       const response = yield fetch("https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json", {
         method: "GET",
-        headers: {
-          "User-Agent": TV_USER_AGENT
-        }
+        headers: { "User-Agent": UA }
       });
       if (response.ok) {
         const data = yield response.json();
@@ -85,7 +79,7 @@ function getMoviesModDomain() {
 function makeRequest(_0) {
   return __async(this, arguments, function* (url, options = {}) {
     const defaultHeaders = {
-      "User-Agent": TV_USER_AGENT,
+      "User-Agent": UA,
       "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
       "Accept-Language": "en-US,en;q=0.5",
       "Connection": "keep-alive"
@@ -98,25 +92,39 @@ function makeRequest(_0) {
 }
 
 function extractQuality(text) {
-  if (!text) return "Unknown";
+  if (!text)
+    return "Unknown";
   const qualityMatch = text.match(/(480p|720p|1080p|2160p|4k)/i);
-  if (qualityMatch) return qualityMatch[1];
+  if (qualityMatch) {
+    return qualityMatch[1];
+  }
   return "Unknown";
 }
 
 function parseQualityForSort(qualityString) {
-  if (!qualityString) return 0;
+  if (!qualityString)
+    return 0;
   const match = qualityString.match(/(\d{3,4})p/i);
-  return match ? parseInt(match[1], 10) : 0;
+  if (match) {
+    return parseInt(match[1], 10);
+  }
+  return 0;
 }
 
 function getTechDetails(qualityString) {
-  if (!qualityString) return [];
+  if (!qualityString)
+    return [];
   const details = [];
   const lowerText = qualityString.toLowerCase();
-  if (lowerText.includes("10bit")) details.push("10-bit");
-  if (lowerText.includes("hevc") || lowerText.includes("x265")) details.push("HEVC");
-  if (lowerText.includes("hdr")) details.push("HDR");
+  if (lowerText.includes("10bit")) {
+    details.push("10-bit");
+  }
+  if (lowerText.includes("hevc") || lowerText.includes("x265")) {
+    details.push("HEVC");
+  }
+  if (lowerText.includes("hdr")) {
+    details.push("HDR");
+  }
   return details;
 }
 
@@ -125,11 +133,14 @@ function findBestMatch(mainString, targetStrings) {
     return { bestMatch: { target: "", rating: 0 }, bestMatchIndex: -1 };
   }
   const ratings = targetStrings.map((target) => {
-    if (!target) return 0;
+    if (!target)
+      return 0;
     const main = mainString.toLowerCase();
     const targ = target.toLowerCase();
-    if (main === targ) return 1;
-    if (targ.includes(main) || main.includes(targ)) return 0.8;
+    if (main === targ)
+      return 1;
+    if (targ.includes(main) || main.includes(targ))
+      return 0.8;
     const mainWords = main.split(/\s+/);
     const targWords = targ.split(/\s+/);
     let matches = 0;
@@ -194,7 +205,10 @@ function extractDownloadLinks(moviePageUrl) {
             const buttonText = $(linkEl).text().trim();
             const linkUrl = $(linkEl).attr("href");
             if (linkUrl) {
-              links.push({ quality: `${headerText} - ${buttonText}`, url: linkUrl });
+              links.push({
+                quality: `${headerText} - ${buttonText}`,
+                url: linkUrl
+              });
             }
           });
         } else if (header.is("h4")) {
@@ -203,7 +217,10 @@ function extractDownloadLinks(moviePageUrl) {
             const link = linkElement.attr("href");
             const cleanQuality = extractQuality(headerText);
             if (link && cleanQuality) {
-              links.push({ quality: cleanQuality, url: link });
+              links.push({
+                quality: cleanQuality,
+                url: link
+              });
             }
           }
         }
@@ -220,7 +237,9 @@ function resolveIntermediateLink(initialUrl, refererUrl, quality) {
     try {
       const urlObject = new URL(initialUrl);
       if (urlObject.hostname.includes("links.modpro.blog") || urlObject.hostname.includes("posts.modpro.blog")) {
-        const response = yield makeRequest(initialUrl, { headers: { "Referer": refererUrl } });
+        const response = yield makeRequest(initialUrl, {
+          headers: { "Referer": refererUrl }
+        });
         const html = yield response.text();
         const $ = cheerio.load(html);
         const finalLinks = [];
@@ -228,12 +247,17 @@ function resolveIntermediateLink(initialUrl, refererUrl, quality) {
           const link = $(el).attr("href");
           const text = $(el).text().trim();
           if (link && text && !text.toLowerCase().includes("batch")) {
-            finalLinks.push({ server: text.replace(/\s+/g, " "), url: link });
+            finalLinks.push({
+              server: text.replace(/\s+/g, " "),
+              url: link
+            });
           }
         });
         return finalLinks;
       } else if (urlObject.hostname.includes("episodes.modpro.blog")) {
-        const response = yield makeRequest(initialUrl, { headers: { "Referer": refererUrl } });
+        const response = yield makeRequest(initialUrl, {
+          headers: { "Referer": refererUrl }
+        });
         const html = yield response.text();
         const $ = cheerio.load(html);
         const finalLinks = [];
@@ -246,7 +270,10 @@ function resolveIntermediateLink(initialUrl, refererUrl, quality) {
             if (linkElement.length > 0) {
               const link = linkElement.attr("href");
               if (link) {
-                finalLinks.push({ server: `Episode ${episodeNum}`, url: link });
+                finalLinks.push({
+                  server: `Episode ${episodeNum}`,
+                  url: link
+                });
               }
             }
           }
@@ -254,9 +281,12 @@ function resolveIntermediateLink(initialUrl, refererUrl, quality) {
         return finalLinks;
       } else if (urlObject.hostname.includes("modrefer.in")) {
         const encodedUrl = urlObject.searchParams.get("url");
-        if (!encodedUrl) return [];
+        if (!encodedUrl)
+          return [];
         const decodedUrl = atob(encodedUrl);
-        const response = yield makeRequest(decodedUrl, { headers: { "Referer": refererUrl } });
+        const response = yield makeRequest(decodedUrl, {
+          headers: { "Referer": refererUrl }
+        });
         const html = yield response.text();
         const $ = cheerio.load(html);
         const finalLinks = [];
@@ -264,7 +294,10 @@ function resolveIntermediateLink(initialUrl, refererUrl, quality) {
           const link = $(el).attr("href");
           const text = $(el).text().trim();
           if (link && (link.includes("driveseed.org") || link.includes("cloud.unblockedgames.world") || link.includes("tech.examzculture.in") || link.includes("tech.creativeexpressionsblog.com") || link.includes("tech.examdegree.site"))) {
-            finalLinks.push({ server: text || "Download Link", url: link });
+            finalLinks.push({
+              server: text || "Download Link",
+              url: link
+            });
           }
         });
         return finalLinks;
@@ -285,11 +318,17 @@ function resolveTechUnblockedLink(sidUrl) {
       const initialForm = $("#landing");
       const wp_http_step1 = initialForm.find('input[name="_wp_http"]').val();
       const action_url_step1 = initialForm.attr("action");
-      if (!wp_http_step1 || !action_url_step1) return null;
-      const step1Data = new URLSearchParams({ "_wp_http": wp_http_step1 });
+      if (!wp_http_step1 || !action_url_step1) {
+        return null;
+      }
+      const step1Data = new URLSearchParams();
+      step1Data.append("_wp_http", wp_http_step1);
       const responseStep1 = yield makeRequest(action_url_step1, {
         method: "POST",
-        headers: { "Referer": sidUrl, "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Referer": sidUrl,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
         body: step1Data.toString()
       });
       const html2 = yield responseStep1.text();
@@ -298,24 +337,43 @@ function resolveTechUnblockedLink(sidUrl) {
       const action_url_step2 = verificationForm.attr("action");
       const wp_http2 = verificationForm.find('input[name="_wp_http2"]').val();
       const token = verificationForm.find('input[name="token"]').val();
-      if (!action_url_step2) return null;
-      const step2Data = new URLSearchParams({ "_wp_http2": wp_http2, "token": token });
+      if (!action_url_step2) {
+        return null;
+      }
+      const step2Data = new URLSearchParams();
+      step2Data.append("_wp_http2", wp_http2);
+      step2Data.append("token", token);
       const responseStep2 = yield makeRequest(action_url_step2, {
         method: "POST",
-        headers: { "Referer": responseStep1.url, "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          "Referer": responseStep1.url,
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
         body: step2Data.toString()
       });
       const finalHtml = yield responseStep2.text();
-      let finalLinkPath = null, cookieName = null, cookieValue = null;
+      let finalLinkPath = null;
+      let cookieName = null;
+      let cookieValue = null;
       const cookieMatch = finalHtml.match(/s_343\('([^']+)',\s*'([^']+)'/);
+      if (cookieMatch) {
+        cookieName = cookieMatch[1].trim();
+        cookieValue = cookieMatch[2].trim();
+      }
       const linkMatch = finalHtml.match(/c\.setAttribute\("href",\s*"([^"]+)"\)/);
-      if (cookieMatch) { cookieName = cookieMatch[1].trim(); cookieValue = cookieMatch[2].trim(); }
-      if (linkMatch) finalLinkPath = linkMatch[1].trim();
-      if (!finalLinkPath || !cookieName || !cookieValue) return null;
+      if (linkMatch) {
+        finalLinkPath = linkMatch[1].trim();
+      }
+      if (!finalLinkPath || !cookieName || !cookieValue) {
+        return null;
+      }
       const { origin } = new URL(sidUrl);
       const finalUrl = new URL(finalLinkPath, origin).href;
       const finalResponse = yield makeRequest(finalUrl, {
-        headers: { "Referer": responseStep2.url, "Cookie": `${cookieName}=${cookieValue}` }
+        headers: {
+          "Referer": responseStep2.url,
+          "Cookie": `${cookieName}=${cookieValue}`
+        }
       });
       const metaHtml = yield finalResponse.text();
       const $3 = cheerio.load(metaHtml);
@@ -337,35 +395,72 @@ function resolveTechUnblockedLink(sidUrl) {
 function resolveDriveseedLink(driveseedUrl) {
   return __async(this, null, function* () {
     try {
-      const response = yield makeRequest(driveseedUrl, { headers: { "Referer": "https://links.modpro.blog/" } });
+      const response = yield makeRequest(driveseedUrl, {
+        headers: { "Referer": "https://links.modpro.blog/" }
+      });
       const html = yield response.text();
       const redirectMatch = html.match(/window\.location\.replace\("([^"]+)"\)/);
       if (redirectMatch && redirectMatch[1]) {
         const finalPath = redirectMatch[1];
         const finalUrl = `https://driveseed.org${finalPath}`;
-        const finalResponse = yield makeRequest(finalUrl, { headers: { "Referer": driveseedUrl } });
+        const finalResponse = yield makeRequest(finalUrl, {
+          headers: { "Referer": driveseedUrl }
+        });
         const finalHtml = yield finalResponse.text();
         const $ = cheerio.load(finalHtml);
         const downloadOptions = [];
-        let size = null, fileName = null;
+        let size = null;
+        let fileName = null;
         $("ul.list-group li").each((i, el) => {
           const text = $(el).text();
-          if (text.includes("Size :")) size = text.split(":")[1].trim();
-          else if (text.includes("Name :")) fileName = text.split(":")[1].trim();
+          if (text.includes("Size :")) {
+            size = text.split(":")[1].trim();
+          } else if (text.includes("Name :")) {
+            fileName = text.split(":")[1].trim();
+          }
         });
         const resumeCloudLink = $('a:contains("Resume Cloud")').attr("href");
-        if (resumeCloudLink) downloadOptions.push({ title: "Resume Cloud", type: "resume", url: `https://driveseed.org${resumeCloudLink}`, priority: 1 });
+        if (resumeCloudLink) {
+          downloadOptions.push({
+            title: "Resume Cloud",
+            type: "resume",
+            url: `https://driveseed.org${resumeCloudLink}`,
+            priority: 1
+          });
+        }
         const workerSeedLink = $('a:contains("Resume Worker Bot")').attr("href");
-        if (workerSeedLink) downloadOptions.push({ title: "Resume Worker Bot", type: "worker", url: workerSeedLink, priority: 2 });
+        if (workerSeedLink) {
+          downloadOptions.push({
+            title: "Resume Worker Bot",
+            type: "worker",
+            url: workerSeedLink,
+            priority: 2
+          });
+        }
         $('a[href*="/download/"]').each((i, el) => {
           const href = $(el).attr("href");
           const text = $(el).text().trim();
-          if (href && text && !downloadOptions.some((opt) => opt.url === href)) {
-            downloadOptions.push({ title: text, type: "generic", url: href.startsWith("http") ? href : `https://driveseed.org${href}`, priority: 4 });
+          if (href && text) {
+            const isDuplicate = downloadOptions.some((opt) => opt.url === href);
+            if (!isDuplicate) {
+              downloadOptions.push({
+                title: text,
+                type: "generic",
+                url: href.startsWith("http") ? href : `https://driveseed.org${href}`,
+                priority: 4
+              });
+            }
           }
         });
         const instantDownloadLink = $('a:contains("Instant Download")').attr("href");
-        if (instantDownloadLink) downloadOptions.push({ title: "Instant Download", type: "instant", url: instantDownloadLink, priority: 3 });
+        if (instantDownloadLink) {
+          downloadOptions.push({
+            title: "Instant Download",
+            type: "instant",
+            url: instantDownloadLink,
+            priority: 3
+          });
+        }
         downloadOptions.sort((a, b) => a.priority - b.priority);
         return { downloadOptions, size, fileName };
       }
@@ -379,7 +474,9 @@ function resolveDriveseedLink(driveseedUrl) {
 function resolveResumeCloudLink(resumeUrl) {
   return __async(this, null, function* () {
     try {
-      const response = yield makeRequest(resumeUrl, { headers: { "Referer": "https://driveseed.org/" } });
+      const response = yield makeRequest(resumeUrl, {
+        headers: { "Referer": "https://driveseed.org/" }
+      });
       const html = yield response.text();
       const $ = cheerio.load(html);
       const downloadLink = $('a:contains("Cloud Resume Download")').attr("href");
@@ -405,12 +502,14 @@ function resolveVideoSeedLink(videoSeedUrl) {
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
             "x-token": new URL(videoSeedUrl).hostname,
-            "User-Agent": TV_USER_AGENT
+            "User-Agent": UA
           }
         });
         if (apiResponse.ok) {
           const responseData = yield apiResponse.json();
-          if (responseData && responseData.url) return responseData.url;
+          if (responseData && responseData.url) {
+            return responseData.url;
+          }
         }
       }
       return null;
@@ -427,7 +526,7 @@ function validateVideoUrl(url) {
         method: "HEAD",
         headers: {
           "Range": "bytes=0-1",
-          "User-Agent": TV_USER_AGENT
+          "User-Agent": UA
         }
       });
       return response.ok || response.status === 206;
@@ -446,78 +545,90 @@ function getStreamsInternal(tmdbId, mediaType = "movie", seasonNum = null, episo
       const title = mediaType === "tv" ? tmdbData.name : tmdbData.title;
       const year = mediaType === "tv" ? tmdbData.first_air_date?.substring(0, 4) : tmdbData.release_date?.substring(0, 4);
       const imdbId = tmdbData.external_ids ? tmdbData.external_ids.imdb_id : null;
-      
       let searchResults = [];
       let selectedResult = null;
-
       if (imdbId) {
         const imdbQuery = mediaType === "tv" && seasonNum ? `${imdbId} Season ${seasonNum}` : imdbId;
         searchResults = yield searchMoviesMod(imdbQuery);
-        if (searchResults.length > 0) selectedResult = searchResults[0];
+        if (searchResults.length > 0) {
+          selectedResult = searchResults[0];
+        }
       }
-
       if (!selectedResult) {
         const titleQuery = mediaType === "tv" && seasonNum ? `${title} Season ${seasonNum}` : title;
         searchResults = yield searchMoviesMod(titleQuery);
-        if (searchResults.length === 0) searchResults = yield searchMoviesMod(title);
+        if (searchResults.length === 0) {
+          searchResults = yield searchMoviesMod(title);
+        }
         if (searchResults.length > 0) {
           const titles = searchResults.map((r) => r.title);
-          const bestMatch = findBestMatch(title, titles);
-          if (bestMatch.bestMatch.rating > 0.3) {
-            selectedResult = searchResults[bestMatch.bestMatchIndex];
+          const { bestMatch, bestMatchIndex } = findBestMatch(title, titles);
+          if (bestMatch.rating > 0.3) {
+            selectedResult = searchResults[bestMatchIndex];
           }
         }
       }
-
-      if (!selectedResult) return [];
+      if (!selectedResult) {
+        return [];
+      }
       const downloadLinks = yield extractDownloadLinks(selectedResult.url);
       let relevantLinks = downloadLinks;
       if (mediaType === "tv" && seasonNum !== null) {
-        relevantLinks = downloadLinks.filter((link) => link.quality.toLowerCase().includes(`season ${seasonNum}`) || link.quality.toLowerCase().includes(`s${seasonNum}`));
+        relevantLinks = downloadLinks.filter((link) => {
+          const q = link.quality.toLowerCase();
+          return q.includes(`season ${seasonNum}`) || q.includes(`s${seasonNum}`);
+        });
       }
       relevantLinks = relevantLinks.filter((link) => !link.quality.toLowerCase().includes("480p"));
-
       const streamPromises = relevantLinks.map((link) => __async(this, null, function* () {
         const finalLinks = yield resolveIntermediateLink(link.url, selectedResult.url, link.quality);
-        if (!finalLinks || finalLinks.length === 0) return null;
+        if (!finalLinks || finalLinks.length === 0)
+          return null;
         for (const targetLink of finalLinks) {
           let currentUrl = targetLink.url;
           const isEpisodeLink = targetLink.server && targetLink.server.toLowerCase().includes("episode");
           if (currentUrl.includes("cloud.unblockedgames.world") || currentUrl.includes("tech.creativeexpressionsblog.com") || currentUrl.includes("tech.examzculture.in")) {
             currentUrl = yield resolveTechUnblockedLink(currentUrl);
-            if (!currentUrl) continue;
+            if (!currentUrl)
+              continue;
           }
           if (currentUrl && currentUrl.includes("driveseed.org")) {
             const driveseedInfo = yield resolveDriveseedLink(currentUrl);
-            if (driveseedInfo && driveseedInfo.downloadOptions?.length > 0) {
+            if (driveseedInfo && driveseedInfo.downloadOptions && driveseedInfo.downloadOptions.length > 0) {
               for (const option of driveseedInfo.downloadOptions) {
                 let finalDownloadUrl = null;
-                if (option.type === "resume" || option.type === "worker") finalDownloadUrl = yield resolveResumeCloudLink(option.url);
-                else if (option.type === "instant") finalDownloadUrl = (yield resolveVideoSeedLink(option.url)) || option.url;
-                else if (option.type === "generic") finalDownloadUrl = option.url;
-
-                if (finalDownloadUrl && (yield validateVideoUrl(finalDownloadUrl))) {
-                  if (isEpisodeLink && episodeNum !== null) {
-                    const episodeFromServer = targetLink.server.match(/Episode\s+(\d+)/i);
-                    if (episodeFromServer && parseInt(episodeFromServer[1]) !== episodeNum) continue;
-                  }
-                  
-                  /**
-                   * NUVIO/ANDROID TV HANDSHAKE:
-                   * We return the stream with a specific headers object.
-                   * Without this, the TV player will get a 403 error.
-                   */
-                  return {
-                    name: `MoviesMod ${targetLink.server || ""}`.trim(),
-                    title: `${title} - ${link.quality}`,
-                    url: finalDownloadUrl,
-                    quality: link.quality,
-                    size: driveseedInfo.size || "Unknown",
-                    headers: {
-                      "User-Agent": TV_USER_AGENT,
-                      "Referer": "https://driveseed.org/"
+                if (option.type === "resume" || option.type === "worker") {
+                  finalDownloadUrl = yield resolveResumeCloudLink(option.url);
+                } else if (option.type === "instant") {
+                  finalDownloadUrl = yield resolveVideoSeedLink(option.url);
+                  if (!finalDownloadUrl)
+                    finalDownloadUrl = option.url;
+                } else if (option.type === "generic") {
+                  finalDownloadUrl = option.url;
+                }
+                if (finalDownloadUrl) {
+                  const isValid = yield validateVideoUrl(finalDownloadUrl);
+                  if (isValid) {
+                    if (isEpisodeLink && episodeNum !== null) {
+                      const episodeFromServer = targetLink.server.match(/Episode\s+(\d+)/i);
+                      if (episodeFromServer && parseInt(episodeFromServer[1], 10) !== episodeNum) {
+                        continue;
+                      }
                     }
-                  };
+                    const tech = getTechDetails(link.quality);
+                    // Nuvio TV Output with Header fix
+                    return {
+                      name: `MoviesMod [${targetLink.server}]`.trim(),
+                      title: `${title} (${year}) - ${link.quality}`,
+                      url: finalDownloadUrl,
+                      quality: link.quality,
+                      size: driveseedInfo.size || "Unknown",
+                      headers: { 
+                        "User-Agent": UA,
+                        "Referer": "https://driveseed.org/"
+                      }
+                    };
+                  }
                 }
               }
             }
@@ -525,9 +636,11 @@ function getStreamsInternal(tmdbId, mediaType = "movie", seasonNum = null, episo
         }
         return null;
       }));
-
       const rawStreams = yield Promise.all(streamPromises);
-      const streams = rawStreams.filter(Boolean).sort((a, b) => parseQualityForSort(b.quality) - parseQualityForSort(a.quality));
+      const streams = rawStreams.filter((s) => s !== null);
+      streams.sort((a, b) => {
+        return parseQualityForSort(b.quality) - parseQualityForSort(a.quality);
+      });
       return streams;
     } catch (e) {
       return [];
@@ -535,10 +648,7 @@ function getStreamsInternal(tmdbId, mediaType = "movie", seasonNum = null, episo
   });
 }
 
-/**
- * NUVIO SOURCE OBJECT
- * This is the exact format the Nuvio App requires to load the script.
- */
+// THE NUVIO SOURCE OBJECT
 const source = {
   name: "MoviesMod",
   getStreams: function(input) {
@@ -550,9 +660,10 @@ const source = {
   }
 };
 
-// Exporting specifically for the Nuvio sandbox
+// EXPORT FOR ANDROID TV / NUVIO
 if (typeof module !== "undefined" && module.exports) {
   module.exports = source;
 } else {
   global.source = source;
 }
+

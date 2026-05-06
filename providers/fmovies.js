@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Simplified Logic & Multi-Audio Fix
+// Dahmer Movies Scraper - Simplified Logic (Multi / English / Original)
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -104,28 +104,21 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // --- START OF NEW SIMPLE LANGUAGE LOGIC ---
-        let language = "Unknown";
+        // --- UPDATED LANGUAGE LOGIC ---
+        let language = "Original"; 
 
-        // 1. Check for Multi/Dual/Regional combinations
         const isMultiTags = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio)\b/i.test(fileName);
-        
-        // 2. Check if the Title is English-sounding (Simple Regex for English characters/common words)
         const isEnglishTitle = /^[a-zA-Z0-9\s?!\-:]+$/.test(title);
+        const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
 
         if (isMultiTags) {
             language = "Multi Audio";
-        } else if (isEnglishTitle && /\b(Eng|English)\b/i.test(fileName)) {
-            // Only set English if it's an English title AND the filename supports it
+        } else if (isEnglishTitle && hasEngTag) {
             language = "English";
-        } else if (!isEnglishTitle || /\b(Hin|Hindi)\b/i.test(fileName)) {
-            // Default to Hindi for foreign names or Hindi tags
-            language = "Hindi";
         } else {
-            // Fallback for everything else
-            language = "Hindi"; 
+            // Defaulting to Original for everything else
+            language = "Original";
         }
-        // --- END OF LANGUAGE LOGIC ---
 
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';

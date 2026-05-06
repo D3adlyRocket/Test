@@ -1,6 +1,6 @@
 "use strict";
 
-var DOMAIN = "https://uhdmovies.rip"; // Update this to .pink or .rip as needed
+var DOMAIN = "https://uhdmovies.pink"; // Update this to .pink or .rip as needed
 var TMDB_API = "https://api.themoviedb.org/3";
 var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";

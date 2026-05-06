@@ -1,9 +1,8 @@
-// Dahmer Movies Scraper - Forced Worker Proxy for 429 Fix
+// Dahmer Movies Scraper - Clean Worker Path & Multi-Audio Fix
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DAHMER_MOVIES_API = 'https://a.111477.xyz';
-// The Worker Proxy that prevents 429 errors
 const DAHMER_WORKER_API = 'https://p.111477.xyz/bulk?u=';
 
 async function makeRequest(url) {
@@ -62,14 +61,7 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     if (!html) return [];
     const paths = parseLinks(html);
 
-    let filteredPaths = paths;
-    if (season !== null && episode !== null) {
-        const e = episode < 10 ? `0${episode}` : episode;
-        const pattern = new RegExp(`E${e}|E${episode}`, 'i');
-        filteredPaths = paths.filter(p => pattern.test(p.text));
-    }
-
-    const sortedPaths = filteredPaths.sort((a, b) => {
+    const sortedPaths = paths.sort((a, b) => {
         const a4k = /2160p|4k/i.test(a.text);
         const b4k = /2160p|4k/i.test(b.text);
         return b4k - a4k;
@@ -77,28 +69,29 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
     const results = [];
     for (const path of sortedPaths.slice(0, 5)) {
-        let streamUrl;
+        let directUrl;
         if (path.href.startsWith('http')) {
-            streamUrl = path.href;
+            directUrl = path.href;
         } else if (path.href.includes('/movies/') || path.href.includes('/tvs/')) {
-            streamUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
+            directUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
         } else {
-            streamUrl = activeDirUrl + path.href;
+            directUrl = activeDirUrl + path.href;
         }
 
-        streamUrl = streamUrl.replace(/([^:]\/)\/+/g, "$1");
+        // --- THE FIX: CLEAN THE URL BEFORE PROXYING ---
+        // 1. Remove double slashes
+        directUrl = directUrl.replace(/([^:]\/)\/+/g, "$1");
+        // 2. Decode the URI to remove those %20, %28, etc. so it looks like the working link
+        directUrl = decodeURI(directUrl);
 
-        // --- 429 FIX: FORCE ALL LINKS THROUGH THE WORKER PROXY ---
-        // We take the direct link and wrap it with the worker URL, just like the working link in your picture.
-        if (!streamUrl.includes('bulk?u=')) {
-            streamUrl = DAHMER_WORKER_API + encodeURIComponent(streamUrl);
-        }
+        // 3. Wrap in Worker Proxy
+        let streamUrl = DAHMER_WORKER_API + encodeURI(directUrl);
 
         const fileName = path.text;
         
-        // Final Language Logic
+        // Simplified Language Logic
         let language = "Original"; 
-        const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio)\b/i.test(fileName);
+        const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio|MULTI)\b/i.test(fileName);
         const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
         const isEnglishTitle = /^[a-zA-Z0-9\s?!\-:]+$/.test(title);
 

@@ -527,8 +527,8 @@ function getStreams(tmdbId, type, season, episode) {
         const seasonStr = "S" + String(season).padStart(2, "0");
         const episodePadded = String(episode).padStart(2, "0");
         const episodeCode = `S${seasonStr.slice(1)}E${episodePadded}`;
-        const seasonPattern = new RegExp(`\bS0?${season}\b`, "i");
-        const episodePattern = new RegExp(`(?:${episodeCode}|Episode[-_ ]?${episodePadded}|\bE${episodePadded}\b)`, "i");
+        const seasonPattern = new RegExp(`\bS0?${season}\\b`, "i");
+        const episodePattern = new RegExp(`(?:${episodeCode}|Episode[-_ ]?${episodePadded}|\\bE${episodePadded}\\b)`, "i");
         
         console.log(`[4KHDHub] Looking for season ${seasonStr}, episode ${episodePadded}`);
         

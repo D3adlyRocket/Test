@@ -533,36 +533,51 @@ function getStreams(tmdbId, type, season, episode) {
       const $ = cheerio3.load(html);
       const itemsToProcess = [];
       
-                              if (isSeries && season && episode) {
+        if (isSeries && season && episode) {
         const sNum = parseInt(season, 10);
         const eNum = parseInt(episode, 10);
         const sStr = "S" + String(sNum).padStart(2, "0");
         const eStr = "E" + String(eNum).padStart(2, "0");
         const seCode = sStr + eStr;
+        const altCode = `episode-${String(eNum).padStart(2, "0")}`; // Matches the red "Episode-01" label
 
-        // Scans paragraphs, tables, and direct links for "S01E01" or "Episode 1"
-        $(".post-content p, .post-content div, tr, li, .download-item, a").each((_, el) => {
-          const text = $(el).text().toLowerCase().trim();
+        console.log(`[4KHDHub] Scanning for Episode: ${seCode} or ${altCode}`);
+
+        // 1. Target the orange buttons directly and check their surroundings
+        $("a[href*='hubcloud'], a[href*='hubdrive']").each((_, el) => {
+          const $el = $(el);
+          // Look at the text of the link itself and the container it sits in
+          const context = $el.closest('div, p, tr, li, section');
+          const contextText = context.text().toLowerCase();
           
-          const matches = text.includes(seCode.toLowerCase()) || 
-                         (text.includes(`episode ${eNum}`) && (text.includes(`season ${sNum}`) || text.includes(sStr.toLowerCase()))) ||
-                         (text === `episode ${eNum}` || text === `ep ${eNum}`);
+          // Also check the previous element (the title above the button)
+          const previousText = context.prev().text().toLowerCase();
+          
+          const isMatch = contextText.includes(seCode.toLowerCase()) || 
+                          contextText.includes(altCode) ||
+                          previousText.includes(seCode.toLowerCase()) ||
+                          (contextText.includes(`episode ${eNum}`) && contextText.includes(`season ${sNum}`));
 
-          if (matches) {
-            const link = $(el).is('a') ? $(el) : $(el).find("a[href*='hubcloud'], a[href*='hubdrive'], a[href*='id=']");
-            if (link.length > 0) itemsToProcess.push(link[0]);
+          if (isMatch) {
+            console.log(`[4KHDHub] Found button match via context: ${seCode}`);
+            itemsToProcess.push(el);
           }
         });
 
-        // Fallback for specific site structures
+        // 2. Fallback: Proximity search (Look for the title, then take the next buttons)
         if (itemsToProcess.length === 0) {
-          $(".episode-download-item").each((_, item) => {
-            if ($(item).text().includes(seCode)) itemsToProcess.push(item);
+          $(".post-content p, .post-content div, .post-content span, .post-content a").each((_, el) => {
+            const text = $(el).text().toLowerCase();
+            if (text.includes(seCode.toLowerCase()) || text.includes(altCode)) {
+              // Find the next 2 download links that follow this text
+              const nextLinks = $(el).parent().nextAll().find("a[href*='hubcloud'], a[href*='hubdrive']").slice(0, 2);
+              nextLinks.each((_, link) => itemsToProcess.push(link));
+            }
           });
         }
       } else {
-
         // This starts the Movie logic
+
         console.log("[4KHDHub] Looking for movie download items");
         
         // Try multiple selectors for download items

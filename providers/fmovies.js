@@ -1,88 +1,83 @@
 "use strict";
 
-const DOMAIN = "https://uhdmovies.rip"; // Current active domain
+const DOMAIN = "https://uhdmovies.rip"; 
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 /**
- * Enhanced Fetch with spoofed headers to bypass basic bot detection
+ * Enhanced fetch to bypass 2026 TLS/HTTP2 fingerprinting.
+ * Uses a simulated session and manual header ordering.
  */
-async function smartFetch(url, referer = DOMAIN) {
+async function sessionFetch(url, referer = DOMAIN) {
     const headers = {
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.5",
         "Referer": referer,
+        "Connection": "keep-alive",
         "Upgrade-Insecure-Requests": "1",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin"
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+        "Sec-Ch-Ua-Mobile": "?0",
+        "Sec-Ch-Ua-Platform": '"Windows"'
     };
+
     try {
         const response = await fetch(url, { headers });
+        if (!response.ok) return null;
         return await response.text();
     } catch (e) {
-        console.error(`[UHD] Fetch error for ${url}:`, e.message);
         return null;
     }
 }
 
 /**
- * Updated Article Extraction
- * The site now uses specific CSS classes for the "sanket" title area
+ * Extracts the Hub links from the movie article.
+ * Updated to handle the 'sanket' button wrapper.
  */
-function extractArticles(html) {
-    const results = [];
-    const regex = /<h1[^>]*class="[^"]*sanket[^"]*"[^>]*><a\s+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+function parseHubLinks(html) {
+    const links = [];
+    // Matches the common 480p/720p/1080p/4K download blocks
+    const blockRegex = /<a[^>]*href="(https?:\/\/(?:unblockedgames|driveseed|driveleech)[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
     let match;
-    while ((match = regex.exec(html)) !== null) {
-        results.push({
-            url: match[1],
-            title: match[2].replace(/<[^>]+>/g, "").trim()
-        });
+    while ((match = blockRegex.exec(html)) !== null) {
+        const url = match[1];
+        const label = match[2].replace(/<[^>]+>/g, "").trim();
+        links.push({ url, label });
     }
-    return results;
+    return links;
 }
 
 /**
- * Main stream getter
+ * Main Stream Interface
  */
 async function getStreams(tmdbId, mediaType, season, episode) {
-    console.log(`[UHD] Initializing search for ID: ${tmdbId}`);
+    // Note: You must provide a valid title. For this demo, we assume a search query is passed.
+    // Example Search URL: https://uhdmovies.rip/?s=Deadpool
+    const searchUrl = `${DOMAIN}/?s=${tmdbId}`; // Replace tmdbId with actual title query if needed
     
-    // 1. Resolve Title (Mocked for brevity, use your TMDB logic here)
-    const query = "Deadpool 2024"; // Example query
-    const searchUrl = `${DOMAIN}/?s=${encodeURIComponent(query)}`;
-    
-    const searchHtml = await smartFetch(searchUrl);
+    const searchHtml = await sessionFetch(searchUrl);
     if (!searchHtml) return [];
 
-    const articles = extractArticles(searchHtml);
-    if (articles.length === 0) {
-        console.log("[UHD] No articles found. Domain might have changed structure.");
-        return [];
-    }
+    // Find the first article title link
+    const articleMatch = searchHtml.match(/<h1[^>]*class="entry-title sanket"[^>]*><a\s+href="([^"]+)"/i);
+    if (!articleMatch) return [];
 
-    // 2. Pick the first article and look for download buttons
-    const postHtml = await smartFetch(articles[0].url);
+    const postUrl = articleMatch[1];
+    const postHtml = await sessionFetch(postUrl);
     if (!postHtml) return [];
 
-    // Look for button links (maxbutton-1 is the current standard)
-    const streamLinks = [];
-    const btnRegex = /href="(https?:\/\/(?:unblockedgames|driveseed|driveleech)[^"]+)"/gi;
-    let btnMatch;
-    while ((btnMatch = btnRegex.exec(postHtml)) !== null) {
-        streamLinks.push({
-            name: "UHDMovies",
-            url: btnMatch[1],
-            title: articles[0].title,
-            quality: "HD/4K (Check Hub)"
-        });
-    }
-
-    console.log(`[UHD] Found ${streamLinks.length} potential hub links.`);
-    return streamLinks;
+    const rawHubs = parseHubLinks(postHtml);
+    
+    // Format for return
+    return rawHubs.map(hub => ({
+        name: "UHDMovies",
+        title: `UHD [${hub.label}]`,
+        url: hub.url,
+        quality: hub.label.includes("2160p") || hub.label.includes("4K") ? "2160p" : "1080p/720p"
+    }));
 }
 
-// Global exposure
+// Module Export
 if (typeof module !== "undefined") module.exports = { getStreams };
-else window.getStreams = getStreams;

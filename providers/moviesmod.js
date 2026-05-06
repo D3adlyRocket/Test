@@ -1,12 +1,9 @@
-// Dahmer Movies Scraper - Hybrid TV & Mobile Fix
-console.log('[DahmerMovies] Initializing Hybrid Scraper');
+// Dahmer Movies Scraper - Restored & Optimized
+console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DAHMER_MOVIES_API = 'https://a.111477.xyz';
 const DAHMER_WORKER_API = 'https://p.111477.xyz/bulk?u=';
-
-// Helper for delays
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function makeRequest(url) {
     try {
@@ -17,40 +14,6 @@ async function makeRequest(url) {
             }
         });
     } catch (e) { return { ok: false }; }
-}
-
-async function resolveFinalUrl(startUrl) {
-    // If it's already a worker link, extract the target first to "clean" it
-    let target = startUrl;
-    if (startUrl.includes('u=')) {
-        target = decodeURIComponent(startUrl.split('u=')[1].split('&')[0]);
-    }
-
-    try {
-        const response = await fetch(target, {
-            method: 'HEAD',
-            redirect: 'follow',
-            headers: { 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Referer': DAHMER_MOVIES_API + '/'
-            }
-        });
-
-        if (response.status === 429) {
-            console.log('[DahmerMovies] 429 detected during resolve, backing off...');
-            return null; // Signals to skip this link
-        }
-
-        // Return the resolved URL wrapped in the worker for extra safety
-        let resolved = response.url;
-        if (!resolved.includes('p.111477.xyz')) {
-            resolved = DAHMER_WORKER_API + encodeURIComponent(resolved);
-        }
-        return resolved;
-    } catch (e) { 
-        // Fallback: If HEAD fails, manually wrap the target in the worker
-        return DAHMER_WORKER_API + encodeURIComponent(target);
-    }
 }
 
 function parseLinks(html) {
@@ -103,23 +66,24 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     });
 
     const results = [];
-    // We process links one by one with a delay to prevent 429
     for (const path of sortedPaths.slice(0, 5)) {
-        await sleep(500); // 0.5s gap between link resolutions
+        let directUrl = path.href.startsWith('http') ? path.href : activeDirUrl + path.href;
+        
+        // Clean URL structure
+        directUrl = directUrl.replace(/([^:]\/)\/+/g, "$1");
+        directUrl = decodeURI(directUrl);
 
-        let rawUrl = path.href.startsWith('http') ? path.href : activeDirUrl + path.href;
-        rawUrl = rawUrl.replace(/([^:]\/)\/+/g, "$1");
-
-        const streamUrl = await resolveFinalUrl(rawUrl);
-        if (!streamUrl) continue; // Skip if 429 hit during resolution
+        // Wrap in the worker that prevents 429 errors
+        const streamUrl = DAHMER_WORKER_API + encodeURI(directUrl);
 
         const fileName = path.text;
         
-        // Language & Format Logic
+        // Language Logic
         let language = "Original"; 
         if (/\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio|MULTI)\b/i.test(fileName)) language = "Multi Audio";
         else if (/^[a-zA-Z0-9\s?!\-:]+$/.test(title) && /\b(Eng|English)\b/i.test(fileName)) language = "English";
 
+        // Format Logic
         const formatMatch = fileName.match(/\.(mkv|mp4|m3u8|avi|webm)$/i);
         const fileFormat = formatMatch ? formatMatch[1].toUpperCase() : 'LINK';
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';

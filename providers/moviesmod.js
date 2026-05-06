@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Clean Worker Path & Multi-Audio Fix
+// Dahmer Movies Scraper - MP4 429 Fix & Multi-Audio Logic
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -78,18 +78,16 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
             directUrl = activeDirUrl + path.href;
         }
 
-        // --- THE FIX: CLEAN THE URL BEFORE PROXYING ---
-        // 1. Remove double slashes
+        // --- CLEAN & ENCODE FOR MP4 STABILITY ---
         directUrl = directUrl.replace(/([^:]\/)\/+/g, "$1");
-        // 2. Decode the URI to remove those %20, %28, etc. so it looks like the working link
         directUrl = decodeURI(directUrl);
-
-        // 3. Wrap in Worker Proxy
+        
+        // Use encodeURI specifically to keep MP4 structure clean for the worker
         let streamUrl = DAHMER_WORKER_API + encodeURI(directUrl);
 
         const fileName = path.text;
         
-        // Simplified Language Logic
+        // Language Logic
         let language = "Original"; 
         const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio|MULTI)\b/i.test(fileName);
         const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
@@ -103,7 +101,6 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
-        
         let info = fileName.replace(/\.(mkv|mp4|avi|webm)$/i, '').replace(/[\[\]()._-]/g, ' ').replace(/\s+/g, ' ').trim();
 
         results.push({
@@ -115,6 +112,7 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Referer': DAHMER_MOVIES_API + '/',
                 'Connection': 'keep-alive',
+                'Accept': '*/*', // Important for MP4 metadata requests
                 'Range': 'bytes=0-'
             },
             provider: "dahmermovies"

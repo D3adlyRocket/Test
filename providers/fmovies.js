@@ -528,34 +528,29 @@ function getStreams(tmdbId, type, season, episode) {
         const eNum = parseInt(episode, 10);
         const seasonStr = "S" + String(sNum).padStart(2, "0");
         const epStr = "E" + String(eNum).padStart(2, "0");
+        const epCode = `${seasonStr}${epStr}`;
+        
+        console.log(`[4KHDHub] Looking for episode matching: ${epCode}`);
 
-        // Targeted search for season/episode inside download blocks
-        $(".season-item, .episode-item, .download-item, .episode-download-item, .post-content div").each((_, el) => {
+        // Logic specifically for series pages (like Black Mirror)
+        // Scans all potential download blocks and matches based on SxxExx or "Episode X" text
+        $(".download-item, .episode-download-item, .post-content div").each((_, el) => {
           const text = $(el).text().toLowerCase();
-          const hasSeason = text.includes(`season ${sNum}`) || text.includes(seasonStr.toLowerCase());
           
-          if (hasSeason) {
-            // Find links within this season block that match the episode
-            $(el).find("a").each((__, a) => {
-                const aText = $(a).text().toLowerCase();
-                const isEpisode = aText.includes(`episode ${eNum}`) || aText.includes(epStr.toLowerCase()) || aText.includes(`ep ${eNum}`);
-                if (isEpisode) {
-                    itemsToProcess.push(el);
-                }
-            });
+          // Must match season
+          if (text.includes(`season ${sNum}`) || text.includes(seasonStr.toLowerCase())) {
+            // Check if this block or its internal links mention the episode
+            const blockMatches = text.includes(`episode ${eNum}`) || text.includes(epStr.toLowerCase()) || text.includes(`ep ${eNum}`);
+            
+            if (blockMatches) {
+               // Check if it has a HubCloud or HubDrive link
+               const hasValidLink = $(el).find("a[href*='hubcloud'], a[href*='hubdrive'], a[href*='id=']").length > 0;
+               if (hasValidLink) {
+                 itemsToProcess.push(el);
+               }
+            }
           }
         });
-
-        // Fallback: search globally if the structured search failed
-        if (itemsToProcess.length === 0) {
-            $("a").each((_, a) => {
-                const aText = $(a).text().toLowerCase();
-                if ((aText.includes(`season ${sNum}`) || aText.includes(seasonStr.toLowerCase())) && 
-                    (aText.includes(`episode ${eNum}`) || aText.includes(epStr.toLowerCase()))) {
-                    itemsToProcess.push($(a).closest('div')[0] || a);
-                }
-            });
-        }
       } else {
         console.log("[4KHDHub] Looking for movie download items");
         $(".download-item, .file-item, .movie-file, [class*='download'], [class*='file']").each((_, el) => {

@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - MP4 429 Fix & Multi-Audio Logic
+// Dahmer Movies Scraper - Format Column Added (MKV/MP4/M3U8)
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -30,7 +30,7 @@ function parseLinks(html) {
             const text = linkMatch[2].trim();
             const size = sizeMatch ? sizeMatch[1].trim() : 'N/A';
 
-            if (text && href !== '../' && /\.(mkv|mp4|avi|webm)$/i.test(text)) {
+            if (text && href !== '../' && /\.(mkv|mp4|avi|webm|m3u8)$/i.test(text)) {
                 links.push({ text, href, size });
             }
         }
@@ -78,41 +78,45 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
             directUrl = activeDirUrl + path.href;
         }
 
-        // --- CLEAN & ENCODE FOR MP4 STABILITY ---
         directUrl = directUrl.replace(/([^:]\/)\/+/g, "$1");
         directUrl = decodeURI(directUrl);
-        
-        // Use encodeURI specifically to keep MP4 structure clean for the worker
         let streamUrl = DAHMER_WORKER_API + encodeURI(directUrl);
 
         const fileName = path.text;
         
-        // Language Logic
+        // 1. Language Logic
         let language = "Original"; 
         const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio|MULTI)\b/i.test(fileName);
         const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
         const isEnglishTitle = /^[a-zA-Z0-9\s?!\-:]+$/.test(title);
 
-        if (isMulti) {
-            language = "Multi Audio";
-        } else if (isEnglishTitle && hasEngTag) {
-            language = "English";
-        }
+        if (isMulti) language = "Multi Audio";
+        else if (isEnglishTitle && hasEngTag) language = "English";
 
+        // 2. Format Logic (New Column)
+        const formatMatch = fileName.match(/\.(mkv|mp4|m3u8|avi|webm)$/i);
+        const fileFormat = formatMatch ? formatMatch[1].toUpperCase() : 'LINK';
+
+        // 3. Technical Info
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
-        let info = fileName.replace(/\.(mkv|mp4|avi|webm)$/i, '').replace(/[\[\]()._-]/g, ' ').replace(/\s+/g, ' ').trim();
+        
+        let info = fileName
+            .replace(/\.(mkv|mp4|avi|webm|m3u8)$/i, '')
+            .replace(/[\[\]()._-]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
 
         results.push({
             name: "DahmerMovies",
-            title: `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  ℹ️ ${info}`,
+            title: `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}  |  ℹ️ ${info}`,
             url: streamUrl,
             quality: resolution.toLowerCase(),
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Referer': DAHMER_MOVIES_API + '/',
                 'Connection': 'keep-alive',
-                'Accept': '*/*', // Important for MP4 metadata requests
+                'Accept': '*/*',
                 'Range': 'bytes=0-'
             },
             provider: "dahmermovies"

@@ -1,8 +1,10 @@
-// Dahmer Movies Scraper - Restored Fetching & Simple Language Logic
+// Dahmer Movies Scraper - Worker Path Resolution & 429 Fix
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DAHMER_MOVIES_API = 'https://a.111477.xyz';
+
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function makeRequest(url) {
     try {
@@ -16,22 +18,27 @@ async function makeRequest(url) {
 }
 
 async function resolveFinalUrl(startUrl) {
-    // This part is crucial for DahmerMovies to actually play
     let cleanUrl = startUrl;
+    // Extract the worker URL hidden inside the 'u=' parameter if present
     if (startUrl.includes('/bulk?u=')) {
         cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
     }
+    
     try {
         const response = await fetch(cleanUrl, {
-            method: 'HEAD',
+            method: 'GET', // Changed from HEAD to GET to ensure workers trigger correctly
             redirect: 'follow',
             headers: { 
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Referer': DAHMER_MOVIES_API + '/'
             }
         });
+        
+        // If the response URL is different, it means we found the worker/final stream
         return response.url;
-    } catch (e) { return cleanUrl; }
+    } catch (e) { 
+        return cleanUrl; 
+    }
 }
 
 function parseLinks(html) {
@@ -48,7 +55,6 @@ function parseLinks(html) {
             const text = linkMatch[2].trim();
             const size = sizeMatch ? sizeMatch[1].trim() : 'N/A';
 
-            // Ensure we only grab video files
             if (text && href !== '../' && /\.(mkv|mp4|avi|webm)$/i.test(text)) {
                 links.push({ text, href, size });
             }
@@ -94,7 +100,11 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     });
 
     const results = [];
-    for (const path of sortedPaths.slice(0, 5)) {
+    // Taking top 4 results to balance variety and server load
+    for (const path of sortedPaths.slice(0, 4)) {
+        // ESSENTIAL: 600ms delay between link resolutions to stop the 429 ban
+        await sleep(600);
+
         let finalUrl;
         if (path.href.startsWith('http')) {
             finalUrl = path.href;
@@ -109,17 +119,14 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // --- SIMPLE LANGUAGE LOGIC (RESTORED) ---
+        // Simplified Language Logic
         let language = "Original"; 
         const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio)\b/i.test(fileName);
         const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
         const isEnglishTitle = /^[a-zA-Z0-9\s?!\-:]+$/.test(title);
 
-        if (isMulti) {
-            language = "Multi Audio";
-        } else if (isEnglishTitle && hasEngTag) {
-            language = "English";
-        }
+        if (isMulti) language = "Multi Audio";
+        else if (isEnglishTitle && hasEngTag) language = "English";
 
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';

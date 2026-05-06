@@ -235,9 +235,15 @@ function fetchPageUrl(name, year, isSeries, season) {
       console.log("[4KHDHub] No matching cards found after filtering");
       return null;
     }
-    const matchingCards = candidates.sort((a, b) => a.distance - b.distance || a.yearDistance - b.yearDistance);
-    console.log(`[4KHDHub] Found ${matchingCards.length} matching cards, best match: ${matchingCards[0].title}`);
-    return matchingCards[0].href;
+        const matchingCards = candidates.sort((a, b) => a.distance - b.distance || a.yearDistance - b.yearDistance);
+    
+    // If it's a series, try to find a card that explicitly mentions the season in the title
+    if (isSeries && season) {
+      const seasonMatch = matchingCards.find(c => c.title.toLowerCase().includes(`season ${season}`) || c.title.toLowerCase().includes(`s${String(season).padStart(2, '0')}`));
+      if (seasonMatch) return seasonMatch.href;
+    }
+
+    return matchingCards.length > 0 ? matchingCards[0].href : null;
   });
 }
 
@@ -527,27 +533,28 @@ function getStreams(tmdbId, type, season, episode) {
       const $ = cheerio3.load(html);
       const itemsToProcess = [];
       
-                  if (isSeries && season && episode) {
+                              if (isSeries && season && episode) {
         const sNum = parseInt(season, 10);
         const eNum = parseInt(episode, 10);
         const sStr = "S" + String(sNum).padStart(2, "0");
         const eStr = "E" + String(eNum).padStart(2, "0");
         const seCode = sStr + eStr;
 
-        // This scans every paragraph, div, and table row for "S01E01" or "Season 1 Episode 1"
-        $(".post-content p, .post-content div, tr, li, .download-item").each((_, el) => {
-          const text = $(el).text().toLowerCase();
-          const matches = text.includes(seCode.toLowerCase()) || 
-                         (text.includes(`episode ${eNum}`) && (text.includes(`season ${sNum}`) || text.includes(sStr.toLowerCase())));
+        // Scans paragraphs, tables, and direct links for "S01E01" or "Episode 1"
+        $(".post-content p, .post-content div, tr, li, .download-item, a").each((_, el) => {
+          const text = $(el).text().toLowerCase().trim();
           
-          if (matches) {
-            // Only grab it if it actually contains a link
-            const hasLink = $(el).find("a[href*='hubcloud'], a[href*='hubdrive'], a[href*='id=']").length > 0;
-            if (hasLink) itemsToProcess.push(el);
-          } // <--- Added this to close the "if (matches)"
-        }); // <--- Added this to close the ".each" loop
+          const matches = text.includes(seCode.toLowerCase()) || 
+                         (text.includes(`episode ${eNum}`) && (text.includes(`season ${sNum}`) || text.includes(sStr.toLowerCase()))) ||
+                         (text === `episode ${eNum}` || text === `ep ${eNum}`);
 
-        // Fallback: If the broad search above didn't find anything, try this simple check
+          if (matches) {
+            const link = $(el).is('a') ? $(el) : $(el).find("a[href*='hubcloud'], a[href*='hubdrive'], a[href*='id=']");
+            if (link.length > 0) itemsToProcess.push(link[0]);
+          }
+        });
+
+        // Fallback for specific site structures
         if (itemsToProcess.length === 0) {
           $(".episode-download-item").each((_, item) => {
             if ($(item).text().includes(seCode)) itemsToProcess.push(item);

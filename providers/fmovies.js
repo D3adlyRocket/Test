@@ -189,10 +189,17 @@ function formatBytes(val) {
 
 // src/4khdhub/search.js
 var cheerio = require("cheerio-without-node-native");
-function fetchPageUrl(name, year, isSeries) {
+function fetchPageUrl(name, year, isSeries, season) { // <--- Added season here
   return __async(this, null, function* () {
     const domain = yield fetchLatestDomain();
-    const searchQuery = name + (year ? " " + year : "");
+    let searchQuery = name;
+    if (isSeries) {
+        // Now 'season' is defined because we passed it in
+        searchQuery = `${name} Season ${season || ""}`.trim();
+    } else if (year) {
+        searchQuery = `${name} ${year}`;
+    }
+console.log(`[4KHDHub] Refined Search Query: ${searchQuery}`);
     const searchUrl = `${domain}/?s=${encodeURIComponent(searchQuery)}`;
     console.log(`[4KHDHub] Search Request URL: ${searchUrl}`);
     const html = yield fetchText(searchUrl);

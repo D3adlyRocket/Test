@@ -1,10 +1,10 @@
-// Dahmer Movies Scraper - Worker Path Resolution & 429 Fix
+// Dahmer Movies Scraper - Forced Worker Proxy for 429 Fix
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DAHMER_MOVIES_API = 'https://a.111477.xyz';
-
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+// The Worker Proxy that prevents 429 errors
+const DAHMER_WORKER_API = 'https://p.111477.xyz/bulk?u=';
 
 async function makeRequest(url) {
     try {
@@ -15,30 +15,6 @@ async function makeRequest(url) {
             }
         });
     } catch (e) { return { ok: false }; }
-}
-
-async function resolveFinalUrl(startUrl) {
-    let cleanUrl = startUrl;
-    // Extract the worker URL hidden inside the 'u=' parameter if present
-    if (startUrl.includes('/bulk?u=')) {
-        cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
-    }
-    
-    try {
-        const response = await fetch(cleanUrl, {
-            method: 'GET', // Changed from HEAD to GET to ensure workers trigger correctly
-            redirect: 'follow',
-            headers: { 
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Referer': DAHMER_MOVIES_API + '/'
-            }
-        });
-        
-        // If the response URL is different, it means we found the worker/final stream
-        return response.url;
-    } catch (e) { 
-        return cleanUrl; 
-    }
 }
 
 function parseLinks(html) {
@@ -100,33 +76,37 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     });
 
     const results = [];
-    // Taking top 4 results to balance variety and server load
-    for (const path of sortedPaths.slice(0, 4)) {
-        // ESSENTIAL: 600ms delay between link resolutions to stop the 429 ban
-        await sleep(600);
-
-        let finalUrl;
+    for (const path of sortedPaths.slice(0, 5)) {
+        let streamUrl;
         if (path.href.startsWith('http')) {
-            finalUrl = path.href;
+            streamUrl = path.href;
         } else if (path.href.includes('/movies/') || path.href.includes('/tvs/')) {
-            finalUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
+            streamUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
         } else {
-            finalUrl = activeDirUrl + path.href;
+            streamUrl = activeDirUrl + path.href;
         }
 
-        finalUrl = finalUrl.replace(/([^:]\/)\/+/g, "$1");
-        const streamUrl = await resolveFinalUrl(finalUrl);
+        streamUrl = streamUrl.replace(/([^:]\/)\/+/g, "$1");
+
+        // --- 429 FIX: FORCE ALL LINKS THROUGH THE WORKER PROXY ---
+        // We take the direct link and wrap it with the worker URL, just like the working link in your picture.
+        if (!streamUrl.includes('bulk?u=')) {
+            streamUrl = DAHMER_WORKER_API + encodeURIComponent(streamUrl);
+        }
 
         const fileName = path.text;
         
-        // Simplified Language Logic
+        // Final Language Logic
         let language = "Original"; 
         const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio)\b/i.test(fileName);
         const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
         const isEnglishTitle = /^[a-zA-Z0-9\s?!\-:]+$/.test(title);
 
-        if (isMulti) language = "Multi Audio";
-        else if (isEnglishTitle && hasEngTag) language = "English";
+        if (isMulti) {
+            language = "Multi Audio";
+        } else if (isEnglishTitle && hasEngTag) {
+            language = "English";
+        }
 
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';

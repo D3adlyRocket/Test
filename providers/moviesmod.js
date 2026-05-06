@@ -1,25 +1,26 @@
-// Dahmer Movies Scraper - 429 Mitigation + Final Language Logic
+// Dahmer Movies Scraper - Restored Fetching & Simple Language Logic
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DAHMER_MOVIES_API = 'https://a.111477.xyz';
 
-// Helper for adding delays
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
 async function makeRequest(url) {
     try {
         return await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' }
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Referer': DAHMER_MOVIES_API + '/'
+            }
         });
     } catch (e) { return { ok: false }; }
 }
 
 async function resolveFinalUrl(startUrl) {
-    // If it's already a direct link, don't ping it (saves a request to prevent 429)
-    if (!startUrl.includes('/bulk?u=')) return startUrl;
-
-    let cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
+    // This is required to get the actual mp4/mkv link from the redirector
+    let cleanUrl = startUrl;
+    if (startUrl.includes('/bulk?u=')) {
+        cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
+    }
     try {
         const response = await fetch(cleanUrl, {
             method: 'HEAD',
@@ -92,11 +93,7 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     });
 
     const results = [];
-    // Only take top 3 to further reduce request count
-    for (const path of sortedPaths.slice(0, 3)) {
-        // SMALL DELAY TO BYPASS 429
-        await sleep(300);
-
+    for (const path of sortedPaths.slice(0, 5)) {
         let finalUrl;
         if (path.href.startsWith('http')) {
             finalUrl = path.href;
@@ -111,14 +108,17 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // Language Logic
+        // --- LANGUAGE LOGIC ---
         let language = "Original"; 
-        const isMultiTags = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio)\b/i.test(fileName);
-        const isEnglishTitle = /^[a-zA-Z0-9\s?!\-:]+$/.test(title);
+        const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio)\b/i.test(fileName);
         const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
+        const isEnglishTitle = /^[a-zA-Z0-9\s?!\-:]+$/.test(title);
 
-        if (isMultiTags) { language = "Multi Audio"; }
-        else if (isEnglishTitle && hasEngTag) { language = "English"; }
+        if (isMulti) {
+            language = "Multi Audio";
+        } else if (isEnglishTitle && hasEngTag) {
+            language = "English";
+        }
 
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';

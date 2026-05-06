@@ -1,165 +1,203 @@
-"use strict";
-
-const DOMAIN = "https://uhdmovies.rip";
-const TMDB_API = "https://api.themoviedb.org/3";
-const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
-// --- THE REFINED BYPASS ENGINE ---
-
-async function fetchWithHeaders(url, opts = {}) {
-    const headers = {
-        "User-Agent": USER_AGENT,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
-        ...opts.headers
+/**
+ * 4KHDHub - Built from src/4KHDHub/
+ * Final Polish: Updated User-Agent for Mobile/Desktop compatibility
+ */
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
     };
-    return fetch(url, { ...opts, headers });
-}
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
 
-async function bypassSID(targetUrl) {
+// src/4KHDHub/index.js
+var FourKHDHub_exports = {};
+__export(FourKHDHub_exports, {
+  getStreams: () => getStreams
+});
+module.exports = __toCommonJS(FourKHDHub_exports);
+
+// src/4KHDHub/extractor.js
+var import_cheerio_without_node_native2 = __toESM(require("cheerio-without-node-native"));
+
+// src/4KHDHub/http.js
+var DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
+var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var DEFAULT_MAIN_URL = "https://4khdhub.dad";
+
+var HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Connection": "keep-alive",
+  "Upgrade-Insecure-Requests": "1"
+};
+
+var cachedDomains = null;
+function getDomains() {
+  return __async(this, null, function* () {
+    if (cachedDomains) return cachedDomains;
     try {
-        // Step 1: Hit landing and grab Cookies
-        const initialRes = await fetchWithHeaders(targetUrl);
-        const setCookie = initialRes.headers.get("set-cookie");
-        const html1 = await initialRes.text();
-        
-        const wp_http = html1.match(/name="_wp_http"\s+value="([^"]+)"/)?.[1];
-        const action = html1.match(/id="landing"\s+action="([^"]+)"/)?.[1];
-        if (!wp_http || !action) return null;
-
-        // Step 2: Verification POST
-        const res2 = await fetchWithHeaders(action, {
-            method: "POST",
-            headers: { 
-                "Referer": targetUrl, 
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Cookie": setCookie || ""
-            },
-            body: new URLSearchParams({ "_wp_http": wp_http }).toString()
-        });
-        const html2 = await res2.text();
-
-        const wp_http2 = html2.match(/name="_wp_http2"\s+value="([^"]+)"/)?.[1];
-        const token = html2.match(/name="token"\s+value="([^"]+)"/)?.[1];
-        const action2 = html2.match(/id="landing"\s+action="([^"]+)"/)?.[1];
-        if (!action2) return null;
-
-        // Step 3: Link Generation POST
-        const res3 = await fetchWithHeaders(action2, {
-            method: "POST",
-            headers: { 
-                "Referer": res2.url, 
-                "Content-Type": "application/x-www-form-urlencoded",
-                "Cookie": setCookie || ""
-            },
-            body: new URLSearchParams({ "_wp_http2": wp_http2 || "", "token": token || "" }).toString()
-        });
-        const html3 = await res3.text();
-
-        // Extract Dynamic Cookie 's_xxx' and the final 'href'
-        const cookieData = html3.match(/s_\d+\('([^']+)',\s*'([^']+)'/);
-        const linkData = html3.match(/c\.setAttribute\("href",\s*"([^"]+)"\)/);
-        if (!cookieData || !linkData) return null;
-
-        // Step 4: Final Hop with specific SID Cookie
-        const finalUrl = new URL(linkData[1], new URL(targetUrl).origin).href;
-        const res4 = await fetchWithHeaders(finalUrl, {
-            headers: { 
-                "Referer": res3.url, 
-                "Cookie": `${setCookie ? setCookie.split(';')[0] + ';' : ''} ${cookieData[1]}=${cookieData[2]}` 
-            }
-        });
-        
-        const html4 = await res4.text();
-        const meta = html4.match(/url=(.*)/i);
-        return meta ? meta[1].replace(/"|'/g, "").trim() : null;
-    } catch (e) {
-        return null;
+      const res = yield fetch(DOMAINS_URL, { headers: HEADERS });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      cachedDomains = yield res.json();
+    } catch (error) {
+      console.warn(`[4KHDHub] domains.json could not be fetched: ${error.message}`);
+      cachedDomains = {};
     }
+    return cachedDomains;
+  });
+}
+function getMainUrl() {
+  return __async(this, null, function* () {
+    const domains = yield getDomains();
+    return domains["4khdhub"] || domains.n4khdhub || DEFAULT_MAIN_URL;
+  });
+}
+function fixUrl(url, baseUrl) {
+  if (!url) return "";
+  if (url.startsWith("http://") || url.startsWith("https://")) return url;
+  if (url.startsWith("//")) return `https:${url}`;
+  if (!baseUrl) return url;
+  try {
+    return new URL(url, baseUrl).toString();
+  } catch (_) {
+    return url;
+  }
+}
+function fetchText(_0) {
+  return __async(this, arguments, function* (url, options = {}) {
+    const response = yield fetch(url, __spreadProps(__spreadValues({
+      redirect: "follow"
+    }, options), {
+      headers: __spreadValues(__spreadValues({}, HEADERS), options.headers || {})
+    }));
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} -> ${url}`);
+    }
+    return yield response.text();
+  });
 }
 
-async function resolveDrive(url) {
+// src/4KHDHub/tmdb.js
+var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
+function getTmdbTitle(tmdbId, mediaType) {
+  return __async(this, null, function* () {
     try {
-        const res = await fetchWithHeaders(url, { headers: { "Referer": "https://links.modpro.blog/" } });
-        const html = await res.text();
-        const redirect = html.match(/window\.location\.replace\("([^"]+)"\)/)?.[1];
-        if (!redirect) return null;
-
-        const bridgeUrl = redirect.startsWith('http') ? redirect : `https://driveseed.org${redirect}`;
-        const bridgeHtml = await (await fetchWithHeaders(bridgeUrl, { headers: { "Referer": url } })).text();
-
-        // Look for the Instant Download button
-        const instant = bridgeHtml.match(/href="([^"]+)"[^>]*>Instant Download/i)?.[1];
-        if (instant && instant.includes("url=")) {
-            // DRIVESEED API HANDSHAKE (The absolute final step)
-            const urlObj = new URL(instant);
-            const keys = urlObj.searchParams.get("url");
-            const apiRes = await fetch(`${urlObj.origin}/api`, {
-                method: "POST",
-                body: new URLSearchParams({ keys }),
-                headers: { 
-                    "Content-Type": "application/x-www-form-urlencoded", 
-                    "x-token": urlObj.hostname 
-                }
-            });
-            const json = await apiRes.json();
-            return json.url || instant;
+      let decodeHtml = function(text) {
+        return (text || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#039;/g, "'");
+      };
+      const type = mediaType === "movie" ? "movie" : "tv";
+      const url = `https://www.themoviedb.org/${type}/${tmdbId}?language=tr-TR`;
+      const response = yield fetch(url, { headers: HEADERS });
+      if (!response.ok) throw new Error(`TMDB HTML fetch error: ${response.status}`);
+      const html = yield response.text();
+      let title = "";
+      const ogMatch = html.match(/<meta property="og:title" content="([^"]+)">/i);
+      if (ogMatch) {
+        title = decodeHtml(ogMatch[1]).split("(")[0].trim();
+      } else {
+        const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
+        if (titleMatch) {
+          title = decodeHtml(titleMatch[1]).split("(")[0].split("\u2014")[0].split("\xE2\u20AC\u201D")[0].trim();
         }
-        return null;
-    } catch (e) {
-        return null;
-    }
-}
-
-// --- SEARCH & EXECUTION ---
-
-async function getStreams(tmdbId, mediaType, season, episode) {
-    const results = [];
-    try {
-        const isTV = mediaType === "tv" || mediaType === "series";
-        const tmdbData = await (await fetch(`${TMDB_API}/${isTV ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`)).json();
-        const name = isTV ? tmdbData.name : tmdbData.title;
-
-        const searchRes = await fetchWithHeaders(`${DOMAIN}/?s=${encodeURIComponent(name)}`);
-        const searchHtml = await searchRes.text();
-        const postLink = searchHtml.match(/href="([^"]+)"[^>]*class="[^"]*gridlove-post/i)?.[1];
-        if (!postLink) return [];
-
-        const pageHtml = await (await fetchWithHeaders(postLink)).text();
-        const btns = [...pageHtml.matchAll(/href="([^"]+)"[^>]*class="[^"]*maxbutton-1/gi)].map(m => m[1]);
-
-        for (let rawUrl of btns) {
-            let workingUrl = rawUrl;
-
-            // Handle modrefer B64
-            if (workingUrl.includes("modrefer.in")) {
-                const b64 = new URL(workingUrl).searchParams.get("url");
-                if (b64) workingUrl = atob(b64);
-            }
-
-            // Handle UnblockedGames/SID
-            if (workingUrl.match(/unblockedgames|creativeexpressions|tech\./)) {
-                workingUrl = await bypassSID(workingUrl);
-            }
-
-            // Handle Driveseed Final Link
-            if (workingUrl && workingUrl.includes("driveseed")) {
-                const directLink = await resolveDrive(workingUrl);
-                if (directLink) {
-                    results.push({
-                        name: "UHDMovies",
-                        title: `${name} ${isTV ? `S${season}E${episode}` : ''}`,
-                        url: directLink,
-                        quality: "HD / Direct"
-                    });
-                }
-            }
+      }
+      const $ = import_cheerio_without_node_native.default.load(html);
+      let origTitle = title;
+      $("section.facts p").each((_, el) => {
+        const text = $(el).text();
+        if (text.includes("Orijinal Ba\u015Fl\u0131k") || text.includes("Original Title")) {
+          const found = text.replace("Orijinal Ba\u015Fl\u0131k", "").replace("Original Title", "").trim();
+          if (found) origTitle = decodeHtml(found);
         }
-    } catch (e) {
-        console.error("Critical Failure:", e);
+      });
+      if (origTitle === title) {
+        const origMatch = html.match(/<h3 class="caption" dir="auto">([^<]+)<\/h3>/i) || html.match(/<strong class="original_title">([^<]+)<\/strong>/i);
+        if (origMatch) {
+          const matched = decodeHtml(origMatch[1]).replace("Orijinal Adi", "").replace("Orijinal Ad\u0131", "").trim();
+          if (matched) origTitle = matched;
+        }
+      }
+      let shortTitle = "";
+      if (origTitle && (origTitle.includes(":") || origTitle.toLowerCase().includes(" and "))) {
+        shortTitle = origTitle.split(":")[0].split(/ and /i)[0].trim();
+      }
+      return { trTitle: title, origTitle, shortTitle };
+    } catch (error) {
+      console.error(`[4KHDHub] TMDB title error: ${error.message}`);
+      return { trTitle: "", origTitle: "", shortTitle: "" };
     }
-    return results;
+  });
 }
 
-if (typeof module !== "undefined") module.exports = { getStreams };
+// src/4KHDHub/extractor.js
+var PROVIDER_NAME = "4KHDHub";
+var REDIRECT_REGEX = /s\('o','([A-Za-z0-9+/=]+)'|ck\('_wp_http_\d+','([^']+)'/g;
+
+function dedupeStreams(streams) {
+  const seenFingerprints = new Set();
+  return streams.filter((stream) => {
+    const fingerprint = `${stream.title}|${stream.quality}`.toLowerCase().replace(/\s/g, "");
+    if (seenFingerprints.has(fingerprint)) return false;
+    seenFingerprints.add(fingerprint);
+    return true;
+  });
+}
+
+function rot13(value) {
+  return value.replace(/[A-Za-z]/g, (char) => {
+    const base = char <= "Z" ? 65 : 97;
+    return String.fromCharCode((char.charCodeAt(0) - base + 13) % 26 + base);

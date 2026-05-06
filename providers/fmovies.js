@@ -499,9 +499,17 @@ function extractStreams(tmdbId, mediaType, season, episode) {
     const $ = import_cheerio_without_node_native2.default.load(html);
     const isMoviePage = $("div.episodes-list").length === 0;
     
-    let links = (mediaType === "movie" || isMoviePage) 
-                ? collectMovieLinks($, contentUrl) 
-                : collectEpisodeLinks($, contentUrl, season, episode);
+        // Explicit check for Series logic, just like the mobile app
+    const isSeries = mediaType === "tv" || mediaType === "series" || (season && episode);
+    
+    let links = [];
+    if (isSeries && season && episode) {
+      console.log(`[4KHDHub] Processing as Series: S${season} E${episode}`);
+      links = collectEpisodeLinks($, contentUrl, season, episode);
+    } else {
+      console.log(`[4KHDHub] Processing as Movie`);
+      links = collectMovieLinks($, contentUrl);
+    }
 
     if (!links.length) return [];
 

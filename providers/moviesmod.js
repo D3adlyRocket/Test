@@ -1,28 +1,31 @@
-// Dahmer Movies Scraper - Multi-Language Fix & 429 Error Mitigation
+// Dahmer Movies Scraper - 429 Mitigation + Final Language Logic
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DAHMER_MOVIES_API = 'https://a.111477.xyz';
 
+// Helper for adding delays
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 async function makeRequest(url) {
     try {
         return await fetch(url, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' }
         });
     } catch (e) { return { ok: false }; }
 }
 
 async function resolveFinalUrl(startUrl) {
-    let cleanUrl = startUrl;
-    if (startUrl.includes('/bulk?u=')) {
-        cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
-    }
+    // If it's already a direct link, don't ping it (saves a request to prevent 429)
+    if (!startUrl.includes('/bulk?u=')) return startUrl;
+
+    let cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
     try {
         const response = await fetch(cleanUrl, {
             method: 'HEAD',
             redirect: 'follow',
             headers: { 
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Referer': DAHMER_MOVIES_API + '/'
             }
         });
@@ -89,7 +92,11 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     });
 
     const results = [];
-    for (const path of sortedPaths.slice(0, 5)) {
+    // Only take top 3 to further reduce request count
+    for (const path of sortedPaths.slice(0, 3)) {
+        // SMALL DELAY TO BYPASS 429
+        await sleep(300);
+
         let finalUrl;
         if (path.href.startsWith('http')) {
             finalUrl = path.href;
@@ -104,29 +111,19 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // --- FINALIZED LANGUAGE LOGIC ---
+        // Language Logic
         let language = "Original"; 
         const isMultiTags = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio)\b/i.test(fileName);
         const isEnglishTitle = /^[a-zA-Z0-9\s?!\-:]+$/.test(title);
         const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
 
-        if (isMultiTags) {
-            language = "Multi Audio";
-        } else if (isEnglishTitle && hasEngTag) {
-            language = "English";
-        } else {
-            language = "Original";
-        }
+        if (isMultiTags) { language = "Multi Audio"; }
+        else if (isEnglishTitle && hasEngTag) { language = "English"; }
 
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
-        let info = fileName
-            .replace(/\.(mkv|mp4|avi|webm)$/i, '')
-            .replace(new RegExp(resolution, 'gi'), '')
-            .replace(/[\[\]()._-]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
+        let info = fileName.replace(/\.(mkv|mp4|avi|webm)$/i, '').replace(/[\[\]()._-]/g, ' ').replace(/\s+/g, ' ').trim();
 
         results.push({
             name: "DahmerMovies",
@@ -134,10 +131,8 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
             url: streamUrl,
             quality: resolution.toLowerCase(),
             headers: {
-                // Modified Headers to fix 429 Errors
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Referer': DAHMER_MOVIES_API + '/',
-                'Accept': '*/*',
                 'Connection': 'keep-alive',
                 'Range': 'bytes=0-'
             },

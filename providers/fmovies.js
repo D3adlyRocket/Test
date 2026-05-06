@@ -513,7 +513,7 @@ function getStreams(tmdbId, type, season, episode) {
       console.log(`[4KHDHub] Search: ${title} (${year})`);
       
       const isSeries = type === "series" || type === "tv";
-      const pageUrl = yield fetchPageUrl(title, year, isSeries);
+      const pageUrl = yield fetchPageUrl(title, year, isSeries, season);
       if (!pageUrl) {
         console.log("[4KHDHub] Page not found");
         return [];

@@ -192,7 +192,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       data = Object.keys(data).map(k => ({ video_language: k, sortedEmbeds: data[k] }));
     }
 
-    const lat = data.find(i => ["ENG", "ENGLISH"].includes(String(i.video_language).toUpperCase()));
+    const lat = data.find(i => ["LAT", "LATINO"].includes(String(i.video_language).toUpperCase()));
     if (!lat) {
       console.log(`[Embed69] Sin enlaces en Latino.`);
       return [];
@@ -251,7 +251,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             else if (sName === "streamwish") res = await resolveStreamwish(embed.url, fetched.html);
             else if (sName === "vidhide") res = await resolveVidhide(embed.url, fetched.html);
             if (res) {
-              const item = { name: sName, language: "English", quality: res.quality || "HD", url: res.url, headers: res.headers };
+              const item = { name: sName, language: "Latino", quality: res.quality || "HD", url: res.url, headers: res.headers };
               // Enviamos el resultado a la App de inmediato para que aparezca en pantalla
               if (typeof __yield_result === "function") __yield_result(JSON.stringify(item));
               return item;
@@ -282,7 +282,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         else if (sName === "vidhide") res = await resolveVidhide(embed.url);
 
         if (res) {
-          const item = { name: sName, language: "English", quality: res.quality || "HD", url: res.url, headers: res.headers };
+          const item = { name: sName, language: "Latino", quality: res.quality || "HD", url: res.url, headers: res.headers };
           if (typeof __yield_result === "function") __yield_result(JSON.stringify(item));
           results.push(item);
         }

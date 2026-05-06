@@ -5,183 +5,150 @@ const TMDB_API = "https://api.themoviedb.org/3";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-// --- CORE UTILITIES (Transplanted from MoviesMod) ---
-
 async function makeRequest(url, options = {}) {
     const defaultHeaders = {
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5",
         "Upgrade-Insecure-Requests": "1"
     };
-    const response = await fetch(url, {
-        ...options,
-        headers: { ...defaultHeaders, ...options.headers }
-    });
-    return response;
+    return fetch(url, { ...options, headers: { ...defaultHeaders, ...options.headers } });
 }
 
-// --- SID / UNBLOCKED GAMES BYPASS (MoviesMod Logic) ---
+// --- EXACT BYPASS LOGIC FROM MOVIESMOD ---
 
-async function resolveTechUnblockedLink(sidUrl) {
+async function resolveSidBypass(sidUrl) {
     try {
-        const response = await makeRequest(sidUrl);
-        const html = await response.text();
-
-        // Step 1: Extract WP HTTP Step 1
-        const wp_http_step1 = html.match(/name="_wp_http"\s+value="([^"]+)"/)?.[1];
-        const action_url_step1 = html.match(/id="landing"\s+action="([^"]+)"/)?.[1];
+        // Step 1: Initial Landing
+        const res1 = await makeRequest(sidUrl);
+        const html1 = await res1.text();
+        
+        const wp_http_step1 = html1.match(/name="_wp_http"\s+value="([^"]+)"/)?.[1];
+        const action_url_step1 = html1.match(/id="landing"\s+action="([^"]+)"/)?.[1];
         if (!wp_http_step1 || !action_url_step1) return null;
 
-        const step1Data = new URLSearchParams({ "_wp_http": wp_http_step1 });
-        const responseStep1 = await makeRequest(action_url_step1, {
+        // Step 2: Verification Form
+        const res2 = await makeRequest(action_url_step1, {
             method: "POST",
             headers: { "Referer": sidUrl, "Content-Type": "application/x-www-form-urlencoded" },
-            body: step1Data.toString()
+            body: new URLSearchParams({ "_wp_http": wp_http_step1 }).toString()
         });
-
-        const html2 = await responseStep1.text();
-
-        // Step 2: Extract Step 2 Form (wp_http2 and token)
+        const html2 = await res2.text();
+        
         const action_url_step2 = html2.match(/id="landing"\s+action="([^"]+)"/)?.[1];
         const wp_http2 = html2.match(/name="_wp_http2"\s+value="([^"]+)"/)?.[1];
         const token = html2.match(/name="token"\s+value="([^"]+)"/)?.[1];
         if (!action_url_step2) return null;
 
-        const step2Data = new URLSearchParams({ "_wp_http2": wp_http2 || "", "token": token || "" });
-        const responseStep2 = await makeRequest(action_url_step2, {
+        // Step 3: Extract Dynamic Cookie & Final Link
+        const res3 = await makeRequest(action_url_step2, {
             method: "POST",
-            headers: { "Referer": responseStep1.url, "Content-Type": "application/x-www-form-urlencoded" },
-            body: step2Data.toString()
+            headers: { "Referer": res2.url, "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({ "_wp_http2": wp_http2 || "", "token": token || "" }).toString()
         });
-
-        const finalHtml = await responseStep2.text();
-
-        // Step 3: Dynamic Cookie extraction (The MoviesMod "s_343" logic)
-        const cookieMatch = finalHtml.match(/s_343\('([^']+)',\s*'([^']+)'/);
-        const linkMatch = finalHtml.match(/c\.setAttribute\("href",\s*"([^"]+)"\)/);
+        const html3 = await res3.text();
+        
+        // This is the "MoviesMod Secret": Extracting the JS-generated cookie
+        const cookieMatch = html3.match(/s_343\('([^']+)',\s*'([^']+)'/);
+        const linkMatch = html3.match(/c\.setAttribute\("href",\s*"([^"]+)"\)/);
         if (!cookieMatch || !linkMatch) return null;
 
         const { origin } = new URL(sidUrl);
         const finalUrl = new URL(linkMatch[1], origin).href;
 
-        const finalResponse = await makeRequest(finalUrl, {
-            headers: {
-                "Referer": responseStep2.url,
-                "Cookie": `${cookieMatch[1].trim()}=${cookieMatch[2].trim()}`
-            }
+        // Step 4: Final Hop with Cookie
+        const res4 = await makeRequest(finalUrl, {
+            headers: { "Referer": res3.url, "Cookie": `${cookieMatch[1]}=${cookieMatch[2]}` }
         });
-
-        const metaHtml = await finalResponse.text();
-        const metaRefresh = metaHtml.match(/url=(.*)/i);
-        if (metaRefresh) {
-            return metaRefresh[1].replace(/"/g, "").replace(/'/g, "").trim();
-        }
-        return null;
+        const html4 = await res4.text();
+        
+        // Extract Meta Refresh
+        const refreshMatch = html4.match(/url=(.*)/i);
+        return refreshMatch ? refreshMatch[1].replace(/"|'/g, "").trim() : null;
     } catch (e) {
         return null;
     }
 }
 
-// --- DRIVESEED HANDLER (MoviesMod Priority Logic) ---
-
-async function resolveDriveseedLink(driveseedUrl) {
+async function resolveDriveseed(url) {
     try {
-        const response = await makeRequest(driveseedUrl, { headers: { "Referer": "https://links.modpro.blog/" } });
-        const html = await response.text();
-        const redirectMatch = html.match(/window\.location\.replace\("([^"]+)"\)/);
-        if (!redirectMatch) return null;
+        const res = await makeRequest(url, { headers: { "Referer": "https://links.modpro.blog/" } });
+        const html = await res.text();
+        const redirect = html.match(/window\.location\.replace\("([^"]+)"\)/)?.[1];
+        if (!redirect) return null;
 
-        const finalUrl = `https://driveseed.org${redirectMatch[1]}`;
-        const finalRes = await makeRequest(finalUrl, { headers: { "Referer": driveseedUrl } });
-        const finalHtml = await finalRes.text();
+        const finalUrl = `https://driveseed.org${redirect}`;
+        const finalHtml = await (await makeRequest(finalUrl, { headers: { "Referer": url } })).text();
 
-        // Priority Logic from MoviesMod: Instant -> Resume Cloud -> Generic
-        const instantMatch = finalHtml.match(/href="([^"]+)"[^>]*>Instant Download/i);
-        if (instantMatch) {
-            // VideoSeed API resolver (Direct logic from template)
-            const videoSeedUrl = instantMatch[1];
-            const keys = new URL(videoSeedUrl).searchParams.get("url");
-            if (keys) {
-                const apiRes = await fetch(`${new URL(videoSeedUrl).origin}/api`, {
-                    method: "POST",
-                    body: new URLSearchParams({ keys }),
-                    headers: { "Content-Type": "application/x-www-form-urlencoded", "x-token": new URL(videoSeedUrl).hostname }
-                });
-                const apiJson = await apiRes.json();
-                if (apiJson.url) return apiJson.url;
-            }
-            return videoSeedUrl;
+        // Priority logic from MoviesMod
+        const instant = finalHtml.match(/href="([^"]+)"[^>]*>Instant Download/i)?.[1];
+        if (instant) {
+            // Handle VideoSeed API POST
+            const keys = new URL(instant).searchParams.get("url");
+            const apiRes = await fetch(`${new URL(instant).origin}/api`, {
+                method: "POST",
+                body: new URLSearchParams({ keys }),
+                headers: { "Content-Type": "application/x-www-form-urlencoded", "x-token": new URL(instant).hostname }
+            });
+            const data = await apiRes.json();
+            return data.url || instant;
         }
-
-        const resumeMatch = finalHtml.match(/href="([^"]+)"[^>]*>Resume Cloud/i);
-        if (resumeMatch) {
-            const resHtml = await (await makeRequest(`https://driveseed.org${resumeMatch[1]}`, { headers: { "Referer": "https://driveseed.org/" } })).text();
-            const cloudLink = resHtml.match(/href="([^"]+)"[^>]*>Cloud Resume Download/i);
-            if (cloudLink) return cloudLink[1];
+        
+        const resume = finalHtml.match(/href="([^"]+)"[^>]*>Resume Cloud/i)?.[1];
+        if (resume) {
+            const resumeHtml = await (await makeRequest(`https://driveseed.org${resume}`, { headers: { "Referer": "https://driveseed.org/" } })).text();
+            return resumeHtml.match(/href="([^"]+)"[^>]*>Cloud Resume Download/i)?.[1];
         }
-
         return null;
     } catch (e) {
         return null;
     }
 }
 
-// --- MAIN SCRAPER FLOW ---
+// --- MAIN SEARCH ---
 
 async function getStreams(tmdbId, mediaType, season, episode) {
-    const allStreams = [];
+    const streams = [];
     try {
         const isSeries = mediaType === "tv" || mediaType === "series";
-        const tmdbUrl = `${TMDB_API}/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
-        const tmdbData = await (await fetch(tmdbUrl)).json();
-        
-        const title = isSeries ? tmdbData.name : tmdbData.title;
-        const year = (isSeries ? tmdbData.first_air_date : tmdbData.release_date || "").slice(0, 4);
+        const tmdbData = await (await fetch(`${TMDB_API}/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`)).json();
+        const query = (isSeries ? tmdbData.name : tmdbData.title) + " " + (isSeries ? "" : tmdbData.release_date.slice(0, 4));
 
-        // UHDMovies Search
-        const searchHtml = await (await makeRequest(`${DOMAIN}/?s=${encodeURIComponent(title + " " + year)}`)).text();
-        const articleMatch = searchHtml.match(/href="([^"]+)"[^>]*class="[^"]*gridlove-post/i);
-        if (!articleMatch) return [];
+        const searchHtml = await (await makeRequest(`${DOMAIN}/?s=${encodeURIComponent(query)}`)).text();
+        const postUrl = searchHtml.match(/href="([^"]+)"[^>]*class="[^"]*gridlove-post/i)?.[1];
+        if (!postUrl) return [];
 
-        const pageHtml = await (await makeRequest(articleMatch[1])).text();
-        
-        // Extract links based on UHDMovies class "maxbutton-1"
-        const btnRegex = /href="([^"]+)"[^>]*class="[^"]*maxbutton-1/gi;
-        let match;
-        
-        while ((match = btnRegex.exec(pageHtml)) !== null) {
-            let url = match[1];
+        const pageHtml = await (await makeRequest(postUrl)).text();
+        const links = [...pageHtml.matchAll(/href="([^"]+)"[^>]*class="[^"]*maxbutton-1/gi)].map(m => m[1]);
 
-            // If it's a modrefer link, decode it via atob (Template Logic)
+        for (let url of links) {
+            // 1. Decode modrefer if present (Exact MoviesMod Step)
             if (url.includes("modrefer.in")) {
-                const encodedUrl = new URL(url).searchParams.get("url");
-                if (encodedUrl) url = atob(encodedUrl);
+                const encoded = new URL(url).searchParams.get("url");
+                if (encoded) url = atob(encoded);
             }
 
-            // Resolve SID Protection
-            if (url && (url.includes("unblockedgames") || url.includes("creativeexpressions") || url.includes("tech."))) {
-                url = await resolveTechUnblockedLink(url);
+            // 2. Bypass SID
+            if (url.includes("unblockedgames") || url.includes("creativeexpressions") || url.includes("tech.")) {
+                url = await resolveSidBypass(url);
             }
 
-            // Resolve Driveseed final video link
+            // 3. Resolve Driveseed
             if (url && (url.includes("driveseed") || url.includes("driveleech"))) {
-                const finalUrl = await resolveDriveseedLink(url);
-                if (finalUrl) {
-                    allStreams.push({
+                const streamUrl = await resolveDriveseed(url);
+                if (streamUrl) {
+                    streams.push({
                         name: "UHDMovies",
-                        title: title + (isSeries ? ` S${season}E${episode}` : ""),
-                        url: finalUrl,
-                        quality: "HD",
-                        headers: { "Referer": "https://driveseed.org/" }
+                        title: tmdbData.name || tmdbData.title,
+                        url: streamUrl,
+                        quality: "Direct"
                     });
                 }
             }
         }
     } catch (e) {
-        console.error("[UHDMovies] Final Logic Error: " + e.message);
+        console.error(e);
     }
-    return allStreams;
+    return streams;
 }
 
 if (typeof module !== "undefined" && module.exports) {

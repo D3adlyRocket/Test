@@ -347,59 +347,41 @@ function collectMovieLinks($, pageUrl) {
   return links;
 }
 function collectEpisodeLinks($, pageUrl, season, episode) {
-  const itemsToProcess = [];
-  const sNum = parseInt(season, 10);
-  const eNum = parseInt(episode, 10);
-  
-  // Nuvio/Mobile style patterns
-  const seasonStr = "S" + String(sNum).padStart(2, "0");
-  const episodePadded = String(eNum).padStart(2, "0");
-  const episodeCode = `S${sNum}E${episodePadded}`;
-  
-  // Regex for Season and Episode (Fixing the escaped backslashes for JS strings)
-  const seasonPattern = new RegExp(`\\bS0?${sNum}\\b`, "i");
-  const episodePattern = new RegExp(`(?:${episodeCode}|Episode[-_ ]?${eNum}|\\bE${episodePadded}\\b)`, "i");
-
-  console.log(`[4KHDHub] Scanning for Season ${sNum}, Episode ${eNum}`);
-
-  // 1. Structured Scan (Nuvio Style)
-  $(".season-item, .episode-item, .episode-download-item, div.download-item").each((_, el) => {
-    const text = $(el).text();
-    // Check if this container belongs to the right season
-    if (seasonPattern.test(text) || text.includes(`Season ${sNum}`)) {
-      // Find links specifically for our episode within this container
-      $(el).find("a[href*='hubcloud'], a[href*='hubdrive']").each((__, link) => {
-        const linkText = $(link).closest('div, p').text() || $(link).text();
-        if (episodePattern.test(linkText)) {
-          itemsToProcess.push({
-            url: fixUrl($(link).attr("href"), pageUrl),
-            label: linkText.trim() || `S${season}E${episode}`,
-            rawHtml: $(link).closest('div').html()
-          });
-        }
+  const directEpisodeLinks = [];
+  $("div.episodes-list div.season-item").each((_, seasonEl) => {
+    const seasonText = $(seasonEl).find("div.episode-number").first().text();
+    const seasonMatch = seasonText.match(/S?([1-9][0-9]*)/i);
+    if (!seasonMatch || parseInt(seasonMatch[1], 10) !== Number(season))
+      return;
+    $(seasonEl).find("div.episode-download-item").each((__, episodeEl) => {
+      const episodeText = $(episodeEl).find("div.episode-file-info span.badge-psa").text();
+      const episodeMatch = episodeText.match(/Episode-?0*([1-9][0-9]*)/i);
+      if (!episodeMatch || parseInt(episodeMatch[1], 10) !== Number(episode))
+        return;
+      $(episodeEl).find("a[href]").each((___, linkEl) => {
+        const href = fixUrl($(linkEl).attr("href"), pageUrl);
+        if (!href) return;
+        const text = $(episodeEl).text().trim();
+        directEpisodeLinks.push({ url: href, label: text || `S${season}E${episode}`, rawHtml: $(episodeEl).html() });
       });
-    }
-  });
-
-  // 2. Proximity Fallback (For pages like Black Mirror where code is messy)
-  if (itemsToProcess.length === 0) {
-    $("a[href*='hubcloud'], a[href*='hubdrive']").each((_, el) => {
-      // Look at the text immediately before or inside the button's parent
-      const context = $(el).closest('div, p, tr').text();
-      const prevContext = $(el).closest('div, p, tr').prev().text();
-      const combinedContext = prevContext + " " + context;
-
-      if (episodePattern.test(combinedContext)) {
-        itemsToProcess.push({
-          url: fixUrl($(el).attr("href"), pageUrl),
-          label: combinedContext.split('\n')[0].trim().substring(0, 50),
-          rawHtml: $(el).parent().html()
-        });
-      }
     });
-  }
-
-  return itemsToProcess;
+  });
+  if (directEpisodeLinks.length) return directEpisodeLinks;
+  
+  const packLinks = [];
+  $("div.download-item").each((_, item) => {
+    const headerText = $(item).find("div.flex-1.text-left.font-semibold").text().trim();
+    const seasonMatch = headerText.match(/S([0-9]+)/i);
+    if (!seasonMatch || parseInt(seasonMatch[1], 10) !== Number(season))
+      return;
+    $(item).find("a[href]").each((__, linkEl) => {
+      const href = fixUrl($(linkEl).attr("href"), pageUrl);
+      if (!href) return;
+      const text = $(item).text().trim();
+      packLinks.push({ url: href, label: text || headerText, rawHtml: $(item).html() });
+    });
+  });
+  return packLinks;
 }
 
 function buildStream(title, url, quality = "Auto", headers = {}, size = "", tech = "") {

@@ -16,7 +16,7 @@ async function makeRequest(url) {
 }
 
 async function resolveFinalUrl(startUrl) {
-    // This is required to get the actual mp4/mkv link from the redirector
+    // This part is crucial for DahmerMovies to actually play
     let cleanUrl = startUrl;
     if (startUrl.includes('/bulk?u=')) {
         cleanUrl = decodeURIComponent(startUrl.split('u=')[1]);
@@ -48,6 +48,7 @@ function parseLinks(html) {
             const text = linkMatch[2].trim();
             const size = sizeMatch ? sizeMatch[1].trim() : 'N/A';
 
+            // Ensure we only grab video files
             if (text && href !== '../' && /\.(mkv|mp4|avi|webm)$/i.test(text)) {
                 links.push({ text, href, size });
             }
@@ -108,7 +109,7 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // --- LANGUAGE LOGIC ---
+        // --- SIMPLE LANGUAGE LOGIC (RESTORED) ---
         let language = "Original"; 
         const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio)\b/i.test(fileName);
         const hasEngTag = /\b(Eng|English)\b/i.test(fileName);

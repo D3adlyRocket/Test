@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Final Language & UI Fix
+// Dahmer Movies Scraper - Simplified Logic & Multi-Audio Fix
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -104,42 +104,32 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // --- NEW STRICT LANGUAGE LOGIC ---
-        let language = "Hindi"; // Default to Hindi for this server
+        // --- START OF NEW SIMPLE LANGUAGE LOGIC ---
+        let language = "Unknown";
 
-        const hasHin = /\b(Hin|Hindi)\b/i.test(fileName);
-        const hasTam = /\b(Tam|Tamil)\b/i.test(fileName);
-        const hasTel = /\b(Tel|Telugu)\b/i.test(fileName);
-        const hasDual = /\b(Dual|Multi|DUB|Org|Multi-Audio)\b/i.test(fileName);
-        const hasKor = /\b(Kor|Korean)\b/i.test(fileName);
-        const hasGer = /\b(Ger|German)\b/i.test(fileName);
-        const hasEng = /\b(Eng|English)\b/i.test(fileName);
+        // 1. Check for Multi/Dual/Regional combinations
+        const isMultiTags = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio)\b/i.test(fileName);
+        
+        // 2. Check if the Title is English-sounding (Simple Regex for English characters/common words)
+        const isEnglishTitle = /^[a-zA-Z0-9\s?!\-:]+$/.test(title);
 
-        // 1. If it has multiple regional tags, it's Dual Audio
-        if ((hasHin && hasTam) || (hasHin && hasTel) || (hasTam && hasTel) || hasDual) {
-            language = "Dual Audio";
-        } 
-        // 2. Specific Language Overrides
-        else if (hasKor) {
-            language = "Korean";
-        } 
-        else if (hasGer) {
-            language = "German";
-        }
-        else if (hasEng && !hasHin) {
+        if (isMultiTags) {
+            language = "Multi Audio";
+        } else if (isEnglishTitle && /\b(Eng|English)\b/i.test(fileName)) {
+            // Only set English if it's an English title AND the filename supports it
             language = "English";
+        } else if (!isEnglishTitle || /\b(Hin|Hindi)\b/i.test(fileName)) {
+            // Default to Hindi for foreign names or Hindi tags
+            language = "Hindi";
+        } else {
+            // Fallback for everything else
+            language = "Hindi"; 
         }
-        else if (hasTam) {
-            language = "Tamil";
-        }
-        else if (hasTel) {
-            language = "Telugu";
-        }
+        // --- END OF LANGUAGE LOGIC ---
 
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
-        // --- CLEANER INFO ---
         let info = fileName
             .replace(/\.(mkv|mp4|avi|webm)$/i, '')
             .replace(new RegExp(resolution, 'gi'), '')

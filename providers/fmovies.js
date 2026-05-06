@@ -528,29 +528,36 @@ function getStreams(tmdbId, type, season, episode) {
         const eNum = parseInt(episode, 10);
         const seasonStr = "S" + String(sNum).padStart(2, "0");
         const epStr = "E" + String(eNum).padStart(2, "0");
-        const epCode = `${seasonStr}${epStr}`;
         
-        console.log(`[4KHDHub] Looking for episode matching: ${epCode}`);
+        console.log(`[4KHDHub] Looking for Episode: Season ${sNum} Episode ${eNum}`);
 
-        // Logic specifically for series pages (like Black Mirror)
-        // Scans all potential download blocks and matches based on SxxExx or "Episode X" text
-        $(".download-item, .episode-download-item, .post-content div").each((_, el) => {
+        // Scan all possible download containers (broad search)
+        $(".download-item, .episode-download-item, .post-content p, .post-content div").each((_, el) => {
           const text = $(el).text().toLowerCase();
           
-          // Must match season
-          if (text.includes(`season ${sNum}`) || text.includes(seasonStr.toLowerCase())) {
-            // Check if this block or its internal links mention the episode
-            const blockMatches = text.includes(`episode ${eNum}`) || text.includes(epStr.toLowerCase()) || text.includes(`ep ${eNum}`);
-            
-            if (blockMatches) {
-               // Check if it has a HubCloud or HubDrive link
-               const hasValidLink = $(el).find("a[href*='hubcloud'], a[href*='hubdrive'], a[href*='id=']").length > 0;
-               if (hasValidLink) {
-                 itemsToProcess.push(el);
-               }
+          // Pattern matches for "S01E01", "Season 1 Episode 1", "S1E1", etc.
+          const matchesSeason = text.includes(`season ${sNum}`) || text.includes(seasonStr.toLowerCase()) || text.includes(`s${sNum}e`);
+          const matchesEpisode = text.includes(`episode ${eNum}`) || text.includes(epStr.toLowerCase()) || text.includes(`e${eNum} `) || text.endsWith(`e${eNum}`);
+
+          if (matchesSeason && matchesEpisode) {
+            // Found a block for this episode. Now check if it contains a valid HubCloud/Drive link
+            const hasLink = $(el).find("a[href*='hubcloud'], a[href*='hubdrive'], a[href*='id=']").length > 0;
+            if (hasLink) {
+              itemsToProcess.push(el);
             }
           }
         });
+
+        // Fallback for Black Mirror style tables/direct links
+        if (itemsToProcess.length === 0) {
+           $("a").each((_, a) => {
+             const aText = $(a).text().toLowerCase();
+             if ((aText.includes(seasonStr.toLowerCase()) || aText.includes(`s${sNum}`)) && 
+                 (aText.includes(epStr.toLowerCase()) || aText.includes(`e${eNum}`))) {
+                itemsToProcess.push($(a).closest('div, p')[0] || a);
+             }
+           });
+        }
       } else {
         console.log("[4KHDHub] Looking for movie download items");
         $(".download-item, .file-item, .movie-file, [class*='download'], [class*='file']").each((_, el) => {

@@ -1,8 +1,9 @@
 // =============================================================
 // Provider Nuvio : Nakios (VF / VOSTFR / MULTI)
-// Version : 3.7.0
+// Version : 3.8.0
 // - Domaine récupéré automatiquement depuis domains.json (GitHub)
 // - Fallback sur nakios.fit si la lecture échoue
+// - URLs proxy → decodeURIComponent + domaine source comme Referer
 // =============================================================
 
 var NAKIOS_UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -15,9 +16,9 @@ var _cachedEndpoint = null;
 
 function buildEndpoint(tld) {
   return {
-    base:    'https://nakios.' + tld,
-    api:     'https://api.nakios.' + tld + '/api',
-    referer: 'https://nakios.' + tld + '/'
+    base:    'https://nakios.fit' + tld,
+    api:     'https://api.nakios.fit' + tld + '/api',
+    referer: 'https://nakios.fit' + tld + '/'
   };
 }
 
@@ -86,7 +87,7 @@ function extractOrigin(url) {
 function resolveSource(source, endpoint) {
   var rawUrl = source.url || '';
 
-  // URL directe (ex: cdn.fastflux.xyz)
+  // Cas 1 : URL directe (ex: cdn.fastflux.xyz → MP4)
   if (rawUrl.startsWith('http')) {
     return {
       url:     rawUrl,
@@ -96,13 +97,28 @@ function resolveSource(source, endpoint) {
     };
   }
 
-  // URL proxy relative → /api/sources/proxy?url=ENCODED&s=xxx
+  // Cas 2 : URL proxy relative → /api/sources/proxy?url=ENCODED&s=xxx
+  // Le proxy nakios retourne du HTML (protection serveur).
+  // Solution : décoder le paramètre url= pour obtenir l'URL directe
+  // (xalaflix, darkibox) et utiliser leur domaine comme Referer.
   if (rawUrl.charAt(0) === '/') {
+    var urlMatch = rawUrl.match(/[?&]url=([^&]+)/);
+    if (!urlMatch) return null;
+
+    var decoded;
+    try { decoded = decodeURIComponent(urlMatch[1]); }
+    catch (e) { return null; }
+
+    if (!decoded || !decoded.startsWith('http')) return null;
+
+    var origin = extractOrigin(decoded);
+    if (!origin) return null;
+
     return {
-      url:     endpoint.base + rawUrl,
+      url:     decoded,
       format:  'm3u8',
-      referer: endpoint.referer,
-      origin:  endpoint.base
+      referer: origin + '/',
+      origin:  origin
     };
   }
 

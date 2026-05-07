@@ -16,9 +16,9 @@ var _cachedEndpoint = null;
 
 function buildEndpoint(tld) {
   return {
-    base:    'https://nakios.fit' + tld,
-    api:     'https://api.nakios.fit' + tld + '/api',
-    referer: 'https://nakios.fit' + tld + '/'
+    base:    'https://nakios.' + tld,
+    api:     'https://api.nakios.' + tld + '/api',
+    referer: 'https://nakios.' + tld + '/'
   };
 }
 

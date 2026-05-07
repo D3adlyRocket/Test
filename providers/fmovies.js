@@ -32,10 +32,10 @@ function buildTitle(provider, res, lang, format, size, extra) {
     }
 
     var columns = [
-        '🎬 ' + provider,
+        '🎬 ' + (provider.length > 20 ? provider.substring(0, 17) + "..." : provider),
         qIcon + ' ' + res,
         lIcon + ' ' + displayLang,
-        '⚡ ' + (format || 'M3U8').toUpperCase()
+        '🎞️ ' + (format || 'M3U8').toUpperCase()
     ];
 
     if (size) columns.push('💾 ' + size);
@@ -303,11 +303,36 @@ function tryFetchAll(apiBase, referer, tmdbId, mediaType, season, episode) {
       });
     });
 }
+function getMovieTitle(tmdbId, type) {
+  var url = 'https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=fr-FR';
+  return fetch(url)
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      return data.title || data.name || "Movix"; // Fallback to Movix if name fails
+    })
+    .catch(function() { return "Movix"; });
+}
 function getStreams(tmdbId, mediaType, season, episode) {
-  return detectApi()
-    .then(function(endpoint) {
-      if (!endpoint) throw new Error('Détection endpoint échouée');
-      return tryFetchAll(endpoint.api, endpoint.referer, tmdbId, mediaType, season, episode);
+  console.log('[Movix] Fetching tmdbId=' + tmdbId);
+
+  // 1. Get the real Movie Name first
+  return getMovieTitle(tmdbId, mediaType)
+    .then(function(movieName) {
+      
+      // 2. Detect the API domain
+      return detectApi().then(function(endpoint) {
+        if (!endpoint) throw new Error('Détection endpoint échouée');
+        
+        // 3. Fetch all streams
+        return tryFetchAll(endpoint.api, endpoint.referer, tmdbId, mediaType, season, episode)
+          .then(function(streams) {
+            // 4. Replace "Movix" with the Movie Name in the titles
+            return streams.map(function(s) {
+              s.title = s.title.replace('Movix', movieName);
+              return s;
+            });
+          });
+      });
     })
     .catch(function(err) {
       return [];

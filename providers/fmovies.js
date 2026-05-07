@@ -11,31 +11,26 @@ var MOVIX_FALLBACK = 'cash';
 
 var _cachedEndpoint = null;
 
-// ─── UI Helper: Title Builder ────────────────────────────────
-
+// 1. Updated buildTitle with "Force Multi" logic
 function buildTitle(provider, res, lang, format, size, extra) {
     var qIcon = (res.includes('2160') || res.includes('4K')) ? '💎' : '📺';
-    var lIcon = '🌐';
-    
-    // 1. Normalize and Clean
-    var raw = (lang || '').toUpperCase();
-    var displayLang = "VF"; // Default fallback
+    var lIcon = '🇫🇷'; // Default to VF
+    var displayLang = 'VF';
 
-    // 2. Strict Priority Detection
-    if (raw.indexOf('MULTI') !== -1) {
+    // Normalize everything to uppercase to compare
+    var check = (provider + " " + lang + " " + res).toUpperCase();
+
+    if (check.indexOf('MULTI') !== -1) {
         lIcon = '🌍';
         displayLang = 'MULTI';
-    } 
-    else if (raw.indexOf('VOST') !== -1) {
+    } else if (check.indexOf('VOST') !== -1) {
         lIcon = '🔡';
         displayLang = 'VOSTFR';
-    } 
-    else if (raw.indexOf('VF') !== -1) {
+    } else {
         lIcon = '🇫🇷';
         displayLang = 'VF';
     }
 
-    // 3. Columns Construction
     var columns = [
         '🎬 ' + provider,
         qIcon + ' ' + res,
@@ -274,16 +269,17 @@ function processEmbedSources(sources, referer) {
     return results.filter(function(r) { return r !== null; });
   });
 }
-
 function tryFetchAll(apiBase, referer, tmdbId, mediaType, season, episode) {
   return fetchPurstream(apiBase, referer, tmdbId, mediaType, season, episode)
     .then(function(sources) {
       return Promise.all(sources.map(function(source) {
         return resolveRedirect(source.url, referer).then(function(resolvedUrl) {
           var qual = source.name && source.name.indexOf('1080') !== -1 ? '1080p' : '720p';
+          
+          // CRITICAL FIX: Use source.name here so buildTitle can see "MULTI"
           return {
             name: 'Movix',
-            title: buildTitle('Movix', qual, 'VF', source.format || 'm3u8'),
+            title: buildTitle('Movix', qual, source.name, source.format || 'm3u8'), 
             url: resolvedUrl,
             quality: qual,
             format: source.format || 'm3u8',
@@ -293,6 +289,7 @@ function tryFetchAll(apiBase, referer, tmdbId, mediaType, season, episode) {
       }));
     })
     .catch(function() {
+      // Fallback logic for other APIs...
       return Promise.all([
         fetchCpasmal(apiBase, referer, tmdbId, mediaType, season, episode).catch(function() { return []; }),
         fetchFstream(apiBase, referer, tmdbId, mediaType, season, episode).catch(function() { return []; }),
@@ -306,7 +303,6 @@ function tryFetchAll(apiBase, referer, tmdbId, mediaType, season, episode) {
       });
     });
 }
-
 function getStreams(tmdbId, mediaType, season, episode) {
   return detectApi()
     .then(function(endpoint) {

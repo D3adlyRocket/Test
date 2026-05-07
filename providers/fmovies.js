@@ -737,53 +737,55 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
       }
 
       const streams = filteredLinks.map((link) => {
-        let mediaTitle = link.fileName && link.fileName !== "Unknown" ? link.fileName : mediaInfo.title;
-        if (mediaType === "tv" && season && episode) {
-          mediaTitle = `${mediaInfo.title} S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
-        }
-        const serverName = extractServerName(link.source);
-        
-        // --- Enhanced Logic for Metadata ---
+        // We look at everything available to find the metadata
+        const sourceText = (link.source || "").toUpperCase();
+        const fileNameText = (link.fileName || "").toUpperCase();
+        const urlText = (link.url || "").toUpperCase();
+        const combinedContext = `${sourceText} ${fileNameText} ${urlText}`;
+
+        // 1. Resolution
         let qualityStr = "Unknown";
         if (typeof link.quality === "number" && link.quality > 0) {
-          if (link.quality >= 2160) qualityStr = "4K";
-          else if (link.quality >= 1080) qualityStr = "1080p";
-          else if (link.quality >= 720) qualityStr = "720p";
-          else if (link.quality >= 480) qualityStr = "480p";
-        } else if (typeof link.quality === "string") {
+          qualityStr = link.quality >= 2160 ? "4K" : `${link.quality}p`;
+        } else if (link.quality) {
           qualityStr = link.quality;
         }
 
-        const titleUpper = mediaTitle.toUpperCase();
-        
-        // Language Detection
-        const langMatch = titleUpper.match(/HINDI|ENGLISH|TAMIL|TELUGU|MULTI/i);
-        
-        // Format Detection (Checks Title THEN URL)
-        let format = "MKV"; // Default fallback
-        const formatMatch = mediaTitle.match(/\.(mkv|mp4|avi|webm)$/i) || link.url.match(/\.(mkv|mp4|avi|webm)(\?|$)/i);
-        if (formatMatch) {
-          format = formatMatch[1].toUpperCase();
-        }
+        // 2. Language Extraction
+        const languages = [];
+        if (combinedContext.includes("HINDI")) languages.push("Hindi");
+        if (combinedContext.includes("ENGLISH") || combinedContext.includes("ENG")) languages.push("English");
+        if (combinedContext.includes("TAMIL")) languages.push("Tamil");
+        if (combinedContext.includes("TELUGU")) languages.push("Telugu");
+        const languageStr = languages.length > 0 ? languages.join("/") : "Hindi/English";
 
-        // Extra Info Detection
-        const extraTags = [];
-        if (titleUpper.includes("HDR")) extraTags.push("HDR");
-        if (titleUpper.includes("10BIT") || titleUpper.includes("10-BIT")) extraTags.push("10-Bit");
-        if (titleUpper.includes("DOLBY") || titleUpper.includes("ATMOS")) extraTags.push("Dolby");
-        if (titleUpper.includes("BLU") || titleUpper.includes("BRRIP")) extraTags.push("Blu-Ray");
-        if (titleUpper.includes("ESUB")) extraTags.push("E-Sub");
+        // 3. Format Extraction (Aggressive)
+        let formatStr = "MKV"; // Most common for HDHub
+        if (combinedContext.includes(".MP4") || combinedContext.includes(" MP4")) formatStr = "MP4";
+        else if (combinedContext.includes(".MKV") || combinedContext.includes(" MKV")) formatStr = "MKV";
+        else if (combinedContext.includes(".AVI")) formatStr = "AVI";
+
+        // 4. Extra Info (HDR, 10-Bit, etc)
+        const extras = [];
+        if (combinedContext.includes("HDR")) extras.push("HDR");
+        if (combinedContext.includes("10BIT") || combinedContext.includes("10-BIT")) extras.push("10-Bit");
+        if (combinedContext.includes("DOLBY") || combinedContext.includes("ATMOS") || combinedContext.includes("DDP")) extras.push("Dolby");
+        if (combinedContext.includes("BLU") || combinedContext.includes("BRRIP") || combinedContext.includes("BDRIP")) extras.push("Blu-Ray");
+        if (combinedContext.includes("WEB")) extras.push("WEB-DL");
+        if (combinedContext.includes("ESUB")) extras.push("E-Sub");
 
         return {
-          name: `HDHub4u ${serverName}`,
-          title: mediaTitle,
+          name: `HDHub4u ${extractServerName(link.source)}`,
+          title: link.fileName && link.fileName !== "Unknown" ? link.fileName : mediaInfo.title,
           url: link.url,
           quality: qualityStr,
           size: formatBytes(link.size),
+          // New Fields
           resolution: qualityStr,
-          language: langMatch ? langMatch[0] : "Hindi/English",
-          format: format,
-          extra_info: extraTags.length > 0 ? extraTags.join(", ") : cleanTitle(mediaTitle),
+          language: languageStr,
+          format: formatStr,
+          extra_info: extras.length > 0 ? extras.join(", ") : "Standard",
+          // Metadata
           headers: HEADERS,
           provider: "hdhub4u"
         };

@@ -1,65 +1,52 @@
-// ShowBox Scraper - Android TV Optimized
-const TMDB_API_KEY = '1c29a5198ee1854bd5eb45dbe8d17d92';
-const SHOWBOX_API_BASE = 'https://febapi.nuvioapp.space/api/media';
-const LOCAL_COOKIE_URL = "http://192.168.1.176:8080/cookie.txt";
+var TMDB_KEY = '1c29a5198ee1854bd5eb45dbe8d17d92';
+var SB_BASE = 'https://febapi.nuvioapp.space/api/media';
+var LOCAL_URL = "http://192.168.1.176:8080/cookie.txt"; 
 
-async function getUiToken() {
+async function getStreams(tmdbId, type, s, e) {
     try {
-        console.log(`[ShowBox] Android TV Fetching: ${LOCAL_COOKIE_URL}`);
+        console.log("[ShowBox] ATTEMPTING FETCH FROM: " + LOCAL_URL);
         
-        // Android TV requires a longer timeout and specific headers sometimes
-        const response = await fetch(LOCAL_COOKIE_URL, {
-            method: 'GET',
-            headers: { 'Cache-Control': 'no-cache' }
-        });
+        // We use a very short timeout so the UI doesn't hang if the server is blocked
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
 
-        if (response.ok) {
-            const serverCookie = await response.text();
-            if (serverCookie && serverCookie.trim()) return serverCookie.trim();
+        const tokenResp = await fetch(LOCAL_URL, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        const token = (await tokenResp.text()).trim();
+        console.log("[ShowBox] TOKEN RETRIEVED: " + (token ? "YES (Starts with " + token.substring(0,5) + ")" : "NO"));
+
+        if (!token) return [];
+
+        const api = (type === 'tv') 
+            ? `${SB_BASE}/tv/${tmdbId}/${s}/${e}?cookie=${token}`
+            : `${SB_BASE}/movie/${tmdbId}?cookie=${token}`;
+
+        const d = await (await fetch(api)).json();
+        
+        if (!d || !d.versions) {
+            console.log("[ShowBox] API returned no versions. Likely TMDB ID mismatch.");
+            return [];
         }
-    } catch (e) {
-        // If this logs "Network request failed", Android TV is blocking HTTP
-        console.log(`[ShowBox] Android TV Network Error: ${e.message}`);
-    }
-
-    // Fallback to manual settings
-    if (typeof global !== 'undefined' && global.SCRAPER_SETTINGS?.uiToken) {
-        return String(global.SCRAPER_SETTINGS.uiToken);
-    }
-    return '';
-}
-
-async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
-    try {
-        const cookie = await getUiToken();
-        if (!cookie) return [];
-
-        // Direct API Call
-        let apiUrl = mediaType === 'tv' 
-            ? `${SHOWBOX_API_BASE}/tv/${tmdbId}/${seasonNum}/${episodeNum}?cookie=${encodeURIComponent(cookie)}`
-            : `${SHOWBOX_API_BASE}/movie/${tmdbId}?cookie=${encodeURIComponent(cookie)}`;
-
-        const response = await fetch(apiUrl, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Android TV)',
-                'Accept': 'application/json'
-            }
-        });
-
-        const data = await response.json();
-        if (!data?.versions) return [];
-
-        return data.versions.flatMap((v, vIdx) => (v.links || []).map(l => ({
-            name: `ShowBox V${vIdx + 1} - ${l.quality || 'HD'}`,
+        
+        return d.versions.flatMap(v => (v.links || []).map(l => ({
+            name: "ShowBox " + (l.quality || "HD"),
             url: l.url,
-            quality: l.quality || 'HD',
-            size: l.size || v.size || 'Unknown',
-            provider: 'showbox'
+            quality: l.quality || "HD",
+            provider: "showbox-local"
         })));
-    } catch (error) {
-        console.error(`[ShowBox] Failed: ${error.message}`);
+
+    } catch (err) {
+        // THIS IS THE IMPORTANT PART: Look for these messages in Nuvio logs
+        if (err.name === 'AbortError') {
+            console.log("[ShowBox] ERROR: Local Server Timed Out (Firewall or IP wrong)");
+        } else if (err.message.includes("Network request failed")) {
+            console.log("[ShowBox] ERROR: Network Blocked (Android Cleartext or SSL issue)");
+        } else {
+            console.log("[ShowBox] ERROR: " + err.message);
+        }
         return [];
     }
 }
 
-global.ShowBoxScraperModule = { getStreams };
+global.getStreams = getStreams;

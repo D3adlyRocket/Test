@@ -16,31 +16,31 @@ var _cachedEndpoint = null;
 function buildTitle(provider, res, lang, format, size, extra) {
     var qIcon = (res.includes('2160') || res.includes('4K')) ? '💎' : '📺';
     var lIcon = '🌐';
-    var displayLang = (lang || 'VF').toUpperCase();
-    var searchTitle = displayLang;
+    
+    // 1. Normalize and Clean
+    var raw = (lang || '').toUpperCase();
+    var displayLang = "VF"; // Default fallback
 
-    // 1. PRIORITY: Check for MULTI first (Whole word or part of string)
-    if (searchTitle.indexOf('MULTI') !== -1) {
+    // 2. Strict Priority Detection
+    if (raw.indexOf('MULTI') !== -1) {
         lIcon = '🌍';
         displayLang = 'MULTI';
     } 
-    // 2. Check for VOSTFR (Specific subtitled icon)
-    else if (searchTitle.indexOf('VOST') !== -1) {
+    else if (raw.indexOf('VOST') !== -1) {
         lIcon = '🔡';
         displayLang = 'VOSTFR';
     } 
-    // 3. Check for VF (Strict check: must be standalone "VF" or " VF")
-    // This prevents "MULTI" from triggering the VF flag.
-    else if (/\bVF\b/.test(searchTitle) || searchTitle === 'VF') {
+    else if (raw.indexOf('VF') !== -1) {
         lIcon = '🇫🇷';
         displayLang = 'VF';
     }
 
+    // 3. Columns Construction
     var columns = [
         '🎬 ' + provider,
         qIcon + ' ' + res,
         lIcon + ' ' + displayLang,
-        '🎞️ ' + (format || 'M3U8').toUpperCase()
+        '⚡ ' + (format || 'M3U8').toUpperCase()
     ];
 
     if (size) columns.push('💾 ' + size);
@@ -48,6 +48,7 @@ function buildTitle(provider, res, lang, format, size, extra) {
 
     return columns.join(' | ');
 }
+
 // ─── Récupération du domaine depuis GitHub ───────────────────
 
 function detectApi() {

@@ -2,7 +2,7 @@ var TMDB_KEY = '439c478a771f35c05022f9feabcca01c';
 var LOCAL_URL = "http://192.168.1.176:8080/cookie.txt";
 
 // The new direct API endpoints from the 2026 GitHub repositories
-var API_BASE = "https://febapi.nuvioapp.space/api";
+var API_BASE = "https://showbox.shegu.net/api/api_client/index/";
 var APP_ID = "com.tdo.showbox";
 var APP_KEY = "moviebox";
 

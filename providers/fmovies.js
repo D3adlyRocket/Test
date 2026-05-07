@@ -1,4 +1,4 @@
-var LOCAL_URL = "http://192.168.1.176:8080/cookie.txt";
+var LOCAL_URL = "http://192.168.1.122:8080/cookie.txt";
 var API_BASE = "https://febapi.nuvioapp.space/api";
 
 function getStreams(tmdbId, type, s, e) {

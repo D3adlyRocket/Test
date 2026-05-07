@@ -429,7 +429,6 @@ function streamTapeExtractor(link) {
 }
 function hubCloudExtractor(url, referer) {
   return __async(this, null, function* () {
-    var _a;
     try {
       let currentUrl = url.replace("hubcloud.ink", "hubcloud.dad");
       const pageResponse = yield fetch(currentUrl, { headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: referer }) });
@@ -443,8 +442,7 @@ function hubCloudExtractor(url, referer) {
           nextHref = downloadBtn.attr("href");
         } else {
           const scriptUrlMatch = pageData.match(/var url = '([^']*)'/);
-          if (scriptUrlMatch)
-            nextHref = scriptUrlMatch[1];
+          if (scriptUrlMatch) nextHref = scriptUrlMatch[1];
         }
         if (nextHref) {
           if (!nextHref.startsWith("http")) {
@@ -459,89 +457,93 @@ function hubCloudExtractor(url, referer) {
       const $ = import_cheerio_without_node_native.default.load(pageData);
       const size = $("i#size").text().trim();
       const header = $("div.card-header").text().trim();
-      const qualityStr = (_a = header.match(/(\d{3,4})[pP]/)) == null ? void 0 : _a[1];
+      const qualityStr = (header.match(/(\d{3,4})[pP]/) || [])[1];
       const quality = qualityStr ? parseInt(qualityStr) : 1080;
-      const headerDetails = cleanTitle(header);
-      const labelExtras = (headerDetails ? `[${headerDetails}]` : "") + (size ? `[${size}]` : "");
+      
+      // Store the full header (which has the HDR/Language/Format info)
+      const fileName = header || "Unknown";
       const sizeInBytes = (() => {
         const sizeMatch = size.match(/([\d.]+)\s*(GB|MB|KB)/i);
-        if (!sizeMatch)
-          return 0;
+        if (!sizeMatch) return 0;
         const multipliers = { GB: 1024 ** 3, MB: 1024 ** 2, KB: 1024 };
         return parseFloat(sizeMatch[1]) * (multipliers[sizeMatch[2].toUpperCase()] || 0);
       })();
+
       const links = [];
       const elements = $("a.btn").get();
       for (const element of elements) {
         const link = $(element).attr("href");
         const text = $(element).text().toLowerCase();
-        const fileName = header || headerDetails || "Unknown";
-        if (text.includes("download file") || text.includes("fsl server") || text.includes("s3 server") || text.includes("fslv2") || text.includes("mega server")) {
-          let label = "HubCloud";
-          if (text.includes("fsl server"))
-            label = "HubCloud - FSL";
-          else if (text.includes("s3 server"))
-            label = "HubCloud - S3";
-          else if (text.includes("fslv2"))
-            label = "HubCloud - FSLv2";
-          else if (text.includes("mega server"))
-            label = "HubCloud - Mega";
-          links.push({ source: `${label} ${labelExtras}`, quality, url: link, size: sizeInBytes, fileName });
-        } else if (text.includes("buzzserver")) {
-          try {
-            const buzzResp = yield fetch(`${link}/download`, { method: "GET", headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: link }) });
-            if (buzzResp.url && buzzResp.url !== `${link}/download`) {
-              links.push({ source: `HubCloud - BuzzServer ${labelExtras}`, quality, url: buzzResp.url, size: sizeInBytes, fileName });
-            }
-          } catch (e) {
-          }
-        } else if (text.includes("10gbps")) {
-          try {
-            const resp = yield fetch(link, { method: "GET", redirect: "manual" });
-            const loc = resp.headers.get("location");
-            if (loc && loc.includes("link=")) {
-              const dlink = loc.substring(loc.indexOf("link=") + 5);
-              links.push({ source: `HubCloud - 10Gbps ${labelExtras}`, quality, url: dlink, size: sizeInBytes, fileName });
-            }
-          } catch (e) {
-          }
+        if (text.includes("download") || text.includes("server") || text.includes("10gbps")) {
+          links.push({ source: text, quality, url: link, size: sizeInBytes, fileName: fileName });
         } else if (link && link.includes("pixeldra")) {
           const results = yield pixelDrainExtractor(link);
-          links.push(...results.map((l) => __spreadProps(__spreadValues({}, l), { source: `${l.source} ${labelExtras}`, size: sizeInBytes, fileName })));
-        } else if (link && !link.includes("magnet:") && link.startsWith("http")) {
-          const extracted = yield loadExtractor(link, finalUrl);
-          links.push(...extracted.map((l) => __spreadProps(__spreadValues({}, l), { quality: l.quality || quality })));
+          links.push(...results.map((l) => (__spreadProps(__spreadValues({}, l), { size: sizeInBytes, fileName }))));
         }
       }
       return links;
-    } catch (e) {
-      return [];
-    }
+    } catch (e) { return []; }
   });
 }
-function hubCdnExtractor(url, referer) {
+function hubCloudExtractor(url, referer) {
   return __async(this, null, function* () {
-    var _a, _b;
     try {
-      const response = yield fetch(url, { headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: referer }) });
-      const data = yield response.text();
-      const encoded = (_a = data.match(/r=([A-Za-z0-9+/=]+)/)) == null ? void 0 : _a[1];
-      if (encoded) {
-        const m3u8Link = atob(encoded).substring(atob(encoded).lastIndexOf("link=") + 5);
-        return [{ source: "HubCdn", quality: 1080, url: m3u8Link }];
+      let currentUrl = url.replace("hubcloud.ink", "hubcloud.dad");
+      const pageResponse = yield fetch(currentUrl, { headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: referer }) });
+      let pageData = yield pageResponse.text();
+      let finalUrl = currentUrl;
+      if (!currentUrl.includes("hubcloud.php")) {
+        let nextHref = "";
+        const $first = import_cheerio_without_node_native.default.load(pageData);
+        const downloadBtn = $first("#download");
+        if (downloadBtn.length) {
+          nextHref = downloadBtn.attr("href");
+        } else {
+          const scriptUrlMatch = pageData.match(/var url = '([^']*)'/);
+          if (scriptUrlMatch) nextHref = scriptUrlMatch[1];
+        }
+        if (nextHref) {
+          if (!nextHref.startsWith("http")) {
+            const urlObj = new URL(currentUrl);
+            nextHref = `${urlObj.protocol}//${urlObj.hostname}/${nextHref.replace(/^\//, "")}`;
+          }
+          finalUrl = nextHref;
+          const secondResponse = yield fetch(finalUrl, { headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: currentUrl }) });
+          pageData = yield secondResponse.text();
+        }
       }
-      const scriptEncoded = (_b = data.match(/reurl\s*=\s*["']([^"']+)["']/)) == null ? void 0 : _b[1];
-      if (scriptEncoded) {
-        const queryPart = scriptEncoded.split("?r=").pop();
-        const m3u8Link = atob(queryPart).substring(atob(queryPart).lastIndexOf("link=") + 5);
-        return [{ source: "HubCdn", quality: 1080, url: m3u8Link }];
+      const $ = import_cheerio_without_node_native.default.load(pageData);
+      const size = $("i#size").text().trim();
+      const header = $("div.card-header").text().trim();
+      const qualityStr = (header.match(/(\d{3,4})[pP]/) || [])[1];
+      const quality = qualityStr ? parseInt(qualityStr) : 1080;
+      
+      // Store the full header (which has the HDR/Language/Format info)
+      const fileName = header || "Unknown";
+      const sizeInBytes = (() => {
+        const sizeMatch = size.match(/([\d.]+)\s*(GB|MB|KB)/i);
+        if (!sizeMatch) return 0;
+        const multipliers = { GB: 1024 ** 3, MB: 1024 ** 2, KB: 1024 };
+        return parseFloat(sizeMatch[1]) * (multipliers[sizeMatch[2].toUpperCase()] || 0);
+      })();
+
+      const links = [];
+      const elements = $("a.btn").get();
+      for (const element of elements) {
+        const link = $(element).attr("href");
+        const text = $(element).text().toLowerCase();
+        if (text.includes("download") || text.includes("server") || text.includes("10gbps")) {
+          links.push({ source: text, quality, url: link, size: sizeInBytes, fileName: fileName });
+        } else if (link && link.includes("pixeldra")) {
+          const results = yield pixelDrainExtractor(link);
+          links.push(...results.map((l) => (__spreadProps(__spreadValues({}, l), { size: sizeInBytes, fileName }))));
+        }
       }
-      return [];
-    } catch (e) {
-      return [];
-    }
+      return links;
+    } catch (e) { return []; }
   });
 }
+
 function loadExtractor(_0) {
   return __async(this, arguments, function* (url, referer = MAIN_URL) {
     try {
@@ -718,85 +720,59 @@ function getDownloadLinks(mediaUrl) {
   });
 }
 function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
+function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   return __async(this, null, function* () {
-    console.log(`[HDHub4u] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
     try {
       const mediaInfo = yield getTMDBDetails(tmdbId, mediaType);
       const searchQuery = mediaType === "tv" && season ? `${mediaInfo.title} Season ${season}` : mediaInfo.title;
       const searchResults = yield search(searchQuery);
       if (searchResults.length === 0) return [];
-
       const bestMatch = findBestTitleMatch(mediaInfo, searchResults, mediaType, season);
       const selectedMedia = bestMatch || searchResults[0];
       const result = yield getDownloadLinks(selectedMedia.url);
-      const finalLinks = result.finalLinks;
+      
+      return result.finalLinks.map((link) => {
+        const nameContext = (link.fileName || "").toUpperCase();
+        const urlContext = (link.url || "").toUpperCase();
+        const fullContext = `${nameContext} ${urlContext} ${link.source}`.toUpperCase();
 
-      let filteredLinks = finalLinks;
-      if (mediaType === "tv" && episode !== null) {
-        filteredLinks = finalLinks.filter((link) => link.episode === episode);
-      }
+        // 1. Language
+        let lang = "Hindi/English";
+        if (fullContext.includes("TAMIL")) lang = "Tamil";
+        else if (fullContext.includes("TELUGU")) lang = "Telugu";
 
-      const streams = filteredLinks.map((link) => {
-        // We look at everything available to find the metadata
-        const sourceText = (link.source || "").toUpperCase();
-        const fileNameText = (link.fileName || "").toUpperCase();
-        const urlText = (link.url || "").toUpperCase();
-        const combinedContext = `${sourceText} ${fileNameText} ${urlText}`;
+        // 2. Format
+        let fmt = "MKV"; 
+        if (fullContext.includes("MP4")) fmt = "MP4";
 
-        // 1. Resolution
-        let qualityStr = "Unknown";
-        if (typeof link.quality === "number" && link.quality > 0) {
-          qualityStr = link.quality >= 2160 ? "4K" : `${link.quality}p`;
-        } else if (link.quality) {
-          qualityStr = link.quality;
-        }
+        // 3. Resolution
+        let res = "1080p";
+        if (fullContext.includes("2160") || fullContext.includes("4K")) res = "4K";
+        else if (fullContext.includes("720")) res = "720p";
+        else if (fullContext.includes("480")) res = "480p";
 
-        // 2. Language Extraction
-        const languages = [];
-        if (combinedContext.includes("HINDI")) languages.push("Hindi");
-        if (combinedContext.includes("ENGLISH") || combinedContext.includes("ENG")) languages.push("English");
-        if (combinedContext.includes("TAMIL")) languages.push("Tamil");
-        if (combinedContext.includes("TELUGU")) languages.push("Telugu");
-        const languageStr = languages.length > 0 ? languages.join("/") : "Hindi/English";
-
-        // 3. Format Extraction (Aggressive)
-        let formatStr = "MKV"; // Most common for HDHub
-        if (combinedContext.includes(".MP4") || combinedContext.includes(" MP4")) formatStr = "MP4";
-        else if (combinedContext.includes(".MKV") || combinedContext.includes(" MKV")) formatStr = "MKV";
-        else if (combinedContext.includes(".AVI")) formatStr = "AVI";
-
-        // 4. Extra Info (HDR, 10-Bit, etc)
-        const extras = [];
-        if (combinedContext.includes("HDR")) extras.push("HDR");
-        if (combinedContext.includes("10BIT") || combinedContext.includes("10-BIT")) extras.push("10-Bit");
-        if (combinedContext.includes("DOLBY") || combinedContext.includes("ATMOS") || combinedContext.includes("DDP")) extras.push("Dolby");
-        if (combinedContext.includes("BLU") || combinedContext.includes("BRRIP") || combinedContext.includes("BDRIP")) extras.push("Blu-Ray");
-        if (combinedContext.includes("WEB")) extras.push("WEB-DL");
-        if (combinedContext.includes("ESUB")) extras.push("E-Sub");
+        // 4. Extra Info
+        const info = [];
+        if (fullContext.includes("HDR")) info.push("HDR");
+        if (fullContext.includes("10BIT") || fullContext.includes("10-BIT")) info.push("10-Bit");
+        if (fullContext.includes("DOLBY") || fullContext.includes("DDP")) info.push("Dolby");
+        if (fullContext.includes("BLU")) info.push("BluRay");
 
         return {
           name: `HDHub4u ${extractServerName(link.source)}`,
-          title: link.fileName && link.fileName !== "Unknown" ? link.fileName : mediaInfo.title,
+          title: link.fileName || mediaInfo.title,
           url: link.url,
-          quality: qualityStr,
+          quality: res,
           size: formatBytes(link.size),
-          // New Fields
-          resolution: qualityStr,
-          language: languageStr,
-          format: formatStr,
-          extra_info: extras.length > 0 ? extras.join(", ") : "Standard",
-          // Metadata
+          resolution: res,
+          language: lang,
+          format: fmt,
+          extra_info: info.length > 0 ? info.join(", ") : "Digital",
           headers: HEADERS,
           provider: "hdhub4u"
         };
-      });
-
-      const qualityOrder = { "4K": 4, "1080p": 2, "720p": 1, "480p": 0, "Unknown": -2 };
-      return streams.sort((a, b) => (qualityOrder[b.quality] || -3) - (qualityOrder[a.quality] || -3));
-    } catch (error) {
-      console.error(`[HDHub4u] Scraping error: ${error.message}`);
-      return [];
-    }
+      }).sort((a, b) => b.quality.localeCompare(a.quality));
+    } catch (error) { return []; }
   });
 }
 module.exports = { getStreams };

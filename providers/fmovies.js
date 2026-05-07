@@ -16,17 +16,27 @@ var _cachedEndpoint = null;
 function buildTitle(provider, res, lang, format, size, extra) {
     var qIcon = (res.includes('2160') || res.includes('4K')) ? '💎' : '📺';
     var lIcon = '🌐';
+    
+    // Normalize string to uppercase for accurate matching
     var langUpper = (lang || 'VF').toUpperCase();
     
-    if (langUpper.indexOf('VF') !== -1) lIcon = '🇫🇷';
-    else if (langUpper.indexOf('VOST') !== -1) lIcon = '🔡';
-    else if (langUpper.indexOf('MULTI') !== -1) lIcon = '🌍';
+    // PRIORITY CHECK: Multi must come before VF
+    if (langUpper.indexOf('MULTI') !== -1) {
+        lIcon = '🌍';
+        langUpper = 'MULTI'; // Clean up display
+    } else if (langUpper.indexOf('VOST') !== -1) {
+        lIcon = '🔡';
+        langUpper = 'VOSTFR';
+    } else if (langUpper.indexOf('VF') !== -1) {
+        lIcon = '🇫🇷';
+        langUpper = 'VF';
+    }
 
     var columns = [
         '🎬 ' + provider,
         qIcon + ' ' + res,
         lIcon + ' ' + langUpper,
-        '⚡ ' + (format || 'M3U8').toUpperCase()
+        '🎞️ ' + (format || 'M3U8').toUpperCase()
     ];
 
     if (size) columns.push('💾 ' + size);

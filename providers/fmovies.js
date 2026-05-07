@@ -16,26 +16,30 @@ var _cachedEndpoint = null;
 function buildTitle(provider, res, lang, format, size, extra) {
     var qIcon = (res.includes('2160') || res.includes('4K')) ? '💎' : '📺';
     var lIcon = '🌐';
-    
-    // Normalize string to uppercase for accurate matching
-    var langUpper = (lang || 'VF').toUpperCase();
-    
-    // PRIORITY CHECK: Multi must come before VF
-    if (langUpper.indexOf('MULTI') !== -1) {
+    var displayLang = (lang || 'VF').toUpperCase();
+    var searchTitle = displayLang;
+
+    // 1. PRIORITY: Check for MULTI first (Whole word or part of string)
+    if (searchTitle.indexOf('MULTI') !== -1) {
         lIcon = '🌍';
-        langUpper = 'MULTI'; // Clean up display
-    } else if (langUpper.indexOf('VOST') !== -1) {
+        displayLang = 'MULTI';
+    } 
+    // 2. Check for VOSTFR (Specific subtitled icon)
+    else if (searchTitle.indexOf('VOST') !== -1) {
         lIcon = '🔡';
-        langUpper = 'VOSTFR';
-    } else if (langUpper.indexOf('VF') !== -1) {
+        displayLang = 'VOSTFR';
+    } 
+    // 3. Check for VF (Strict check: must be standalone "VF" or " VF")
+    // This prevents "MULTI" from triggering the VF flag.
+    else if (/\bVF\b/.test(searchTitle) || searchTitle === 'VF') {
         lIcon = '🇫🇷';
-        langUpper = 'VF';
+        displayLang = 'VF';
     }
 
     var columns = [
         '🎬 ' + provider,
         qIcon + ' ' + res,
-        lIcon + ' ' + langUpper,
+        lIcon + ' ' + displayLang,
         '🎞️ ' + (format || 'M3U8').toUpperCase()
     ];
 
@@ -44,7 +48,6 @@ function buildTitle(provider, res, lang, format, size, extra) {
 
     return columns.join(' | ');
 }
-
 // ─── Récupération du domaine depuis GitHub ───────────────────
 
 function detectApi() {

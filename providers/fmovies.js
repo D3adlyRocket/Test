@@ -722,20 +722,20 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
     console.log(`[HDHub4u] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
     try {
       const mediaInfo = yield getTMDBDetails(tmdbId, mediaType);
-      console.log(`[HDHub4u] TMDB Info: "${mediaInfo.title}" (${mediaInfo.year || "N/A"})`);
       const searchQuery = mediaType === "tv" && season ? `${mediaInfo.title} Season ${season}` : mediaInfo.title;
       const searchResults = yield search(searchQuery);
-      if (searchResults.length === 0)
-        return [];
+      if (searchResults.length === 0) return [];
+
       const bestMatch = findBestTitleMatch(mediaInfo, searchResults, mediaType, season);
       const selectedMedia = bestMatch || searchResults[0];
-      console.log(`[HDHub4u] Selected: "${selectedMedia.title}" (${selectedMedia.url})`);
       const result = yield getDownloadLinks(selectedMedia.url);
       const finalLinks = result.finalLinks;
+
       let filteredLinks = finalLinks;
       if (mediaType === "tv" && episode !== null) {
         filteredLinks = finalLinks.filter((link) => link.episode === episode);
       }
+
       const streams = filteredLinks.map((link) => {
         let mediaTitle = link.fileName && link.fileName !== "Unknown" ? link.fileName : mediaInfo.title;
         if (mediaType === "tv" && season && episode) {
@@ -743,7 +743,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         }
         const serverName = extractServerName(link.source);
         
-        // --- Added Logic for New Fields ---
+        // --- Enhanced Logic for Metadata ---
         let qualityStr = "Unknown";
         if (typeof link.quality === "number" && link.quality > 0) {
           if (link.quality >= 2160) qualityStr = "4K";
@@ -754,11 +754,25 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
           qualityStr = link.quality;
         }
 
-        // Logic to extract specific metadata from title strings
         const titleUpper = mediaTitle.toUpperCase();
-        const languageMatch = titleUpper.match(/HINDI|ENGLISH|TAMIL|TELUGU|MULTI/i);
-        const formatMatch = titleUpper.match(/MKV|MP4|AVI/i);
-        const extraTags = cleanTitle(mediaTitle); // Uses your existing cleanTitle util
+        
+        // Language Detection
+        const langMatch = titleUpper.match(/HINDI|ENGLISH|TAMIL|TELUGU|MULTI/i);
+        
+        // Format Detection (Checks Title THEN URL)
+        let format = "MKV"; // Default fallback
+        const formatMatch = mediaTitle.match(/\.(mkv|mp4|avi|webm)$/i) || link.url.match(/\.(mkv|mp4|avi|webm)(\?|$)/i);
+        if (formatMatch) {
+          format = formatMatch[1].toUpperCase();
+        }
+
+        // Extra Info Detection
+        const extraTags = [];
+        if (titleUpper.includes("HDR")) extraTags.push("HDR");
+        if (titleUpper.includes("10BIT") || titleUpper.includes("10-BIT")) extraTags.push("10-Bit");
+        if (titleUpper.includes("DOLBY") || titleUpper.includes("ATMOS")) extraTags.push("Dolby");
+        if (titleUpper.includes("BLU") || titleUpper.includes("BRRIP")) extraTags.push("Blu-Ray");
+        if (titleUpper.includes("ESUB")) extraTags.push("E-Sub");
 
         return {
           name: `HDHub4u ${serverName}`,
@@ -766,16 +780,15 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
           url: link.url,
           quality: qualityStr,
           size: formatBytes(link.size),
-          // New Fields Added Below
           resolution: qualityStr,
-          language: languageMatch ? languageMatch[0] : "Unknown",
-          format: formatMatch ? formatMatch[0] : "MKV",
-          extra_info: extraTags || "N/A",
-          // End New Fields
+          language: langMatch ? langMatch[0] : "Hindi/English",
+          format: format,
+          extra_info: extraTags.length > 0 ? extraTags.join(", ") : cleanTitle(mediaTitle),
           headers: HEADERS,
           provider: "hdhub4u"
         };
       });
+
       const qualityOrder = { "4K": 4, "1080p": 2, "720p": 1, "480p": 0, "Unknown": -2 };
       return streams.sort((a, b) => (qualityOrder[b.quality] || -3) - (qualityOrder[a.quality] || -3));
     } catch (error) {

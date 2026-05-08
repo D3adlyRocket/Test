@@ -304,7 +304,7 @@ function tryFetchAll(apiBase, referer, tmdbId, mediaType, season, episode) {
     });
 }
 function getMovieTitle(tmdbId, type) {
-  var url = 'https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=fr-FR';
+  var url = 'https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=en-US';
   return fetch(url)
     .then(function(res) { return res.json(); })
     .then(function(data) {

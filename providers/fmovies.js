@@ -1,12 +1,11 @@
 // =============================================================
 // Provider Nuvio : Nakios (VF / VOSTFR / MULTI)
-// Version : 3.9.0
-// - Added Dynamic English Titles (via TMDB)
-// - Fixed Multi Language Priority Icon
-// - Full Metadata Columns: Res | Lang | Format | Size
+// Version : 3.9.1
+// - Bold Top Line: Nakios - Quality
+// - Sub-description: English Movie Title + Icons
 // =============================================================
 
-var TMDB_KEY = 'f3d757824f08ea2cff45eb8f47ca3a1e'; // Your TMDB Key
+var TMDB_KEY = 'f3d757824f08ea2cff45eb8f47ca3a1e';
 var NAKIOS_UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 var DOMAINS_URL     = 'https://raw.githubusercontent.com/wooodyhood/nuvio-repo/main/domains.json';
 var NAKIOS_FALLBACK = 'fit';
@@ -104,7 +103,7 @@ function normalizeSources(sources, endpoint, movieName) {
     var langIcon = '🇫🇷'; 
     var langLabel = 'VF';
 
-    // Force MULTI check first
+    // MULTI Priority check
     if (rawLang.indexOf('MULTI') !== -1 || (s.name && s.name.toUpperCase().indexOf('MULTI') !== -1)) {
         langIcon = '🌍';
         langLabel = 'MULTI';
@@ -113,20 +112,21 @@ function normalizeSources(sources, endpoint, movieName) {
         langLabel = 'VOSTFR';
     }
 
-    // Shorten title if it's a long movie name
-    var shortName = movieName.length > 20 ? movieName.substring(0, 18) + ".." : movieName;
-
     // --- Title Construction ---
-    // Columns: 🎬 Name | 📺 Res | 🌍 Lang | ⚡ Format | 💾 Size
-    var displayTitle = '🎬 ' + shortName + 
+    // The "displayTitle" is the one that shows the Movie Name in the sub-line
+    var displayTitle = '🎬 ' + movieName + 
                        ' | 📺 ' + quality + 
                        ' | ' + langIcon + ' ' + langLabel + 
                        ' | 🎞️ ' + format + 
                        size;
 
     results.push({
-      name:    movieName,
-      title:   displayTitle,
+      // THIS KEEPS THE TOP LINE BOLD AS "Nakios - 1080p"
+      name: 'Nakios - ' + quality, 
+      
+      // THIS SHOWS THE ENGLISH MOVIE NAME IN THE DESCRIPTION
+      title: displayTitle,
+      
       url:     resolved.url,
       quality: quality,
       format:  resolved.format,
@@ -143,9 +143,8 @@ function normalizeSources(sources, endpoint, movieName) {
 // ─── Entry Point ─────────────────────────────────────────────
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  // 1. Get English Title first
+  // We fetch the title here first so it's ready for the list below
   return getEnglishTitle(tmdbId, mediaType).then(function(movieName) {
-    // 2. Detect API
     return detectEndpoint().then(function(endpoint) {
       var url = mediaType === 'tv'
         ? endpoint.api + '/sources/tv/' + tmdbId + '/' + (season || 1) + '/' + (episode || 1)
@@ -157,7 +156,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
       .then(function(res) { return res.json(); })
       .then(function(data) {
         if (!data.success || !data.sources) return [];
-        // 3. Pass movieName to the normalizer
         return normalizeSources(data.sources, endpoint, movieName);
       });
     });

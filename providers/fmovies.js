@@ -1,54 +1,91 @@
-// Cinezo Provider for Nuvio
-var BASE_URL = 'https://api.cinezo.net/media';
+/**
+ * Cinezo Provider for Nuvio
+ * Target: https://cinezo.net/watch/movie/[TMDB_ID]
+ */
 
-function getStreams(tmdbId, mediaType, season, episode) {
-  var url;
-  if (mediaType === 'movie') {
-    url = BASE_URL + '/tmdb-movie-' + tmdbId;
-  } else {
-    url = BASE_URL + '/tmdb-tv-' + tmdbId + '/' + season + '/' + episode;
-  }
-  console.log('[Cinezo] Fetching: ' + url);
-  return fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Referer': 'https://cinezo.net/',
-      'Origin': 'https://cinezo.net'
+var PROVIDER_NAME = 'Cinezo';
+var BASE_URL = 'https://cinezo.net';
+
+async function getStreams(tmdbId, mediaType, season, episode) {
+    // 1. Construct the URL based on your provided example
+    var targetUrl;
+    if (mediaType === 'movie') {
+        // Example: https://cinezo.net/watch/movie/1226863
+        targetUrl = BASE_URL + '/watch/movie/' + tmdbId;
+    } else {
+        // Standard TV format for this site
+        targetUrl = BASE_URL + '/watch/tv/' + tmdbId + '/' + season + '/' + episode;
     }
-  })
-    .then(function(response) {
-      if (!response.ok) { throw new Error('[Cinezo] HTTP error: ' + response.status); }
-      return response.text();
-    })
-    .then(function(html) {
-      var streams = [];
-      var m3u8Regex = /https?:\/\/[^\s"']+\.m3u8[^\s"']*/g;
-      var m3u8Matches = html.match(m3u8Regex);
-      if (m3u8Matches) {
-        m3u8Matches.forEach(function(streamUrl, index) {
-          streamUrl = streamUrl.replace(/\\/g, '').replace(/"/g, '');
-          streams.push({ name: 'Cinezo', title: 'Cinezo Stream #' + (index + 1), url: streamUrl, quality: 'Auto', headers: { 'Referer': 'https://cinezo.net/', 'Origin': 'https://cinezo.net' } });
+
+    console.log('[' + PROVIDER_NAME + '] Fetching Target: ' + targetUrl);
+
+    try {
+        const response = await fetch(targetUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Referer': BASE_URL + '/',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8'
+            }
         });
-      }
-      var mp4Regex = /https?:\/\/[^\s"']+\.mp4[^\s"']*/g;
-      var mp4Matches = html.match(mp4Regex);
-      if (mp4Matches) {
-        mp4Matches.forEach(function(streamUrl, index) {
-          streamUrl = streamUrl.replace(/\\/g, '').replace(/"/g, '');
-          streams.push({ name: 'Cinezo', title: 'Cinezo MP4 #' + (index + 1), url: streamUrl, quality: '1080p', headers: { 'Referer': 'https://cinezo.net/', 'Origin': 'https://cinezo.net' } });
+
+        if (!response.ok) {
+            console.error('[' + PROVIDER_NAME + '] Page access failed: ' + response.status);
+            return [];
+        }
+
+        const html = await response.text();
+        
+        // Safety check: if the page is too small, we likely hit a Cloudflare block
+        if (html.length < 1000) {
+            console.warn('[' + PROVIDER_NAME + '] Warning: Page response very short. Might be blocked by Cloudflare.');
+        }
+
+        const streams = [];
+
+        /**
+         * 2. The Extraction Logic
+         * Cinezo often stores stream data in a JSON object or a script block.
+         * We search for .m3u8 (HLS) and .mp4 (Direct) links.
+         */
+        
+        // Regex for links, including those with JSON backslash escaping (\/)
+        var streamRegex = /https?[:\/\\]+[^"']+\.(m3u8|mp4)[^"']*/g;
+        var matches = html.match(streamRegex) || [];
+
+        matches.forEach((rawLink) => {
+            // Clean the link: remove backslashes and quotes
+            var cleanLink = rawLink.replace(/\\/g, '').replace(/"/g, '').replace(/'/g, '');
+            
+            // Avoid duplicates
+            if (!streams.find(s => s.url === cleanLink)) {
+                var isM3u8 = cleanLink.includes('m3u8');
+                
+                streams.push({
+                    name: PROVIDER_NAME,
+                    title: isM3u8 ? 'Cinezo HLS (Auto)' : 'Cinezo Direct MP4',
+                    url: cleanLink,
+                    quality: isM3u8 ? 'Auto' : '1080p',
+                    headers: {
+                        'Referer': BASE_URL + '/',
+                        'Origin': BASE_URL,
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                });
+            }
         });
-      }
-      var sourceRegex = /"file"\s*:\s*"(https?:\/\/[^"]+)"/g;
-      var sourceMatch;
-      while ((sourceMatch = sourceRegex.exec(html)) !== null) {
-        var sourceUrl = sourceMatch[1].replace(/\\/g, '');
-        var isDuplicate = streams.some(function(s) { return s.url === sourceUrl; });
-        if (!isDuplicate) { streams.push({ name: 'Cinezo', title: 'Cinezo Source', url: sourceUrl, quality: 'Auto', headers: { 'Referer': 'https://cinezo.net/', 'Origin': 'https://cinezo.net' } }); }
-      }
-      console.log('[Cinezo] Found ' + streams.length + ' stream(s)');
-      return streams;
-    })
-    .catch(function(error) { console.error('[Cinezo] Error: ' + error.message); return []; });
+
+        console.log('[' + PROVIDER_NAME + '] Successfully found ' + streams.length + ' stream(s)');
+        return streams;
+
+    } catch (error) {
+        console.error('[' + PROVIDER_NAME + '] Fatal Error: ' + error.message);
+        return [];
+    }
 }
 
-if (typeof module !== 'undefined' && module.exports) { module.exports = { getStreams }; } else { global.getStreams = getStreams; }
+// Nuvio compatibility
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { getStreams };
+} else {
+    global.getStreams = getStreams;
+}

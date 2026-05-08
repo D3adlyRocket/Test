@@ -8,7 +8,7 @@ const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 // ShowBox API Configuration
 const CryptoJS = require('crypto-js');
 const axios = require('axios');
-const SHOWBOX_DIRECT_API_BASE = 'https://mbpapi.shegu.net/api/api_client/index/';
+const SHOWBOX_DIRECT_API_BASE = 'https://febapi.nuvioapp.space/api/media';
 const SHOWBOX_DIRECT_APP_KEY = 'moviebox';
 const SHOWBOX_DIRECT_APP_ID = 'com.tdo.showbox';
 const SHOWBOX_DIRECT_KEY = '123d6cedf626dy54233aa1w6';

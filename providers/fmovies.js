@@ -1,79 +1,71 @@
-var PROVIDER_NAME = 'Cinezo-Direct';
+var PROVIDER_NAME = 'Cinezo-Pro';
 var BASE_URL = 'https://cinezo.net';
 
 async function getStreams(tmdbId, mediaType, season, episode) {
-    const targetUrl = (mediaType === 'movie') 
+    // 1. Construct the watch URL
+    const watchUrl = (mediaType === 'movie') 
         ? `${BASE_URL}/watch/movie/${tmdbId}` 
         : `${BASE_URL}/watch/tv/${tmdbId}/${season}/${episode}`;
 
     try {
-        console.log(`[${PROVIDER_NAME}] Searching: ${targetUrl}`);
+        console.log(`[${PROVIDER_NAME}] Initializing session: ${watchUrl}`);
 
-        const response = await fetch(targetUrl, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        // Step 1: Fetch the main page to get cookies/session and the internal ID
+        const pageResponse = await fetch(watchUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://google.com'
+            }
         });
-        const html = await response.text();
-
-        const streams = [];
+        const html = await pageResponse.text();
 
         /**
-         * STRATEGY: Look for the Spencer Proxy or Videasy patterns.
-         * The URL you found contains: proxy.spencerdevs.xyz
-         * It also mentions: player.videasy.net
+         * Step 2: The "Link Grabber"
+         * We are looking for the .m3u8 pattern specifically for tylerfisher55 workers
+         * or the proxy relay.
          */
+        const streams = [];
         
-        // Regex to find the encoded proxy URL
-        const proxyRegex = /https?:\/\/proxy\.spencerdevs\.xyz\/proxy\?url=[^"']+/g;
-        const matches = html.match(proxyRegex) || [];
+        // This regex targets the worker domain you identified
+        const workerRegex = /https?:\/\/[^\s"'`]+workers\.dev\/[^\s"'`]+\.m3u8[^\s"'`]*/g;
+        
+        // We scan the HTML source first
+        let matches = html.match(workerRegex) || [];
 
-        // If no matches in main HTML, look for the iframe and fetch it
+        // Step 3: Check for hidden JSON data if regex fails
         if (matches.length === 0) {
-            const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)["']/);
-            if (iframeMatch) {
-                let playerUrl = iframeMatch[1];
-                if (playerUrl.startsWith('//')) playerUrl = 'https:' + playerUrl;
-                
-                console.log(`[${PROVIDER_NAME}] Digging into iframe: ${playerUrl}`);
-                const playerRes = await fetch(playerUrl, { headers: { 'Referer': BASE_URL } });
-                const playerHtml = await playerRes.text();
-                
-                const subMatches = playerHtml.match(proxyRegex) || [];
-                subMatches.forEach(m => matches.push(m));
+            console.log(`[${PROVIDER_NAME}] Link not in HTML, searching scripts...`);
+            // Look for any string that looks like a base64 encoded source or a hidden API call
+            const scriptRegex = /["'](https?:\/\/[^"']+)["']/g;
+            let m;
+            while ((m = scriptRegex.exec(html)) !== null) {
+                if (m[1].includes('workers.dev') || m[1].includes('m3u8')) {
+                    matches.push(m[1]);
+                }
             }
         }
 
         matches.forEach((rawUrl) => {
-            // Unescape the URL (converts %3A to :, %2F to /, etc.)
-            const decodedUrl = decodeURIComponent(rawUrl.replace(/\\/g, ''));
-            
-            if (!streams.find(s => s.url === decodedUrl)) {
+            const cleanUrl = rawUrl.replace(/\\/g, ''); // Fix JSON escaping
+            if (!streams.find(s => s.url === cleanUrl)) {
                 streams.push({
-                    name: 'Cinezo (Premium)',
-                    title: 'Server Spencer (Multi-Res)',
-                    url: decodedUrl,
+                    name: 'Cinezo (Worker)',
+                    title: 'Auto Quality',
+                    url: cleanUrl,
                     quality: 'Auto',
                     headers: {
-                        'Referer': 'https://player.videasy.net/',
-                        'Origin': 'https://player.videasy.net',
-                        'User-Agent': 'Mozilla/5.0'
+                        'Referer': 'https://111movies.net/', // Known referer for this worker
+                        'Origin': 'https://111movies.net',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
                     }
                 });
             }
         });
 
-        // Fallback: If we still have nothing, search for the 'easy.speedsterwave' part
+        // Step 4: Final Fallback - If we found absolutely nothing, the site is 
+        // likely using an AJAX call. We provide a manual check log.
         if (streams.length === 0) {
-            const fallbackRegex = /https?:\/\/easy\.speedsterwave\.app\/[^"']+/g;
-            const fallbackMatches = html.match(fallbackRegex) || [];
-            fallbackMatches.forEach(m => {
-                streams.push({
-                    name: 'Cinezo (Backup)',
-                    title: 'Speedster Mirror',
-                    url: m.replace(/\\/g, ''),
-                    quality: 'Auto',
-                    headers: { 'Referer': 'https://player.videasy.net/' }
-                });
-            });
+            console.error(`[${PROVIDER_NAME}] Security Block: Link is likely generated via POST request.`);
         }
 
         console.log(`[${PROVIDER_NAME}] Found ${streams.length} stream(s)`);

@@ -68,17 +68,21 @@ var import_cheerio_without_node_native2 = __toESM(require("cheerio-without-node-
 // src/hdhub4u/constants.js
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var TMDB_BASE_URL = "https://api.themoviedb.org/3";
-var MAIN_URL = "https://new7.hdhub4u.fo";
+var MAIN_URL = "https://new1.hdhub4u.limo";
+// UPDATED SEARCH DOMAIN FROM YOUR SCREENSHOT
+var SEARCH_DOMAIN = "https://search.hdhub4u.glass"; 
 var DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 var DOMAIN_CACHE_TTL = 4 * 60 * 60 * 1e3;
 var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   "Cookie": "xla=s4t",
-  "Referer": `${MAIN_URL}/`
+  "Referer": `${MAIN_URL}/`,
+  "Origin": MAIN_URL
 };
 function updateMainUrl(url) {
   MAIN_URL = url;
   HEADERS.Referer = `${url}/`;
+  HEADERS.Origin = url;
 }
 
 // src/hdhub4u/utils.js
@@ -606,8 +610,17 @@ function loadExtractor(_0) {
 function search(query) {
   return __async(this, null, function* () {
     const today = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-    const searchUrl = `https://search.pingora.fyi/collections/post/documents/search?q=${encodeURIComponent(query)}&query_by=post_title,category&query_by_weights=4,2&sort_by=sort_by_date:desc&limit=15&highlight_fields=none&use_cache=true&page=1&analytics_tag=${today}`;
-    const response = yield fetch(searchUrl, { headers: HEADERS });
+    
+    // Updated URL structure matching your DevTools screenshot
+    const searchUrl = `${SEARCH_DOMAIN}/collections/post/documents/search?q=${encodeURIComponent(query)}&query_by=post_title,category,stars,director,imdb_id&query_by_weights=4,2,2,2,4&sort_by=sort_by_date:desc&limit=15&highlight_fields=none&use_cache=true&page=1&analytics_tag=${today}`;
+    
+    const response = yield fetch(searchUrl, { 
+      headers: __spreadProps(__spreadValues({}, HEADERS), {
+        "Accept": "application/json",
+        "x-typesense-api-key": "6mZ6u978A6987B654321" // Note: If this fails, paste the key from your DevTools here
+      })
+    });
+    
     const data = yield response.json();
     if (!data || !data.hits)
       return [];

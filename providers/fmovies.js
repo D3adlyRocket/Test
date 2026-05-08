@@ -1,17 +1,14 @@
 // =============================================================
-// Provider Nuvio : Purstream.art (VF/VOSTFR/MULTI)
-// Version : 3.6.0
-// - Bold Top Line: Purstream - Quality
-// - Sub-description: S[X] E[X] | English Title | Icons
-// - Fixed Multi Language Icon Priority
+// Provider Nuvio : Nakios (VF / VOSTFR / MULTI)
+// Version : 3.9.2
+// - Bold Top Line: Nakios - Quality
+// - Sub-description: S[X] E[X] | English Movie Title + Icons
 // =============================================================
 
-var DOMAINS_URL           = 'https://raw.githubusercontent.com/wooodyhood/nuvio-repo/main/domains.json';
-var PURSTREAM_FALLBACK    = 'cx';
-var PURSTREAM_API         = 'https://api.purstream.' + PURSTREAM_FALLBACK + '/api/v1';
-var PURSTREAM_REFERER     = 'https://purstream.' + PURSTREAM_FALLBACK + '/';
-var PURSTREAM_UA          = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-var TMDB_KEY              = 'f3d757824f08ea2cff45eb8f47ca3a1e';
+var TMDB_KEY = 'f3d757824f08ea2cff45eb8f47ca3a1e';
+var NAKIOS_UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+var DOMAINS_URL     = 'https://raw.githubusercontent.com/wooodyhood/nuvio-repo/main/domains.json';
+var NAKIOS_FALLBACK = 'fit';
 
 var _cachedEndpoint = null;
 
@@ -22,187 +19,152 @@ function getEnglishTitle(tmdbId, type) {
   return fetch(url)
     .then(function(res) { return res.json(); })
     .then(function(data) {
-      return data.title || data.name || "Purstream";
+      return data.title || data.name || "Nakios";
     })
-    .catch(function() { return "Purstream"; });
+    .catch(function() { return "Nakios"; });
 }
 
-// ─── UI Helper: Title Builder (With S/E Support) ─────────────
+// ─── Construction de l'endpoint ──────────────────────────────
 
-function buildPurstreamTitle(movieName, res, lang, format, season, episode) {
-    var qIcon = (res.includes('2160') || res.includes('4K')) ? '💎' : '📺';
-    var lIcon = '🇫🇷';
-    var displayLang = 'VF';
-
-    // 1. Language Priority
-    var check = (lang || "").toUpperCase();
-    if (check.indexOf('MULTI') !== -1) {
-        lIcon = '🌍';
-        displayLang = 'MULTI';
-    } else if (check.indexOf('VOST') !== -1) {
-        lIcon = '🔡';
-        displayLang = 'VOSTFR';
-    }
-
-    // 2. Season/Episode Formatting
-    var seInfo = (season && episode) ? 'S' + season + ' E' + episode + ' | ' : '';
-    
-    // 3. Name shortening
-    var cleanName = movieName.length > 18 ? movieName.substring(0, 16) + ".." : movieName;
-
-    var columns = [
-        '🎬 ' + seInfo + cleanName,
-        qIcon + ' ' + res,
-        lIcon + ' ' + displayLang,
-        '⚡ ' + (format || 'M3U8').toUpperCase()
-    ];
-
-    return columns.join(' | ');
+function buildEndpoint(tld) {
+  var baseDomain = tld.includes('nakios') ? tld : 'nakios.' + tld;
+  return {
+    base:    'https://' + baseDomain,
+    api:     'https://api.' + baseDomain + '/api',
+    referer: 'https://' + baseDomain + '/'
+  };
 }
 
-// ─── API & Domain Logic ──────────────────────────────────────
-
-function detectPurstreamDomain() {
+function detectEndpoint() {
   if (_cachedEndpoint) return Promise.resolve(_cachedEndpoint);
   return fetch(DOMAINS_URL)
-    .then(function(res) { if (!res.ok) throw new Error(); return res.json(); })
+    .then(function(res) { return res.ok ? res.json() : Promise.reject(); })
     .then(function(data) {
-      var tld = data.purstream || PURSTREAM_FALLBACK;
-      _cachedEndpoint = { api: 'https://api.purstream.' + tld + '/api/v1', referer: 'https://purstream.' + tld + '/' };
+      _cachedEndpoint = buildEndpoint(data.nakios || NAKIOS_FALLBACK);
       return _cachedEndpoint;
     })
     .catch(function() {
-      return { api: 'https://api.purstream.' + PURSTREAM_FALLBACK + '/api/v1', referer: 'https://purstream.' + PURSTREAM_FALLBACK + '/' };
+      _cachedEndpoint = buildEndpoint(NAKIOS_FALLBACK);
+      return _cachedEndpoint;
     });
 }
 
-function applyPurstreamDomain(endpoint) {
-  PURSTREAM_API     = endpoint.api;
-  PURSTREAM_REFERER = endpoint.referer;
+// ─── Logic ───────────────────────────────────────────────────
+
+function extractOrigin(url) {
+  var m = url.match(/^(https?:\/\/[^\/]+)/);
+  return m ? m[1] : null;
 }
 
-function cleanTitle(s) {
-  if (!s) return '';
-  return s.toLowerCase().replace(/[àáâãäå]/g, 'a').replace(/[èéêë]/g, 'e').replace(/[ìíîï]/g, 'i').replace(/[òóôõö]/g, 'o').replace(/[ùúûü]/g, 'u').replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, ' ').trim();
-}
-
-function extractYear(dateStr) {
-  if (!dateStr) return null;
-  var m = String(dateStr).match(/(\d{4})/);
-  return m ? parseInt(m[1], 10) : null;
-}
-
-function getTmdbMetadata(tmdbId, mediaType) {
-  var type = mediaType === 'tv' ? 'tv' : 'movie';
-  var url = 'https://api.themoviedb.org/3/' + type + '/' + tmdbId + '?language=fr-FR&api_key=' + TMDB_KEY;
-  return fetch(url).then(function(res) { return res.json(); }).then(function(data) {
-      return { fr: data.title || data.name, orig: data.original_title || data.original_name, year: extractYear(data.release_date || data.first_air_date) };
-  });
-}
-
-// ─── Search & Fetch ──────────────────────────────────────────
-
-function findPurstreamIdByTitle(title, mediaType, tmdbYear) {
-  var encoded = encodeURIComponent(title);
-  return fetch(PURSTREAM_API + '/search-bar/search/' + encoded, { headers: { 'User-Agent': PURSTREAM_UA, 'Referer': PURSTREAM_REFERER, 'Origin': 'https://purstream.art' } })
-    .then(function(res) { return res.json(); })
-    .then(function(data) {
-      var items = data.data.items.movies && data.data.items.movies.items ? data.data.items.movies.items : [];
-      if (items.length === 0) throw new Error();
-      var targetType = mediaType === 'tv' ? 'tv' : 'movie';
-      var cleanTarget = cleanTitle(title);
-      var match = items.find(function(item) {
-          var purYear = extractYear(item.release_date);
-          return cleanTitle(item.title) === cleanTarget && (Math.abs(tmdbYear - purYear) <= 1 || !tmdbYear);
-      }) || items[0];
-      return match.id;
-    });
-}
-
-function fetchMovieSources(purstreamId) {
-  return fetch(PURSTREAM_API + '/media/' + purstreamId + '/sheet', { headers: { 'User-Agent': PURSTREAM_UA, 'Referer': PURSTREAM_REFERER } })
-    .then(function(res) { return res.json(); }).then(function(data) { return data.data.items.urls || []; });
-}
-
-function fetchEpisodeSources(purstreamId, season, episode) {
-  return fetch(PURSTREAM_API + '/stream/' + purstreamId + '/episode?season=' + (season || 1) + '&episode=' + (episode || 1), { headers: { 'User-Agent': PURSTREAM_UA, 'Referer': PURSTREAM_REFERER } })
-    .then(function(res) { return res.json(); }).then(function(data) { return data.data.items.sources || []; });
-}
-
-// ─── Normalization ───────────────────────────────────────────
-
-function parseLang(name) {
-  var n = (name || '').toUpperCase();
-  if (n.indexOf('VOSTFR') !== -1) return 'VOSTFR';
-  if (n.indexOf('VF') !== -1) return 'VF';
-  return 'MULTI';
-}
-
-function parseQuality(name) {
-  var n = (name || '').toUpperCase();
-  if (n.indexOf('4K') !== -1) return '4K';
-  if (n.indexOf('1080') !== -1) return '1080p';
-  if (n.indexOf('720') !== -1) return '720p';
-  return 'HD';
-}
-
-function normalizeMovieSources(urls, englishName) {
-  return urls.filter(function(item) { return item.url && (item.url.match(/\.m3u8/i) || item.url.match(/\.mp4/i)); })
-    .map(function(item) {
-      var q = parseQuality(item.name);
-      return {
-        name: 'Purstream - ' + q,
-        title: buildPurstreamTitle(englishName, q, parseLang(item.name), item.url.match(/\.mp4/i) ? 'mp4' : 'm3u8', null, null),
-        url: item.url,
-        quality: q,
-        format: item.url.match(/\.mp4/i) ? 'mp4' : 'm3u8',
-        headers: { 'User-Agent': PURSTREAM_UA, 'Referer': PURSTREAM_REFERER }
-      };
-    });
-}
-
-function normalizeEpisodeSources(sources, englishName, season, episode) {
-  return sources.map(function(item) {
-    var q = parseQuality(item.source_name);
+function resolveSource(source, endpoint) {
+  var rawUrl = source.url || '';
+  if (rawUrl.startsWith('http')) {
     return {
-      name: 'Purstream - ' + q,
-      title: buildPurstreamTitle(englishName, q, parseLang(item.source_name), item.format || 'm3u8', season, episode),
-      url: item.stream_url,
-      quality: q,
-      format: item.format || 'm3u8',
-      headers: { 'User-Agent': PURSTREAM_UA, 'Referer': PURSTREAM_REFERER }
+      url: rawUrl,
+      format: (source.isM3U8 || rawUrl.indexOf('.m3u8') !== -1) ? 'm3u8' : 'mp4',
+      referer: endpoint.referer,
+      origin: endpoint.base
     };
-  });
+  }
+  if (rawUrl.charAt(0) === '/') {
+    var urlMatch = rawUrl.match(/[?&]url=([^&]+)/);
+    if (!urlMatch) return null;
+    var decoded;
+    try { decoded = decodeURIComponent(urlMatch[1]); } catch (e) { return null; }
+    var origin = extractOrigin(decoded);
+    return {
+      url: decoded,
+      format: 'm3u8',
+      referer: origin ? origin + '/' : endpoint.referer,
+      origin: origin || endpoint.base
+    };
+  }
+  return null;
 }
 
-// ─── Main ────────────────────────────────────────────────────
+// ─── UI / Formatting ─────────────────────────────────────────
+
+function normalizeSources(sources, endpoint, movieName, season, episode) {
+  var results = [];
+  for (var i = 0; i < sources.length; i++) {
+    var s = sources[i];
+    if (s.isEmbed) continue;
+
+    var resolved = resolveSource(s, endpoint);
+    if (!resolved) continue;
+
+    // --- Metadata Preparation ---
+    var quality = s.quality || 'HD';
+    var rawLang = (s.lang || 'MULTI').toUpperCase();
+    var size    = s.size ? ' | 💾 ' + s.size : '';
+    var format  = resolved.format.toUpperCase();
+    
+    // Language Icons Priority Logic
+    var langIcon = '🇫🇷'; 
+    var langLabel = 'VF';
+
+    // MULTI Priority check
+    if (rawLang.indexOf('MULTI') !== -1 || (s.name && s.name.toUpperCase().indexOf('MULTI') !== -1)) {
+        langIcon = '🌍';
+        langLabel = 'MULTI';
+    } else if (rawLang.indexOf('VOST') !== -1) {
+        langIcon = '🔡';
+        langLabel = 'VOSTFR';
+    }
+
+    // --- S1 E1 Logic ---
+    // If season and episode are provided (TV show), add them to the front
+    var seInfo = (season && episode) ? 'S' + season + ' E' + episode + ' | ' : '';
+
+    // --- Title Construction ---
+    var displayTitle = '🎬 ' + seInfo + movieName + 
+                       ' | 📺 ' + quality + 
+                       ' | ' + langIcon + ' ' + langLabel + 
+                       ' | 🎞️ ' + format + 
+                       size;
+
+    results.push({
+      name: 'Nakios - ' + quality, 
+      title: displayTitle,
+      url:     resolved.url,
+      quality: quality,
+      format:  resolved.format,
+      headers: {
+        'User-Agent': NAKIOS_UA,
+        'Referer':    resolved.referer,
+        'Origin':     resolved.origin
+      }
+    });
+  }
+  return results;
+}
+
+// ─── Entry Point ─────────────────────────────────────────────
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  return Promise.all([
-    getEnglishTitle(tmdbId, mediaType),
-    detectPurstreamDomain(),
-    getTmdbMetadata(tmdbId, mediaType)
-  ]).then(function(results) {
-    var englishName = results[0];
-    var endpoint = results[1];
-    var meta = results[2];
-    applyPurstreamDomain(endpoint);
+  return getEnglishTitle(tmdbId, mediaType).then(function(movieName) {
+    return detectEndpoint().then(function(endpoint) {
+      var url = mediaType === 'tv'
+        ? endpoint.api + '/sources/tv/' + tmdbId + '/' + (season || 1) + '/' + (episode || 1)
+        : endpoint.api + '/sources/movie/' + tmdbId;
 
-    return findPurstreamIdByTitle(meta.fr, mediaType, meta.year)
-      .catch(function() { return findPurstreamIdByTitle(meta.orig, mediaType, meta.year); })
-      .then(function(purstreamId) {
-        if (mediaType === 'tv') {
-          return fetchEpisodeSources(purstreamId, season, episode).then(function(s) { 
-              return normalizeEpisodeSources(s, englishName, season, episode); 
-          });
-        } else {
-          return fetchMovieSources(purstreamId).then(function(u) { 
-              return normalizeMovieSources(u, englishName); 
-          });
-        }
+      return fetch(url, {
+        headers: { 'User-Agent': NAKIOS_UA, 'Referer': endpoint.referer }
+      })
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (!data.success || !data.sources) return [];
+        // Pass season and episode only if it's a TV show
+        var sNum = mediaType === 'tv' ? season : null;
+        var eNum = mediaType === 'tv' ? episode : null;
+        return normalizeSources(data.sources, endpoint, movieName, sNum, eNum);
       });
+    });
   }).catch(function() { return []; });
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { getStreams };
-else global.getStreams = getStreams;
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams: getStreams };
+} else {
+  global.getStreams = getStreams;
+}

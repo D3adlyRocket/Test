@@ -1,71 +1,76 @@
-var PROVIDER_NAME = 'Cinezo-Pro';
+var PROVIDER_NAME = 'Cinezo-Ultra';
 var BASE_URL = 'https://cinezo.net';
 
 async function getStreams(tmdbId, mediaType, season, episode) {
-    // 1. Construct the watch URL
-    const watchUrl = (mediaType === 'movie') 
+    // Construct the actual URL used to fetch player data
+    // Many sites like this use an internal 'ajax' or 'source' endpoint
+    const targetUrl = (mediaType === 'movie') 
         ? `${BASE_URL}/watch/movie/${tmdbId}` 
         : `${BASE_URL}/watch/tv/${tmdbId}/${season}/${episode}`;
 
     try {
-        console.log(`[${PROVIDER_NAME}] Initializing session: ${watchUrl}`);
+        console.log(`[${PROVIDER_NAME}] Attempting Deep Scrape: ${targetUrl}`);
 
-        // Step 1: Fetch the main page to get cookies/session and the internal ID
-        const pageResponse = await fetch(watchUrl, {
+        const response = await fetch(targetUrl, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Referer': 'https://google.com'
+                'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0',
+                'Referer': BASE_URL
             }
         });
-        const html = await pageResponse.text();
+        const html = await response.text();
 
-        /**
-         * Step 2: The "Link Grabber"
-         * We are looking for the .m3u8 pattern specifically for tylerfisher55 workers
-         * or the proxy relay.
-         */
         const streams = [];
         
-        // This regex targets the worker domain you identified
-        const workerRegex = /https?:\/\/[^\s"'`]+workers\.dev\/[^\s"'`]+\.m3u8[^\s"'`]*/g;
-        
-        // We scan the HTML source first
-        let matches = html.match(workerRegex) || [];
+        /**
+         * STRATEGY: 
+         * Since regex on the whole HTML is failing, we look for the 
+         * "Source ID" or "Embed" links which are often Base64 encoded or 
+         * hidden in script variables like 'var sources = ...'
+         */
 
-        // Step 3: Check for hidden JSON data if regex fails
+        // 1. Target the specific worker domains you provided
+        // We look for any string containing 'tylerfisher55.workers.dev' 
+        // even if it's escaped with backslashes
+        const workerRegex = /(https?:\\?\/\\?\/[^\s"'`]+tylerfisher55\.workers\.dev[^\s"'`]+\.m3u8[^\s"'`]*)/g;
+        const matches = html.match(workerRegex) || [];
+
+        // 2. Look for the '111movies' reference which is the actual source provider
         if (matches.length === 0) {
-            console.log(`[${PROVIDER_NAME}] Link not in HTML, searching scripts...`);
-            // Look for any string that looks like a base64 encoded source or a hidden API call
-            const scriptRegex = /["'](https?:\/\/[^"']+)["']/g;
+            console.log(`[${PROVIDER_NAME}] No direct worker link. Searching for source identifiers...`);
+            // This regex looks for encoded/JSON strings that often contain the stream
+            const jsonRegex = /["'](https?[:\/\\]+[^\s"'`]+\.m3u8[^\s"'`]*)["']/g;
             let m;
-            while ((m = scriptRegex.exec(html)) !== null) {
-                if (m[1].includes('workers.dev') || m[1].includes('m3u8')) {
+            while ((m = jsonRegex.exec(html)) !== null) {
+                if (m[1].includes('workers.dev') || m[1].includes('afc7d47f')) {
                     matches.push(m[1]);
                 }
             }
         }
 
-        matches.forEach((rawUrl) => {
-            const cleanUrl = rawUrl.replace(/\\/g, ''); // Fix JSON escaping
+        matches.forEach((raw) => {
+            // Clean up backslashes and quotes
+            const cleanUrl = raw.replace(/\\/g, '').replace(/["']/g, '');
+            
             if (!streams.find(s => s.url === cleanUrl)) {
                 streams.push({
-                    name: 'Cinezo (Worker)',
-                    title: 'Auto Quality',
+                    name: 'Cinezo (Direct)',
+                    title: 'Worker Proxy (HLS)',
                     url: cleanUrl,
                     quality: 'Auto',
                     headers: {
-                        'Referer': 'https://111movies.net/', // Known referer for this worker
+                        'Referer': 'https://111movies.net/',
                         'Origin': 'https://111movies.net',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                        'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:150.0) Gecko/20100101 Firefox/150.0',
+                        'Accept': '*/*',
+                        'Connection': 'keep-alive'
                     }
                 });
             }
         });
 
-        // Step 4: Final Fallback - If we found absolutely nothing, the site is 
-        // likely using an AJAX call. We provide a manual check log.
+        // 3. Fallback: If still nothing, Cinezo is using an encrypted "Source ID"
         if (streams.length === 0) {
-            console.error(`[${PROVIDER_NAME}] Security Block: Link is likely generated via POST request.`);
+            console.error(`[${PROVIDER_NAME}] No links found. Site is likely using dynamic JS encryption.`);
         }
 
         console.log(`[${PROVIDER_NAME}] Found ${streams.length} stream(s)`);

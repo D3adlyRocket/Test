@@ -1,80 +1,75 @@
-// ============================================================
-//  scrapers/cinezo.js - Scraper para cinezo.net
-// ============================================================
-const cheerio = require("cheerio");
-const { get } = require("../utils/http");
-const { extractVideoUrl, extractIframes } = require("../utils/extractor");
+var PROVIDER_NAME = 'Cinezo-Advanced';
+var BASE_URL = 'https://cinezo.net';
 
-const BASE = "https://cinezo.net";
-const SOURCE = "Cinezo";
+async function getStreams(tmdbId, mediaType, season, episode) {
+    const targetUrl = (mediaType === 'movie') 
+        ? `${BASE_URL}/watch/movie/${tmdbId}` 
+        : `${BASE_URL}/watch/tv/${tmdbId}/${season}/${episode}`;
 
-async function search(query) {
-  try {
-    const res = await get(`${BASE}/?s=${encodeURIComponent(query)}`, { headers: { Referer: BASE } });
-    const $ = cheerio.load(res.data);
-    const results = [];
-    $("article, .search-item").each((_, el) => {
-      const title = $(el).find("h2, h3, .title").first().text().trim();
-      const link = $(el).find("a").first().attr("href") || "";
-      const img = $(el).find("img").attr("src") || "";
-      if (title && link) results.push({ title, link, img });
-    });
-    return results;
-  } catch (err) {
-    console.error(`[${SOURCE}]:`, err.message);
-    return [];
-  }
-}
+    try {
+        console.log(`[${PROVIDER_NAME}] Target: ${targetUrl}`);
 
-async function getStreams(imdbId, type, season, episode) {
-  try {
-    const res = await get(`${BASE}/?s=${imdbId}`, { headers: { Referer: BASE } });
-    const $ = cheerio.load(res.data);
-    const link = $("article a, h2 a, .item a").first().attr("href");
-    if (!link) return [];
+        const response = await fetch(targetUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://google.com'
+            }
+        });
+        const html = await response.text();
 
-    let targetUrl = link.startsWith("http") ? link : BASE + link;
-    if (type === "series" && season && episode) {
-      const p = await get(targetUrl, { headers: { Referer: BASE } });
-      const p$ = cheerio.load(p.data);
-      const ep = p$(
-        `.episodios a:nth-child(${episode}), [data-episodio="${episode}"] a, a[href*="episodio-${episode}"]`
-      ).first().attr("href");
-      if (ep) targetUrl = ep.startsWith("http") ? ep : BASE + ep;
+        // 1. Find the Player Iframe
+        const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)["']/);
+        if (!iframeMatch) {
+            console.error(`[${PROVIDER_NAME}] No iframe found on Cinezo page.`);
+            return [];
+        }
+
+        let playerUrl = iframeMatch[1];
+        if (playerUrl.startsWith('//')) playerUrl = 'https:' + playerUrl;
+        console.log(`[${PROVIDER_NAME}] Found Player: ${playerUrl}`);
+
+        // 2. Fetch the Player page to get the worker link
+        const playerRes = await fetch(playerUrl, {
+            headers: { 'Referer': BASE_URL }
+        });
+        const playerHtml = await playerRes.text();
+
+        const streams = [];
+        
+        // 3. Extract the Worker Proxy Link (.m3u8)
+        // This regex looks specifically for the pattern you provided
+        const m3u8Regex = /https?:\/\/[^\s"'`]+\.workers\.dev\/[^\s"'`]+\.m3u8[^\s"'`]*/g;
+        const matches = playerHtml.match(m3u8Regex) || [];
+
+        matches.forEach((link) => {
+            const cleanUrl = link.replace(/\\/g, '');
+            if (!streams.find(s => s.url === cleanUrl)) {
+                streams.push({
+                    name: 'Cinezo (Proxy)',
+                    title: 'Multi-Quality (HLS)',
+                    url: cleanUrl,
+                    quality: 'Auto',
+                    // These headers are MANDATORY for the worker to return the video
+                    headers: {
+                        'Referer': 'https://111movies.net/',
+                        'Origin': 'https://111movies.net',
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                    }
+                });
+            }
+        });
+
+        console.log(`[${PROVIDER_NAME}] Found ${streams.length} stream(s)`);
+        return streams;
+
+    } catch (e) {
+        console.error(`[${PROVIDER_NAME}] Fatal Error: ${e.message}`);
+        return [];
     }
-
-    const iframes = await extractIframes(targetUrl, BASE);
-    const streams = [];
-    for (const iframe of iframes.slice(0, 4)) {
-      const videoUrl = await extractVideoUrl(iframe, targetUrl);
-      if (videoUrl) streams.push({ name: SOURCE, title: `🎥 ${SOURCE}`, url: videoUrl });
-    }
-    return streams;
-  } catch (err) {
-    console.error(`[${SOURCE}]:`, err.message);
-    return [];
-  }
 }
 
-async function getCatalog(type, skip = 0) {
-  try {
-    const page = Math.floor(skip / 20) + 1;
-    const section = type === "movie" ? "peliculas" : "series";
-    const res = await get(`${BASE}/${section}/page/${page}/`, { headers: { Referer: BASE } });
-    const $ = cheerio.load(res.data);
-    const items = [];
-    $("article, .item").each((_, el) => {
-      const title = $(el).find("h2, h3").first().text().trim();
-      const link = $(el).find("a").first().attr("href") || "";
-      const img = $(el).find("img").attr("src") || $(el).find("img").attr("data-src") || "";
-      if (title && link) {
-        items.push({ id: `latam:cinezo:${encodeURIComponent(link)}`, type, name: title, poster: img, source: SOURCE, sourceUrl: link });
-      }
-    });
-    return items;
-  } catch (err) {
-    return [];
-  }
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { getStreams };
+} else {
+    global.getStreams = getStreams;
 }
-
-module.exports = { search, getStreams, getCatalog, SOURCE, BASE };

@@ -1,19 +1,17 @@
 // =============================================================
 // Provider Nuvio : Nakios (VF / VOSTFR / MULTI)
-// Version : 4.1.0
+// Version : 4.2.0
+// - Fixed: Duration now pulled from TMDB
 // - Header: Nakios - Quality
-// - Line 1: Movie Name - Year (or S1 E1 - Ep Name)
-// - Line 2: Tech Specs (Res, Lang, Size, Format, Duration)
+// - Line 1: Movie Name - Year
+// - Line 2: Tech Specs (including ⏱️ Duration)
 // =============================================================
 
 var TMDB_KEY = 'f3d757824f08ea2cff45eb8f47ca3a1e';
-var NAKIOS_UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-var DOMAINS_URL     = 'https://raw.githubusercontent.com/wooodyhood/nuvio-repo/main/domains.json';
-var NAKIOS_FALLBACK = 'fit';
+var NAKIOS_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+var DOMAINS_URL = 'https://raw.githubusercontent.com/wooodyhood/nuvio-repo/main/domains.json';
 
-var _cachedEndpoint = null;
-
-// ─── TMDB Helpers ───────────────────────────────────────────
+// ─── TMDB Helper: Get Name, Year, and Duration ────────────────
 
 function getTmdbDetails(tmdbId, type) {
   var url = 'https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=en-US';
@@ -23,34 +21,18 @@ function getTmdbDetails(tmdbId, type) {
       var name = data.title || data.name || "Nakios";
       var date = data.release_date || data.first_air_date || "";
       var year = date ? date.split('-')[0] : "";
-      return { name: name, year: year };
+      
+      // Calculate Duration: Movies use 'runtime', TV uses 'episode_run_time' (array)
+      var duration = "";
+      if (type === 'movie' && data.runtime) {
+          duration = data.runtime + ' min';
+      } else if (type === 'tv' && data.episode_run_time && data.episode_run_time.length > 0) {
+          duration = data.episode_run_time[0] + ' min';
+      }
+
+      return { name: name, year: year, duration: duration };
     })
-    .catch(function() { return { name: "Nakios", year: "" }; });
-}
-
-function getEpisodeName(tmdbId, season, episode) {
-  if (!tmdbId || !season || !episode) return Promise.resolve(null);
-  var url = 'https://api.themoviedb.org/3/tv/' + tmdbId + '/season/' + season + '/episode/' + episode + '?api_key=' + TMDB_KEY + '&language=en-US';
-  return fetch(url).then(function(res) { return res.json(); }).then(function(data) { return data.name || null; }).catch(function() { return null; });
-}
-
-// ─── Construction de l'endpoint ──────────────────────────────
-
-function detectEndpoint() {
-  if (_cachedEndpoint) return Promise.resolve(_cachedEndpoint);
-  return fetch(DOMAINS_URL)
-    .then(function(res) { return res.ok ? res.json() : Promise.reject(); })
-    .then(function(data) {
-      var tld = data.nakios || NAKIOS_FALLBACK;
-      var baseDomain = tld.includes('nakios') ? tld : 'nakios.' + tld;
-      _cachedEndpoint = { base: 'https://' + baseDomain, api: 'https://api.' + baseDomain + '/api', referer: 'https://' + baseDomain + '/' };
-      return _cachedEndpoint;
-    })
-    .catch(function() {
-      var baseDomain = 'nakios.' + NAKIOS_FALLBACK;
-      _cachedEndpoint = { base: 'https://' + baseDomain, api: 'https://api.' + baseDomain + '/api', referer: 'https://' + baseDomain + '/' };
-      return _cachedEndpoint;
-    });
+    .catch(function() { return { name: "Nakios", year: "", duration: "" }; });
 }
 
 // ─── UI / Formatting ─────────────────────────────────────────
@@ -89,25 +71,36 @@ function normalizeSources(sources, endpoint, meta, season, episode, epName) {
         '🎞️ ' + format
     ];
     if (s.size) specs.push('💾 ' + s.size);
-    if (s.duration) specs.push('⏱️ ' + s.duration); // Added duration support
+    if (meta.duration) specs.push('⏱️ ' + meta.duration); // Using duration from TMDB meta
 
     results.push({
       name: 'Nakios - ' + quality, 
-      title: line1 + '\n' + specs.join(' | '), // \n creates the second line
+      title: line1 + '\n' + specs.join(' | '), 
       url: rawUrl,
       quality: quality,
       format: format.toLowerCase(),
-      headers: {
-        'User-Agent': NAKIOS_UA,
-        'Referer': endpoint.referer,
-        'Origin': endpoint.base
-      }
+      headers: { 'User-Agent': NAKIOS_UA, 'Referer': endpoint.referer }
     });
   }
   return results;
 }
 
-// ─── Entry Point ─────────────────────────────────────────────
+// ─── Entry Point (detectEndpoint & getEpisodeName logic remains same) ─────────────────
+
+function getEpisodeName(tmdbId, season, episode) {
+  if (!tmdbId || !season || !episode) return Promise.resolve(null);
+  var url = 'https://api.themoviedb.org/3/tv/' + tmdbId + '/season/' + season + '/episode/' + episode + '?api_key=' + TMDB_KEY + '&language=en-US';
+  return fetch(url).then(function(res) { return res.json(); }).then(function(data) { return data.name || null; }).catch(function() { return null; });
+}
+
+function detectEndpoint() {
+  return fetch(DOMAINS_URL)
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      var tld = data.nakios || 'fit';
+      return { referer: 'https://nakios.' + tld + '/', api: 'https://api.nakios.' + tld + '/api' };
+    }).catch(function() { return { referer: 'https://nakios.fit/', api: 'https://api.nakios.fit/api' }; });
+}
 
 function getStreams(tmdbId, mediaType, season, episode) {
   return Promise.all([
@@ -132,8 +125,5 @@ function getStreams(tmdbId, mediaType, season, episode) {
   }).catch(function() { return []; });
 }
 
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams: getStreams };
-} else {
-  global.getStreams = getStreams;
-}
+if (typeof module !== 'undefined' && module.exports) { module.exports = { getStreams: getStreams }; } 
+else { global.getStreams = getStreams; }

@@ -1,92 +1,81 @@
 /**
- * ShowBox Direct Scraper for Nuvio
- * Version: 2026.05.09 - Direct Path (No Middleman)
+ * ShowBox Robust Scraper 2026
+ * No external APIs, direct extraction only.
  */
 
-var TMDB_KEY = '439c478a771f35c05022f9feabcca01c';
-var LOCAL_COOKIE_URL = "http://192.168.1.176:8080/cookie.txt"; // Host your Febbox 'ui' cookie here
+const LOCAL_COOKIE_URL = "http://192.168.1.176:8080/cookie.txt";
 
 async function getStreams(tmdbId, type, s, e) {
     try {
-        // 1. Get Authentication (Your Private Cookie)
-        const cookieResp = await fetch(LOCAL_COOKIE_URL, { timeout: 3000 });
+        // 1. Get Authentication
+        const cookieResp = await fetch(LOCAL_COOKIE_URL).catch(() => null);
+        if (!cookieResp) return [];
         const uiCookie = (await cookieResp.text()).trim();
-        if (!uiCookie) return [];
 
-        // 2. Resolve TMDB ID to Title (Required for Search)
-        const tmdbUrl = `https://api.themoviedb.org/3/${type === 'tv' ? 'tv/' : 'movie/'}${tmdbId}?api_key=${TMDB_KEY}`;
-        const meta = await (await fetch(tmdbUrl)).json();
+        // 2. Resolve Title via TMDB
+        const meta = await (await fetch(`https://api.themoviedb.org/3/${type === 'tv' ? 'tv/' : 'movie/'}${tmdbId}?api_key=439c478a771f35c05022f9feabcca01c`)).json();
         const title = type === 'tv' ? meta.name : meta.title;
-        if (!title) return [];
 
-        // 3. Search Showbox Direct (Simplified Search)
-        // We use the public showbox web index to find the ID
+        // 3. Find the Showbox Item ID
         const searchUrl = `https://www.showbox.media/index/search?keyword=${encodeURIComponent(title)}`;
-        const searchResp = await (await fetch(searchUrl)).json();
-        const match = searchResp?.data?.list?.find(i => 
-            (type === 'tv' ? i.box_type === 2 : i.box_type === 1)
-        );
-        if (!match) return [];
+        const searchData = await (await fetch(searchUrl)).json();
+        const item = searchData?.data?.list?.find(i => (type === 'tv' ? i.box_type === 2 : i.box_type === 1));
+        if (!item) return [];
 
-        // 4. Get the Febbox Share Key
-        const shareApi = `https://www.showbox.media/index/share_link?id=${match.id}&type=${match.box_type}`;
+        // 4. Get Febbox Share Key (The "Handshake")
+        const shareApi = `https://www.showbox.media/index/share_link?id=${item.id}&type=${item.box_type}`;
         const shareData = await (await fetch(shareApi)).json();
         const shareKey = shareData?.data?.link?.split('/share/')[1];
         if (!shareKey) return [];
 
-        // 5. List Files in Febbox and find the video
-        let fileId = null;
+        // 5. Fetch the Player Page (This is where the direct links live)
+        // We go straight to the file list for this share key
         const listUrl = `https://www.febbox.com/file/file_share_list?share_key=${shareKey}&parent_id=0`;
-        const listResp = await (await fetch(listUrl, {
-            headers: { 'Cookie': `ui=${uiCookie}` }
-        })).json();
-        
-        const files = listResp?.data?.file_list || [];
+        const listData = await (await fetch(listUrl, { headers: { 'Cookie': `ui=${uiCookie}` } })).json();
+        let files = listData?.data?.file_list || [];
 
-        if (type === 'movie') {
-            const video = files.find(f => f.file_icon === 'video_icon');
-            fileId = video?.fid;
-        } else {
-            // TV: Find Season Folder -> Find Episode
-            const seasonFolder = files.find(f => f.file_name.toLowerCase().includes(`season ${s}`));
-            if (seasonFolder) {
-                const epUrl = `https://www.febbox.com/file/file_share_list?share_key=${shareKey}&parent_id=${seasonFolder.fid}`;
-                const epResp = await (await fetch(epUrl, { headers: { 'Cookie': `ui=${uiCookie}` } })).json();
-                const episode = epResp?.data?.file_list?.find(f => 
-                    f.file_name.toLowerCase().includes(`e${String(e).padStart(2, '0')}`) || 
-                    f.file_name.toLowerCase().includes(`ep${e}`)
-                );
-                fileId = episode?.fid;
+        // For TV Shows: Drill down into Season -> Episode
+        if (type === 'tv') {
+            const season = files.find(f => f.file_name.toLowerCase().includes(`season ${s}`));
+            if (season) {
+                const epUrl = `https://www.febbox.com/file/file_share_list?share_key=${shareKey}&parent_id=${season.fid}`;
+                const epData = await (await fetch(epUrl, { headers: { 'Cookie': `ui=${uiCookie}` } })).json();
+                files = epData?.data?.file_list || [];
             }
         }
 
-        if (!fileId) return [];
-
-        // 6. Final Step: Get Stream Links via Player POST
-        const playerUrl = "https://www.febbox.com/file/player";
-        const playerResp = await fetch(playerUrl, {
-            method: 'POST',
-            headers: {
-                'Cookie': `ui=${uiCookie}`,
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: `fid=${fileId}&share_key=${shareKey}`
+        // Filter for the actual video file
+        const targetFile = files.find(f => {
+            const name = f.file_name.toLowerCase();
+            if (type === 'movie') return f.file_icon === 'video_icon';
+            return name.includes(`e${String(e).padStart(2, '0')}`) || name.includes(`ep${e}`);
         });
 
-        const playerHtml = await playerResp.text();
+        if (!targetFile) return [];
+
+        // 6. Extraction (The "Magic" part)
+        // Instead of calling an API, we ask for the file info which returns raw stream URLs
+        const infoUrl = `https://www.febbox.com/file/file_info?fid=${targetFile.fid}&share_key=${shareKey}`;
+        const infoResp = await (await fetch(infoUrl, { headers: { 'Cookie': `ui=${uiCookie}` } })).json();
         
-        // Extract links from the sources array in HTML
-        const streamMatches = [...playerHtml.matchAll(/\"file\":\"(http.*?)\",\"label\":\"(.*?)\"/g)];
+        // Febbox returns an array of "oss_url" or "video_list"
+        const streams = [];
+        const videoList = infoResp?.data?.video_list || {};
         
-        return streamMatches.map(m => ({
-            name: "ShowBox " + m[2],
-            url: m[1].replace(/\\/g, ''), // Unescape slashes
-            quality: m[2],
-            provider: "Direct-Febbox"
-        }));
+        Object.keys(videoList).forEach(quality => {
+            if (videoList[quality]?.url) {
+                streams.push({
+                    name: `ShowBox [${quality.toUpperCase()}]`,
+                    url: videoList[quality].url,
+                    quality: quality,
+                    provider: "Febbox-Direct"
+                });
+            }
+        });
+
+        return streams;
 
     } catch (err) {
-        console.log("Scraper Error: ", err);
         return [];
     }
 }

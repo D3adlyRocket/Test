@@ -94,3 +94,28 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
       return fetch(url, { headers: { 'User-Agent': NAKIOS_UA, 'Referer': endpoint.referer } })
         .then(function(res) { return res.json(); })
+        .then(function(data) {
+          if (!data || !data.sources) return [];
+          
+          return data.sources.map(function(s) {
+            if (s.isEmbed) return null;
+            return {
+              name: 'Nakios - ' + (s.quality || 'HD'),
+              title: formatNakiosTitle(s, meta, season, episode),
+              url: s.url,
+              quality: s.quality || 'HD',
+              format: s.url.indexOf('.m3u8') !== -1 ? 'm3u8' : 'mp4',
+              headers: {
+                'User-Agent': NAKIOS_UA,
+                'Referer': endpoint.referer,
+                'Origin': endpoint.base
+              }
+            };
+          }).filter(function(x) { return x !== null; });
+        });
+    });
+  }).catch(function() { return []; });
+}
+
+if (typeof module !== 'undefined' && module.exports) { module.exports = { getStreams: getStreams }; }
+else { global.getStreams = getStreams; }

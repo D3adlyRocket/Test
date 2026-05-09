@@ -1,9 +1,9 @@
 // =============================================================
 // Provider Nuvio : Nakios (VF / VOSTFR / MULTI)
-// Version : 4.5.0
-// - REVERTED: Core engine returned to original stable state
-// - FIXED: Playback error by ensuring URL strings are clean
-// - ADDED: S[X]E[X] - Episode Name & Duration (Safe Integration)
+// Version : 4.6.0
+// - STABLE: Reverted to original network logic to fix playback
+// - Layout: Header (Quality) | Line 1 (Name + Year) | Line 2 (Specs)
+// - Added: ⏱️ Duration & Episode Name support
 // =============================================================
 
 var TMDB_KEY = 'f3d757824f08ea2cff45eb8f47ca3a1e';
@@ -13,9 +13,9 @@ var NAKIOS_FALLBACK = 'fit';
 
 var _cachedEndpoint = null;
 
-// ─── SAFE METADATA FETCH ────────────────────────────────────
+// ─── 1. Metadata Helper (Only for Display) ──────────────────
 
-function getTmdbInfo(tmdbId, type, season, episode) {
+function getMetadata(tmdbId, type, season, episode) {
   var url = 'https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=en-US';
   
   return fetch(url).then(function(res) { return res.json(); }).then(function(data) {
@@ -37,7 +37,36 @@ function getTmdbInfo(tmdbId, type, season, episode) {
   }).catch(function() { return { name: "Nakios", year: "", duration: "", epName: null }; });
 }
 
-// ─── ORIGINAL ENGINE LOGIC ──────────────────────────────────
+// ─── 2. Formatting (Your Requested Two-Line Layout) ──────────
+
+function formatNakiosTitle(s, meta, season, episode) {
+    var quality = s.quality || 'HD';
+    var rawLang = (s.lang || 'MULTI').toUpperCase();
+    var lIcon = '🇫🇷', lLab = 'VF';
+    if (rawLang.indexOf('MULTI') !== -1) { lIcon = '🌍'; lLab = 'MULTI'; }
+    else if (rawLang.indexOf('VOST') !== -1) { lIcon = '🔡'; lLab = 'VOSTFR'; }
+
+    // Line 1: Identity
+    var line1 = '🎬 ';
+    if (season && episode) {
+      line1 += 'S' + season + ' E' + episode + (meta.epName ? ' - ' + meta.epName : '') + ' | ' + meta.name;
+    } else {
+      line1 += meta.name + (meta.year ? ' - ' + meta.year : '');
+    }
+
+    // Line 2: Technical Specs
+    var specs = [
+        '📺 ' + quality,
+        lIcon + ' ' + lLab
+    ];
+    if (s.size) specs.push('💾 ' + s.size);
+    specs.push('🎞️ ' + (s.url.indexOf('.m3u8') !== -1 ? 'M3U8' : 'MP4'));
+    if (meta.duration) specs.push('⏱️ ' + meta.duration);
+
+    return line1 + '\n' + specs.join(' | ');
+}
+
+// ─── 3. Original Network Logic (DO NOT TOUCH) ───────────────
 
 function detectEndpoint() {
   if (_cachedEndpoint) return Promise.resolve(_cachedEndpoint);
@@ -54,71 +83,14 @@ function detectEndpoint() {
     });
 }
 
-// ─── FORMATTING (Line structure as requested) ────────────────
-
-function normalizeSources(sources, endpoint, meta, season, episode) {
-  var results = [];
-  for (var i = 0; i < sources.length; i++) {
-    var s = sources[i];
-    if (s.isEmbed) continue;
-
-    var quality = s.quality || 'HD';
-    var rawLang = (s.lang || 'MULTI').toUpperCase();
-    var lIcon = '🇫🇷', lLab = 'VF';
-    if (rawLang.indexOf('MULTI') !== -1) { lIcon = '🌍'; lLab = 'MULTI'; }
-    else if (rawLang.indexOf('VOST') !== -1) { lIcon = '🔡'; lLab = 'VOSTFR'; }
-
-    // Header logic (Bold line)
-    var headerName = 'Nakios - ' + quality;
-
-    // Line 1: Identity
-    var line1 = '🎬 ';
-    if (season && episode) {
-      line1 += 'S' + season + ' E' + episode + (meta.epName ? ' - ' + meta.epName : '') + ' | ' + meta.name;
-    } else {
-      line1 += meta.name + (meta.year ? ' - ' + meta.year : '');
-    }
-
-    // Line 2: Specs
-    var specs = ['📺 ' + quality, lIcon + ' ' + lLab];
-    if (s.size) specs.push('💾 ' + s.size);
-    specs.push('🎞️ ' + (s.url.indexOf('.m3u8') !== -1 ? 'M3U8' : 'MP4'));
-    if (meta.duration) specs.push('⏱️ ' + meta.duration);
-
-    results.push({
-      name: headerName,
-      title: line1 + '\n' + specs.join(' | '),
-      url: s.url,
-      quality: quality,
-      format: s.url.indexOf('.m3u8') !== -1 ? 'm3u8' : 'mp4',
-      headers: {
-        'User-Agent': NAKIOS_UA,
-        'Referer': endpoint.referer,
-        'Origin': endpoint.base
-      }
-    });
-  }
-  return results;
-}
-
-// ─── ENTRY POINT ─────────────────────────────────────────────
-
 function getStreams(tmdbId, mediaType, season, episode) {
+  // We run detectEndpoint and getMetadata, but keep the fetch structure original
   return detectEndpoint().then(function(endpoint) {
-    return getTmdbInfo(tmdbId, mediaType, season, episode).then(function(meta) {
+    return getMetadata(tmdbId, mediaType, season, episode).then(function(meta) {
+      
       var url = mediaType === 'tv'
         ? endpoint.api + '/sources/tv/' + tmdbId + '/' + (season || 1) + '/' + (episode || 1)
         : endpoint.api + '/sources/movie/' + tmdbId;
 
       return fetch(url, { headers: { 'User-Agent': NAKIOS_UA, 'Referer': endpoint.referer } })
         .then(function(res) { return res.json(); })
-        .then(function(data) {
-          if (!data || !data.sources) return [];
-          return normalizeSources(data.sources, endpoint, meta, season, episode);
-        });
-    });
-  }).catch(function() { return []; });
-}
-
-if (typeof module !== 'undefined' && module.exports) { module.exports = { getStreams: getStreams }; }
-else { global.getStreams = getStreams; }

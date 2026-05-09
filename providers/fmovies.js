@@ -1,9 +1,10 @@
 // =============================================================
 // Provider Nuvio : Nakios (VF / VOSTFR / MULTI)
-// Version : 5.1.0
+// Version : 5.2.0
 // - Header: Nakios - Quality
 // - Line 1: 🎬 Movie Name - Year (or S/E info)
 // - Line 2: 📺 Res | 🌍 Lang | 💾 Size | 🎞️ Format | ⏱️ Duration
+// - FIXED: Series duration support
 // =============================================================
 
 var TMDB_KEY = 'f3d757824f08ea2cff45eb8f47ca3a1e';
@@ -13,7 +14,7 @@ var NAKIOS_FALLBACK = 'fit';
 
 var _cachedEndpoint = null;
 
-// ─── TMDB Helpers (Added Year & Duration) ───────────────────
+// ─── TMDB Helpers ───────────────────────────────────────────
 
 function getTmdbMetadata(tmdbId, type) {
   var url = 'https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=en-US';
@@ -25,9 +26,12 @@ function getTmdbMetadata(tmdbId, type) {
       var year = date ? date.split('-')[0] : "";
       
       var duration = "";
+      // Movie duration
       if (type === 'movie' && data.runtime) {
           duration = data.runtime + ' min';
-      } else if (type === 'tv' && data.episode_run_time && data.episode_run_time.length > 0) {
+      } 
+      // Series fallback duration (general)
+      else if (type === 'tv' && data.episode_run_time && data.episode_run_time.length > 0) {
           duration = data.episode_run_time[0] + ' min';
       }
       
@@ -36,10 +40,19 @@ function getTmdbMetadata(tmdbId, type) {
     .catch(function() { return { name: "Nakios", year: "", duration: "" }; });
 }
 
-function getEpisodeName(tmdbId, season, episode) {
+// Updated to fetch Episode Name AND Episode Duration
+function getEpisodeInfo(tmdbId, season, episode) {
   if (!tmdbId || !season || !episode) return Promise.resolve(null);
   var url = 'https://api.themoviedb.org/3/tv/' + tmdbId + '/season/' + season + '/episode/' + episode + '?api_key=' + TMDB_KEY + '&language=en-US';
-  return fetch(url).then(function(res) { return res.json(); }).then(function(data) { return data.name || null; }).catch(function() { return null; });
+  return fetch(url)
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      return {
+          name: data.name || null,
+          duration: data.runtime ? data.runtime + ' min' : null
+      };
+    })
+    .catch(function() { return null; });
 }
 
 // ─── Construction de l'endpoint ──────────────────────────────
@@ -102,7 +115,7 @@ function resolveSource(source, endpoint) {
 
 // ─── UI / Formatting ─────────────────────────────────────────
 
-function normalizeSources(sources, endpoint, meta, season, episode, epName) {
+function normalizeSources(sources, endpoint, meta, season, episode, epInfo) {
   var results = [];
   for (var i = 0; i < sources.length; i++) {
     var s = sources[i];
@@ -128,7 +141,8 @@ function normalizeSources(sources, endpoint, meta, season, episode, epName) {
     // Line 1: Identity
     var line1 = '🎬 ';
     if (season && episode) {
-        line1 += 'S' + season + ' E' + episode + (epName ? ' - ' + epName : '') + ' | ' + meta.name;
+        var epTitle = epInfo && epInfo.name ? ' - ' + epInfo.name : '';
+        line1 += 'S' + season + ' E' + episode + epTitle + ' | ' + meta.name;
     } else {
         line1 += meta.name + (meta.year ? ' - ' + meta.year : '');
     }
@@ -140,7 +154,10 @@ function normalizeSources(sources, endpoint, meta, season, episode, epName) {
         '🎞️ ' + format
     ];
     if (s.size) specs.push('💾 ' + s.size);
-    if (meta.duration) specs.push('⏱️ ' + meta.duration);
+    
+    // Priority: Episode Duration -> Series General Duration
+    var finalDuration = (epInfo && epInfo.duration) ? epInfo.duration : meta.duration;
+    if (finalDuration) specs.push('⏱️ ' + finalDuration);
 
     results.push({
       name: 'Nakios - ' + quality, 
@@ -163,11 +180,11 @@ function normalizeSources(sources, endpoint, meta, season, episode, epName) {
 function getStreams(tmdbId, mediaType, season, episode) {
   return Promise.all([
     getTmdbMetadata(tmdbId, mediaType),
-    mediaType === 'tv' ? getEpisodeName(tmdbId, season, episode) : Promise.resolve(null),
+    mediaType === 'tv' ? getEpisodeInfo(tmdbId, season, episode) : Promise.resolve(null),
     detectEndpoint()
   ]).then(function(results) {
     var meta = results[0];
-    var epName = results[1];
+    var epInfo = results[1];
     var endpoint = results[2];
 
     var url = mediaType === 'tv'
@@ -184,7 +201,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       var sNum = mediaType === 'tv' ? season : null;
       var eNum = mediaType === 'tv' ? episode : null;
       
-      return normalizeSources(data.sources, endpoint, meta, sNum, eNum, epName);
+      return normalizeSources(data.sources, endpoint, meta, sNum, eNum, epInfo);
     });
   }).catch(function() { return []; });
 }

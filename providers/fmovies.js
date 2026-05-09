@@ -1,330 +1,232 @@
-// HiAnime Scraper for Nuvio Local Scrapers
+/**
+ * NetMirror - Pure Promise Version (Hermes Native, WAF Bypass, Dynamic Hashes)
+ */
 
-const cheerio = require("cheerio-without-node-native");
+var USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0.1 Mobile/15E148 Safari/604.1";
 
-const HIANIME_APIS = [
-  "https://hianimes.su",
-  "https://hianimes.biz",
-  "https://hianime.ws",
-  "https://hianimez.ro",
-  "https://hianime.lc",
-];
+var cachedBaseUrl = null;
+var cachedStreamBaseUrl = null;
+var cacheTimestamp = 0;
+var CACHE_DURATION = 3600 * 1000;
 
-const AJAX_HEADERS = {
-  "X-Requested-With": "XMLHttpRequest",
-  Referer: "https://hianimes.su",
-  "User-Agent": "Mozilla/5.0",
-};
+// THE EXPLOIT: Automatically generates fresh tokens to bypass IP-locking
+function generateSpoofedCookies() {
+    var now = Math.floor(Date.now() / 1000);
+    
+    var mutateHex = function(hexStr) {
+        var chars = hexStr.split('');
+        for(var i = chars.length - 4; i < chars.length; i++) {
+            chars[i] = Math.floor(Math.random() * 16).toString(16);
+        }
+        return chars.join('');
+    };
 
-const megaHeaders = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
-  Accept: "*/*",
-  "Accept-Language": "en-US,en;q=0.5",
-  Origin: "https://megacloud.blog",
-  Referer: "https://megacloud.blog/",
-  Connection: "keep-alive",
-};
+    var baseUserToken = "70616185895ea8507acfe05437a9d4fc";
+    var baseHash1 = "779fc597851aa6b05d46d86583ef647d";
+    var baseHash2 = "5185938f776f1b181082230868049087";
+    var baseHash3 = "a478b84982c0b0920a91838c5df6c5f4";
 
-// ================= MEGACLOUD =================
+    var userToken = mutateHex(baseUserToken);
+    var tHash = mutateHex(baseHash3) + "::" + now + "::ac";
+    var tHashT = mutateHex(baseHash1) + "::" + mutateHex(baseHash2) + "::" + now + "::ac::p";
 
-function extractMegacloud(embedUrl, effectiveType) {
-  const mainUrl = "https://megacloud.blog";
+    return "t_hash_t=" + encodeURIComponent(tHashT) + "; t_hash=" + encodeURIComponent(tHash) + "; user_token=" + userToken;
+}
 
-  const headers = {
-    Accept: "*/*",
-    "X-Requested-With": "XMLHttpRequest",
-    Referer: mainUrl,
-    "User-Agent": "Mozilla/5.0",
-  };
+// Generates matching browser headers for WAF bypass
+function getHeaders(targetUrl, refererPath, ottTag) {
+    var urlObj = new URL(targetUrl);
+    var dynamicCookies = generateSpoofedCookies();
+    
+    return {
+        "User-Agent": USER_AGENT, 
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        "Accept-Language": "en-CA,en-US;q=0.9,en;q=0.8",
+        "Accept-Encoding": "gzip, deflate", 
+        "Referer": urlObj.origin + refererPath, 
+        "Origin": urlObj.origin,
+        "Sec-Fetch-Site": "same-origin",
+        "Sec-Fetch-Mode": "cors",
+        "Sec-Fetch-Dest": "empty",
+        "X-Requested-With": "XMLHttpRequest",
+        "Connection": "keep-alive",
+        "Cookie": "ott=" + ottTag + "; " + dynamicCookies
+    };
+}
 
-  return fetch(embedUrl, { headers })
-    .then((r) => (r.ok ? r.text() : null))
-    .then((page) => {
-      if (!page) return [];
+// Helper: Fetch Text
+function safeFetchText(url, options) {
+    return fetch(url, options || {}).then(function(res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.text();
+    });
+}
 
-      let nonce =
-        page.match(/\b[a-zA-Z0-9]{48}\b/)?.[0] ??
-        (() => {
-          const m = page.match(
-            /\b([a-zA-Z0-9]{16})\b.*?\b([a-zA-Z0-9]{16})\b.*?\b([a-zA-Z0-9]{16})\b/,
-          );
-          return m ? m[1] + m[2] + m[3] : null;
-        })();
+// Helper: Fetch JSON
+function safeFetchJson(url, options) {
+    return fetch(url, options || {}).then(function(res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+    });
+}
 
-      if (!nonce) return [];
+// Derives the dynamic net22 / net52 backend URLs
+function getBaseUrls() {
+    if (cachedBaseUrl && (Date.now() - cacheTimestamp < CACHE_DURATION)) {
+        return Promise.resolve({ baseUrl: cachedBaseUrl, streamBaseUrl: cachedStreamBaseUrl });
+    }
+    
+    return safeFetchText("https://netmirror.gg/2/en", {
+        headers: { "User-Agent": USER_AGENT, "Accept": "text/html" }
+    }).then(function(html) {
+        var match = html.match(/onclick="location\.href='([^']+)'"[^>]*>Go to Home/);
+        var baseUrl = "https://net22.cc";
+        var streamBaseUrl = "https://net52.cc";
+        
+        if (match && match[1]) {
+            var parsedUrl = new URL(match[1]);
+            baseUrl = parsedUrl.protocol + "//" + parsedUrl.host;
+            var numMatch = baseUrl.match(/net(\d+)\.cc/);
+            if (numMatch) {
+                var num = parseInt(numMatch[1]);
+                streamBaseUrl = baseUrl.replace(numMatch[1], String(num + 30));
+            }
+        }
+        
+        cachedBaseUrl = baseUrl;
+        cachedStreamBaseUrl = streamBaseUrl;
+        cacheTimestamp = Date.now();
+        
+        return { baseUrl: baseUrl, streamBaseUrl: streamBaseUrl };
+    }).catch(function(e) {
+        console.error("[NetMirror] Init Error: " + e.message);
+        return { baseUrl: "https://net22.cc", streamBaseUrl: "https://net52.cc" };
+    });
+}
 
-      const id = embedUrl.split("/").pop().split("?")[0];
-      const apiUrl = `${mainUrl}/embed-2/v3/e-1/getSources?id=${id}&_k=${nonce}`;
+function fetchServer1(title, baseUrl, streamBaseUrl) {
+    var timestamp = Math.floor(Date.now() / 1000);
+    var searchUrl = baseUrl + "/search.php?s=" + encodeURIComponent(title) + "&t=" + timestamp;
+    var searchHeaders = getHeaders(searchUrl, '/home', 'nf');
 
-      return fetch(apiUrl, { headers })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((json) => {
-          if (!json?.sources?.length) return [];
+    return safeFetchJson(searchUrl, { headers: searchHeaders }).then(function(searchData) {
+        if (!searchData.searchResult || searchData.searchResult.length === 0) return [];
+        var movieId = searchData.searchResult[0].id;
 
-          const build = (url) => [
-            {
-              url,
-              type: effectiveType,
-              subtitles: (json.tracks || [])
-                .filter((t) => t.kind === "captions" || t.kind === "subtitles")
-                .map((t) => ({ label: t.label, url: t.file })),
-            },
-          ];
+        var hashUrl = baseUrl + "/play.php";
+        return safeFetchJson(hashUrl, {
+            method: 'POST',
+            headers: Object.assign({}, searchHeaders, { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" }),
+            body: "id=" + movieId
+        }).then(function(hashData) {
+            if (!hashData.h) return [];
+            var actualHash = hashData.h.indexOf("in=") === 0 ? hashData.h.substring(3) : hashData.h;
 
-          const encoded = json.sources[0].file;
-          if (encoded.includes(".m3u8")) return build(encoded);
+            var playlistUrl = streamBaseUrl + "/playlist.php?id=" + movieId + "&t=" + encodeURIComponent(title) + "&tm=" + timestamp + "&h=" + actualHash;
+            var playlistHeaders = getHeaders(playlistUrl, '/', 'nf');
 
-          return fetch(
-            "https://raw.githubusercontent.com/yogesh-hacker/MegacloudKeys/refs/heads/main/keys.json",
-          )
-            .then((r) => (r.ok ? r.json() : null))
-            .then((keys) => {
-              const secret = keys?.mega;
-              if (!secret) return [];
-
-              const decodeUrl =
-                "https://script.google.com/macros/s/AKfycbxHbYHbrGMXYD2-bC-C43D3njIbU-wGiYQuJL61H4vyy6YVXkybMNNEPJNPPuZrD1gRVA/exec";
-
-              const fullUrl =
-                `${decodeUrl}?encrypted_data=${encodeURIComponent(encoded)}` +
-                `&nonce=${encodeURIComponent(nonce)}` +
-                `&secret=${encodeURIComponent(secret)}`;
-
-              return fetch(fullUrl)
-                .then((r) => (r.ok ? r.text() : null))
-                .then((txt) => {
-                  const m3u8 = txt?.match(/"file":"(.*?)"/)?.[1];
-                  return m3u8 ? build(m3u8) : [];
+            return safeFetchJson(playlistUrl, { headers: playlistHeaders }).then(function(playlistData) {
+                var streams = [];
+                playlistData.forEach(function(item) {
+                    if (item.sources) {
+                        item.sources.forEach(function(source) {
+                            streams.push({
+                                name: "NetMirror [S1]",
+                                title: "Netflix Server - " + (source.label || 'HD'),
+                                url: streamBaseUrl + source.file,
+                                quality: source.label || "1080p",
+                                headers: {
+                                    "Referer": streamBaseUrl + "/",
+                                    "Origin": streamBaseUrl,
+                                    "User-Agent": USER_AGENT
+                                }
+                            });
+                        });
+                    }
                 });
+                return streams;
             });
         });
-    })
-    .catch(() => []);
+    }).catch(function(e) {
+        console.error("[NetMirror S1 Error]: " + e.message);
+        return [];
+    });
 }
 
-// ================= TMDB =================
+function fetchServer2(title, streamBaseUrl) {
+    var timestamp = Math.floor(Date.now() / 1000);
+    var searchUrl = streamBaseUrl + "/pv/search.php?s=" + encodeURIComponent(title);
+    var searchHeaders = getHeaders(searchUrl, '/search', 'pv');
 
-const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-const TMDB_BASE_URL = "https://api.themoviedb.org/3";
+    return safeFetchJson(searchUrl, { headers: searchHeaders }).then(function(searchData) {
+        if (!searchData.searchResult || searchData.searchResult.length === 0) return [];
+        var movieId = searchData.searchResult[0].id;
 
-function tmdbFetch(path) {
-  return fetch(`${TMDB_BASE_URL}${path}?api_key=${TMDB_API_KEY}`).then((r) =>
-    r.ok ? r.json() : null,
-  );
-}
-
-function getTMDBDetails(tmdbId, type) {
-  return tmdbFetch(`/${type}/${tmdbId}`).then((d) => {
-    if (!d) return null;
-    return type === "movie"
-      ? {
-          title: d.title,
-          releaseDate: d.release_date,
-          firstAirDate: null,
-        }
-      : {
-          title: d.name,
-          releaseDate: d.first_air_date,
-          firstAirDate: d.first_air_date,
-        };
-  });
-}
-
-function getTMDBSeasonAirDate(tmdbId, season) {
-  return tmdbFetch(`/tv/${tmdbId}/season/${season}`).then(
-    (d) => d?.air_date ?? null,
-  );
-}
-
-// ================= ANILIST / MAL =================
-
-const ANILIST_API = "https://graphql.anilist.co";
-
-function tmdbToAnimeId(title, year) {
-  if (!title || !year) return Promise.resolve({ idMal: null });
-
-  return fetch(ANILIST_API, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      query: `
-            query ($search: String, $seasonYear: Int) {
-              Page(perPage: 5) {
-                media(search: $search, seasonYear: $seasonYear, type: ANIME) {
-                  idMal
-                }
-              }
-            }`,
-      variables: { search: title, seasonYear: year },
-    }),
-  })
-    .then((r) => (r.ok ? r.json() : null))
-    .then((j) => ({ idMal: j?.data?.Page?.media?.[0]?.idMal ?? null }))
-    .catch(() => ({ idMal: null }));
-}
-
-function getHiAnimeIdFromMalSync(malId) {
-  return fetch(`https://api.malsync.moe/mal/anime/${malId}`)
-    .then((r) => (r.ok ? r.json() : null))
-    .then((j) => {
-      const z = j?.Sites?.Zoro;
-      return z ? (Object.values(z)[0]?.identifier ?? null) : null;
-    })
-    .catch(() => null);
-}
-
-// ================= MAIN =================
-
-function getStreams(
-  tmdbId,
-  mediaType = "movie",
-  season = null,
-  episode = null,
-) {
-  return getTMDBDetails(tmdbId, mediaType)
-    .then((info) => {
-      if (!info) return [];
-
-      const aired =
-        mediaType === "tv" && season > 1
-          ? getTMDBSeasonAirDate(tmdbId, season)
-          : Promise.resolve(info.firstAirDate);
-
-      return aired.then((airedDate) => ({ info, airedDate }));
-    })
-    .then(({ info, airedDate }) => {
-      const year = (airedDate || info.releaseDate)?.split("-")?.[0];
-      return tmdbToAnimeId(info.title, Number(year)).then((ids) => ({
-        info,
-        ids,
-      }));
-    })
-    .then(({ info, ids }) => {
-      if (!ids.idMal) return [];
-
-      return getHiAnimeIdFromMalSync(ids.idMal).then((hiId) => {
-        if (!hiId) return [];
-
-        const epNum = String(episode ?? 1);
-        const apis = [...HIANIME_APIS].sort(() => Math.random() - 0.5);
-        let chain = Promise.resolve([]);
-
-        apis.forEach((api) => {
-          chain = chain.then((res) => {
-            if (res.length) return res;
-
-            return fetch(`${api}/ajax/v2/episode/list/${hiId}`, {
-              headers: AJAX_HEADERS,
-            })
-              .then((r) => (r.ok ? r.json() : null))
-              .then((list) => {
-                if (!list?.html) return [];
-
-                const $ = cheerio.load(list.html);
-                const epId = $("a[data-number]")
-                  .filter((_, e) => $(e).attr("data-number") === epNum)
-                  .attr("data-id");
-
-                if (!epId) return [];
-
-                return fetch(
-                  `${api}/ajax/v2/episode/servers?episodeId=${epId}`,
-                  { headers: AJAX_HEADERS },
-                )
-                  .then((r) => (r.ok ? r.json() : null))
-                  .then((srv) => {
-                    if (!srv?.html) return [];
-
-                    const $$ = cheerio.load(srv.html);
-                    const servers = $$("div.server-item")
-                      .map((_, e) => {
-                        const t = $$(e).attr("data-type");
-
-                        let effectiveType;
-                        if (t === "raw") effectiveType = "RAW";
-                        else if (t === "sub") effectiveType = "SUB";
-                        else if (t === "dub") effectiveType = "DUB";
-                        else effectiveType = "UNKNOWN";
-
-                        return {
-                          label: $$(e).text().trim(),
-                          id: $$(e).attr("data-id"),
-                          type: effectiveType,
-                        };
-                      })
-                      .get();
-
-                    let out = [];
-                    let sChain = Promise.resolve();
-
-                    servers.forEach((s) => {
-                      sChain = sChain.then(() => {
-                        console.log("[HiAnime] Server:", {
-                          label: s.label,
-                          id: s.id,
-                          type: s.type,
+        var playlistUrl = streamBaseUrl + "/pv/playlist.php?id=" + movieId + "&tm=" + timestamp;
+        return safeFetchJson(playlistUrl, { headers: searchHeaders }).then(function(playlistData) {
+            var streams = [];
+            playlistData.forEach(function(item) {
+                if (item.sources) {
+                    item.sources.forEach(function(source) {
+                        streams.push({
+                            name: "NetMirror [S2]",
+                            title: "Prime Server - " + (source.label || 'HD'),
+                            url: streamBaseUrl + source.file,
+                            quality: source.label || "1080p",
+                            headers: {
+                                "Referer": streamBaseUrl + "/",
+                                "Origin": streamBaseUrl,
+                                "User-Agent": USER_AGENT
+                            }
                         });
-
-                        return fetch(
-                          `${api}/ajax/v2/episode/sources?id=${s.id}`,
-                          {
-                            headers: AJAX_HEADERS,
-                          },
-                        )
-                          .then((r) => (r.ok ? r.json() : null))
-                          .then((src) => {
-                            if (!src?.link) {
-                              console.log(
-                                "[HiAnime] No embed link for server",
-                                s.label,
-                              );
-                              return;
-                            }
-
-                            if (!src.link.includes("megacloud")) {
-                              console.log(
-                                "[HiAnime] Skipping non-megacloud server:",
-                                src.link,
-                              );
-                              return;
-                            }
-
-                            return extractMegacloud(src.link, s.type).then(
-                              (xs) => {
-                                xs.forEach((x) => {
-                                  out.push({
-                                    name: `⌜ HiAnime ⌟ | ${s.label} | ${s.type}`,
-                                    title: info.title,
-                                    url: x.url,
-                                    quality: "1080p",
-                                    provider: "HiAnime",
-                                    headers: megaHeaders,
-                                    subtitles: x.subtitles,
-                                  });
-                                });
-                              },
-                            );
-                          });
-                      });
                     });
-
-                    return sChain.then(() => out);
-                  });
-              });
-          });
+                }
+            });
+            return streams;
         });
-
-        return chain;
-      });
-    })
-    .catch(() => []);
+    }).catch(function(e) {
+        console.error("[NetMirror S2 Error]: " + e.message);
+        return [];
+    });
 }
 
-// ================= EXPORT =================
+function getStreams(tmdbId, mediaType, season, episode) {
+    console.log("[NetMirror] getStreams: " + tmdbId + " | Type: " + mediaType);
+    
+    if (mediaType !== 'movie') return Promise.resolve([]);
 
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getStreams };
-} else {
-  global.getStreams = { getStreams };
+    var isImdb = String(tmdbId).indexOf("tt") === 0;
+    
+    // Use TMDB API to convert ID to Movie Title
+    var tmdbUrl = isImdb 
+        ? "https://api.themoviedb.org/3/find/" + tmdbId + "?api_key=d131017ccc6e5462a81c9304d21476de&external_source=imdb_id&language=en-US"
+        : "https://api.themoviedb.org/3/movie/" + tmdbId + "?api_key=d131017ccc6e5462a81c9304d21476de&language=en-US";
+
+    return safeFetchJson(tmdbUrl).then(function(tmdbData) {
+        var mediaData;
+        if (isImdb) {
+            mediaData = tmdbData.movie_results && tmdbData.movie_results[0];
+        } else {
+            mediaData = tmdbData;
+        }
+        
+        if (!mediaData || !mediaData.title) return [];
+        var title = mediaData.title;
+
+        return getBaseUrls().then(function(urls) {
+            return Promise.all([
+                fetchServer1(title, urls.baseUrl, urls.streamBaseUrl),
+                fetchServer2(title, urls.streamBaseUrl)
+            ]).then(function(results) {
+                var streamsS1 = results[0] || [];
+                var streamsS2 = results[1] || [];
+                return streamsS1.concat(streamsS2);
+            });
+        });
+    }).catch(function(error) {
+        console.error("[NetMirror] Global Error: " + error.message);
+        return [];
+    });
 }
+
+module.exports = { getStreams: getStreams };

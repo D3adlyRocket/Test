@@ -1,8 +1,9 @@
 // =============================================================
 // Provider Nuvio : Nakios (VF / VOSTFR / MULTI)
-// Version : 4.3.0
-// - Fixed: Duration logic with multiple fallbacks
-// - Formatting: Clean two-line title construction
+// Version : 4.4.0
+// - Fixed: Playback Error (Removed \n from title)
+// - Fixed: Duration logic (Ensured TMDB sync)
+// - Layout: 🎬 Title (Year) | 📺 Res | 🌍 Lang | 💾 Size | 🎞️ Fmt | ⏱️ Dur
 // =============================================================
 
 var TMDB_KEY = 'f3d757824f08ea2cff45eb8f47ca3a1e';
@@ -20,7 +21,7 @@ function getTmdbDetails(tmdbId, type) {
       var date = data.release_date || data.first_air_date || "";
       var year = date ? date.split('-')[0] : "";
       
-      // Strict Duration Check
+      // Strict Duration Logic
       var duration = "";
       if (type === 'movie' && data.runtime) {
           duration = data.runtime + ' min';
@@ -31,7 +32,6 @@ function getTmdbDetails(tmdbId, type) {
               duration = data.last_episode_to_air.runtime + ' min';
           }
       }
-
       return { name: name, year: year, duration: duration };
     })
     .catch(function() { return { name: "Nakios", year: "", duration: "" }; });
@@ -48,36 +48,33 @@ function normalizeSources(sources, endpoint, meta, season, episode, epName) {
     var quality = s.quality || 'HD';
     var format = (s.url && s.url.indexOf('.m3u8') !== -1) ? 'M3U8' : 'MP4';
     
-    // Language Logic
     var rawLang = (s.lang || 'MULTI').toUpperCase();
     var lIcon = '🇫🇷', lLab = 'VF';
     if (rawLang.indexOf('MULTI') !== -1) { lIcon = '🌍'; lLab = 'MULTI'; }
     else if (rawLang.indexOf('VOST') !== -1) { lIcon = '🔡'; lLab = 'VOSTFR'; }
 
-    // --- Line 1: Identity ---
-    var line1 = '🎬 ';
-    if (season && episode) {
-        line1 += 'S' + season + ' E' + episode + (epName ? ' - ' + epName : '') + ' | ' + meta.name;
-    } else {
-        line1 += meta.name + (meta.year ? ' - ' + meta.year : '');
-    }
-
-    // --- Line 2: Tech Specs ---
-    var specs = [
-        '📺 ' + quality,
-        lIcon + ' ' + lLab,
-        '🎞️ ' + format
-    ];
-    if (s.size) specs.push('💾 ' + s.size);
+    // --- Single Line Title (Safe for Playback) ---
+    var titleParts = [];
     
-    // Ensure duration exists before adding icon
-    if (meta.duration && meta.duration !== "") {
-        specs.push('⏱️ ' + meta.duration);
+    // Identity Section
+    var identity = '🎬 ';
+    if (season && episode) {
+        identity += 'S' + season + ' E' + episode + (epName ? ' - ' + epName : '') + ' | ' + meta.name;
+    } else {
+        identity += meta.name + (meta.year ? ' (' + meta.year + ')' : '');
     }
+    titleParts.push(identity);
+
+    // Tech Specs Section
+    titleParts.push('📺 ' + quality);
+    titleParts.push(lIcon + ' ' + lLab);
+    if (s.size) titleParts.push('💾 ' + s.size);
+    titleParts.push('🎞️ ' + format);
+    if (meta.duration) titleParts.push('⏱️ ' + meta.duration);
 
     results.push({
       name: 'Nakios - ' + quality, 
-      title: line1 + '\n' + specs.join(' | '), 
+      title: titleParts.join(' | '), // Joined by pipes only
       url: s.url,
       quality: quality,
       format: format.toLowerCase(),
@@ -87,7 +84,7 @@ function normalizeSources(sources, endpoint, meta, season, episode, epName) {
   return results;
 }
 
-// ─── Entry Point Logic ───────────────────────────────────────
+// ─── Main Logic ──────────────────────────────────────────────
 
 function getEpisodeName(tmdbId, season, episode) {
   if (!tmdbId || !season || !episode) return Promise.resolve(null);
@@ -100,8 +97,7 @@ function detectEndpoint() {
     .then(function(res) { return res.json(); })
     .then(function(data) {
       var tld = data.nakios || 'fit';
-      var base = 'https://nakios.' + tld;
-      return { referer: base + '/', api: base + '/api' };
+      return { referer: 'https://nakios.' + tld + '/', api: 'https://api.nakios.' + tld + '/api' };
     }).catch(function() { return { referer: 'https://nakios.fit/', api: 'https://api.nakios.fit/api' }; });
 }
 

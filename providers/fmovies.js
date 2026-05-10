@@ -1,37 +1,16 @@
 const COMMON_HEADERS = {
     "X-Requested-With": "XMLHttpRequest",
     "Sec-Fetch-Site": "same-origin",
-    "Accept-Language": "en-CA,en-US;q=0.9,en;q=0.8",
+    "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
     "Accept-Encoding": "gzip, deflate, br",
     "Sec-Fetch-Mode": "cors",
     "Accept": "*/*",
-    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
+    // Matched to your specific browser screenshot for consistency
+    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
     "Connection": "keep-alive",
     "Referer": "https://www.lookmovie2.to/",
     "Sec-Fetch-Dest": "empty"
 };
-
-async function fetchText(url, options = {}) {
-    console.log(`[LookMovie2] Fetching: ${url}`);
-    const response = await fetch(url, options);
-    if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-    return await response.text();
-}
-
-async function fetchJson(url, options = {}) {
-    const raw = await fetchText(url, options);
-    return JSON.parse(raw);
-}
-
-// Scrape title from TMDB
-async function getTitleFromTmdb(tmdbId, mediaType) {
-    const type = mediaType === 'tv' ? 'tv' : 'movie';
-    const url = `https://www.themoviedb.org/${type}/${tmdbId}`;
-    const html = await fetchText(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36" } });
-    const titleMatch = html.match(/<title>([^<]+?)(?:\s+\(\d{4}\))?\s+-\s+The Movie Database/);
-    if (!titleMatch) throw new Error("Could not extract title from TMDB");
-    return titleMatch[1].trim();
-}
 
 async function getStreams(tmdbId, mediaType, season, episode) {
     try {
@@ -42,17 +21,18 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         const isShow = mediaType === "tv";
         const searchBase = isShow ? "shows" : "movies";
         
-        // Search
+        // 1. Search for the slug
         const searchUrl = `https://www.lookmovie2.to/api/v1/${searchBase}/do-search/?q=${query}`;
-        const searchJson = await fetchJson(searchUrl, { headers: COMMON_HEADERS });
+        const searchResponse = await fetch(searchUrl, { headers: COMMON_HEADERS });
+        const searchJson = await searchResponse.json();
         const resultsArray = searchJson.result || searchJson;
 
         if (!resultsArray || resultsArray.length === 0) return [];
         const selectedSlug = resultsArray[0].slug;
 
-        // Fetch HTML Page
+        // 2. Fetch HTML Page and CAPTURE COOKIES (Critical Fix)
         const pageUrl = `https://www.lookmovie2.to/${searchBase}/play/${selectedSlug}`;
-        const htmlInput = await fetchText(pageUrl, {
+        const pageResponse = await fetch(pageUrl, {
             headers: {
                 ...COMMON_HEADERS,
                 "Sec-Fetch-Mode": "navigate",
@@ -62,7 +42,14 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             }
         });
 
-        // Extract Data
+        const htmlInput = await pageResponse.text();
+        
+        // Extract Set-Cookie from headers to maintain the session
+        const rawCookies = pageResponse.headers.get('set-cookie');
+        // Clean the cookies (remove 'path=/', 'HttpOnly', etc. for the request header)
+        const cookieHeader = rawCookies ? rawCookies.split(',').map(c => c.split(';')[0]).join('; ') : '';
+
+        // 3. Extract Hash and ID
         const hashMatch = htmlInput.match(/hash:\s*["']([^"']+)["']/);
         const expiresMatch = htmlInput.match(/expires:\s*(\d+)/);
         if (!hashMatch || !expiresMatch) throw new Error("Hash/Expires not found in HTML.");
@@ -88,30 +75,31 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                     break;
                 }
             }
-            if (!targetId) throw new Error(`Episode S${season}E${episode} not found in HTML`);
+            if (!targetId) throw new Error(`Episode S${season}E${episode} not found`);
             accessEndpoint = `episode-access?id_episode=${targetId}`;
         }
 
-        // Final Stream Request
+        // 4. Final Stream Request WITH COOKIES
         const apiUrl = `https://www.lookmovie2.to/api/v1/security/${accessEndpoint}&hash=${hash}&expires=${expires}`;
-        const streamJson = await fetchJson(apiUrl, { headers: { ...COMMON_HEADERS, "Referer": pageUrl } });
+        const streamResponse = await fetch(apiUrl, { 
+            headers: { 
+                ...COMMON_HEADERS, 
+                "Referer": pageUrl,
+                "Cookie": cookieHeader // Injecting the session cookies here
+            } 
+        });
+        const streamJson = await streamResponse.json();
 
         if (!streamJson.success || !streamJson.streams) return [];
 
         let finalStreams = [];
         const availableResolutions = Object.keys(streamJson.streams).filter(k => streamJson.streams[k] !== null);
         
+        // Define headers the video player needs to bypass hotlinking protection
         const playerHeaders = {
-            "Sec-Fetch-Site": "cross-site",
-            "Accept-Language": "en-CA,en-US;q=0.9,en;q=0.8",
-            "Accept-Encoding": "identity",
-            "Sec-Fetch-Mode": "cors",
-            "Accept": "*/*",
             "Origin": "https://www.lookmovie2.to",
-            "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Brave/1 Mobile/15E148 Safari/604.1",
-            "Connection": "keep-alive",
             "Referer": "https://www.lookmovie2.to/",
-            "Sec-Fetch-Dest": "empty"
+            "User-Agent": COMMON_HEADERS["User-Agent"]
         };
 
         for (let res of availableResolutions) {
@@ -131,5 +119,3 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         return [];
     }
 }
-
-module.exports = { getStreams };

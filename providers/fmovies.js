@@ -1,6 +1,6 @@
 /**
  * vegamovies - Built from src/vegamovies/
- * Generated: 2026-05-10T21:05:47.309Z
+ * Generated: 2026-05-10T21:52:03.585Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -179,6 +179,36 @@ function findBestTitleMatch(mediaInfo, searchResults) {
   }
   return bestMatch;
 }
+function getBaseUrl(url) {
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}`;
+  } catch (e) {
+    return url;
+  }
+}
+function resolveRedirects(url, maxRedirects = 7) {
+  return __async(this, null, function* () {
+    let currentUrl = url;
+    let loopCount = 0;
+    while (loopCount < maxRedirects) {
+      try {
+        const res = yield fetch(currentUrl, { method: "HEAD", redirect: "manual" });
+        if (res.status === 200 || res.status >= 300 && res.status <= 399) {
+          const location = res.headers.get("Location");
+          if (!location)
+            break;
+          currentUrl = location;
+        } else
+          break;
+        loopCount++;
+      } catch (e) {
+        return null;
+      }
+    }
+    return currentUrl;
+  });
+}
 
 // src/vegamovies/extractor.js
 var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
@@ -188,27 +218,78 @@ function resolveVCloud(url, baseUrl) {
     try {
       const docHtml = yield fetchText(url, { headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: baseUrl }) });
       const $ = import_cheerio_without_node_native.default.load(docHtml);
-      $("p > a, a").each((i, el) => {
-        const a = $(el);
-        const href = a.attr("href");
+      let link = "";
+      if (url.includes("/video/")) {
+        link = $("div.vd > center > a").attr("href") || "";
+      } else {
+        const script = $("script:containsData(url)").html() || "";
+        const m = script.match(/var url = '([^']*)'/);
+        link = m ? m[1] : "";
+      }
+      if (!link.startsWith("https://"))
+        link = baseUrl + link;
+      const videoPageHtml = yield fetchText(link, { headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: baseUrl }) });
+      const $video = import_cheerio_without_node_native.default.load(videoPageHtml);
+      const header = $video("div.card-header").text() || "";
+      const size = $video("i#size").text() || "";
+      const quality = header || extractQuality(link);
+      const buttons = $video("h2 a.btn").get();
+      for (const el of buttons) {
+        const a = $video(el);
         const text = a.text();
-        if (href && href.includes("vcloud") && (text.includes("V-Cloud") || text.includes("Episode") || text.includes("Download"))) {
+        const href = a.attr("href");
+        if (!href)
+          continue;
+        let streamUrl = href;
+        let serverName = "";
+        if (text.includes("FSL Server"))
+          serverName = "[FSL Server]";
+        else if (text.includes("FSLv2"))
+          serverName = "[FSLv2]";
+        else if (text.includes("Mega Server"))
+          serverName = "[Mega]";
+        else if (text.includes("Download File"))
+          serverName = "[Download]";
+        else if (text.includes("BuzzServer")) {
+          serverName = "[BuzzServer]";
+          try {
+            const res = yield fetch(`${href}/download`, {
+              headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: href }),
+              redirect: "manual"
+            });
+            const dlink = res.headers.get("hx-redirect");
+            if (dlink)
+              streamUrl = getBaseUrl(href) + dlink;
+          } catch (e) {
+          }
+        } else if (href.includes("pixeldra")) {
+          streamUrl = href.includes("download") ? href : `${getBaseUrl(href)}/api/file/${href.split("/").pop()}?download`;
+          serverName = "[Pixeldrain]";
+        } else if (text.includes("10Gbps")) {
+          serverName = "[10Gbps]";
+          const redirectUrl = yield resolveRedirects(href);
+          if (redirectUrl) {
+            streamUrl = redirectUrl.includes("link=") ? redirectUrl.split("link=")[1] : redirectUrl;
+          }
+        } else
+          continue;
+        if (streamUrl) {
           streams.push({
-            name: `VCloud ${extractQuality(href)}`,
-            title: `VCloud`,
-            url: href,
-            quality: extractQuality(href),
+            name: `VCloud${serverName} ${header}[${size}]`,
+            title: `VCloud${serverName}`,
+            url: streamUrl,
+            quality,
             headers: __spreadProps(__spreadValues({}, HEADERS), { Referer: "https://vcloud.su/" })
           });
         }
-      });
+      }
     } catch (e) {
       console.log(`[VCloud] Error: ${e.message}`);
     }
     return streams;
   });
 }
-function extractStreams(tmdbId, mediaType, season, episode) {
+function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     var _a;
     console.log(`[VegaMovies] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
@@ -277,16 +358,4 @@ function extractStreams(tmdbId, mediaType, season, episode) {
 }
 
 // src/vegamovies/index.js
-function getStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    try {
-      console.log(`[VegaMovies] Request: ${mediaType} ${tmdbId}`);
-      const streams = yield extractStreams(tmdbId, mediaType, season, episode);
-      return streams;
-    } catch (error) {
-      console.error(`[VegaMovies] Error: ${error.message}`);
-      return [];
-    }
-  });
-}
 module.exports = { getStreams };

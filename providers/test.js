@@ -1,10 +1,8 @@
 /**
  * lordflix - Built from src/lordflix/
- * Generated: 2026-05-10T21:39:10.120Z
+ * Generated: 2026-05-10T21:52:03.580Z
  */
 var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getOwnPropSymbols = Object.getOwnPropertySymbols;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __propIsEnum = Object.prototype.propertyIsEnumerable;
@@ -20,19 +18,6 @@ var __spreadValues = (a, b) => {
     }
   return a;
 };
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
@@ -53,13 +38,6 @@ var __async = (__this, __arguments, generator) => {
     step((generator = generator.apply(__this, __arguments)).next());
   });
 };
-
-// src/lordflix/index.js
-var lordflix_exports = {};
-__export(lordflix_exports, {
-  default: () => lordflix_default
-});
-module.exports = __toCommonJS(lordflix_exports);
 
 // src/lordflix/http.js
 var HEADERS = {
@@ -166,6 +144,7 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
               name: `Lordflix[${server}]`,
               title: `Lordflix[${server}]`,
               url: topStream.playlist,
+              quality: "Auto",
               type: "m3u8",
               headers: HEADERS
             });
@@ -181,8 +160,4 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
 }
 
 // src/lordflix/index.js
-var lordflix_default = {
-  name: "Lordflix",
-  description: "Decrypt cascading layered proxy sources for Lordflix stream relay.",
-  getStreams
-};
+module.exports = { getStreams };

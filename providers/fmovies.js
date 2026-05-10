@@ -1,87 +1,93 @@
 const COMMON_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
-    "Accept-Language": "en-GB,en-US;q=0.9",
+    "Accept": "*/*",
+    "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
     "X-Requested-With": "XMLHttpRequest",
-    "Connection": "keep-alive",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin",
+    "Connection": "keep-alive"
 };
 
-function getStreams(tmdbId, mediaType, season, episode) {
-    const isShow = mediaType === "tv";
-    const searchBase = isShow ? "shows" : "movies";
+async function getTitleFromTmdb(tmdbId, mediaType) {
+    const type = mediaType === 'tv' ? 'tv' : 'movie';
+    const url = `https://www.themoviedb.org/${type}/${tmdbId}`;
+    const res = await fetch(url, { headers: { "User-Agent": COMMON_HEADERS["User-Agent"] } });
+    const html = await res.text();
+    const match = html.match(/<title>([^<]+?)(?:\s+\(\d{4}\))?\s+-\s+The Movie Database/);
+    return match ? match[1].trim() : "";
+}
 
-    // 1. Get Title from TMDB
-    const tmdbUrl = `https://www.themoviedb.org/${mediaType}/${tmdbId}`;
-    
-    return fetch(tmdbUrl, { headers: { "User-Agent": COMMON_HEADERS["User-Agent"] } })
-        .then(res => res.text())
-        .then(html => {
-            const titleMatch = html.match(/<title>([^<]+?)(?:\s+\(\d{4}\))?\s+-\s+The Movie Database/);
-            if (!titleMatch) throw new Error("TMDB_ERR");
-            const query = encodeURIComponent(titleMatch[1].trim());
+async function getStreams(tmdbId, mediaType, season, episode) {
+    try {
+        const title = await getTitleFromTmdb(tmdbId, mediaType);
+        if (!title) return [];
 
-            // 2. Search LookMovie
-            const searchUrl = `https://www.lookmovie2.to/api/v1/${searchBase}/do-search/?q=${query}`;
-            return fetch(searchUrl, { headers: COMMON_HEADERS });
-        })
-        .then(res => res.json())
-        .then(searchJson => {
-            const results = searchJson.result || searchJson;
-            if (!results || !results[0]) return [];
-            const slug = results[0].slug;
+        const searchBase = mediaType === "tv" ? "shows" : "movies";
+        const query = encodeURIComponent(title);
 
-            // 3. Visit Play Page to get Hash/Expires/Cookie
-            const pageUrl = `https://www.lookmovie2.to/${searchBase}/play/${slug}`;
-            return fetch(pageUrl, { headers: { ...COMMON_HEADERS, "Sec-Fetch-Dest": "document" } })
-                .then(res => {
-                    const cookies = res.headers.get('set-cookie') || "";
-                    return res.text().then(text => ({ text, cookies, pageUrl }));
-                });
-        })
-        .then(({ text, cookies, pageUrl }) => {
-            const hash = (text.match(/hash:\s*["']([^"']+)["']/) || [])[1];
-            const expires = (text.match(/expires:\s*(\d+)/) || [])[1];
-            if (!hash || !expires) throw new Error("TOKEN_ERR");
-
-            let targetId = "";
-            if (!isShow) {
-                targetId = (text.match(/id_movie:\s*(\d+)/) || [])[1];
-            } else {
-                const epBlock = text.match(new RegExp(`{[^{}]*season:\\s*${season}[^{}]*episode:\\s*${episode}[^{}]*id_episode:\\s*(\\d+)[^{}]*}`, 'g'));
-                if (epBlock) targetId = epBlock[0].match(/id_episode:\s*(\d+)/)[1];
-            }
-
-            if (!targetId) throw new Error("ID_ERR");
-
-            const endpoint = isShow ? `episode-access?id_episode=${targetId}` : `movie-access?id_movie=${targetId}`;
-            const apiUrl = `https://www.lookmovie2.to/api/v1/security/${endpoint}&hash=${hash}&expires=${expires}`;
-
-            // 4. Final API Call
-            return fetch(apiUrl, {
-                headers: {
-                    ...COMMON_HEADERS,
-                    "Referer": pageUrl,
-                    "Cookie": cookies.split(',').map(c => c.split(';')[0]).join('; ')
-                }
-            });
-        })
-        .then(res => res.json())
-        .then(json => {
-            if (!json.success || !json.streams) return [];
-            
-            return Object.keys(json.streams)
-                .filter(res => json.streams[res])
-                .map(res => ({
-                    name: "LookMovie2",
-                    title: `LookMovie • ${res}p`,
-                    url: json.streams[res],
-                    quality: res + 'p',
-                    headers: { "User-Agent": COMMON_HEADERS["User-Agent"], "Referer": "https://www.lookmovie2.to/" }
-                })).reverse();
-        })
-        .catch(err => {
-            console.error(`[LM2 Error]: ${err.message}`);
-            return [];
+        // 1. Search for the ID/Slug
+        const searchRes = await fetch(`https://www.lookmovie2.to/api/v1/${searchBase}/do-search/?q=${query}`, { 
+            headers: COMMON_HEADERS 
         });
+        const searchData = await searchRes.json();
+        const item = (searchData.result || searchData)[0];
+        if (!item) return [];
+
+        // 2. Get the Play Page HTML to extract the Hash and Session
+        const playUrl = `https://www.lookmovie2.to/${searchBase}/play/${item.slug}`;
+        const pageRes = await fetch(playUrl, { headers: COMMON_HEADERS });
+        const html = await pageRes.text();
+        const cookies = pageRes.headers.get('set-cookie') || "";
+
+        // 3. Precise Extraction based on your screenshots
+        const hash = (html.match(/hash:\s*["']([^"']+)["']/) || [])[1];
+        const expires = (html.match(/expires:\s*(\d+)/) || [])[1];
+        
+        let targetId = "";
+        if (mediaType === "tv") {
+            // Regex to find the specific episode ID in the JS config block
+            const epRegex = new RegExp(`id_episode:\\s*(\\d+)[^}]*season:\\s*${season}[^}]*episode:\\s*${episode}`, 's');
+            targetId = (html.match(epRegex) || [])[1];
+        } else {
+            targetId = (html.match(/id_movie:\s*(\d+)/) || [])[1];
+        }
+
+        if (!hash || !targetId) return [];
+
+        // 4. Request the actual stream links
+        const endpoint = mediaType === "tv" ? `episode-access?id_episode=${targetId}` : `movie-access?id_movie=${targetId}`;
+        const apiUrl = `https://www.lookmovie2.to/api/v1/security/${endpoint}&hash=${hash}&expires=${expires}`;
+
+        const streamRes = await fetch(apiUrl, {
+            headers: {
+                ...COMMON_HEADERS,
+                "Referer": playUrl,
+                "Cookie": cookies.split(',').map(c => c.split(';')[0]).join('; ')
+            }
+        });
+
+        const streamData = await streamRes.json();
+        if (!streamData.success || !streamData.streams) return [];
+
+        // 5. Map the streams (handling the nulls seen in your screenshot)
+        return Object.keys(streamData.streams)
+            .filter(res => streamData.streams[res] !== null) 
+            .map(res => ({
+                name: "LookMovie2",
+                title: `LookMovie • ${res}${res.endsWith('p') ? '' : 'p'}`,
+                url: streamData.streams[res],
+                quality: res.endsWith('p') ? res : res + 'p',
+                headers: {
+                    "User-Agent": COMMON_HEADERS["User-Agent"],
+                    "Referer": "https://www.lookmovie2.to/",
+                    "Origin": "https://www.lookmovie2.to"
+                }
+            })).reverse();
+
+    } catch (err) {
+        console.error("LookMovie2 Error: ", err);
+        return [];
+    }
 }
 
 module.exports = { getStreams };

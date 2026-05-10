@@ -1,110 +1,188 @@
 /**
- * Hashhackers - Pure Promise Version (Official TMDB API)
+ * lordflix - Built from src/lordflix/
+ * Generated: 2026-05-10T21:39:10.120Z
  */
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
 
-function fetchJson(url, options) {
-    console.log("[Hashhackers] Fetching: " + url);
-    return fetch(url, options || {}).then(function(res) {
-        if (!res.ok) {
-            console.error("[Hashhackers] HTTP Error: " + res.status + " for " + url);
-            throw new Error("HTTP " + res.status);
+// src/lordflix/index.js
+var lordflix_exports = {};
+__export(lordflix_exports, {
+  default: () => lordflix_default
+});
+module.exports = __toCommonJS(lordflix_exports);
+
+// src/lordflix/http.js
+var HEADERS = {
+  "Accept": "*/*",
+  "Origin": "https://lordflix.org",
+  "Referer": "https://lordflix.org/",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+};
+var TMDB_API_KEY = "d2c5a27beedf492e5483163d0f6c5870";
+var TMDB_BASE_URL = "https://api.themoviedb.org/3";
+var LORDFLIX_API = "https://network.hasta-la-vista.site";
+var MULTI_DECRYPT_API = "https://enc-dec.app/api";
+function fetchText(_0) {
+  return __async(this, arguments, function* (url, options = {}) {
+    const response = yield fetch(url, __spreadValues({
+      headers: __spreadValues(__spreadValues({}, HEADERS), options.headers || {})
+    }, options));
+    if (!response.ok)
+      throw new Error(`HTTP error ${response.status}`);
+    return yield response.text();
+  });
+}
+function fetchJson(_0) {
+  return __async(this, arguments, function* (url, options = {}) {
+    const raw = yield fetchText(url, options);
+    return JSON.parse(raw);
+  });
+}
+function getTMDBDetails(tmdbId, mediaType) {
+  return __async(this, null, function* () {
+    var _a, _b;
+    const endpoint = mediaType === "tv" ? "tv" : "movie";
+    const url = `${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+    const response = yield fetch(url, { headers: { "Accept": "application/json" } });
+    if (!response.ok)
+      throw new Error(`TMDB API error`);
+    const data = yield response.json();
+    return {
+      title: mediaType === "tv" ? data.name : data.title,
+      year: ((_a = mediaType === "tv" ? data.first_air_date : data.release_date) == null ? void 0 : _a.split("-")[0]) || null,
+      imdbId: ((_b = data.external_ids) == null ? void 0 : _b.imdb_id) || null
+    };
+  });
+}
+
+// src/lordflix/extractor.js
+var SERVERS = [
+  "Berlin",
+  "Tokyo",
+  "Bogota",
+  "Oslo",
+  "Luna",
+  "LordFlix",
+  "Sakura",
+  "Rio",
+  "Ativa"
+];
+function encodeQuote(str) {
+  return encodeURIComponent(str).replace(/%20/g, "+").replace(/\+/g, "%20");
+}
+function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
+  return __async(this, null, function* () {
+    const streams = [];
+    try {
+      const info = yield getTMDBDetails(tmdbId, mediaType);
+      if (!info.title || !info.imdbId)
+        return streams;
+      const typeParam = mediaType === "tv" ? "series" : "movie";
+      const titleEnc = encodeQuote(info.title);
+      yield Promise.all(SERVERS.map((server) => __async(this, null, function* () {
+        try {
+          let serverUrl = `${LORDFLIX_API}/?title=${titleEnc}&type=${typeParam}&year=${info.year || ""}&imdb=${info.imdbId}&tmdb=${tmdbId}&server=${server}`;
+          if (mediaType === "tv") {
+            serverUrl += `&season=${seasonNum}&episode=${episodeNum}`;
+          }
+          const encBridgeUrl = `${MULTI_DECRYPT_API}/enc-lordflix?url=${encodeQuote(serverUrl)}`;
+          const encBridgeJson = yield fetchJson(encBridgeUrl);
+          if (!encBridgeJson || encBridgeJson.status !== 200 || !encBridgeJson.result)
+            return;
+          const proxyEncUrl = encBridgeJson.result.url;
+          const signature = encBridgeJson.result.sign;
+          if (!proxyEncUrl || !signature)
+            return;
+          const remoteEncData = yield fetchText(proxyEncUrl);
+          const decResponse = yield fetch(`${MULTI_DECRYPT_API}/dec-lordflix`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              text: remoteEncData,
+              sign: signature
+            })
+          });
+          if (!decResponse.ok)
+            return;
+          const finalJson = yield decResponse.json();
+          if (!finalJson || finalJson.status !== 200 || !finalJson.result || finalJson.result.error)
+            return;
+          const streamList = finalJson.result.stream;
+          if (!streamList || !Array.isArray(streamList) || streamList.length === 0)
+            return;
+          const topStream = streamList[0];
+          if (topStream.type === "hls" && topStream.playlist) {
+            streams.push({
+              name: `Lordflix[${server}]`,
+              title: `Lordflix[${server}]`,
+              url: topStream.playlist,
+              type: "m3u8",
+              headers: HEADERS
+            });
+          }
+        } catch (e) {
         }
-        return res.json();
-    }).catch(function(err) {
-        console.error("[Hashhackers] Fetch Failed: " + err.message);
-        throw err;
-    });
+      })));
+    } catch (err) {
+      console.error(`[Lordflix] Main Error:`, err.message);
+    }
+    return streams;
+  });
 }
 
-function getStreams(tmdbId, mediaType, season, episode) {
-    console.log("[Hashhackers] getStreams called for: " + tmdbId + " | Type: " + mediaType);
-    if (mediaType !== 'movie') return Promise.resolve([]);
-
-    // 1. Get TMDB info (Using Official TMDB API to avoid Cloudflare 403)
-    var isImdb = String(tmdbId).startsWith("tt");
-    var tmdbUrl = isImdb 
-        ? "https://api.themoviedb.org/3/find/" + tmdbId + "?api_key=1c29a5198ee1854bd5eb45dbe8d17d92&external_source=imdb_id&language=en-US"
-        : "https://api.themoviedb.org/3/movie/" + tmdbId + "?api_key=1c29a5198ee1854bd5eb45dbe8d17d92&language=en-US";
-
-    return fetchJson(tmdbUrl)
-        .then(function(tmdbData) {
-            // If it was an IMDb ID, data is inside an array. If TMDB ID, it is direct.
-            var movieData = isImdb ? (tmdbData.movie_results && tmdbData.movie_results[0]) : tmdbData;
-            
-            if (!movieData) {
-                console.error("[Hashhackers] No movie data found from TMDB");
-                return [];
-            }
-
-            console.log("[Hashhackers] TMDB Success: " + movieData.title);
-            var title = movieData.title;
-            var year = movieData.release_date ? movieData.release_date.split('-')[0] : '';
-            var query = encodeURIComponent((title + " " + year).trim());
-
-            // 2. Get Token from Vercel
-            return fetchJson("https://hashhackers.vercel.app/api/token")
-                .then(function(tokenData) {
-                    console.log("[Hashhackers] Token Fetched Successfully");
-                    var token = tokenData.token;
-                    if (!token) {
-                        console.error("[Hashhackers] No token returned!");
-                        return [];
-                    }
-
-                    var HASH_HEADERS = {
-                        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0.1 Mobile/15E148 Safari/604.1",
-                        "Accept": "*/*",
-                        "Accept-Language": "en-IN,en-US;q=0.9,en;q=0.8",
-                        "Authorization": "Bearer " + token,
-                        "Origin": "https://bollywood.eu.org",
-                        "Referer": "https://bollywood.eu.org/"
-                    };
-
-                    var searchUrl = "https://tga-hd.api.hashhackers.com/mix_media_files/search?q=" + query + "&page=1";
-                    
-                    // 3. Search Hashhackers
-                    return fetchJson(searchUrl, { headers: HASH_HEADERS })
-                        .then(function(searchData) {
-                            var files = searchData.files || [];
-                            console.log("[Hashhackers] Search Results Found: " + files.length);
-                            if (files.length === 0) return [];
-
-                            var topFiles = files.slice(0, 5);
-                            var streamPromises = topFiles.map(function(file) {
-                                
-                                // 4. Generate Links
-                                return fetchJson("https://tga-hd.api.hashhackers.com/genLink?type=mix_media&id=" + file.id, { headers: HASH_HEADERS })
-                                    .then(function(linkData) {
-                                        if (linkData.success && linkData.url) {
-                                            console.log("[Hashhackers] Link Generated for: " + file.file_name.substring(0, 15));
-                                            var quality = "Auto";
-                                            var fn = file.file_name.toLowerCase();
-                                            if (fn.includes("2160p") || fn.includes("4k")) quality = "4K";
-                                            else if (fn.includes("1080p")) quality = "1080p";
-                                            else if (fn.includes("720p")) quality = "720p";
-
-                                            return {
-                                                name: "GramCinema",
-                                                title: file.file_name.substring(0, 35) + "...",
-                                                url: linkData.url,
-                                                quality: quality
-                                            };
-                                        }
-                                        return null;
-                                    }).catch(function() { return null; });
-                            });
-
-                            return Promise.all(streamPromises).then(function(results) {
-                                var finalStreams = results.filter(function(r) { return r !== null; });
-                                console.log("[Hashhackers] Final Streams Sent to App: " + finalStreams.length);
-                                return finalStreams;
-                            });
-                        });
-                });
-        }).catch(function(error) {
-            console.error("[Hashhackers] Master Catch Error: " + error.message);
-            return [];
-        });
-}
-
-module.exports = { getStreams: getStreams };
+// src/lordflix/index.js
+var lordflix_default = {
+  name: "Lordflix",
+  description: "Decrypt cascading layered proxy sources for Lordflix stream relay.",
+  getStreams
+};

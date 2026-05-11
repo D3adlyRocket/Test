@@ -268,18 +268,26 @@ function buildMeta(meta, label, quality, size, tech, langHint) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
   
-  // 1. Title logic: Prioritize TMDB Series Title or Movie Title
-  var displayTitle = "Movie";
-  if (meta) {
-    // If it's a series, use seriesTitle, otherwise use movie title
-    displayTitle = meta.seriesTitle || meta.title || "Movie";
-    if (meta.year) {
-      displayTitle += " - " + meta.year;
-    }
+  // 1. IMPROVED Title Logic: Checks TMDB Meta, then the File Label
+  var displayTitle = "";
+  
+  if (meta && (meta.seriesTitle || meta.title)) {
+    // Priority 1: Use formal TMDB data if available
+    displayTitle = meta.seriesTitle || meta.title;
+    if (meta.year) displayTitle += " - " + meta.year;
+  } else {
+    // Priority 2: Fallback to cleaning the filename if meta is undefined
+    // Removes typical release groups and extensions for a cleaner look
+    displayTitle = cleanedLabel
+      .replace(/\.(mkv|mp4|m4v|avi)$/i, "")
+      .replace(/\b(2160p|1080p|720p|480p|WEB-DL|HDR|DoVi|HEVC|x265|x264|BluRay)\b.*/gi, "")
+      .replace(/[._]/g, " ")
+      .trim() || "Unknown Title";
   }
+  
   var line1 = "🎬 " + displayTitle;
   
-  // 2. Icon logic: Globe icon and Quality icon
+  // 2. Icons
   var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
   var lIcon = "🌍"; 
 
@@ -288,14 +296,13 @@ function buildMeta(meta, label, quality, size, tech, langHint) {
   if (size) line2Parts.push("💾 " + size);
   var line2 = line2Parts.join(" | ");
 
-  // 4. Line 3: Extension and Technical bits
+  // 4. Line 3: Extension and Tech Bits
   var extMatch = cleanedLabel.match(/\.(mkv|mp4|m4v|avi|mov)$/i);
   var extension = extMatch ? extMatch[1].toUpperCase() : "MKV";
   var techDetails = tech || "WEB-DL";
   var line3 = "🎞️ " + extension + " | ℹ️ " + techDetails;
 
   return {
-    // Header casing as 4KHDHub
     name: "4KHDHub | " + quality + (size ? " | " + size : ""),
     title: line1 + "\n" + line2 + "\n" + line3
   };

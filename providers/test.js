@@ -1,6 +1,6 @@
 /**
- * flixstream - Brute Force Provider
- * Bypasses the HTML scraping and targets the proxy directly
+ * flixstream - API Integration Fix
+ * Targets the specific /api/stream-links/ endpoint found in DevTools
  */
 
 var __async = (__this, __arguments, generator) => {
@@ -12,59 +12,80 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
+// Exact User-Agent from your screenshot
+var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
+
 async function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     var streams = [];
-    var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-
+    
     try {
-      // 1. We know the destination from your screenshot. 
-      // We attempt to fetch the direct mapping from VidLink's source helper.
-      var slug = mediaType === "movie" ? tmdbId : `${tmdbId}/${season}/${episode}`;
-      var helperUrl = `https://vidlink.pro/api/embed/source/${slug}`;
+      // 1. Construct the API URL found in your screenshot
+      var apiUrl = `https://www.flixstream.ca/api/stream-links/${tmdbId}?type=${mediaType}`;
+      if (mediaType === "tv") {
+          apiUrl += `&season=${season}&episode=${episode}`;
+      }
 
-      var resp = yield fetch(helperUrl, {
+      console.log("[FlixStream] Requesting internal API: " + apiUrl);
+
+      // 2. Fetch the actual link list from their API
+      var resp = yield fetch(apiUrl, {
         headers: {
           "User-Agent": USER_AGENT,
-          "Referer": "https://vidlink.pro/",
-          "Origin": "https://vidlink.pro"
+          "Referer": `https://www.flixstream.ca/watch/${tmdbId}?type=${mediaType}`,
+          "Accept": "*/*",
+          "X-Requested-With": "XMLHttpRequest"
         }
       });
 
       var data = yield resp.json();
 
-      if (data && data.sources) {
-        data.sources.forEach(src => {
-          streams.push({
-            name: "VidLink PRO (Direct)",
-            url: src.url, // THIS should be the storm.vodvidl.site link
-            title: "M3U8 Stream",
-            quality: "1080p",
-            headers: {
-              "User-Agent": USER_AGENT,
-              "Referer": "https://vidlink.pro/", // Based on your screenshot
-              "Origin": "https://vidlink.pro",   // Based on your screenshot
-              "Accept": "*/*"
-            }
-          });
+      // 3. If the API returns links, process them
+      if (data && Array.isArray(data)) {
+        data.forEach(item => {
+          // If it's a direct m3u8 link (like the 'storm' links you found)
+          if (item.url && item.url.includes("m3u8")) {
+            streams.push({
+              name: `FlixStream - ${item.name || 'Direct'}`,
+              url: item.url,
+              quality: "1080p",
+              headers: {
+                "Referer": "https://vidlink.pro/",
+                "Origin": "https://vidlink.pro",
+                "User-Agent": USER_AGENT
+              }
+            });
+          } else if (item.url) {
+            // If it's an embed URL, we try to return it in a way the player understands
+            streams.push({
+              name: `FlixStream - ${item.name || 'Embed'}`,
+              url: item.url,
+              quality: "HD",
+              headers: { "Referer": "https://www.flixstream.ca/", "User-Agent": USER_AGENT }
+            });
+          }
         });
       }
     } catch (e) {
-      // 2. If the API call fails, the site is likely using a 'v-token'.
-      // In this case, we return the VidLink URL but with the CORRECT headers 
-      // that might allow your TV player to handle the redirect itself.
+      console.log("[FlixStream] API Fetch failed: " + e.message);
+    }
+
+    // 4. Fallback Logic: Brute-force build the VidLink embed if the API returns nothing (2nd screenshot issue)
+    if (streams.length === 0) {
+      var fallbackUrl = mediaType === "movie" 
+        ? `https://vidlink.pro/movie/${tmdbId}` 
+        : `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`;
+
       streams.push({
-        name: "VidLink (External Player)",
-        url: `https://vidlink.pro/movie/${tmdbId}`,
+        name: "VidLink (Direct Embed)",
+        url: fallbackUrl,
         headers: {
-          "User-Agent": USER_AGENT,
           "Referer": "https://vidlink.pro/",
-          "Origin": "https://vidlink.pro"
+          "User-Agent": USER_AGENT
         }
       });
     }
 
-    // Filter out duplicates and return
     return streams;
   });
 }

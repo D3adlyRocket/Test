@@ -494,19 +494,19 @@ function getTmdbNames(tmdbId, mediaType) {
   return fetchJson(url).then(function(data) {
     var title = data.name || data.title || "";
     var original = data.original_name || data.original_title || title;
-    var alt = "";
-    var year = 0;
-    if (mediaType === "movie" && data.release_date) {
-      year = parseInt(String(data.release_date).split("-")[0], 10) || 0;
-    } else if (mediaType !== "movie" && data.first_air_date) {
-      year = parseInt(String(data.first_air_date).split("-")[0], 10) || 0;
+    var year = (data.release_date || data.first_air_date || "").split('-')[0];
+    
+    // Get Duration
+    var duration = "";
+    if (type === 'movie' && data.runtime) {
+        duration = data.runtime + ' min';
+    } else if (type === 'tv' && data.episode_run_time && data.episode_run_time.length > 0) {
+        duration = data.episode_run_time[0] + ' min';
     }
-    if (original && (original.indexOf(":") !== -1 || / and /i.test(original))) {
-      alt = original.split(":")[0].split(/ and /i)[0].trim();
-    }
-    return { title: title, original: original, alt: alt, year: year };
+
+    return { title: title, original: original, year: year, duration: duration };
   }).catch(function() {
-    return { title: "", original: "", alt: "", year: 0 };
+    return { title: "", original: "", year: "", duration: "" };
   });
 }
 
@@ -1172,25 +1172,26 @@ function findContentUrl(tmdbId, mediaType) {
   return getTmdbNames(tmdbId, mediaType).then(function(names) {
     if (!names.title && !names.original) return null;
     return searchContent(names.title, mediaType, names.year).then(function(found) {
-      if (found) return found;
-      if (names.original && names.original !== names.title) {
+      var url = found;
+      if (!url && names.original && names.original !== names.title) {
         return searchContent(names.original, mediaType, names.year).then(function(found2) {
-          if (found2) return found2;
-          if (names.alt) return searchContent(names.alt, mediaType, names.year);
-          return null;
+          return { url: found2, meta: names };
         });
       }
-      if (names.alt) return searchContent(names.alt, mediaType, names.year);
-      return null;
+      return { url: url, meta: names };
     });
   });
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  return findContentUrl(tmdbId, mediaType).then(function(contentUrl) {
-    if (!contentUrl) return [];
-    return extractFromPage(contentUrl, mediaType, season, episode);
-  }).catch(function() { return []; });
+  return findContentUrl(tmdbId, mediaType).then(function(res) {
+    if (!res || !res.url) return [];
+    // Passes the metadata into the extraction phase
+    return extractFromPage(res.url, mediaType, season, episode, res.meta);
+  }).catch(function(e) { 
+    dbg("Error in getStreams:", e);
+    return []; 
+  });
 }
 
 module.exports = { getStreams: getStreams };

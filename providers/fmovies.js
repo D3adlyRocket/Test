@@ -1,105 +1,132 @@
-// MovieBox Scraper for Nuvio - Updated May 2026
-// Targets the REST v2 API for maximum stability
+'use strict';
 
-const TMDB_API_KEY = 'd131017ccc6e5462a81c9304d21476de';
-const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-// Updated to the newer REST API host identified in current mirrors
-const MOVIEBOX_API = "https://h5-api.aoneroom.com"; 
+// ─────────────────────────────────────────────────────────────────────────────
+// Config & Constants
+// ─────────────────────────────────────────────────────────────────────────────
+var TMDB_API_KEY = 'd131017ccc6e5462a81c9304d21476de';
+var MOVIEBOX_API = "https://h5.aoneroom.com";
+var TAG = '[MovieBox Multi]';
 
-const BASE_HEADERS = {
+var BASE_HEADERS = {
+    "X-Client-Info": '{"timezone":"Africa/Nairobi"}',
     "Accept": "application/json",
-    "Accept-Language": "en-US,en;q=0.5",
-    "X-Client-Info": '{"timezone":"Africa/Nairobi","platform":"web"}',
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Origin": "https://fmoviesunblocked.net",
-    "Referer": "https://h5.aoneroom.com/"
+    "Referer": MOVIEBOX_API + "/",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 };
 
-// Precise data unwrapper to handle MovieBox's deep nesting
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
 function unwrap(json) {
     if (!json) return {};
-    let d = json.data || json;
-    if (d.data) d = d.data;
-    return d;
+    var data = json.data || json;
+    return data.data || data;
 }
 
-async function fetchTmdbDetails(tmdbId, mediaType) {
-    const type = mediaType === 'tv' ? 'tv' : 'movie';
-    const url = `${TMDB_BASE_URL}/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+async function getTMDBTitle(id, type) {
+    var url = "https://api.themoviedb.org/3/" + (type === 'tv' ? 'tv' : 'movie') + "/" + id + "?api_key=" + TMDB_API_KEY;
     try {
-        const res = await fetch(url);
-        const data = await res.json();
-        return {
-            title: data.title || data.name,
-            year: (data.release_date || data.first_air_date || '').substring(0, 4)
-        };
-    } catch (e) { return null; }
+        var res = await fetch(url);
+        var data = await res.json();
+        return data.title || data.name || '';
+    } catch (e) { return ''; }
 }
 
-async function getStreams(tmdbId, mediaType, seasonNum = 1, episodeNum = 1) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Extraction Logic
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function fetchStreamsForId(subjectId, language, season, episode, mediaTitle) {
+    var params = "subjectId=" + subjectId;
+    if (season) params += "&se=" + season + "&ep=" + episode;
+
+    var url = MOVIEBOX_API + "/wefeed-h5-bff/web/subject/download?" + params;
     try {
-        const details = await fetchTmdbDetails(tmdbId, mediaType);
-        if (!details) return [];
+        var res = await fetch(url, {
+            headers: Object.assign({}, BASE_HEADERS, { 
+                "Referer": "https://fmoviesunblocked.net/",
+                "Origin": "https://fmoviesunblocked.net"
+            })
+        });
+        var json = await res.json();
+        var data = unwrap(json);
+        var downloads = data.downloads || [];
 
-        // 1. Session Warm-up (Ensures the API treats the request as valid)
-        await fetch(`${MOVIEBOX_API}/wefeed-h5-bff/app/get-latest-app-pkgs?app_name=moviebox`, { headers: BASE_HEADERS }).catch(() => {});
+        return downloads.map(function(d) {
+            var q = (d.resolution || 720) + "p";
+            return {
+                name: "📺 MovieBox | " + q + " | " + language,
+                title: (mediaTitle || "MovieBox") + (season ? " S" + season + "E" + episode : "") + 
+                       "\n📺 " + q + "  🔊 " + language + "\nSource: H5 Direct",
+                url: d.url,
+                quality: q,
+                behaviorHints: { bingeGroup: 'moviebox' }
+            };
+        });
+    } catch (e) { return []; }
+}
 
-        // 2. Search using the REST v2 endpoint
-        const searchResp = await fetch(`${MOVIEBOX_API}/wefeed-h5-bff/web/subject/search`, {
+// ─────────────────────────────────────────────────────────────────────────────
+// Main getStreams Export
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function getStreams(tmdbId, type, season, episode) {
+    var mediaType = (type === 'series' || type === 'tv') ? 'tv' : 'movie';
+    var se = mediaType === 'tv' ? (season ? parseInt(season) : 1) : null;
+    var ep = mediaType === 'tv' ? (episode ? parseInt(episode) : 1) : null;
+
+    console.log(TAG + " Searching TMDB ID: " + tmdbId);
+
+    var title = await getTMDBTitle(tmdbId, mediaType);
+    if (!title) return [];
+
+    try {
+        // 1. Session Handshake (required by H5 API)
+        await fetch(MOVIEBOX_API + "/wefeed-h5-bff/app/get-latest-app-pkgs?app_name=moviebox", { headers: BASE_HEADERS }).catch(() => {});
+
+        // 2. Search for all versions (Multi-lang)
+        var searchResp = await fetch(MOVIEBOX_API + "/wefeed-h5-bff/web/subject/search", {
             method: "POST",
-            headers: { ...BASE_HEADERS, "Content-Type": "application/json" },
+            headers: Object.assign({}, BASE_HEADERS, { "Content-Type": "application/json" }),
             body: JSON.stringify({
-                keyword: details.title,
+                keyword: title,
                 page: 1,
-                perPage: 20,
+                perPage: 15,
                 subjectType: mediaType === "tv" ? 2 : 1
             })
         });
 
-        const searchJson = await searchResp.json();
-        const searchData = unwrap(searchJson);
-        const items = searchData.items || searchData.list || [];
-
-        // 3. Title Matching Logic
-        const cleanTarget = details.title.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const match = items.find(item => {
-            const cleanItem = (item.title || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+        var searchJson = await searchResp.json();
+        var items = unwrap(searchJson).items || [];
+        
+        // 3. Filter items that match the title exactly or closely
+        var cleanTarget = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+        var matchedItems = items.filter(function(item) {
+            var itemTitle = (item.title || "").toLowerCase().replace(/\sS\d+.*/, "");
+            var cleanItem = itemTitle.replace(/[^a-z0-9]/g, '');
             return cleanItem.includes(cleanTarget) || cleanTarget.includes(cleanItem);
         });
 
-        if (!match) return [];
+        if (matchedItems.length === 0) return [];
 
-        // 4. Source Extraction (Download Endpoint)
-        let params = `subjectId=${match.subjectId}`;
-        if (mediaType === "tv") {
-            params += `&se=${seasonNum}&ep=${episodeNum}`;
-        }
-
-        const sourceResp = await fetch(`${MOVIEBOX_API}/wefeed-h5-bff/web/subject/download?${params}`, {
-            headers: {
-                ...BASE_HEADERS,
-                "Referer": "https://fmoviesunblocked.net/", // Critical for file access
-            }
+        // 4. Fetch streams for ALL matched languages (Hindi, Tamil, Original, etc.)
+        var allStreamPromises = matchedItems.map(function(item) {
+            var langMatch = item.title.match(/\[([^\]]+)\]/);
+            var lang = langMatch ? langMatch[1] : "Original";
+            return fetchStreamsForId(item.subjectId, lang, se, ep, title);
         });
 
-        const sourceJson = await sourceResp.json();
-        const sourceData = unwrap(sourceJson);
-        const downloads = sourceData.downloads || [];
+        var results = await Promise.all(allStreamPromises);
+        var flatResults = results.flat();
 
-        return downloads.map(d => ({
-            name: `MovieBox • ${match.title.includes('[') ? match.title.split('[')[1].split(']')[0] : 'Original'}`,
-            title: `${d.resolution || 720}p`,
-            url: d.url,
-            quality: `${d.resolution || 720}p`,
-            headers: {
-                "Referer": "https://fmoviesunblocked.net/",
-                "Origin": "https://fmoviesunblocked.net",
-                "User-Agent": BASE_HEADERS["User-Agent"]
-            }
-        }));
+        // 5. Sort by Quality
+        return flatResults.sort(function(a, b) {
+            return parseInt(b.quality) - parseInt(a.quality);
+        });
 
-    } catch (err) {
-        console.error("[MovieBox Error]", err);
+    } catch (e) {
+        console.error(TAG + " Error: " + e.message);
         return [];
     }
 }

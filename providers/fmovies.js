@@ -260,45 +260,59 @@ function rebuildMetaFromFinal(url, fallbackLabel) {
   };
 }
 
-function buildMeta(label, quality, size, tech, langHint) {
+function buildMeta(meta, label, quality, size, tech, langHint, epName) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
-  var parts = [];
-  if (quality && quality !== "Auto") parts.push(quality);
-  if (lang) parts.push(lang);
-  if (size) parts.push(size);
-  if (tech) parts.push(tech);
-  var nameParts = [PROVIDER_NAME];
-  if (quality && quality !== "Auto") nameParts.push(quality);
-  if (size) nameParts.push(size);
+  
+  // Icons Logic
+  var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
+  var lIcon = (lang.indexOf('Hindi') !== -1) ? '🇮🇳' : (lang === 'English' || lang === 'EN' ? '🇺🇸' : '🌍');
+
+  // --- LINE 1: Identity ---
+  var line1 = '🎬 ';
+  if (/^S\d+\s*E\d+/i.test(cleanedLabel)) {
+      var seMatch = cleanedLabel.match(/^S\d+\s*E\d+/i)[0];
+      line1 += seMatch + (epName ? ' - ' + epName : '') + ' | ' + meta.title;
+  } else {
+      line1 += meta.title + (meta.year ? ' - ' + meta.year : '');
+  }
+
+  // --- LINE 2: Tech Specs ---
+  var line2Parts = [
+    qIcon + ' ' + quality,
+    lIcon + ' ' + lang
+  ];
+  if (size) line2Parts.push('💾 ' + size);
+  if (meta.duration) line2Parts.push('⏱️ ' + meta.duration);
+  var line2 = line2Parts.join(' | ');
+
+  // --- LINE 3: Extra Info (Format/Tech) ---
+  var line3 = '🎞️ ' + (tech || 'WEB-DL');
+
   return {
-    name: nameParts.join(" | "),
-    title: (/^S\d+\s*E\d+/i.test(cleanedLabel) ? cleanedLabel + " | " : "") + (parts.join(" | ") || "Stream")
+    name: PROVIDER_NAME + " | " + quality + (size ? " | " + size : ""),
+    title: line1 + '\n' + line2 + '\n' + line3
   };
 }
 
-function buildStream(label, url, quality, headers, size, tech, langHint) {
+function buildStream(meta, label, url, quality, headers, size, tech, langHint, epName) {
   var finalUrl = String(url || "").trim();
-  dbg("[buildStream] FINAL URL:", finalUrl);
-
   var rebuilt = rebuildMetaFromFinal(finalUrl, label);
   var finalQuality = rebuilt.quality !== "Auto" ? rebuilt.quality : (quality || "Auto");
   var finalSize = rebuilt.size || size || extractSize(label);
   var finalTech = rebuilt.tech || tech || cleanTech(label);
-  var cleanedLabel = cleanLabelText(label);
-  var meta = buildMeta(cleanedLabel, finalQuality, finalSize, finalTech, langHint);
+  
+  // Call the updated buildMeta
+  var ui = buildMeta(meta, label, finalQuality, finalSize, finalTech, langHint, epName);
 
   var streamHeaders = headers || {};
   if (finalUrl.indexOf(".workers.dev") !== -1) {
-      streamHeaders = {
-          "Referer": "https://gamerxyt.com/",
-          "User-Agent": DEFAULT_HEADERS["User-Agent"]
-      };
+      streamHeaders = { "Referer": "https://gamerxyt.com/", "User-Agent": DEFAULT_HEADERS["User-Agent"] };
   }
 
   return {
-    name: meta.name,
-    title: meta.title,
+    name: ui.name,
+    title: ui.title,
     url: finalUrl,
     quality: finalQuality,
     headers: Object.keys(streamHeaders).length ? streamHeaders : undefined,
@@ -1136,43 +1150,20 @@ function extractLangHint(item) {
   return [item.fileTitle || "", item.label || "", item.rawHtml || ""].join(" ");
 }
 
-function extractFromPage(contentUrl, mediaType, season, episode) {
+function extractFromPage(contentUrl, mediaType, season, episode, meta) {
   return fetchText(contentUrl).then(function(html) {
     var $ = cheerio.load(html);
-    var hasEpisodeList = $("div.episodes-list, div.episodelist, ul.episodios, div.season-item").length > 0;
-    var isMoviePage = !hasEpisodeList;
-
-    dbg("[extractFromPage] URL:", contentUrl);
-    dbg("[extractFromPage] mediaType:", mediaType, "| isMoviePage:", isMoviePage);
-
-    var links = (mediaType === "movie" || isMoviePage)
-      ? collectMovieLinks($, contentUrl)
-      : collectEpisodeLinks($, contentUrl, season, episode);
-
-    dbg("[extractFromPage] Links collected:", links.length);
-    if (!links.length) return [];
-
-    links = sortLinksByPriority(links);
+    var links = (mediaType === "movie") ? collectMovieLinks($, contentUrl) : collectEpisodeLinks($, contentUrl, season, episode);
 
     return Promise.all(links.map(function(item) {
       var quality = extractCandidateQuality(item);
       var label = cleanLabelText(item.fileTitle || item.label || PROVIDER_NAME);
-      var langHint = extractLangHint(item);
-      return resolveLink(item.url, label, contentUrl, quality, langHint).catch(function(e) {
-        dbg("[extractFromPage] resolveLink FAILED:", item.url, "|", e.message || e);
-        return [];
-      });
+      // Pass 'meta' into the resolveLink function
+      return resolveLink(item.url, label, contentUrl, quality, extractLangHint(item), meta);
     })).then(function(groups) {
       var streams = [];
-      for (var i = 0; i < groups.length; i += 1) streams = streams.concat(groups[i] || []);
-      dbg("[extractFromPage] Pre-dedup streams:", streams.length);
-      streams.forEach(function(s, i) {
-        dbg("[extractFromPage] stream[" + i + "]:", s.title, "|", s.url);
-      });
-      streams = dedupeStreams(streams);
-      streams.sort(function(a, b) { return hostConfidence(b.url) - hostConfidence(a.url); });
-      dbg("[extractFromPage] Final streams:", streams.length);
-      return streams;
+      for (var i = 0; i < groups.length; i++) streams = streams.concat(groups[i] || []);
+      return dedupeStreams(streams).sort(function(a, b) { return hostConfidence(b.url) - hostConfidence(a.url); });
     });
   });
 }

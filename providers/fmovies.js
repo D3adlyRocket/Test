@@ -293,24 +293,30 @@ function buildMeta(meta, label, quality, size, tech, langHint) {
   };
 }
 
-function buildStream(label, url, quality, headers, size, tech, langHint) {
+function buildStream(meta, label, url, quality, headers, size, tech, langHint) {
   var finalUrl = String(url || "").trim();
-  dbg("[buildStream] FINAL URL:", finalUrl);
-
   var rebuilt = rebuildMetaFromFinal(finalUrl, label);
   var finalQuality = rebuilt.quality !== "Auto" ? rebuilt.quality : (quality || "Auto");
   var finalSize = rebuilt.size || size || extractSize(label);
   var finalTech = rebuilt.tech || tech || cleanTech(label);
-  var cleanedLabel = cleanLabelText(label);
-  var meta = buildMeta(cleanedLabel, finalQuality, finalSize, finalTech, langHint);
+  
+  // Pass meta here
+  var ui = buildMeta(meta, label, finalQuality, finalSize, finalTech, langHint);
 
   var streamHeaders = headers || {};
   if (finalUrl.indexOf(".workers.dev") !== -1) {
-      streamHeaders = {
-          "Referer": "https://gamerxyt.com/",
-          "User-Agent": DEFAULT_HEADERS["User-Agent"]
-      };
+      streamHeaders = { "Referer": "https://gamerxyt.com/", "User-Agent": DEFAULT_HEADERS["User-Agent"] };
   }
+
+  return {
+    name: ui.name,
+    title: ui.title,
+    url: finalUrl,
+    quality: finalQuality,
+    headers: Object.keys(streamHeaders).length ? streamHeaders : undefined,
+    behaviorHints: { bingeGroup: "4khdhub-" + String(finalQuality || "auto").toLowerCase() }
+  };
+}
 
   return {
     name: meta.name,

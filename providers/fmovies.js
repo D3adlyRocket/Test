@@ -1,86 +1,67 @@
 'use strict';
 
-var WORKER_BASE = 'https://moviebox.s4nch1tt.workers.dev';
-var MOVIEBOX_API = "https://h5-api.aoneroom.com";
-var TMDB_KEY = 'd131017ccc6e5462a81c9304d21476de';
+// 1. We use a "Secret" public proxy that ISPs rarely block to bypass your VPN need
+const P = "https://api.allorigins.win/raw?url=";
+const MB = "https://h5-api.aoneroom.com";
+const TMDB_KEY = 'd131017ccc6e5462a81c9304d21476de';
 
 async function getStreams(tmdbId, type, season, episode) {
-    var mediaType = (type === 'series' || type === 'tv') ? 'tv' : 'movie';
-    var isTv = mediaType === 'tv';
-    var se = season ? parseInt(season) : 1;
-    var ep = episode ? parseInt(episode) : 1;
+    const isTv = (type === 'series' || type === 'tv');
+    const se = season ? parseInt(season) : 1;
+    const ep = episode ? parseInt(episode) : 1;
 
     try {
-        // 1. Get English Title from TMDB
-        var tmdbRes = await fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_KEY}`);
-        var tmdbData = await tmdbRes.json();
-        var title = tmdbData.title || tmdbData.name;
+        // Step 1: Get Title via Proxy
+        const tRes = await fetch(P + encodeURIComponent(`https://api.themoviedb.org/3/${isTv ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_KEY}`));
+        const tData = await tRes.json();
+        const title = tData.title || tData.name;
         if (!title) return [];
 
-        // 2. SEARCH via the Worker's proxy to find ALL versions (English, Hindi, etc.)
-        // We use the worker to "tunnel" a search request so your ISP doesn't block it
-        var searchUrl = `${MOVIEBOX_API}/wefeed-h5-bff/web/subject/search`;
-        var searchPayload = { keyword: title, page: 1, perPage: 15, subjectType: isTv ? 2 : 1 };
-        
-        var proxiedSearch = await fetch(WORKER_BASE + '/proxy?url=' + encodeURIComponent(searchUrl), {
+        // Step 2: Search via Proxy (This finds English, Hindi, everything)
+        const sUrl = `${MB}/wefeed-h5-bff/web/subject/search`;
+        const sRes = await fetch(P + encodeURIComponent(sUrl), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(searchPayload)
+            body: JSON.stringify({ keyword: title, page: 1, perPage: 15, subjectType: isTv ? 2 : 1 })
         });
-        
-        var searchJson = await proxiedSearch.json();
-        var items = (searchJson.data && (searchJson.data.items || searchJson.data.list)) || [];
+        const sData = await sRes.json();
+        const items = sData.data?.items || sData.data?.list || [];
 
-        // 3. Match items and pull streams for EVERY version found
-        var cleanTarget = title.toLowerCase().replace(/[^a-z0-9]/g, '');
-        var matchedItems = items.filter(i => {
-            var cleanItem = (i.title || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-            return cleanItem.includes(cleanTarget) || cleanTarget.includes(cleanItem);
-        });
+        // Step 3: Match results
+        const target = title.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const matches = items.filter(i => (i.title || "").toLowerCase().replace(/[^a-z0-9]/g, '').includes(target));
 
-        if (matchedItems.length === 0) return [];
+        const results = [];
+        for (const item of matches) {
+            // Step 4: Get Links via Proxy (Bypasses VPN/DNS block)
+            let dUrl = `${MB}/wefeed-h5-bff/web/subject/download?subjectId=${item.subjectId}`;
+            if (isTv) dUrl += `&se=${se}&ep=${ep}`;
 
-        var results = [];
-        for (var item of matchedItems) {
-            // 4. Get Download Links for each specific version via the Worker
-            var downloadUrl = `${MOVIEBOX_API}/wefeed-h5-bff/web/subject/download?subjectId=${item.subjectId}`;
-            if (isTv) downloadUrl += `&se=${se}&ep=${ep}`;
+            const dRes = await fetch(P + encodeURIComponent(dUrl));
+            const dJson = await dRes.json();
+            const downloads = dJson.data?.downloads || dJson.data?.data?.downloads || [];
 
-            var streamRes = await fetch(WORKER_BASE + '/proxy?url=' + encodeURIComponent(downloadUrl));
-            var streamJson = await streamRes.json();
-            var downloads = (streamJson.data && streamJson.data.downloads) || [];
-
-            // Detect Language Tag
-            var lang = "English/Original";
-            if (item.title.includes('[') && item.title.includes(']')) {
-                lang = item.title.match(/\[([^\]]+)\]/)[1];
-            }
+            let lang = item.title.includes('[') ? item.title.match(/\[(.*?)\]/)[1] : "Original/English";
 
             downloads.forEach(d => {
-                var q = (d.resolution || 720) + "p";
                 results.push({
-                    name: "📺 MovieBox | " + q + " | " + lang,
-                    title: item.title + "\n📺 " + q + "  🔊 " + lang + "\n(No VPN Required)",
-                    url: d.url.startsWith('http') ? (WORKER_BASE + '/proxy?url=' + encodeURIComponent(d.url)) : d.url,
-                    quality: q,
-                    behaviorHints: { bingeGroup: 'moviebox' }
+                    name: `📺 MovieBox | ${d.resolution}p | ${lang}`,
+                    title: `${item.title}\nQuality: ${d.resolution}p\nLanguage: ${lang}\n(No VPN Required)`,
+                    url: d.url, // The video file itself usually isn't blocked, just the API
+                    quality: `${d.resolution}p`,
+                    headers: { "Referer": "https://fmoviesunblocked.net/" }
                 });
             });
         }
 
-        // 5. Final Sort: English/Original first
+        // Sort: English first
         return results.sort((a, b) => {
-            var aIsEng = a.name.includes('English') || a.name.includes('Original');
-            var bIsEng = b.name.includes('English') || b.name.includes('Original');
-            if (aIsEng && !bIsEng) return -1;
-            if (!aIsEng && bIsEng) return 1;
-            return parseInt(b.quality) - parseInt(a.quality);
+            const aE = a.name.includes('Original') || a.name.includes('English');
+            const bE = b.name.includes('Original') || b.name.includes('English');
+            return aE === bE ? parseInt(b.quality) - parseInt(a.quality) : aE ? -1 : 1;
         });
 
-    } catch (e) {
-        console.error(e);
-        return [];
-    }
+    } catch (e) { return []; }
 }
 
 module.exports = { getStreams };

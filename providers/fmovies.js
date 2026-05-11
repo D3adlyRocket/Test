@@ -294,8 +294,7 @@ function buildMeta(meta, label, quality, size, tech, langHint) {
 
 function buildStream(label, url, quality, headers, size, tech, langHint, meta) {
   var finalUrl = String(url || "").trim();
- 
-    // Ensure meta exists so UI doesn't break
+  // Ensure meta exists so UI doesn't break
   var safeMeta = meta || { title: "Movie", year: "" };
 
   var rebuilt = rebuildMetaFromFinal(finalUrl, label);
@@ -307,7 +306,10 @@ function buildStream(label, url, quality, headers, size, tech, langHint, meta) {
 
   var streamHeaders = headers || {};
   if (finalUrl.indexOf(".workers.dev") !== -1) {
-      streamHeaders = { "Referer": "https://gamerxyt.com/", "User-Agent": DEFAULT_HEADERS["User-Agent"] };
+      streamHeaders = { 
+        "Referer": "https://gamerxyt.com/", 
+        "User-Agent": DEFAULT_HEADERS["User-Agent"] 
+      };
   }
 
   return {

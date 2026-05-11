@@ -260,41 +260,59 @@ function rebuildMetaFromFinal(url, fallbackLabel) {
   };
 }
 
-function buildMeta(label, quality, size, tech, langHint) {
+function buildMeta(meta, label, quality, size, tech, langHint) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
-  var parts = [];
-  if (quality && quality !== "Auto") parts.push(quality);
-  if (lang) parts.push(lang);
-  if (size) parts.push(size);
-  if (tech) parts.push(tech);
-  var nameParts = [PROVIDER_NAME];
-  if (quality && quality !== "Auto") nameParts.push(quality);
+  
+  // Icons logic
+  var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
+  var lIcon = (lang.indexOf('Hindi') !== -1) ? '🇮🇳' : (lang === 'English' || lang === 'EN' ? '🇺🇸' : '🌍');
+
+  // Line 1: Title and Year
+  var line1 = "🎬 " + meta.title + (meta.year ? " (" + meta.year + ")" : "");
+  
+  // Line 2: Quality | Lang | Size | Duration
+  var line2Parts = [qIcon + " " + quality, lIcon + " " + lang];
+  if (size) line2Parts.push("💾 " + size);
+  if (meta.duration) line2Parts.push("⏱️ " + meta.duration);
+  var line2 = line2Parts.join(" | ");
+
+  // Line 3: Technical Details/Source
+  var line3 = "🎞️ " + (tech || "WEB-DL") + " | " + cleanedLabel.substring(0, 30);
+
+  var nameParts = [PROVIDER_NAME, quality];
   if (size) nameParts.push(size);
+
   return {
     name: nameParts.join(" | "),
-    title: (/^S\d+\s*E\d+/i.test(cleanedLabel) ? cleanedLabel + " | " : "") + (parts.join(" | ") || "Stream")
+    title: line1 + "\n" + line2 + "\n" + line3
   };
 }
 
-function buildStream(label, url, quality, headers, size, tech, langHint) {
+function buildStream(meta, label, url, quality, headers, size, tech, langHint) {
   var finalUrl = String(url || "").trim();
-  dbg("[buildStream] FINAL URL:", finalUrl);
-
   var rebuilt = rebuildMetaFromFinal(finalUrl, label);
   var finalQuality = rebuilt.quality !== "Auto" ? rebuilt.quality : (quality || "Auto");
   var finalSize = rebuilt.size || size || extractSize(label);
   var finalTech = rebuilt.tech || tech || cleanTech(label);
-  var cleanedLabel = cleanLabelText(label);
-  var meta = buildMeta(cleanedLabel, finalQuality, finalSize, finalTech, langHint);
+  
+  // Pass meta here
+  var ui = buildMeta(meta, label, finalQuality, finalSize, finalTech, langHint);
 
   var streamHeaders = headers || {};
   if (finalUrl.indexOf(".workers.dev") !== -1) {
-      streamHeaders = {
-          "Referer": "https://gamerxyt.com/",
-          "User-Agent": DEFAULT_HEADERS["User-Agent"]
-      };
+      streamHeaders = { "Referer": "https://gamerxyt.com/", "User-Agent": DEFAULT_HEADERS["User-Agent"] };
   }
+
+  return {
+    name: ui.name,
+    title: ui.title,
+    url: finalUrl,
+    quality: finalQuality,
+    headers: Object.keys(streamHeaders).length ? streamHeaders : undefined,
+    behaviorHints: { bingeGroup: "4khdhub-" + String(finalQuality || "auto").toLowerCase() }
+  };
+}
 
   return {
     name: meta.name,
@@ -479,20 +497,16 @@ function getTmdbNames(tmdbId, mediaType) {
   var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
   return fetchJson(url).then(function(data) {
     var title = data.name || data.title || "";
-    var original = data.original_name || data.original_title || title;
-    var alt = "";
-    var year = 0;
-    if (mediaType === "movie" && data.release_date) {
-      year = parseInt(String(data.release_date).split("-")[0], 10) || 0;
-    } else if (mediaType !== "movie" && data.first_air_date) {
-      year = parseInt(String(data.first_air_date).split("-")[0], 10) || 0;
-    }
-    if (original && (original.indexOf(":") !== -1 || / and /i.test(original))) {
-      alt = original.split(":")[0].split(/ and /i)[0].trim();
-    }
-    return { title: title, original: original, alt: alt, year: year };
+    var year = (data.release_date || data.first_air_date || "").split("-")[0];
+    var duration = data.runtime ? data.runtime + "m" : "";
+    return { 
+      title: title, 
+      original: data.original_name || data.original_title || title, 
+      year: year, 
+      duration: duration 
+    };
   }).catch(function() {
-    return { title: "", original: "", alt: "", year: 0 };
+    return { title: "", original: "", year: "", duration: "" };
   });
 }
 
@@ -1136,7 +1150,8 @@ function extractLangHint(item) {
   return [item.fileTitle || "", item.label || "", item.rawHtml || ""].join(" ");
 }
 
-function extractFromPage(contentUrl, mediaType, season, episode) {
+// Add 'meta' to the function arguments
+function extractFromPage(contentUrl, mediaType, season, episode, meta) {
   return fetchText(contentUrl).then(function(html) {
     var $ = cheerio.load(html);
     var hasEpisodeList = $("div.episodes-list, div.episodelist, ul.episodios, div.season-item").length > 0;
@@ -1158,7 +1173,9 @@ function extractFromPage(contentUrl, mediaType, season, episode) {
       var quality = extractCandidateQuality(item);
       var label = cleanLabelText(item.fileTitle || item.label || PROVIDER_NAME);
       var langHint = extractLangHint(item);
-      return resolveLink(item.url, label, contentUrl, quality, langHint).catch(function(e) {
+      
+      // PASS 'meta' into resolveLink here
+      return resolveLink(item.url, label, contentUrl, quality, langHint, meta).catch(function(e) {
         dbg("[extractFromPage] resolveLink FAILED:", item.url, "|", e.message || e);
         return [];
       });
@@ -1166,9 +1183,7 @@ function extractFromPage(contentUrl, mediaType, season, episode) {
       var streams = [];
       for (var i = 0; i < groups.length; i += 1) streams = streams.concat(groups[i] || []);
       dbg("[extractFromPage] Pre-dedup streams:", streams.length);
-      streams.forEach(function(s, i) {
-        dbg("[extractFromPage] stream[" + i + "]:", s.title, "|", s.url);
-      });
+      
       streams = dedupeStreams(streams);
       streams.sort(function(a, b) { return hostConfidence(b.url) - hostConfidence(a.url); });
       dbg("[extractFromPage] Final streams:", streams.length);
@@ -1196,9 +1211,13 @@ function findContentUrl(tmdbId, mediaType) {
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  return findContentUrl(tmdbId, mediaType).then(function(contentUrl) {
-    if (!contentUrl) return [];
-    return extractFromPage(contentUrl, mediaType, season, episode);
+  return getTmdbNames(tmdbId, mediaType).then(function(meta) {
+    if (!meta.title) return [];
+    return findContentUrl(tmdbId, mediaType).then(function(contentUrl) {
+      if (!contentUrl) return [];
+      // Pass meta as the last argument
+      return extractFromPage(contentUrl, mediaType, season, episode, meta);
+    });
   }).catch(function() { return []; });
 }
 

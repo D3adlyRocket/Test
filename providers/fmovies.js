@@ -264,20 +264,32 @@ function rebuildMetaFromFinal(url, fallbackLabel) {
   };
 }
 
-function buildMeta(label, quality, size, tech, langHint) {
+function buildMeta(meta, label, quality, size, tech, langHint) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
-  var parts = [];
-  if (quality && quality !== "Auto") parts.push(quality);
-  if (lang) parts.push(lang);
-  if (size) parts.push(size);
-  if (tech) parts.push(tech);
-  var nameParts = [PROVIDER_NAME];
-  if (quality && quality !== "Auto") nameParts.push(quality);
+  
+  // Icons logic
+  var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
+  var lIcon = (lang.indexOf('Hindi') !== -1) ? '🇮🇳' : (lang === 'English' || lang === 'EN' ? '🇺🇸' : '🌍');
+
+  // Line 1: Title and Year
+  var line1 = "🎬 " + meta.title + (meta.year ? " (" + meta.year + ")" : "");
+  
+  // Line 2: Quality | Lang | Size | Duration
+  var line2Parts = [qIcon + " " + quality, lIcon + " " + lang];
+  if (size) line2Parts.push("💾 " + size);
+  if (meta.duration) line2Parts.push("⏱️ " + meta.duration);
+  var line2 = line2Parts.join(" | ");
+
+  // Line 3: Technical Details/Source
+  var line3 = "🎞️ " + (tech || "WEB-DL") + " | " + cleanedLabel.substring(0, 30);
+
+  var nameParts = [PROVIDER_NAME, quality];
   if (size) nameParts.push(size);
+
   return {
     name: nameParts.join(" | "),
-    title: (/^S\d+\s*E\d+/i.test(cleanedLabel) ? cleanedLabel + " | " : "") + (parts.join(" | ") || "Stream")
+    title: line1 + "\n" + line2 + "\n" + line3
   };
 }
 

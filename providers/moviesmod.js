@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Restored Folder Logic & Format Column
+// Dahmer Movies Scraper - Format Column Added (MKV/MP4/M3U8)
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -29,6 +29,7 @@ function parseLinks(html) {
             const href = linkMatch[1];
             const text = linkMatch[2].trim();
             const size = sizeMatch ? sizeMatch[1].trim() : 'N/A';
+
             if (text && href !== '../' && /\.(mkv|mp4|avi|webm|m3u8)$/i.test(text)) {
                 links.push({ text, href, size });
             }
@@ -39,15 +40,10 @@ function parseLinks(html) {
 
 async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const cleanTitle = title.replace(/:/g, '');
-    
-    // Using simple space-to-%20 replacement which is more reliable for this server
-    const folderName = season !== null ? cleanTitle : `${cleanTitle} (${year})`;
-    const safeFolderName = folderName.replace(/ /g, '%20').replace(/\(/g, '%28').replace(/\)/g, '%29');
-
     const folderVariants = season !== null ? [
-        `/tvs/${safeFolderName}/Season%20${season < 10 ? '0' + season : season}/`,
-        `/tvs/${safeFolderName}/Season%20${season}/`
-    ] : [`/movies/${safeFolderName}/`];
+        `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season < 10 ? '0' + season : season}/`,
+        `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season}/`
+    ] : [`/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`];
 
     let html = '';
     let activeDirUrl = '';
@@ -63,18 +59,9 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
     }
 
     if (!html) return [];
-    
     const paths = parseLinks(html);
-    
-    // Filter for TV episodes if needed
-    let filteredPaths = paths;
-    if (season !== null && episode !== null) {
-        const e = episode < 10 ? `0${episode}` : episode;
-        const pattern = new RegExp(`E${e}|E${episode}`, 'i');
-        filteredPaths = paths.filter(p => pattern.test(p.text));
-    }
 
-    const sortedPaths = filteredPaths.sort((a, b) => {
+    const sortedPaths = paths.sort((a, b) => {
         const a4k = /2160p|4k/i.test(a.text);
         const b4k = /2160p|4k/i.test(b.text);
         return b4k - a4k;
@@ -82,41 +69,64 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
     const results = [];
     for (const path of sortedPaths.slice(0, 5)) {
-        let directUrl = path.href.startsWith('http') ? path.href : activeDirUrl + path.href;
-        
-        // Ensure no double slashes and no messy encoding
+        let directUrl;
+        if (path.href.startsWith('http')) {
+            directUrl = path.href;
+        } else if (path.href.includes('/movies/') || path.href.includes('/tvs/')) {
+            directUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
+        } else {
+            directUrl = activeDirUrl + path.href;
+        }
+
         directUrl = directUrl.replace(/([^:]\/)\/+/g, "$1");
-        
-        // Build the worker URL by simply appending the raw direct URL
-        // This avoids the double-encoding 429 error on MP4s
-        const streamUrl = DAHMER_WORKER_API + directUrl;
+        directUrl = decodeURI(directUrl);
+        let streamUrl = DAHMER_WORKER_API + encodeURI(directUrl);
 
         const fileName = path.text;
         
-        // Language Logic
+        // 1. Language Logic
         let language = "Original"; 
-        if (/\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio|MULTI)\b/i.test(fileName)) language = "Multi Audio";
-        else if (/\b(Eng|English)\b/i.test(fileName)) language = "English";
+        const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio|MULTI)\b/i.test(fileName);
+        const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
+        const isEnglishTitle = /^[a-zA-Z0-9\s?!\-:]+$/.test(title);
 
-        // Format Logic
+        if (isMulti) language = "Multi Audio";
+        else if (isEnglishTitle && hasEngTag) language = "English";
+
+        // 2. Format Logic
         const formatMatch = fileName.match(/\.(mkv|mp4|m3u8|avi|webm)$/i);
         const fileFormat = formatMatch ? formatMatch[1].toUpperCase() : 'LINK';
-        
+
+        // 3. Technical Info
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
-        let info = fileName.replace(/\.(mkv|mp4|avi|webm|m3u8)$/i, '').replace(/[\[\]()._-]/g, ' ').replace(/\s+/g, ' ').trim();
+        // 4. Extra Info Parsing (Line 4)
+        const isHDR = /\b(HDR|HDR10|DV|Vision)\b/i.test(fileName) ? "HDR10+" : "";
+        const isDolby = /\b(DDP|Atmos|Dolby|AC3|5.1)\b/i.test(fileName) ? "Dolby" : "";
+        const source = fileName.match(/\b(Web-DL|WebRip|BluRay|BRRip|BDRip)\b/i)?.[0] || "Web DL";
+        const codec = fileName.match(/\b(H265|HEVC|x265|H264|x264)\b/i)?.[0] || "265 HEVC";
+        const extraLine = [isHDR, isDolby, source, codec].filter(Boolean).join(' • ');
+
+        // 5. Construct Multi-line Title
+        const line1 = `DahmerMovies - ${resolution.replace('p', '')}`;
+        const line2 = (season !== null) ? `S${season}E${episode} | ${title}` : `${title} (${year})`;
+        const line3 = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}`;
+        const line4 = extraLine;
 
         results.push({
             name: "DahmerMovies",
-            title: `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}  |  ℹ️ ${info}`,
+            title: `${line1}\n${line2}\n${line3}\n${line4}`,
             url: streamUrl,
             quality: resolution.toLowerCase(),
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Referer': DAHMER_MOVIES_API + '/',
-                'Connection': 'keep-alive'
-            }
+                'Connection': 'keep-alive',
+                'Accept': '*/*',
+                'Range': 'bytes=0-'
+            },
+            provider: "dahmermovies"
         });
     }
     return results;

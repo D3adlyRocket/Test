@@ -101,28 +101,28 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
-        // 4. Extra Info Parsing (Line 4)
-        // Extracts useful tags from the filename and joins them with •
+        // 4. Extra Info Parsing (Line 4) - Filters out Title/Year/Common words
         const extraInfo = fileName
-            .replace(/\.(mkv|mp4|avi|webm|m3u8)$/i, '') // Remove extension
-            .replace(new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '') // Remove title
-            .replace(new RegExp(year, 'g'), '') // Remove year
-            .split(/[.\[\]()\s_-]+/) // Split by common delimiters
+            .replace(/\.(mkv|mp4|avi|webm|m3u8)$/i, '') 
+            .replace(new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '') 
+            .replace(new RegExp(year, 'g'), '') 
+            .split(/[.\[\]()\s_-]+/) 
             .filter(tag => {
-                // Filter out common useless words or empty strings
                 const lower = tag.toLowerCase();
-                return tag.length > 2 && !['season', 'episode', 'movies', 'dahmer'].includes(lower);
+                // Remove empty tags and common metadata already shown in Line 3
+                return tag.length > 2 && 
+                       !['season', 'episode', 'movies', 'dahmer', resolution.toLowerCase(), '1080p', '720p', '2160p', '4k'].includes(lower);
             })
             .join(' • ');
 
         // 5. Construct Multi-line Title
         const header = `DahmerMovies - ${resolution.replace('p', '')}`;
-        const secondLine = (season !== null) ? `S${season}E${episode} | ${title}` : `${title} (${year})`;
+        const secondLine = (season !== null) ? `S${season}E${episode} - Episode Title | ${title}` : `${title} (${year})`;
         const thirdLine = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}`;
         const fourthLine = extraInfo;
 
         results.push({
-            name: "DahmerMovies",
+            name: "DahmerMovies", // This is the internal name, used for the provider label
             title: `${header}\n${secondLine}\n${thirdLine}\n${fourthLine}`,
             url: streamUrl,
             quality: resolution.toLowerCase(),

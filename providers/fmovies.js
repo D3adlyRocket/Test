@@ -1,6 +1,6 @@
 /**
- * xpass - Built from src/xpass/
- * Generated: 2026-05-11T13:43:18.800Z
+ * notorrent - Built from src/notorrent/
+ * Generated: 2026-05-11T13:43:18.799Z
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -23,136 +23,95 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// src/xpass/constants.js
-var XPASS_API = "https://play.xpass.top";
-var BASE_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Referer": `${XPASS_API}/`
-};
+// src/notorrent/constants.js
+var NOTORRENT_API = "https://addon-osvh.onrender.com";
+var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 
-// src/xpass/utils.js
-function generateM3u8(_0, _1) {
-  return __async(this, arguments, function* (streamName, masterUrl, headers = {}) {
+// src/notorrent/utils.js
+function getImdbId(tmdbId, mediaType) {
+  return __async(this, null, function* () {
+    var _a;
     try {
-      console.log(`[Xpass] Parsing master m3u8: ${masterUrl}`);
-      const resp = yield fetch(masterUrl, { headers });
-      const text = yield resp.text();
-      const baseUri = masterUrl.substring(0, masterUrl.lastIndexOf("/")) + "/";
-      const results = [];
-      const regex = /#EXT-X-STREAM-INF:.*?RESOLUTION=(\d+x\d+).*?\n([^\n]+)/g;
-      let match;
-      while ((match = regex.exec(text)) !== null) {
-        const res = match[1].split("x")[1] + "p";
-        let url = match[2].trim();
-        if (!url.startsWith("http")) {
-          if (url.startsWith("/")) {
-            const root = new URL(masterUrl).origin;
-            url = root + url;
-          } else {
-            url = baseUri + url;
-          }
-        }
-        results.push({
-          quality: res,
-          url
-        });
-      }
-      if (results.length === 0) {
-        return [{ quality: "Auto", url: masterUrl }];
-      }
-      return results;
-    } catch (err) {
-      console.warn(`[Xpass] Error parsing M3U8, returning master URL.`, err);
-      return [{ quality: "Auto", url: masterUrl }];
+      const type = mediaType === "tv" ? "tv" : "movie";
+      const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+      const response = yield fetch(url);
+      if (!response.ok)
+        return null;
+      const data = yield response.json();
+      return ((_a = data.external_ids) == null ? void 0 : _a.imdb_id) || null;
+    } catch (e) {
+      console.error(`[NoTorrent] Failed obtaining IMDB mapping:`, e.message);
+      return null;
     }
   });
 }
+function cleanText(str) {
+  if (!str)
+    return "";
+  return str.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "").trim();
+}
+function extractQuality(titleText) {
+  const raw = titleText || "";
+  const match = raw.match(/(\d{3,4}p)/);
+  if (match)
+    return match[0];
+  if (raw.toUpperCase().includes("FREE"))
+    return "Auto";
+  return "Unknown";
+}
 
-// src/xpass/index.js
+// src/notorrent/index.js
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
-    console.log(`[Xpass] Fetching streams for ${mediaType} ${tmdbId}`);
+    console.log(`[NoTorrent] Searching for ${mediaType} ${tmdbId}`);
     const streams = [];
     try {
-      const embedUrl = mediaType === "tv" ? `${XPASS_API}/e/tv/${tmdbId}/${season}/${episode}` : `${XPASS_API}/e/movie/${tmdbId}`;
-      console.log(`[Xpass] Navigating to Embed: ${embedUrl}`);
-      const resp = yield fetch(embedUrl, { headers: BASE_HEADERS });
-      const html = yield resp.text();
-      const backupsMatch = html.match(new RegExp("var backups\\s*=\\s*(\\[.*?\\])\\s*(?:;|<\\/script>)", "s"));
-      if (!backupsMatch) {
-        console.log(`[Xpass] No backups variable found in page source.`);
+      const imdbId = yield getImdbId(tmdbId, mediaType);
+      if (!imdbId) {
+        console.warn(`[NoTorrent] Failed to map IMDB ID.`);
         return [];
       }
-      let backups = [];
-      try {
-        backups = JSON.parse(backupsMatch[1]);
-      } catch (e) {
-        console.error(`[Xpass] Failed parsing backups JSON:`, e);
+      let apiUrl = `${NOTORRENT_API}/stream/movie/${imdbId}.json`;
+      if (mediaType === "tv" || season != null) {
+        apiUrl = `${NOTORRENT_API}/stream/series/${imdbId}:${season}:${episode}.json`;
+      }
+      const response = yield fetch(apiUrl);
+      if (!response.ok) {
+        console.warn(`[NoTorrent] API down or unreachable.`);
         return [];
       }
-      console.log(`[Xpass] Found ${backups.length} servers.`);
-      for (const backup of backups) {
-        try {
-          const serverName = backup.name || "Default";
-          let serverUrl = backup.url;
-          if (!serverUrl)
-            continue;
-          if (!serverUrl.startsWith("http")) {
-            serverUrl = XPASS_API + serverUrl;
-          }
-          console.log(`[Xpass] Fetching JSON from backup server: ${serverUrl}`);
-          const jsonResp = yield fetch(serverUrl, { headers: BASE_HEADERS });
-          const data = yield jsonResp.json();
-          const playlist = data.playlist || [];
-          if (playlist.length === 0)
-            continue;
-          const sources = playlist[0].sources || [];
-          for (const src of sources) {
-            const fileUrl = src.file;
-            if (!fileUrl || !fileUrl.startsWith("http"))
-              continue;
-            const isM3u8 = src.type && src.type.toLowerCase().includes("hls") || fileUrl.includes(".m3u8");
-            if (isM3u8) {
-              const variants = yield generateM3u8(serverName, fileUrl, BASE_HEADERS);
-              variants.forEach((v) => {
-                streams.push({
-                  name: serverName,
-                  title: v.quality,
-                  url: v.url,
-                  quality: v.quality,
-                  headers: {
-                    "Referer": `${XPASS_API}/`,
-                    "User-Agent": BASE_HEADERS["User-Agent"]
-                  },
-                  provider: "xpass"
-                });
-              });
-            } else {
-              streams.push({
-                name: serverName,
-                title: "Auto",
-                url: fileUrl,
-                quality: "Auto",
-                headers: {
-                  "Referer": `${XPASS_API}/`,
-                  "User-Agent": BASE_HEADERS["User-Agent"]
-                },
-                provider: "xpass"
-              });
-            }
-          }
-          if (streams.length > 0) {
-            console.log(`[Xpass] Found functional stream on ${serverName}, stopping search.`);
-            break;
-          }
-        } catch (srvErr) {
-          console.warn(`[Xpass] Failed querying server ${backup.name}:`, srvErr.message);
+      const data = yield response.json();
+      const rawList = data.streams || [];
+      rawList.forEach((item) => {
+        var _a, _b, _c;
+        if (item.externalUrl || !item.url)
+          return;
+        if (item.url.includes("github.com") || item.url.includes("googleusercontent"))
+          return;
+        const rawTitle = item.title || "";
+        const cleanTitleString = cleanText(rawTitle);
+        const quality = extractQuality(cleanTitleString);
+        let language = "Default";
+        const langMatch = cleanTitleString.match(/\(([^)]+)\)/);
+        if (langMatch) {
+          language = langMatch[1].charAt(0).toUpperCase() + langMatch[1].slice(1).toLowerCase();
         }
-      }
-    } catch (error) {
-      console.error(`[Xpass] Unexpected overall error:`, error.message);
+        const proxyHeaders = ((_b = (_a = item.behaviorHints) == null ? void 0 : _a.proxyHeaders) == null ? void 0 : _b.request) || {};
+        const headers = Object.assign({}, ((_c = item.behaviorHints) == null ? void 0 : _c.headers) || {}, proxyHeaders);
+        const nameParts = ["NoTorrent", language !== "Default" ? language : ""].filter((p) => p && p.trim() !== "");
+        streams.push({
+          name: nameParts.join(" \u2022 "),
+          title: quality,
+          url: item.url,
+          quality,
+          headers: Object.keys(headers).length > 0 ? headers : void 0,
+          provider: "notorrent"
+        });
+      });
+    } catch (e) {
+      console.error(`[NoTorrent] Fetch failed:`, e.message);
     }
-    console.log(`[Xpass] Returning ${streams.length} parsed streams.`);
+    console.log(`[NoTorrent] Total results found: ${streams.length}`);
     return streams;
   });
 }

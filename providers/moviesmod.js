@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Format Column Added (MKV/MP4/M3U8)
+// Dahmer Movies Scraper - Multi-line Fixed Layout
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -84,7 +84,6 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
 
         const fileName = path.text;
         
-        // 1. Language Logic
         let language = "Original"; 
         const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio|MULTI)\b/i.test(fileName);
         const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
@@ -93,36 +92,33 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
         if (isMulti) language = "Multi Audio";
         else if (isEnglishTitle && hasEngTag) language = "English";
 
-        // 2. Format Logic
         const formatMatch = fileName.match(/\.(mkv|mp4|m3u8|avi|webm)$/i);
         const fileFormat = formatMatch ? formatMatch[1].toUpperCase() : 'LINK';
 
-        // 3. Technical Info
         const resolutionMatch = fileName.match(/\b(2160p|1080p|720p|4k)\b/i);
         const resolution = resolutionMatch ? resolutionMatch[0] : '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
-        // 4. Extra Info Parsing (Line 4)
+        // 4th Line Logic: Create a "blacklist" of words to remove from the extra info line
+        const titleWords = title.toLowerCase().split(/\s+/);
         const extraInfo = fileName
             .replace(/\.(mkv|mp4|avi|webm|m3u8)$/i, '') 
-            .replace(new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '') 
-            .replace(new RegExp(year, 'g'), '') 
             .split(/[.\[\]()\s_-]+/) 
             .filter(tag => {
                 const lower = tag.toLowerCase();
-                return tag.length > 2 && 
-                       !['season', 'episode', 'movies', 'dahmer', '1080p', '720p', '2160p', '4k'].includes(lower);
+                return tag.length > 1 && 
+                       !titleWords.includes(lower) && // Removes Zootopia, 2, etc.
+                       !['season', 'episode', 'movies', 'dahmer', '1080p', '720p', '2160p', '4k', year].includes(lower);
             })
-            .join(' '); // Space separator instead of dots
+            .join(' • ');
 
-        // 5. Final Multi-line Construction
         const line1 = `DahmerMovies - ${resolution.toUpperCase().replace('P', '')}`;
         const line2 = (season !== null) ? `S${season}E${episode} | ${title}` : `${title} (${year})`;
         const line3 = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}`;
         const line4 = `ℹ️ ${extraInfo}`;
 
         results.push({
-            name: "DahmerMovies",
+            name: " ", 
             title: `${line1}\n${line2}\n${line3}\n${line4}`,
             url: streamUrl,
             quality: resolution.toLowerCase(),

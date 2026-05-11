@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Final Layout Correction
+// Dahmer Movies Scraper - Layout Final Polish
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -107,18 +107,17 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
                 const lower = tag.toLowerCase();
                 return tag.length > 1 && 
                        !titleWords.includes(lower) && 
-                       !['season', 'episode', 'movies', 'dahmer', '1080p', '720p', '2160p', '4k', year].includes(lower);
+                       !['season', 'episode', 'movies', 'dahmer', '1080p', '720p', '2160p', '4k', 'byndr', year].includes(lower);
             })
             .join(' • ');
 
-        // line1 is removed from here because 'name' handles it at the top
-        const lineA = (season !== null) ? `S${season}E${episode} | ${title}` : `${title} (${year})`;
-        const lineB = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}`;
-        const lineC = `ℹ️ ${extraInfo}`;
+        const line2 = (season !== null) ? `S${season}E${episode} | ${title}` : `${title} (${year})`;
+        const line3 = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}`;
+        const line4 = `ℹ️ ${extraInfo}`;
 
         results.push({
-            name: `DahmerMovies - ${resolution.toUpperCase().replace('P', '')}`, 
-            title: `${lineA}\n${lineB}\n${lineC}`,
+            name: "DahmerMovies", // Resolution removed to stop the "2160 - 2160p" double text
+            title: `${line2}\n${line3}\n${line4}`,
             url: streamUrl,
             quality: resolution.toLowerCase(),
             headers: {

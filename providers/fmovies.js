@@ -22,9 +22,13 @@ var PROVIDER_NAME = "4khdhub";
 var DOMAINS_URL = "https://raw.githubusercontent.com/Xyr0nX/NGEX/refs/heads/main/manifest.json";
 var DEFAULT_MAIN_URL = "https://4khdhub.dad";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var DEBUG = false;
+var DEBUG = true;
 
 var FALLBACK_DOMAINS = [DEFAULT_MAIN_URL];
+// Manual fallback untuk film/serial yang tidak muncul di pencarian
+var KNOWN_URLS = {
+    "The Drama 2026": "https://4khdhub.link/the-drama-movie-6729/"
+};
 
 var DEFAULT_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -260,59 +264,41 @@ function rebuildMetaFromFinal(url, fallbackLabel) {
   };
 }
 
-function buildMeta(meta, label, quality, size, tech, langHint) {
+function buildMeta(label, quality, size, tech, langHint) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
-  
-  // Icons logic
-  var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
-  var lIcon = (lang.indexOf('Hindi') !== -1) ? '🇮🇳' : (lang === 'English' || lang === 'EN' ? '🇺🇸' : '🌍');
-
-  // Line 1: Title and Year
-  var line1 = "🎬 " + meta.title + (meta.year ? " (" + meta.year + ")" : "");
-  
-  // Line 2: Quality | Lang | Size | Duration
-  var line2Parts = [qIcon + " " + quality, lIcon + " " + lang];
-  if (size) line2Parts.push("💾 " + size);
-  if (meta.duration) line2Parts.push("⏱️ " + meta.duration);
-  var line2 = line2Parts.join(" | ");
-
-  // Line 3: Technical Details/Source
-  var line3 = "🎞️ " + (tech || "WEB-DL") + " | " + cleanedLabel.substring(0, 30);
-
-  var nameParts = [PROVIDER_NAME, quality];
+  var parts = [];
+  if (quality && quality !== "Auto") parts.push(quality);
+  if (lang) parts.push(lang);
+  if (size) parts.push(size);
+  if (tech) parts.push(tech);
+  var nameParts = [PROVIDER_NAME];
+  if (quality && quality !== "Auto") nameParts.push(quality);
   if (size) nameParts.push(size);
-
   return {
     name: nameParts.join(" | "),
-    title: line1 + "\n" + line2 + "\n" + line3
+    title: (/^S\d+\s*E\d+/i.test(cleanedLabel) ? cleanedLabel + " | " : "") + (parts.join(" | ") || "Stream")
   };
 }
 
-function buildStream(meta, label, url, quality, headers, size, tech, langHint) {
+function buildStream(label, url, quality, headers, size, tech, langHint) {
   var finalUrl = String(url || "").trim();
+  dbg("[buildStream] FINAL URL:", finalUrl);
+
   var rebuilt = rebuildMetaFromFinal(finalUrl, label);
   var finalQuality = rebuilt.quality !== "Auto" ? rebuilt.quality : (quality || "Auto");
   var finalSize = rebuilt.size || size || extractSize(label);
   var finalTech = rebuilt.tech || tech || cleanTech(label);
-  
-  // Pass meta here
-  var ui = buildMeta(meta, label, finalQuality, finalSize, finalTech, langHint);
+  var cleanedLabel = cleanLabelText(label);
+  var meta = buildMeta(cleanedLabel, finalQuality, finalSize, finalTech, langHint);
 
   var streamHeaders = headers || {};
   if (finalUrl.indexOf(".workers.dev") !== -1) {
-      streamHeaders = { "Referer": "https://gamerxyt.com/", "User-Agent": DEFAULT_HEADERS["User-Agent"] };
+      streamHeaders = {
+          "Referer": "https://gamerxyt.com/",
+          "User-Agent": DEFAULT_HEADERS["User-Agent"]
+      };
   }
-
-  return {
-    name: ui.name,
-    title: ui.title,
-    url: finalUrl,
-    quality: finalQuality,
-    headers: Object.keys(streamHeaders).length ? streamHeaders : undefined,
-    behaviorHints: { bingeGroup: "4khdhub-" + String(finalQuality || "auto").toLowerCase() }
-  };
-}
 
   return {
     name: meta.name,
@@ -363,6 +349,7 @@ function isPlayableMediaUrl(url) {
   if (u.indexOf("hub.odyssey.surf/") !== -1) return true;
   if (u.indexOf("hub.maverick.lat/") !== -1) return true;
   if (u.indexOf("cdn.fukggl.buzz/") !== -1) return true;
+  if (u.indexOf("hub.diskcdn.buzz/") !== -1) return true;
   if (/\/drive\/admin(?:[/?#]|$)/.test(u)) return false;
   if (/^https?:\/\/(?:www\.)?google\.com\/search\?/i.test(u)) return false;
   if (/^https?:\/\/t\.me\//i.test(u)) return false;
@@ -395,6 +382,7 @@ function hostConfidence(url) {
   if (u.indexOf("hub.odyssey.surf") !== -1) return 95;
   if (u.indexOf("hub.maverick.lat") !== -1) return 94;
   if (u.indexOf("cdn.fukggl.buzz") !== -1) return 93;
+  if (u.indexOf("hub.diskcdn.buzz") !== -1) return 93;
   if (u.indexOf("hubcdn") !== -1) return 80;
   if (u.indexOf("hblinks") !== -1) return 60;
   if (u.indexOf("hubcloud") !== -1) return 50;
@@ -497,16 +485,20 @@ function getTmdbNames(tmdbId, mediaType) {
   var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
   return fetchJson(url).then(function(data) {
     var title = data.name || data.title || "";
-    var year = (data.release_date || data.first_air_date || "").split("-")[0];
-    var duration = data.runtime ? data.runtime + "m" : "";
-    return { 
-      title: title, 
-      original: data.original_name || data.original_title || title, 
-      year: year, 
-      duration: duration 
-    };
+    var original = data.original_name || data.original_title || title;
+    var alt = "";
+    var year = 0;
+    if (mediaType === "movie" && data.release_date) {
+      year = parseInt(String(data.release_date).split("-")[0], 10) || 0;
+    } else if (mediaType !== "movie" && data.first_air_date) {
+      year = parseInt(String(data.first_air_date).split("-")[0], 10) || 0;
+    }
+    if (original && (original.indexOf(":") !== -1 || / and /i.test(original))) {
+      alt = original.split(":")[0].split(/ and /i)[0].trim();
+    }
+    return { title: title, original: original, alt: alt, year: year };
   }).catch(function() {
-    return { title: "", original: "", year: "", duration: "" };
+    return { title: "", original: "", alt: "", year: 0 };
   });
 }
 
@@ -893,6 +885,7 @@ function isTrustedDirectCandidate(link) {
   if (u.indexOf("hub.odyssey.surf/") !== -1) return true;
   if (u.indexOf("hub.maverick.lat/") !== -1) return true;
   if (u.indexOf("cdn.fukggl.buzz/") !== -1) return true;
+  if (u.indexOf("hub.diskcdn.buzz/") !== -1) return true;
   if (/\.(mkv|mp4|m3u8)(\?|#|$)/.test(u)) return true;
   return false;
 }
@@ -1150,8 +1143,7 @@ function extractLangHint(item) {
   return [item.fileTitle || "", item.label || "", item.rawHtml || ""].join(" ");
 }
 
-// Add 'meta' to the function arguments
-function extractFromPage(contentUrl, mediaType, season, episode, meta) {
+function extractFromPage(contentUrl, mediaType, season, episode) {
   return fetchText(contentUrl).then(function(html) {
     var $ = cheerio.load(html);
     var hasEpisodeList = $("div.episodes-list, div.episodelist, ul.episodios, div.season-item").length > 0;
@@ -1173,9 +1165,7 @@ function extractFromPage(contentUrl, mediaType, season, episode, meta) {
       var quality = extractCandidateQuality(item);
       var label = cleanLabelText(item.fileTitle || item.label || PROVIDER_NAME);
       var langHint = extractLangHint(item);
-      
-      // PASS 'meta' into resolveLink here
-      return resolveLink(item.url, label, contentUrl, quality, langHint, meta).catch(function(e) {
+      return resolveLink(item.url, label, contentUrl, quality, langHint).catch(function(e) {
         dbg("[extractFromPage] resolveLink FAILED:", item.url, "|", e.message || e);
         return [];
       });
@@ -1183,7 +1173,9 @@ function extractFromPage(contentUrl, mediaType, season, episode, meta) {
       var streams = [];
       for (var i = 0; i < groups.length; i += 1) streams = streams.concat(groups[i] || []);
       dbg("[extractFromPage] Pre-dedup streams:", streams.length);
-      
+      streams.forEach(function(s, i) {
+        dbg("[extractFromPage] stream[" + i + "]:", s.title, "|", s.url);
+      });
       streams = dedupeStreams(streams);
       streams.sort(function(a, b) { return hostConfidence(b.url) - hostConfidence(a.url); });
       dbg("[extractFromPage] Final streams:", streams.length);
@@ -1195,6 +1187,14 @@ function extractFromPage(contentUrl, mediaType, season, episode, meta) {
 function findContentUrl(tmdbId, mediaType) {
   return getTmdbNames(tmdbId, mediaType).then(function(names) {
     if (!names.title && !names.original) return null;
+
+    // Periksa fallback manual
+    var key = names.title + " " + names.year;
+    if (KNOWN_URLS[key]) {
+      dbg("[findContentUrl] Found in KNOWN_URLS:", KNOWN_URLS[key]);
+      return KNOWN_URLS[key];
+    }
+
     return searchContent(names.title, mediaType, names.year).then(function(found) {
       if (found) return found;
       if (names.original && names.original !== names.title) {
@@ -1211,13 +1211,9 @@ function findContentUrl(tmdbId, mediaType) {
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  return getTmdbNames(tmdbId, mediaType).then(function(meta) {
-    if (!meta.title) return [];
-    return findContentUrl(tmdbId, mediaType).then(function(contentUrl) {
-      if (!contentUrl) return [];
-      // Pass meta as the last argument
-      return extractFromPage(contentUrl, mediaType, season, episode, meta);
-    });
+  return findContentUrl(tmdbId, mediaType).then(function(contentUrl) {
+    if (!contentUrl) return [];
+    return extractFromPage(contentUrl, mediaType, season, episode);
   }).catch(function() { return []; });
 }
 

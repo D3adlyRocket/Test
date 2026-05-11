@@ -1,163 +1,267 @@
 /**
- * lordflix - Built from src/lordflix/
- * Generated: 2026-05-10T21:52:03.580Z
+ * flixstream - Nuvio Provider
+ * Sources: VidLink Pro, VidKing Pro, VidSrc, VidSrc Pro, AutoEmbed
  */
-var __defProp = Object.defineProperty;
-var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __spreadValues = (a, b) => {
-  for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop))
-      __defNormalProp(a, prop, b[prop]);
-  if (__getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
-    }
-  return a;
-};
+
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
+      try { step(generator.next(value)); } catch (e) { reject(e); }
     };
     var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
+      try { step(generator.throw(value)); } catch (e) { reject(e); }
     };
     var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
     step((generator = generator.apply(__this, __arguments)).next());
   });
 };
 
-// src/lordflix/http.js
-var HEADERS = {
-  "Accept": "*/*",
-  "Origin": "https://lordflix.org",
-  "Referer": "https://lordflix.org/",
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+var BASE_URL = "https://www.flixstream.ca";
+
+var USER_AGENT = "Mozilla/5.0 (Linux; Android 13; Pixel 5) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+
+var BASE_HEADERS = {
+  "User-Agent": USER_AGENT,
+  "Referer": BASE_URL + "/",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
 };
-var TMDB_API_KEY = "d2c5a27beedf492e5483163d0f6c5870";
-var TMDB_BASE_URL = "https://api.themoviedb.org/3";
-var LORDFLIX_API = "https://network.hasta-la-vista.site";
-var MULTI_DECRYPT_API = "https://enc-dec.app/api";
-function fetchText(_0) {
-  return __async(this, arguments, function* (url, options = {}) {
-    const response = yield fetch(url, __spreadValues({
-      headers: __spreadValues(__spreadValues({}, HEADERS), options.headers || {})
-    }, options));
-    if (!response.ok)
-      throw new Error(`HTTP error ${response.status}`);
-    return yield response.text();
-  });
-}
-function fetchJson(_0) {
-  return __async(this, arguments, function* (url, options = {}) {
-    const raw = yield fetchText(url, options);
-    return JSON.parse(raw);
-  });
-}
-function getTMDBDetails(tmdbId, mediaType) {
+
+// Resolve each iframe source to a direct stream URL
+// Each entry: { name, iframeSrc, referer }
+var SOURCES = [
+  {
+    name: "FlixStream - VidLink",
+    buildUrl: function(tmdbId, mediaType, season, episode) {
+      if (mediaType === "movie") {
+        return "https://vidlink.pro/movie/" + tmdbId;
+      }
+      return "https://vidlink.pro/tv/" + tmdbId + "/" + season + "/" + episode;
+    }
+  },
+  {
+    name: "FlixStream - VidSrc",
+    buildUrl: function(tmdbId, mediaType, season, episode) {
+      if (mediaType === "movie") {
+        return "https://vidsrc.to/embed/movie/" + tmdbId;
+      }
+      return "https://vidsrc.to/embed/tv/" + tmdbId + "/" + season + "/" + episode;
+    }
+  },
+  {
+    name: "FlixStream - VidSrc Pro",
+    buildUrl: function(tmdbId, mediaType, season, episode) {
+      if (mediaType === "movie") {
+        return "https://vidsrc.pro/embed/movie/" + tmdbId;
+      }
+      return "https://vidsrc.pro/embed/tv/" + tmdbId + "/" + season + "/" + episode;
+    }
+  },
+  {
+    name: "FlixStream - AutoEmbed",
+    buildUrl: function(tmdbId, mediaType, season, episode) {
+      if (mediaType === "movie") {
+        return "https://autoembed.co/movie/tmdb/" + tmdbId;
+      }
+      return "https://autoembed.co/tv/tmdb/" + tmdbId + "-" + season + "-" + episode;
+    }
+  },
+  {
+    name: "FlixStream - VidKing",
+    buildUrl: function(tmdbId, mediaType, season, episode) {
+      if (mediaType === "movie") {
+        return "https://vidking.pro/embed/movie?tmdb=" + tmdbId;
+      }
+      return "https://vidking.pro/embed/tv?tmdb=" + tmdbId + "&season=" + season + "&episode=" + episode;
+    }
+  }
+];
+
+// Fetch the flixstream watch page and extract iframe sources
+function fetchIframeSources(tmdbId, mediaType, title, season, episode) {
   return __async(this, null, function* () {
-    var _a, _b;
-    const endpoint = mediaType === "tv" ? "tv" : "movie";
-    const url = `${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
-    const response = yield fetch(url, { headers: { "Accept": "application/json" } });
-    if (!response.ok)
-      throw new Error(`TMDB API error`);
-    const data = yield response.json();
+    var watchUrl;
+    if (mediaType === "movie") {
+      watchUrl = BASE_URL + "/watch/" + tmdbId + "?type=movie&title=" + encodeURIComponent(title);
+    } else {
+      watchUrl = BASE_URL + "/watch/" + tmdbId + "?type=tv&title=" + encodeURIComponent(title) + "&episode=" + episode;
+    }
+
+    console.log("[FlixStream] Fetching watch page: " + watchUrl);
+
+    var resp = yield fetch(watchUrl, { headers: BASE_HEADERS });
+    var html = yield resp.text();
+
+    // Extract all iframe src attributes
+    var iframes = [];
+    var iframeRegex = /<iframe[^>]+src=["']([^"']+)["'][^>]*>/gi;
+    var match;
+    while ((match = iframeRegex.exec(html)) !== null) {
+      var src = match[1];
+      // Skip ads and irrelevant iframes
+      if (src && (
+        src.includes("vidlink") ||
+        src.includes("vidsrc") ||
+        src.includes("vidking") ||
+        src.includes("autoembed") ||
+        src.includes("embed")
+      )) {
+        iframes.push(src);
+      }
+    }
+
+    // Also extract data-src attributes (lazy loaded iframes)
+    var dataSrcRegex = /<iframe[^>]+data-src=["']([^"']+)["'][^>]*>/gi;
+    while ((match = dataSrcRegex.exec(html)) !== null) {
+      var src = match[1];
+      if (src && src.includes("embed")) {
+        iframes.push(src);
+      }
+    }
+
+    // Extract source button data attributes (common pattern for multi-source players)
+    var btnRegex = /data-(?:url|src|iframe|source)=["']([^"']*(?:vidlink|vidsrc|vidking|autoembed|embed)[^"']*)["']/gi;
+    while ((match = btnRegex.exec(html)) !== null) {
+      iframes.push(match[1]);
+    }
+
+    // Deduplicate
+    return [...new Set(iframes)];
+  });
+}
+
+// Try to resolve a vidlink iframe to m3u8
+function resolveVidLink(iframeSrc) {
+  return __async(this, null, function* () {
+    try {
+      var resp = yield fetch(iframeSrc, {
+        headers: {
+          "User-Agent": USER_AGENT,
+          "Referer": BASE_URL + "/",
+        }
+      });
+      var html = yield resp.text();
+
+      // Extract m3u8 or mp4 URLs from the page
+      var streamRegex = /["'](https?:\/\/[^"']*\.(?:m3u8|mp4)[^"']*)["']/gi;
+      var match;
+      var streams = [];
+      while ((match = streamRegex.exec(html)) !== null) {
+        streams.push(match[1]);
+      }
+
+      // Also look for jwplayer / hls setup patterns
+      var hlsRegex = /file\s*:\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/gi;
+      while ((match = hlsRegex.exec(html)) !== null) {
+        streams.push(match[1]);
+      }
+
+      return [...new Set(streams)];
+    } catch(e) {
+      console.error("[FlixStream] resolveVidLink error: " + e.message);
+      return [];
+    }
+  });
+}
+
+// Build streams from known embed URLs directly (no scraping needed for these)
+function buildEmbedStreams(tmdbId, mediaType, season, episode) {
+  return SOURCES.map(function(source) {
     return {
-      title: mediaType === "tv" ? data.name : data.title,
-      year: ((_a = mediaType === "tv" ? data.first_air_date : data.release_date) == null ? void 0 : _a.split("-")[0]) || null,
-      imdbId: ((_b = data.external_ids) == null ? void 0 : _b.imdb_id) || null
+      name: source.name,
+      title: source.name,
+      url: source.buildUrl(tmdbId, mediaType, season, episode),
+      quality: "Unknown",
+      headers: {
+        "Referer": BASE_URL + "/",
+        "User-Agent": USER_AGENT,
+      }
     };
   });
 }
 
-// src/lordflix/extractor.js
-var SERVERS = [
-  "Berlin",
-  "Tokyo",
-  "Bogota",
-  "Oslo",
-  "Luna",
-  "LordFlix",
-  "Sakura",
-  "Rio",
-  "Ativa"
-];
-function encodeQuote(str) {
-  return encodeURIComponent(str).replace(/%20/g, "+").replace(/\+/g, "%20");
-}
-function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
+function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
-    const streams = [];
+    console.log("[FlixStream] Fetching streams for " + mediaType + " " + tmdbId);
     try {
-      const info = yield getTMDBDetails(tmdbId, mediaType);
-      if (!info.title || !info.imdbId)
-        return streams;
-      const typeParam = mediaType === "tv" ? "series" : "movie";
-      const titleEnc = encodeQuote(info.title);
-      yield Promise.all(SERVERS.map((server) => __async(this, null, function* () {
-        try {
-          let serverUrl = `${LORDFLIX_API}/?title=${titleEnc}&type=${typeParam}&year=${info.year || ""}&imdb=${info.imdbId}&tmdb=${tmdbId}&server=${server}`;
-          if (mediaType === "tv") {
-            serverUrl += `&season=${seasonNum}&episode=${episodeNum}`;
-          }
-          const encBridgeUrl = `${MULTI_DECRYPT_API}/enc-lordflix?url=${encodeQuote(serverUrl)}`;
-          const encBridgeJson = yield fetchJson(encBridgeUrl);
-          if (!encBridgeJson || encBridgeJson.status !== 200 || !encBridgeJson.result)
-            return;
-          const proxyEncUrl = encBridgeJson.result.url;
-          const signature = encBridgeJson.result.sign;
-          if (!proxyEncUrl || !signature)
-            return;
-          const remoteEncData = yield fetchText(proxyEncUrl);
-          const decResponse = yield fetch(`${MULTI_DECRYPT_API}/dec-lordflix`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              text: remoteEncData,
-              sign: signature
-            })
-          });
-          if (!decResponse.ok)
-            return;
-          const finalJson = yield decResponse.json();
-          if (!finalJson || finalJson.status !== 200 || !finalJson.result || finalJson.result.error)
-            return;
-          const streamList = finalJson.result.stream;
-          if (!streamList || !Array.isArray(streamList) || streamList.length === 0)
-            return;
-          const topStream = streamList[0];
-          if (topStream.type === "hls" && topStream.playlist) {
-            streams.push({
-              name: `Lordflix[${server}]`,
-              title: `Lordflix[${server}]`,
-              url: topStream.playlist,
-              quality: "Auto",
-              type: "m3u8",
-              headers: HEADERS
-            });
-          }
-        } catch (e) {
+      var streams = [];
+
+      // Step 1: Fetch the watch page and extract iframes
+      // We need the title to build the URL — use a placeholder and let the redirect handle it
+      var watchUrl;
+      if (mediaType === "movie") {
+        watchUrl = BASE_URL + "/watch/" + tmdbId + "?type=movie";
+      } else {
+        watchUrl = BASE_URL + "/watch/" + tmdbId + "?type=tv&episode=" + (episode || 1);
+      }
+
+      console.log("[FlixStream] Watch URL: " + watchUrl);
+
+      var resp = yield fetch(watchUrl, { headers: BASE_HEADERS });
+      var html = yield resp.text();
+
+      // Extract title from page for reference
+      var titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+      var pageTitle = titleMatch ? titleMatch[1].replace(/\s*[-|].*$/, "").trim() : "Unknown";
+
+      // Look for iframe sources in HTML
+      var iframeSrcs = [];
+      var patterns = [
+        /src=["'](https?:\/\/(?:vidlink|vidsrc|vidking|autoembed)[^"']+)["']/gi,
+        /data-src=["'](https?:\/\/(?:vidlink|vidsrc|vidking|autoembed)[^"']+)["']/gi,
+        /data-url=["'](https?:\/\/(?:vidlink|vidsrc|vidking|autoembed)[^"']+)["']/gi,
+        /"(?:url|src|iframe)"\s*:\s*"(https?:\/\/(?:vidlink|vidsrc|vidking|autoembed)[^"]+)"/gi,
+      ];
+
+      patterns.forEach(function(pattern) {
+        var match;
+        while ((match = pattern.exec(html)) !== null) {
+          iframeSrcs.push(match[1]);
         }
-      })));
-    } catch (err) {
-      console.error(`[Lordflix] Main Error:`, err.message);
+      });
+
+      iframeSrcs = [...new Set(iframeSrcs)];
+      console.log("[FlixStream] Found " + iframeSrcs.length + " iframe sources in page");
+
+      // Step 2: If we got iframe srcs from the page, use them
+      if (iframeSrcs.length > 0) {
+        iframeSrcs.forEach(function(src, i) {
+          var sourceName = "FlixStream";
+          if (src.includes("vidlink")) sourceName = "FlixStream - VidLink";
+          else if (src.includes("vidsrc.pro")) sourceName = "FlixStream - VidSrc Pro";
+          else if (src.includes("vidsrc")) sourceName = "FlixStream - VidSrc";
+          else if (src.includes("vidking")) sourceName = "FlixStream - VidKing";
+          else if (src.includes("autoembed")) sourceName = "FlixStream - AutoEmbed";
+
+          streams.push({
+            name: sourceName,
+            title: pageTitle,
+            url: src,
+            quality: "Unknown",
+            headers: {
+              "Referer": BASE_URL + "/",
+              "User-Agent": USER_AGENT,
+            }
+          });
+        });
+      } else {
+        // Step 3: Fallback — build embed URLs directly using TMDB ID
+        console.log("[FlixStream] No iframes found in page, using direct embed URLs");
+        streams = buildEmbedStreams(tmdbId, mediaType, season, episode);
+      }
+
+      console.log("[FlixStream] Returning " + streams.length + " streams");
+      return streams;
+
+    } catch (error) {
+      console.error("[FlixStream] Error: " + error.message);
+      return [];
     }
-    return streams;
   });
 }
 
-// src/lordflix/index.js
-module.exports = { getStreams };
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+}

@@ -1,7 +1,6 @@
 /**
- * flixstream - Hard-Wired Resolver
- * No more fetching pages that block us. 
- * We build the 'Storm' and 'Netro' links manually using the TMDB ID.
+ * flixstream - Compatibility Fix
+ * Uses stable gateways that usually bypass the 'Unsupported Container' error.
  */
 
 var __async = (__this, __arguments, generator) => {
@@ -13,55 +12,44 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
-
 async function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
-    // We are going to return a list of "Guessed" direct links.
-    // One of these WILL match the pattern in your 'Smoking Gun' screenshot.
-    
-    const slug = mediaType === "movie" ? tmdbId : `${tmdbId}/${season}/${episode}`;
-    
-    const streams = [
-      {
-        name: "VidLink PRO (Direct Storm)",
-        // This pattern matches your screenshot: storm.vodvidl.site/proxy/file/...
-        // We use the 'vidlink' helper to try and force the redirect
-        url: `https://vidlink.pro/api/embed/source/${slug}`, 
-        quality: "1080p",
-        headers: {
-          "Referer": "https://vidlink.pro/",
-          "Origin": "https://vidlink.pro",
-          "User-Agent": USER_AGENT
-        }
-      },
-      {
-        name: "VidSrc PRO (Direct Netro)",
-        // This is the direct .m3u8 pattern for the MoviesAPI source
-        url: `https://bx.netrocdn.site/hls2/master.m3u8?id=${tmdbId}`,
-        quality: "1080p",
-        headers: {
-          "Referer": "https://vidsrc.to/",
-          "User-Agent": USER_AGENT
-        }
-      },
-      {
-        name: "AnyEmbed Proxy",
-        url: `https://api.anyembed.xyz/api/proxy?url=https://vidlink.pro/movie/${tmdbId}`,
-        quality: "720p",
-        headers: {
-          "Referer": "https://flixcdn.cyou/",
-          "User-Agent": USER_AGENT
-        }
-      }
-    ];
+    const streams = [];
+    const userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
 
-    // We add a 'Web Player' option last. 
-    // If your TV app has a "Web" or "Browser" mode, use this.
+    // 1. VidSrc.me Gateway (The most compatible for TV apps)
+    const vidsrcMe = mediaType === "movie" 
+      ? `https://vidsrc.me/embed/movie?tmdb=${tmdbId}`
+      : `https://vidsrc.me/embed/tv?tmdb=${tmdbId}&sea=${season}&epi=${episode}`;
+
     streams.push({
-      name: "VidLink (Web Player - Use if others fail)",
-      url: `https://vidlink.pro/${mediaType}/${tmdbId}${mediaType === 'tv' ? '/' + season + '/' + episode : ''}`,
-      headers: { "Referer": "https://vidlink.pro/" }
+      name: "VidSrc (Stable)",
+      url: vidsrcMe,
+      quality: "1080p",
+      headers: { "Referer": "https://vidsrc.me/", "User-Agent": userAgent }
+    });
+
+    // 2. VidLink Direct (Force the API path)
+    const vidlinkApi = `https://vidlink.pro/api/embed/source/${mediaType === 'movie' ? tmdbId : tmdbId + '/' + season + '/' + episode}`;
+    
+    streams.push({
+      name: "VidLink (Direct API)",
+      url: vidlinkApi,
+      quality: "1080p",
+      headers: { 
+        "Referer": "https://vidlink.pro/",
+        "Origin": "https://vidlink.pro",
+        "User-Agent": userAgent 
+      }
+    });
+
+    // 3. SuperEmbed Fallback
+    const superEmbed = `https://multiembed.mov/?video_id=${tmdbId}&tmdb=1`;
+    streams.push({
+        name: "SuperEmbed (Multi)",
+        url: superEmbed,
+        quality: "720p",
+        headers: { "Referer": "https://multiembed.mov/" }
     });
 
     return streams;

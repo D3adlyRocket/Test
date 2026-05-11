@@ -1,6 +1,6 @@
 /**
- * flixstream - Nuvio Provider (Fixed via DevTools Intel)
- * Targeted for: VidLink Pro / Storm Proxy
+ * flixstream - Deep Scraper Fix
+ * Mimics a browser to extract the hidden 'storm' links.
  */
 
 var __async = (__this, __arguments, generator) => {
@@ -12,59 +12,81 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// Use the exact User-Agent from your screenshot for consistency
-var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
+var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     var streams = [];
     
+    // 1. Build the actual Player URL (not the API)
+    var playerUrl = mediaType === "movie" 
+      ? `https://vidlink.pro/movie/${tmdbId}` 
+      : `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`;
+
     try {
-      // 1. Target VidLink's internal source API
-      var targetId = mediaType === "movie" ? tmdbId : `${tmdbId}/${season}/${episode}`;
-      var apiUrl = `https://vidlink.pro/api/embed/source/${targetId}`;
+      console.log("[FlixStream] Deep scraping player: " + playerUrl);
       
-      console.log("[FlixStream] Calling VidLink API: " + apiUrl);
-      
-      var resp = yield fetch(apiUrl, {
+      // 2. Fetch the player page HTML
+      var resp = yield fetch(playerUrl, {
         headers: {
           "User-Agent": USER_AGENT,
-          "Referer": "https://vidlink.pro/",
-          "Origin": "https://vidlink.pro",
-          "Accept": "application/json"
+          "Referer": "https://www.flixstream.ca/"
         }
       });
-      
-      var data = yield resp.json();
-      
-      if (data && data.sources) {
-        data.sources.forEach(source => {
-          // 2. Build the stream object with the EXACT headers from your screenshot
+      var html = yield resp.text();
+
+      // 3. Search for the 'storm.vodvidl.site' pattern directly in the HTML
+      // Often these links are in a <script> tag or a data-attribute
+      var stormRegex = /https:\/\/storm\.vodvidl\.site\/proxy\/[^"'\s]+/g;
+      var matches = html.match(stormRegex);
+
+      if (matches && matches.length > 0) {
+        [...new Set(matches)].forEach(url => {
           streams.push({
-            name: "VidLink Pro (Fixed)",
-            url: source.url, // This is the storm.vodvidl.site link
-            title: source.name || "HD",
+            name: "VidLink Pro (Direct)",
+            url: url.replace(/&amp;/g, '&'),
+            title: "M3U8 Stream",
             quality: "1080p",
             headers: {
               "User-Agent": USER_AGENT,
               "Referer": "https://vidlink.pro/",
-              "Origin": "https://vidlink.pro",
-              "Accept": "*/*",
-              "Sec-Fetch-Mode": "cors",
-              "Sec-Fetch-Site": "cross-site"
+              "Origin": "https://vidlink.pro"
             }
           });
         });
       }
+
+      // 4. Secondary Check: Look for encoded Base64 strings (VidLink sometimes hides URLs here)
+      if (streams.length === 0) {
+          var b64Regex = /["']([A-Za-z0-9+/]{50,})["']/g;
+          var bMatch;
+          while ((bMatch = b64Regex.exec(html)) !== null) {
+              try {
+                  var decoded = atob(bMatch[1]);
+                  if (decoded.includes("m3u8") || decoded.includes("storm")) {
+                      var urlMatch = decoded.match(/https?:\/\/[^"'\s]+/);
+                      if (urlMatch) {
+                          streams.push({
+                              name: "VidLink Pro (Decoded)",
+                              url: urlMatch[0],
+                              headers: { "Referer": "https://vidlink.pro/" }
+                          });
+                      }
+                  }
+              } catch(e) {}
+          }
+      }
+
     } catch (e) {
-      console.error("[FlixStream] Error: " + e.message);
+      console.error("[FlixStream] Scrape failed: " + e.message);
     }
 
-    // 3. Fallback: Standard Embed (Only if API fails)
+    // 5. Final fallback (If everything else fails, we give the embed URL)
     if (streams.length === 0) {
+        console.log("[FlixStream] No direct links found, returning embed.");
         streams.push({
             name: "VidLink (Embed)",
-            url: `https://vidlink.pro/${mediaType}/${tmdbId}${mediaType === 'tv' ? `/${season}/${episode}` : ''}`,
+            url: playerUrl,
             headers: { "Referer": "https://vidlink.pro/" }
         });
     }

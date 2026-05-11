@@ -102,21 +102,28 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
         // 4. Extra Info Parsing (Line 4)
-        const isHDR = /\b(HDR|HDR10|DV|Vision)\b/i.test(fileName) ? "HDR10+" : "";
-        const isDolby = /\b(DDP|Atmos|Dolby|AC3|5.1)\b/i.test(fileName) ? "Dolby" : "";
-        const source = fileName.match(/\b(Web-DL|WebRip|BluRay|BRRip|BDRip)\b/i)?.[0] || "Web DL";
-        const codec = fileName.match(/\b(H265|HEVC|x265|H264|x264)\b/i)?.[0] || "265 HEVC";
-        const extraLine = [isHDR, isDolby, source, codec].filter(Boolean).join(' • ');
+        // Extracts useful tags from the filename and joins them with •
+        const extraInfo = fileName
+            .replace(/\.(mkv|mp4|avi|webm|m3u8)$/i, '') // Remove extension
+            .replace(new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), '') // Remove title
+            .replace(new RegExp(year, 'g'), '') // Remove year
+            .split(/[.\[\]()\s_-]+/) // Split by common delimiters
+            .filter(tag => {
+                // Filter out common useless words or empty strings
+                const lower = tag.toLowerCase();
+                return tag.length > 2 && !['season', 'episode', 'movies', 'dahmer'].includes(lower);
+            })
+            .join(' • ');
 
         // 5. Construct Multi-line Title
-        const line1 = `DahmerMovies - ${resolution.replace('p', '')}`;
-        const line2 = (season !== null) ? `S${season}E${episode} | ${title}` : `${title} (${year})`;
-        const line3 = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}`;
-        const line4 = extraLine;
+        const header = `DahmerMovies - ${resolution.replace('p', '')}`;
+        const secondLine = (season !== null) ? `S${season}E${episode} | ${title}` : `${title} (${year})`;
+        const thirdLine = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}`;
+        const fourthLine = extraInfo;
 
         results.push({
             name: "DahmerMovies",
-            title: `${line1}\n${line2}\n${line3}\n${line4}`,
+            title: `${header}\n${secondLine}\n${thirdLine}\n${fourthLine}`,
             url: streamUrl,
             quality: resolution.toLowerCase(),
             headers: {

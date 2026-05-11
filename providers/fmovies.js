@@ -267,27 +267,33 @@ function rebuildMetaFromFinal(url, fallbackLabel) {
 function buildMeta(meta, label, quality, size, tech, langHint) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
-  var title = (meta && meta.title) ? meta.title : "Movie";
-  var year = (meta && meta.year) ? " (" + meta.year + ")" : "";
   
-  // Icons logic
-  var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
-  var lIcon = (lang.indexOf('Hindi') !== -1) ? '🇮🇳' : (lang === 'English' || lang === 'EN' ? '🇺🇸' : '🌍');
-
-  // Line 1: Clear Header
+  // 1. Title formatting: Title - Year
+  var title = (meta && meta.title) ? meta.title : "Movie";
+  var year = (meta && meta.year) ? " - " + meta.year : "";
   var line1 = "🎬 " + title + year;
   
-  // Line 2: Quality | Lang | Size | Duration
+  // 2. Icon logic: Globe icon and Quality icon
+  var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
+  var lIcon = "🌍"; // Forced globe icon as requested
+
+  // 3. Line 2: Quality | Language | Size
   var line2Parts = [qIcon + " " + quality, lIcon + " " + lang];
   if (size) line2Parts.push("💾 " + size);
-  if (meta && meta.duration) line2Parts.push("⏱️ " + meta.duration);
   var line2 = line2Parts.join(" | ");
 
-  // Line 3: Tech and Filename (Capped to prevent wall of text)
-  var line3 = "🎞️ " + (tech || "WEB-DL").split(' ')[0] + " | " + cleanedLabel.substring(0, 45) + "...";
+  // 4. Line 3: Extension and Technical bits
+  // Extracts extension from label (e.g., MKV, MP4)
+  var extMatch = cleanedLabel.match(/\.(mkv|mp4|m4v|avi|mov)$/i);
+  var extension = extMatch ? extMatch[1].toUpperCase() : "MKV";
+  
+  // Technical bits (10Bit, HDR/SDR, etc.)
+  var techDetails = tech || "WEB-DL";
+  var line3 = "🎞️ " + extension + " | ℹ️ " + techDetails;
 
   return {
-    name: PROVIDER_NAME + " | " + quality + (size ? " | " + size : ""),
+    // Header casing updated to 4KHDHub
+    name: "4KHDHub | " + quality + (size ? " | " + size : ""),
     title: line1 + "\n" + line2 + "\n" + line3
   };
 }

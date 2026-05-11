@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Layout Final Polish
+// Dahmer Movies Scraper - Multi-line Fixed Layout
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -40,10 +40,18 @@ function parseLinks(html) {
 
 async function invokeDahmerMovies(title, year, season = null, episode = null) {
     const cleanTitle = title.replace(/:/g, '');
-    const folderVariants = season !== null ? [
-        `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season < 10 ? '0' + season : season}/`,
-        `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season}/`
-    ] : [`/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`];
+    let folderVariants = [];
+    
+    if (season !== null) {
+        // TV Show folder logic
+        folderVariants = [
+            `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season < 10 ? '0' + season : season}/`,
+            `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season}/`
+        ];
+    } else {
+        // Movie folder logic
+        folderVariants = [`/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`];
+    }
 
     let html = '';
     let activeDirUrl = '';
@@ -99,6 +107,7 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
         const resolution = resolutionMatch ? resolutionMatch[0] : '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
+        // Clean Extra Info (Line 4)
         const titleWords = title.toLowerCase().split(/\s+/);
         const extraInfo = fileName
             .replace(/\.(mkv|mp4|avi|webm|m3u8)$/i, '') 
@@ -107,17 +116,24 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
                 const lower = tag.toLowerCase();
                 return tag.length > 1 && 
                        !titleWords.includes(lower) && 
-                       !['season', 'episode', 'movies', 'dahmer', '1080p', '720p', '2160p', '4k', 'byndr', year].includes(lower);
+                       !['season', 'episode', 'movies', 'dahmer', '1080p', '720p', '2160p', '4k', year].includes(lower);
             })
             .join(' • ');
 
-        const line2 = (season !== null) ? `S${season}E${episode} | ${title}` : `${title} (${year})`;
-        const line3 = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}`;
-        const line4 = `ℹ️ ${extraInfo}`;
+        // 2nd Line Formatting
+        let secondLine = "";
+        if (season !== null) {
+            secondLine = `S${season}E${episode} - Episode | ${title}`;
+        } else {
+            secondLine = `🎬 ${title} (${year})`;
+        }
+
+        const thirdLine = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}`;
+        const fourthLine = `ℹ️ ${extraInfo}`;
 
         results.push({
-            name: "DahmerMovies", // Resolution removed to stop the "2160 - 2160p" double text
-            title: `${line2}\n${line3}\n${line4}`,
+            name: "DahmerMovies", 
+            title: `${secondLine}\n${thirdLine}\n${fourthLine}`,
             url: streamUrl,
             quality: resolution.toLowerCase(),
             headers: {

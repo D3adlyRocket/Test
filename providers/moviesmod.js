@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Multi-line Fixed Layout
+// Dahmer Movies Scraper - Final Layout Correction
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -99,7 +99,6 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
         const resolution = resolutionMatch ? resolutionMatch[0] : '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
         
-        // 4th Line Logic: Create a "blacklist" of words to remove from the extra info line
         const titleWords = title.toLowerCase().split(/\s+/);
         const extraInfo = fileName
             .replace(/\.(mkv|mp4|avi|webm|m3u8)$/i, '') 
@@ -107,19 +106,19 @@ async function invokeDahmerMovies(title, year, season = null, episode = null) {
             .filter(tag => {
                 const lower = tag.toLowerCase();
                 return tag.length > 1 && 
-                       !titleWords.includes(lower) && // Removes Zootopia, 2, etc.
+                       !titleWords.includes(lower) && 
                        !['season', 'episode', 'movies', 'dahmer', '1080p', '720p', '2160p', '4k', year].includes(lower);
             })
             .join(' • ');
 
-        const line1 = `DahmerMovies - ${resolution.toUpperCase().replace('P', '')}`;
-        const line2 = (season !== null) ? `S${season}E${episode} | ${title}` : `${title} (${year})`;
-        const line3 = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}`;
-        const line4 = `ℹ️ ${extraInfo}`;
+        // line1 is removed from here because 'name' handles it at the top
+        const lineA = (season !== null) ? `S${season}E${episode} | ${title}` : `${title} (${year})`;
+        const lineB = `📺 ${resolution}  |  🌐 ${language}  |  💾 ${fileSize}  |  🎞️ ${fileFormat}`;
+        const lineC = `ℹ️ ${extraInfo}`;
 
         results.push({
-            name: " ", 
-            title: `${line1}\n${line2}\n${line3}\n${line4}`,
+            name: `DahmerMovies - ${resolution.toUpperCase().replace('P', '')}`, 
+            title: `${lineA}\n${lineB}\n${lineC}`,
             url: streamUrl,
             quality: resolution.toLowerCase(),
             headers: {

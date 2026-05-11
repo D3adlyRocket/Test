@@ -503,20 +503,16 @@ function getTmdbNames(tmdbId, mediaType) {
   var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
   return fetchJson(url).then(function(data) {
     var title = data.name || data.title || "";
-    var original = data.original_name || data.original_title || title;
-    var alt = "";
-    var year = 0;
-    if (mediaType === "movie" && data.release_date) {
-      year = parseInt(String(data.release_date).split("-")[0], 10) || 0;
-    } else if (mediaType !== "movie" && data.first_air_date) {
-      year = parseInt(String(data.first_air_date).split("-")[0], 10) || 0;
-    }
-    if (original && (original.indexOf(":") !== -1 || / and /i.test(original))) {
-      alt = original.split(":")[0].split(/ and /i)[0].trim();
-    }
-    return { title: title, original: original, alt: alt, year: year };
+    var year = (data.release_date || data.first_air_date || "").split("-")[0];
+    var duration = data.runtime ? data.runtime + "m" : "";
+    return { 
+      title: title, 
+      original: data.original_name || data.original_title || title, 
+      year: year, 
+      duration: duration 
+    };
   }).catch(function() {
-    return { title: "", original: "", alt: "", year: 0 };
+    return { title: "", original: "", year: "", duration: "" };
   });
 }
 

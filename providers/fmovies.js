@@ -267,41 +267,42 @@ function rebuildMetaFromFinal(url, fallbackLabel) {
 function buildMeta(meta, label, quality, size, tech, langHint) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
+  var title = (meta && meta.title) ? meta.title : "Movie";
+  var year = (meta && meta.year) ? " (" + meta.year + ")" : "";
   
   // Icons logic
   var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
   var lIcon = (lang.indexOf('Hindi') !== -1) ? '🇮🇳' : (lang === 'English' || lang === 'EN' ? '🇺🇸' : '🌍');
 
-  // Line 1: Title and Year
-  var line1 = "🎬 " + meta.title + (meta.year ? " (" + meta.year + ")" : "");
+  // Line 1: Clear Header
+  var line1 = "🎬 " + title + year;
   
   // Line 2: Quality | Lang | Size | Duration
   var line2Parts = [qIcon + " " + quality, lIcon + " " + lang];
   if (size) line2Parts.push("💾 " + size);
-  if (meta.duration) line2Parts.push("⏱️ " + meta.duration);
+  if (meta && meta.duration) line2Parts.push("⏱️ " + meta.duration);
   var line2 = line2Parts.join(" | ");
 
-  // Line 3: Technical Details/Source
-  var line3 = "🎞️ " + (tech || "WEB-DL") + " | " + cleanedLabel.substring(0, 30);
-
-  var nameParts = [PROVIDER_NAME, quality];
-  if (size) nameParts.push(size);
+  // Line 3: Tech and Filename (Capped to prevent wall of text)
+  var line3 = "🎞️ " + (tech || "WEB-DL").split(' ')[0] + " | " + cleanedLabel.substring(0, 45) + "...";
 
   return {
-    name: nameParts.join(" | "),
+    name: PROVIDER_NAME + " | " + quality + (size ? " | " + size : ""),
     title: line1 + "\n" + line2 + "\n" + line3
   };
 }
 
-function buildStream(meta, label, url, quality, headers, size, tech, langHint) {
+function buildStream(label, url, quality, headers, size, tech, langHint, meta) {
   var finalUrl = String(url || "").trim();
+  // Ensure meta exists so UI doesn't break
+  var safeMeta = meta || { title: "Movie", year: "" };
+
   var rebuilt = rebuildMetaFromFinal(finalUrl, label);
   var finalQuality = rebuilt.quality !== "Auto" ? rebuilt.quality : (quality || "Auto");
   var finalSize = rebuilt.size || size || extractSize(label);
   var finalTech = rebuilt.tech || tech || cleanTech(label);
   
-  // Pass meta here
-  var ui = buildMeta(meta, label, finalQuality, finalSize, finalTech, langHint);
+  var ui = buildMeta(safeMeta, label, finalQuality, finalSize, finalTech, langHint);
 
   var streamHeaders = headers || {};
   if (finalUrl.indexOf(".workers.dev") !== -1) {

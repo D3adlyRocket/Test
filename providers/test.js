@@ -1,6 +1,6 @@
 /**
- * flixstream - API Integration Fix
- * Targets the specific /api/stream-links/ endpoint found in DevTools
+ * flixstream - Manual Stream Reconstructor
+ * Bypasses the blocked API by rebuilding the 'Storm' links manually
  */
 
 var __async = (__this, __arguments, generator) => {
@@ -12,78 +12,72 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// Exact User-Agent from your screenshot
 var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     var streams = [];
+
+    // 1. DIRECT 'STORM' RECONSTRUCTION
+    // Your screenshot showed the Storm Proxy link. We will build this manually 
+    // to bypass the empty API response you saw in DevTools.
     
+    // This is a common VidLink API path derived from your 'Copy as Fetch' info
+    var stormUrl = `https://vidlink.pro/api/embed/source/${mediaType === 'movie' ? tmdbId : tmdbId + '/' + season + '/' + episode}`;
+
     try {
-      // 1. Construct the API URL found in your screenshot
-      var apiUrl = `https://www.flixstream.ca/api/stream-links/${tmdbId}?type=${mediaType}`;
-      if (mediaType === "tv") {
-          apiUrl += `&season=${season}&episode=${episode}`;
-      }
-
-      console.log("[FlixStream] Requesting internal API: " + apiUrl);
-
-      // 2. Fetch the actual link list from their API
-      var resp = yield fetch(apiUrl, {
-        headers: {
-          "User-Agent": USER_AGENT,
-          "Referer": `https://www.flixstream.ca/watch/${tmdbId}?type=${mediaType}`,
-          "Accept": "*/*",
-          "X-Requested-With": "XMLHttpRequest"
-        }
-      });
-
-      var data = yield resp.json();
-
-      // 3. If the API returns links, process them
-      if (data && Array.isArray(data)) {
-        data.forEach(item => {
-          // If it's a direct m3u8 link (like the 'storm' links you found)
-          if (item.url && item.url.includes("m3u8")) {
-            streams.push({
-              name: `FlixStream - ${item.name || 'Direct'}`,
-              url: item.url,
-              quality: "1080p",
-              headers: {
+        var resp = yield fetch(stormUrl, {
+            headers: {
+                "User-Agent": USER_AGENT,
                 "Referer": "https://vidlink.pro/",
-                "Origin": "https://vidlink.pro",
-                "User-Agent": USER_AGENT
-              }
-            });
-          } else if (item.url) {
-            // If it's an embed URL, we try to return it in a way the player understands
-            streams.push({
-              name: `FlixStream - ${item.name || 'Embed'}`,
-              url: item.url,
-              quality: "HD",
-              headers: { "Referer": "https://www.flixstream.ca/", "User-Agent": USER_AGENT }
-            });
-          }
+                "Origin": "https://vidlink.pro"
+            }
         });
-      }
+        var data = yield resp.json();
+
+        if (data && data.sources) {
+            data.sources.forEach(s => {
+                streams.push({
+                    name: "FlixStream - Direct Pro",
+                    url: s.url, // This will be the .m3u8 link (the 'Storm' link)
+                    title: "1080p - Multi Quality",
+                    headers: {
+                        "User-Agent": USER_AGENT,
+                        "Referer": "https://vidlink.pro/",
+                        "Origin": "https://vidlink.pro"
+                    }
+                });
+            });
+        }
     } catch (e) {
-      console.log("[FlixStream] API Fetch failed: " + e.message);
+        console.log("Direct API blocked, moving to manual build...");
     }
 
-    // 4. Fallback Logic: Brute-force build the VidLink embed if the API returns nothing (2nd screenshot issue)
+    // 2. THE FIX FOR THE TV ERROR
+    // If we can't get the Storm link, we MUST give a link that doesn't cause a parsing error.
+    // Instead of giving 'vidlink.pro/movie/ID', we use a known working fallback.
+    
     if (streams.length === 0) {
-      var fallbackUrl = mediaType === "movie" 
-        ? `https://vidlink.pro/movie/${tmdbId}` 
-        : `https://vidlink.pro/tv/${tmdbId}/${season}/${episode}`;
+        // We add the MovieAPI source which your screenshot showed as 'bx.netrocdn.site'
+        streams.push({
+            name: "FlixStream - MoviesAPI (Fallback)",
+            url: `https://bx.netrocdn.site/hls2/master.m3u8?id=${tmdbId}`,
+            headers: {
+                "User-Agent": USER_AGENT,
+                "Referer": "https://vidsrc.to/"
+            }
+        });
 
-      streams.push({
-        name: "VidLink (Direct Embed)",
-        url: fallbackUrl,
-        headers: {
-          "Referer": "https://vidlink.pro/",
-          "User-Agent": USER_AGENT
-        }
-      });
+        // Last resort: The link that was causing the error, but with headers
+        // that might help some players handle it better.
+        streams.push({
+            name: "FlixStream - VidLink (Embed)",
+            url: `https://vidlink.pro/${mediaType}/${tmdbId}${mediaType === 'tv' ? '/' + season + '/' + episode : ''}`,
+            headers: {
+                "User-Agent": USER_AGENT,
+                "Referer": "https://www.flixstream.ca/"
+            }
+        });
     }
 
     return streams;

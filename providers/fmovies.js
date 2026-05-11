@@ -1,113 +1,102 @@
 'use strict';
 
-const TMDB_API_KEY = 'd131017ccc6e5462a81c9304d21476de';
-const MOVIEBOX_API = "https://h5-api.aoneroom.com";
-const TAG = '[MovieBox All-Lang]';
+/**
+ * MovieBox Multi-Lang (VPN-Free)
+ * Uses the Cloudflare Worker as a tunnel to search the full H5 database.
+ */
 
-// Headers required for the H5 API
-const HEADERS = {
-    "X-Client-Info": '{"timezone":"Africa/Nairobi"}',
-    "Accept": "application/json",
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-};
+var WORKER_BASE = 'https://moviebox.s4nch1tt.workers.dev';
+var MOVIEBOX_API = "https://h5-api.aoneroom.com";
+var TAG = '[MovieBox Multi-Fix]';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Logic
+// Stream Formatting Logic
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildNuvioStream(s, isTv, se, ep, itemTitle) {
+    var url = s.proxy_url || s.url || '';
+    if (!url) return null;
+
+    // Detect language from the item title or worker name
+    var lang = 'English/Original';
+    var fullTitle = itemTitle || s.name || '';
+    if (fullTitle.includes('[') && fullTitle.includes(']')) {
+        lang = fullTitle.match(/\[([^\]]+)\]/)[1];
+    } else if (fullTitle.includes('(') && fullTitle.includes(')')) {
+        lang = fullTitle.match(/\(([^)]+)\)/)[1];
+    }
+
+    var quality = s.resolution ? (String(s.resolution).includes('p') ? s.resolution : s.resolution + 'p') : '720p';
+    var displayTitle = (itemTitle || 'MovieBox').split(' S0')[0].trim();
+    if (isTv) displayTitle += ' · S' + String(se).padStart(2, '0') + 'E' + String(ep).padStart(2, '0');
+
+    return {
+        name: '📺 MovieBox | ' + quality + ' | ' + lang,
+        title: displayTitle + '\n📺 ' + quality + '  🔊 ' + lang + '\n(No VPN Required)',
+        url: url,
+        quality: quality,
+        behaviorHints: { bingeGroup: 'moviebox' }
+    };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main Execution
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function getStreams(tmdbId, type, season, episode) {
-    const mediaType = (type === 'series' || type === 'tv') ? 'tv' : 'movie';
-    const se = mediaType === 'tv' ? (season ? parseInt(season) : 1) : null;
-    const ep = mediaType === 'tv' ? (episode ? parseInt(episode) : 1) : null;
+    var mediaType = (type === 'series' || type === 'tv') ? 'tv' : 'movie';
+    var isTv = mediaType === 'tv';
+    var se = isTv ? (season ? parseInt(season) : 1) : null;
+    var ep = isTv ? (episode ? parseInt(episode) : 1) : null;
 
     try {
-        // 1. Get TMDB Title
-        const tmdbRes = await fetch(`https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`);
-        const tmdbData = await tmdbRes.json();
-        const queryTitle = tmdbData.title || tmdbData.name;
+        // 1. Get TMDB Title (VPN-safe)
+        var tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=d131017ccc6e5462a81c9304d21476de`;
+        var tmdbRes = await fetch(tmdbUrl);
+        var tmdbData = await tmdbRes.json();
+        var queryTitle = tmdbData.title || tmdbData.name;
         if (!queryTitle) return [];
 
-        // 2. Initialize Session (Handshake)
-        await fetch(`${MOVIEBOX_API}/wefeed-h5-bff/app/get-latest-app-pkgs?app_name=moviebox`, { headers: HEADERS }).catch(() => {});
+        // 2. Call Worker with the "search" intent
+        // Instead of letting the worker decide the ID, we ask for all streams matching the TMDB ID
+        var workerUrl = WORKER_BASE + '/streams'
+            + '?tmdb_id=' + tmdbId 
+            + '&type=' + mediaType
+            + '&proxy=' + encodeURIComponent(WORKER_BASE);
 
-        // 3. Search for ALL versions (Multi-Language)
-        // We use the H5 search which returns all available language dubs
-        const searchResp = await fetch(`${MOVIEBOX_API}/wefeed-h5-bff/web/subject/search`, {
-            method: "POST",
-            headers: { ...HEADERS, "Content-Type": "application/json", "Referer": MOVIEBOX_API + "/" },
-            body: JSON.stringify({
-                keyword: queryTitle,
-                page: 1,
-                perPage: 20,
-                subjectType: mediaType === "tv" ? 2 : 1
-            })
+        if (isTv) workerUrl += '&se=' + se + '&ep=' + ep;
+
+        console.log(TAG + ' Fetching via Worker: ' + workerUrl);
+
+        var response = await fetch(workerUrl, {
+            headers: { 'Accept': 'application/json', 'User-Agent': 'Nuvio/1.0' }
         });
 
-        const searchJson = await searchResp.json();
-        const items = (searchJson.data && (searchJson.data.items || searchJson.data.list)) || [];
+        if (!response.ok) return [];
+        
+        var data = await response.json();
+        var rawStreams = Array.isArray(data) ? data : (data.streams || []);
 
-        // 4. Match and extract from EVERY result (English, Hindi, etc.)
-        const cleanTarget = queryTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
-        const matchedItems = items.filter(item => {
-            const cleanItem = (item.title || "").toLowerCase().replace(/[^a-z0-9]/g, '');
-            return cleanItem.includes(cleanTarget) || cleanTarget.includes(cleanItem);
-        });
+        // 3. Convert to Nuvio format
+        var streams = rawStreams.map(function (s) { 
+            return buildNuvioStream(s, isTv, se, ep, s.title); 
+        }).filter(Boolean);
 
-        if (matchedItems.length === 0) return [];
-
-        let allStreams = [];
-
-        // 5. Fetch Download Links for all matches
-        for (const item of matchedItems) {
-            let params = `subjectId=${item.subjectId}`;
-            if (mediaType === 'tv') params += `&se=${se}&ep=${ep}`;
-
-            try {
-                const sourceResp = await fetch(`${MOVIEBOX_API}/wefeed-h5-bff/web/subject/download?${params}`, {
-                    headers: {
-                        ...HEADERS,
-                        "Referer": "https://fmoviesunblocked.net/",
-                        "Origin": "https://fmoviesunblocked.net"
-                    }
-                });
-
-                const sourceJson = await sourceResp.json();
-                const sourceData = (sourceJson.data && sourceJson.data.data) || sourceJson.data || {};
-                const downloads = sourceData.downloads || [];
-
-                // Detect Language from Title
-                let lang = "English/Original";
-                if (item.title.includes('[') && item.title.includes(']')) {
-                    lang = item.title.match(/\[([^\]]+)\]/)[1];
-                }
-
-                downloads.forEach(d => {
-                    const quality = (d.resolution || 720) + "p";
-                    allStreams.push({
-                        name: `📺 MovieBox | ${quality} | ${lang}`,
-                        title: `${item.title}\n📺 ${quality}  🔊 ${lang}\nSource: H5 Direct`,
-                        url: d.url,
-                        quality: quality,
-                        headers: {
-                            "Referer": "https://fmoviesunblocked.net/",
-                            "User-Agent": HEADERS["User-Agent"]
-                        }
-                    });
-                });
-            } catch (e) { continue; }
-        }
-
-        // Sort by quality and put English/Original at the top
-        return allStreams.sort((a, b) => {
-            const aIsEng = a.name.includes('English') || a.name.includes('Original');
-            const bIsEng = b.name.includes('English') || b.name.includes('Original');
+        // 4. Sort: Priority English/Original, then Quality
+        return streams.sort(function (a, b) {
+            var aIsEng = a.name.includes('English') || a.name.includes('Original');
+            var bIsEng = b.name.includes('English') || b.name.includes('Original');
+            
             if (aIsEng && !bIsEng) return -1;
             if (!aIsEng && bIsEng) return 1;
-            return parseInt(b.quality) - parseInt(a.quality);
+            
+            var qa = parseInt(a.quality) || 0;
+            var qb = parseInt(b.quality) || 0;
+            return qb - qa;
         });
 
     } catch (e) {
-        console.error(TAG, e);
+        console.error(TAG + ' Fatal: ' + e.message);
         return [];
     }
 }

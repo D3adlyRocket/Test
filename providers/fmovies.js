@@ -268,14 +268,20 @@ function buildMeta(meta, label, quality, size, tech, langHint) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
   
-  // 1. Title formatting: Title - Year
-  var title = (meta && meta.title) ? meta.title : "Movie";
-  var year = (meta && meta.year) ? " - " + meta.year : "";
-  var line1 = "🎬 " + title + year;
+  // 1. Title logic: Prioritize TMDB Series Title or Movie Title
+  var displayTitle = "Movie";
+  if (meta) {
+    // If it's a series, use seriesTitle, otherwise use movie title
+    displayTitle = meta.seriesTitle || meta.title || "Movie";
+    if (meta.year) {
+      displayTitle += " - " + meta.year;
+    }
+  }
+  var line1 = "🎬 " + displayTitle;
   
   // 2. Icon logic: Globe icon and Quality icon
   var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
-  var lIcon = "🌍"; // Forced globe icon as requested
+  var lIcon = "🌍"; 
 
   // 3. Line 2: Quality | Language | Size
   var line2Parts = [qIcon + " " + quality, lIcon + " " + lang];
@@ -283,16 +289,13 @@ function buildMeta(meta, label, quality, size, tech, langHint) {
   var line2 = line2Parts.join(" | ");
 
   // 4. Line 3: Extension and Technical bits
-  // Extracts extension from label (e.g., MKV, MP4)
   var extMatch = cleanedLabel.match(/\.(mkv|mp4|m4v|avi|mov)$/i);
   var extension = extMatch ? extMatch[1].toUpperCase() : "MKV";
-  
-  // Technical bits (10Bit, HDR/SDR, etc.)
   var techDetails = tech || "WEB-DL";
   var line3 = "🎞️ " + extension + " | ℹ️ " + techDetails;
 
   return {
-    // Header casing updated to 4KHDHub
+    // Header casing as 4KHDHub
     name: "4KHDHub | " + quality + (size ? " | " + size : ""),
     title: line1 + "\n" + line2 + "\n" + line3
   };

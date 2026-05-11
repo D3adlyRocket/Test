@@ -294,7 +294,7 @@ function buildMeta(meta, label, quality, size, tech, langHint) {
 
 function buildStream(label, url, quality, headers, size, tech, langHint, meta) {
   var finalUrl = String(url || "").trim();
-  // Ensure meta exists so UI doesn't break
+  // Fallback meta to prevent crash if undefined
   var safeMeta = meta || { title: "Movie", year: "" };
 
   var rebuilt = rebuildMetaFromFinal(finalUrl, label);
@@ -322,15 +322,7 @@ function buildStream(label, url, quality, headers, size, tech, langHint, meta) {
   };
 }
 
-  return {
-    name: meta.name,
-    title: meta.title,
-    url: finalUrl,
-    quality: finalQuality,
-    headers: Object.keys(streamHeaders).length ? streamHeaders : undefined,
-    behaviorHints: { bingeGroup: "4khdhub-" + String(finalQuality || "auto").toLowerCase() }
-  };
-}
+// Ensure resolveLink and extractFromPage pass 'meta' through the arguments
 
 function uniqueBy(list, keyFn) {
   var seen = {};

@@ -1,267 +1,238 @@
 /**
- * NetMirror - Pure Promise Version (Dynamic Cookies + WAF Bypass)
+ * moviebox - Built from src/moviebox/
+ * Generated: 2026-05-11T13:43:18.796Z
  */
-
-var USER_AGENT = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0.1 Mobile/15E148 Safari/604.1";
-
-var cachedBaseUrl = null;
-var cachedStreamBaseUrl = null;
-var cachedS1Cookies = "";
-var cachedS2Cookies = "";
-var cacheTimestamp = 0;
-var CACHE_DURATION = 3600 * 1000;
-
-// FALLBACK EXPLOIT: Generates randomized tokens if the live scrape fails
-function generateSpoofedCookies() {
-    var now = Math.floor(Date.now() / 1000);
-    var mutateHex = function(hexStr) {
-        var chars = hexStr.split('');
-        for(var i = chars.length - 4; i < chars.length; i++) {
-            chars[i] = Math.floor(Math.random() * 16).toString(16);
-        }
-        return chars.join('');
-    };
-
-    var baseUserToken = "70616185895ea8507acfe05437a9d4fc";
-    var baseHash1 = "779fc597851aa6b05d46d86583ef647d";
-    var baseHash2 = "5185938f776f1b181082230868049087";
-    var baseHash3 = "a478b84982c0b0920a91838c5df6c5f4";
-
-    var userToken = mutateHex(baseUserToken);
-    var tHash = mutateHex(baseHash3) + "::" + now + "::ac";
-    var tHashT = mutateHex(baseHash1) + "::" + mutateHex(baseHash2) + "::" + now + "::ac::p";
-
-    return "t_hash_t=" + encodeURIComponent(tHashT) + "; t_hash=" + encodeURIComponent(tHash) + "; user_token=" + userToken;
-}
-
-// PRIMARY METHOD: Aggressively extracts hidden cryptographic tokens from HTML source code
-function extractHiddenTokens(html) {
-    var tokens = [];
-    var tHashMatch = html.match(/t_hash\s*[:=]\s*['"]([^'"]+)['"]/);
-    var tHashTMatch = html.match(/t_hash_t\s*[:=]\s*['"]([^'"]+)['"]/);
-    var userTokenMatch = html.match(/user_token\s*[:=]\s*['"]([^'"]+)['"]/);
-
-    if (tHashMatch) tokens.push("t_hash=" + tHashMatch[1]);
-    if (tHashTMatch) tokens.push("t_hash_t=" + tHashTMatch[1]);
-    if (userTokenMatch) tokens.push("user_token=" + userTokenMatch[1]);
-    
-    return tokens.join('; ');
-}
-
-// Generates matching browser headers for WAF bypass
-function getHeaders(targetUrl, refererPath, ottTag, dynamicCookies) {
-    var urlObj = new URL(targetUrl);
-    // If the live scraper failed, fall back to the spoofed hex exploit
-    var finalCookies = dynamicCookies ? dynamicCookies : generateSpoofedCookies();
-    
-    return {
-        "User-Agent": USER_AGENT, 
-        "Accept": "application/json, text/javascript, */*; q=0.01",
-        "Accept-Language": "en-CA,en-US;q=0.9,en;q=0.8",
-        "Accept-Encoding": "gzip, deflate", 
-        "Referer": urlObj.origin + refererPath, 
-        "Origin": urlObj.origin,
-        "Sec-Fetch-Site": "same-origin",
-        "Sec-Fetch-Mode": "cors",
-        "Sec-Fetch-Dest": "empty",
-        "X-Requested-With": "XMLHttpRequest",
-        "Connection": "keep-alive",
-        "Cookie": "ott=" + ottTag + "; " + finalCookies
-    };
-}
-
-// Helpers
-function safeFetchText(url, options) {
-    return fetch(url, options || {}).then(function(res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.text();
-    });
-}
-
-function safeFetchJson(url, options) {
-    return fetch(url, options || {}).then(function(res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
-    });
-}
-
-// Derives backend URLs AND automatically scrapes the live cookies
-function getBaseUrlsAndCookies() {
-    if (cachedBaseUrl && cachedS1Cookies && (Date.now() - cacheTimestamp < CACHE_DURATION)) {
-        return Promise.resolve({ 
-            baseUrl: cachedBaseUrl, 
-            streamBaseUrl: cachedStreamBaseUrl,
-            s1Cookies: cachedS1Cookies,
-            s2Cookies: cachedS2Cookies
-        });
+var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
     }
-    
-    return safeFetchText("https://netmirror.gg/2/en", {
-        headers: { "User-Agent": USER_AGENT, "Accept": "text/html" }
-    }).then(function(html) {
-        var match = html.match(/onclick="location\.href='([^']+)'"[^>]*>Go to Home/);
-        var baseUrl = "https://net22.cc";
-        var streamBaseUrl = "https://net52.cc";
-        
-        if (match && match[1]) {
-            var parsedUrl = new URL(match[1]);
-            baseUrl = parsedUrl.protocol + "//" + parsedUrl.host;
-            var numMatch = baseUrl.match(/net(\d+)\.cc/);
-            if (numMatch) {
-                var num = parseInt(numMatch[1]);
-                streamBaseUrl = baseUrl.replace(numMatch[1], String(num + 30));
-            }
-        }
+  return a;
+};
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
 
-        // Simultaneously fetch the homepages of both servers to scrape the cookies
-        var p1 = safeFetchText(baseUrl + "/home", { headers: { "User-Agent": USER_AGENT } })
-            .then(extractHiddenTokens).catch(function() { return ""; });
-            
-        var p2 = safeFetchText(streamBaseUrl + "/search", { headers: { "User-Agent": USER_AGENT } })
-            .then(extractHiddenTokens).catch(function() { return ""; });
+// src/moviebox/constants.js
+var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var TMDB_BASE_URL = "https://api.themoviedb.org/3";
+var MOVIEBOX_HOST = "h5.aoneroom.com";
+var MOVIEBOX_API = `https://${MOVIEBOX_HOST}`;
+var BASE_HEADERS = {
+  "X-Client-Info": '{"timezone":"Africa/Nairobi"}',
+  "Accept-Language": "en-US,en;q=0.5",
+  "Accept": "application/json",
+  "Referer": `${MOVIEBOX_API}/`,
+  "Host": MOVIEBOX_HOST,
+  "Connection": "keep-alive",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+};
 
-        return Promise.all([p1, p2]).then(function(cookies) {
-            cachedBaseUrl = baseUrl;
-            cachedStreamBaseUrl = streamBaseUrl;
-            cachedS1Cookies = cookies[0];
-            cachedS2Cookies = cookies[1];
-            cacheTimestamp = Date.now();
-            
-            return { 
-                baseUrl: baseUrl, 
-                streamBaseUrl: streamBaseUrl,
-                s1Cookies: cookies[0],
-                s2Cookies: cookies[1]
-            };
-        });
-    }).catch(function(e) {
-        console.error("[NetMirror] Init Error: " + e.message);
-        return { baseUrl: "https://net22.cc", streamBaseUrl: "https://net52.cc", s1Cookies: "", s2Cookies: "" };
+// src/moviebox/extractors.js
+function getMediaDetails(tmdbId, mediaType) {
+  return __async(this, null, function* () {
+    const type = mediaType === "tv" ? "tv" : "movie";
+    const url = `${TMDB_BASE_URL}/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const response = yield fetch(url);
+    const data = yield response.json();
+    let year = null;
+    if (mediaType === "tv" && data.first_air_date) {
+      year = parseInt(data.first_air_date.split("-")[0]);
+    } else if (mediaType === "movie" && data.release_date) {
+      year = parseInt(data.release_date.split("-")[0]);
+    }
+    return __spreadProps(__spreadValues({}, data), {
+      year
     });
+  });
 }
 
-function fetchServer1(title, baseUrl, streamBaseUrl, s1Cookies) {
-    var timestamp = Math.floor(Date.now() / 1000);
-    var searchUrl = baseUrl + "/search.php?s=" + encodeURIComponent(title) + "&t=" + timestamp;
-    var searchHeaders = getHeaders(searchUrl, '/home', 'nf', s1Cookies);
-
-    return safeFetchJson(searchUrl, { headers: searchHeaders }).then(function(searchData) {
-        if (!searchData.searchResult || searchData.searchResult.length === 0) return [];
-        var movieId = searchData.searchResult[0].id;
-
-        var hashUrl = baseUrl + "/play.php";
-        return safeFetchJson(hashUrl, {
-            method: 'POST',
-            headers: Object.assign({}, searchHeaders, { "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8" }),
-            body: "id=" + movieId
-        }).then(function(hashData) {
-            if (!hashData.h) return [];
-            var actualHash = hashData.h.indexOf("in=") === 0 ? hashData.h.substring(3) : hashData.h;
-
-            var playlistUrl = streamBaseUrl + "/playlist.php?id=" + movieId + "&t=" + encodeURIComponent(title) + "&tm=" + timestamp + "&h=" + actualHash;
-            var playlistHeaders = getHeaders(playlistUrl, '/', 'nf', s1Cookies);
-
-            return safeFetchJson(playlistUrl, { headers: playlistHeaders }).then(function(playlistData) {
-                var streams = [];
-                playlistData.forEach(function(item) {
-                    if (item.sources) {
-                        item.sources.forEach(function(source) {
-                            streams.push({
-                                name: "NetMirror [S1]",
-                                title: "Netflix Server - " + (source.label || 'HD'),
-                                url: streamBaseUrl + source.file,
-                                quality: source.label || "1080p",
-                                headers: {
-                                    "Referer": streamBaseUrl + "/",
-                                    "Origin": streamBaseUrl,
-                                    "User-Agent": USER_AGENT
-                                }
-                            });
-                        });
-                    }
-                });
-                return streams;
-            });
-        });
-    }).catch(function(e) {
-        console.error("[NetMirror S1 Error]: " + e.message);
-        return [];
-    });
+// src/moviebox/index.js
+function escapeRegExp(string) {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
-
-function fetchServer2(title, streamBaseUrl, s2Cookies) {
-    var timestamp = Math.floor(Date.now() / 1000);
-    var searchUrl = streamBaseUrl + "/pv/search.php?s=" + encodeURIComponent(title);
-    var searchHeaders = getHeaders(searchUrl, '/search', 'pv', s2Cookies);
-
-    return safeFetchJson(searchUrl, { headers: searchHeaders }).then(function(searchData) {
-        if (!searchData.searchResult || searchData.searchResult.length === 0) return [];
-        var movieId = searchData.searchResult[0].id;
-
-        var playlistUrl = streamBaseUrl + "/pv/playlist.php?id=" + movieId + "&tm=" + timestamp;
-        return safeFetchJson(playlistUrl, { headers: searchHeaders }).then(function(playlistData) {
-            var streams = [];
-            playlistData.forEach(function(item) {
-                if (item.sources) {
-                    item.sources.forEach(function(source) {
-                        streams.push({
-                            name: "NetMirror [S2]",
-                            title: "Prime Server - " + (source.label || 'HD'),
-                            url: streamBaseUrl + source.file,
-                            quality: source.label || "1080p",
-                            headers: {
-                                "Referer": streamBaseUrl + "/",
-                                "Origin": streamBaseUrl,
-                                "User-Agent": USER_AGENT
-                            }
-                        });
-                    });
-                }
-            });
-            return streams;
-        });
-    }).catch(function(e) {
-        console.error("[NetMirror S2 Error]: " + e.message);
-        return [];
-    });
+function unwrapData(json) {
+  if (!json)
+    return {};
+  const data = json.data || json;
+  return data.data || data;
 }
-
+function fetchWithHeaders(_0) {
+  return __async(this, arguments, function* (url, options = {}) {
+    const headers = Object.assign({}, BASE_HEADERS, options.headers || {});
+    const fetchOptions = Object.assign({}, options, { headers });
+    console.log(`[MovieBox] Fetching: ${url}`);
+    try {
+      const response = yield fetch(url, fetchOptions);
+      console.log(`[MovieBox] Status: ${response.status}`);
+      if (!response.ok) {
+        const text = yield response.text();
+        console.log(`[MovieBox] Error response: ${text.substring(0, 200)}`);
+      }
+      return response;
+    } catch (err) {
+      console.log(`[MovieBox] Fetch error: ${err.message}`);
+      throw err;
+    }
+  });
+}
 function getStreams(tmdbId, mediaType, season, episode) {
-    console.log("[NetMirror] getStreams: " + tmdbId + " | Type: " + mediaType);
-    
-    if (mediaType !== 'movie') return Promise.resolve([]);
-
-    var isImdb = String(tmdbId).indexOf("tt") === 0;
-    
-    var tmdbUrl = isImdb 
-        ? "https://api.themoviedb.org/3/find/" + tmdbId + "?api_key=d131017ccc6e5462a81c9304d21476de&external_source=imdb_id&language=en-US"
-        : "https://api.themoviedb.org/3/movie/" + tmdbId + "?api_key=d131017ccc6e5462a81c9304d21476de&language=en-US";
-
-    return safeFetchJson(tmdbUrl).then(function(tmdbData) {
-        var mediaData;
-        if (isImdb) {
-            mediaData = tmdbData.movie_results && tmdbData.movie_results[0];
-        } else {
-            mediaData = tmdbData;
-        }
-        
-        if (!mediaData || !mediaData.title) return [];
-        var title = mediaData.title;
-
-        return getBaseUrlsAndCookies().then(function(config) {
-            return Promise.all([
-                fetchServer1(title, config.baseUrl, config.streamBaseUrl, config.s1Cookies),
-                fetchServer2(title, config.streamBaseUrl, config.s2Cookies)
-            ]).then(function(results) {
-                var streamsS1 = results[0] || [];
-                var streamsS2 = results[1] || [];
-                return streamsS1.concat(streamsS2);
-            });
-        });
-    }).catch(function(error) {
-        console.error("[NetMirror] Global Error: " + error.message);
+  return __async(this, null, function* () {
+    console.log(`[MovieBox] Fetching streams for ${mediaType} ${tmdbId}`);
+    try {
+      const mediaData = yield getMediaDetails(tmdbId, mediaType);
+      const title = mediaType === "movie" ? mediaData.title : mediaData.name;
+      if (!title) {
+        console.log(`[MovieBox] Could not fetch title`);
         return [];
-    });
+      }
+      console.log(`[MovieBox] Searching for: ${title}`);
+      const streams = yield fetchMovieboxStreams(title, mediaType, season, episode);
+      if (!streams || streams.length === 0) {
+        console.log(`[MovieBox] No streams found for ${title}`);
+        return [];
+      }
+      console.log(`[MovieBox] Found ${streams.length} streams for ${title}`);
+      return streams;
+    } catch (error) {
+      console.error(`[MovieBox] Error: ${error.message}`);
+      return [];
+    }
+  });
 }
-
-module.exports = { getStreams: getStreams };
+function fetchMovieboxStreams(title, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    const streams = [];
+    try {
+      yield fetchWithHeaders(`${MOVIEBOX_API}/wefeed-h5-bff/app/get-latest-app-pkgs?app_name=moviebox`).catch(() => {
+      });
+      const subjectType = season != null ? 2 : 1;
+      const searchResp = yield fetchWithHeaders(`${MOVIEBOX_API}/wefeed-h5-bff/web/subject/search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keyword: title,
+          page: 1,
+          perPage: 24,
+          subjectType
+        })
+      });
+      const searchJson = yield searchResp.json();
+      const searchData = unwrapData(searchJson);
+      console.log(`[MovieBox] Search raw: ${JSON.stringify(searchJson).substring(0, 500)}`);
+      const items = searchData.items || [];
+      console.log(`[MovieBox] Found ${items.length} items`);
+      items.forEach((i) => console.log(`  - ${i.title} (${i.subjectId})`));
+      if (items.length === 0)
+        return [];
+      const SEASON_SUFFIX_REGEX = /\sS\d+(?:-S?\d+)*$/i;
+      const escapedTitle = escapeRegExp(title);
+      const titleMatchRegex = new RegExp(`^${escapedTitle}(?: \\[([^\\]]+)\\])?$`, "i");
+      const uniqueIdsWithLang = [];
+      const seenIds = /* @__PURE__ */ new Set();
+      for (const item of items) {
+        const id = item.subjectId;
+        if (!id || seenIds.has(id))
+          continue;
+        const rawItemTitle = item.title || "";
+        const cleanTitle = rawItemTitle.replace(SEASON_SUFFIX_REGEX, "");
+        console.log(`[MovieBox] Checking: "${rawItemTitle}" -> "${cleanTitle}"`);
+        const match = cleanTitle.match(titleMatchRegex);
+        if (!match) {
+          console.log(`[MovieBox] No match for: ${cleanTitle}`);
+          continue;
+        }
+        const language = match[1] || "Original";
+        console.log(`[MovieBox] MATCHED: ${id} - "${language}"`);
+        seenIds.add(id);
+        uniqueIdsWithLang.push({ id, language });
+      }
+      uniqueIdsWithLang.sort((a, b) => {
+        if (a.language === "Original")
+          return -1;
+        if (b.language === "Original")
+          return 1;
+        return 0;
+      });
+      if (uniqueIdsWithLang.length === 0)
+        return [];
+      for (const { id: subjectId, language } of uniqueIdsWithLang) {
+        try {
+          const detailResp = yield fetchWithHeaders(`${MOVIEBOX_API}/wefeed-h5-bff/web/subject/detail?subjectId=${subjectId}`);
+          const detailJson = yield detailResp.json();
+          const detailData = unwrapData(detailJson);
+          const subject = detailData.subject || {};
+          const detailPath = subject.detailPath || "";
+          let params = `subjectId=${subjectId}`;
+          if (season != null) {
+            params += `&se=${season}&ep=${episode}`;
+          }
+          const downloadHeaders = {
+            "Referer": `https://fmoviesunblocked.net/spa/videoPlayPage/movies/${detailPath}?id=${subjectId}&type=/movie/detail`,
+            "Origin": "https://fmoviesunblocked.net"
+          };
+          const sourceResp = yield fetchWithHeaders(`${MOVIEBOX_API}/wefeed-h5-bff/web/subject/download?${params}`, {
+            headers: downloadHeaders
+          });
+          const sourceJson = yield sourceResp.json();
+          const sourceData = unwrapData(sourceJson);
+          const downloads = sourceData.downloads || [];
+          downloads.forEach((d) => {
+            const dlink = d.url;
+            if (dlink) {
+              const res = d.resolution || 720;
+              const qualityStr = `${res}p`;
+              const nameParts = ["MovieBox", language].filter((p) => p && p.trim() !== "");
+              streams.push({
+                name: nameParts.join(" \u2022 "),
+                title: qualityStr,
+                url: dlink,
+                quality: qualityStr,
+                headers: {
+                  "Referer": "https://fmoviesunblocked.net/",
+                  "Origin": "https://fmoviesunblocked.net"
+                },
+                provider: "moviebox"
+              });
+            }
+          });
+        } catch (e) {
+          console.error(`[MovieBox] Error processing subject ${subjectId}:`, e);
+        }
+      }
+    } catch (err) {
+      console.error(`[MovieBox] fetchMovieboxStreams failed:`, err);
+    }
+    return streams;
+  });
+}
+module.exports = { getStreams };

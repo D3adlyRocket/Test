@@ -1,45 +1,45 @@
 /**
  * Nuvio Provider for Netvlyx
- * Proxied via Cloudflare Worker: 4-grass-8071.hdbdhdh825.workers.dev
+ * Resolves dynamic Odyssey.surf links with tokens
  */
 
 async function getStreams(tmdbId, mediaType, season, episode) {
     try {
-        const proxyBase = "https://4-grass-8071.hdbdhdh825.workers.dev";
-        const targetApi = `https://netvlyx.pages.dev/api/resolve-link?slug=${tmdbId}`;
+        const proxy = "https://4-grass-8071.hdbdhdh825.workers.dev/";
         
-        // Construct the full proxied URL
-        // Usually, worker proxies expect the target as a query param or suffix
-        const proxiedUrl = `${proxyBase}/${targetApi}`;
+        // Step 1: Format the slug for the API
+        // For TV shows, often formatted as 'tmdb-1-1', for movies just 'tmdb'
+        const slug = (mediaType === 'tv') ? `${tmdbId}-${season}-${episode}` : tmdbId;
+        
+        const apiUrl = `https://netvlyx.pages.dev/api/resolve-link?slug=${slug}`;
 
-        const response = await fetch(proxiedUrl, {
+        // Step 2: Fetch via your Cloudflare worker to get the fresh tokenized URL
+        const response = await fetch(proxy + apiUrl, {
             headers: {
-                'User-Agent': 'Nuvio-App/1.0',
-                'Origin': 'https://netvlyx.pages.dev'
+                'Referer': 'https://netvlyx.pages.dev/',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
             }
         });
 
-        if (!response.ok) throw new Error(`Proxy error: ${response.status}`);
-        
         const data = await response.json();
 
-        // Check if the API returned valid video data
+        // Step 3: Extract the Odyssey URL (which should include the fresh ?token=)
         if (data && data.url) {
             return [{
-                name: "Netvlyx (Cloudflare)",
-                title: data.title || `${mediaType.toUpperCase()} - ${tmdbId}`,
-                url: data.url,
-                quality: "1080p", // Defaulting to 1080p if not specified
+                name: "Netvlyx (Odyssey)",
+                title: data.title || "Video Stream",
+                url: data.url, // This is the https://hub.odyssey.surf/...?token=... link
+                quality: "1080p",
                 headers: {
-                    "User-Agent": "Mozilla/5.0",
-                    "Referer": "https://netvlyx.pages.dev/"
+                    "Referer": "https://hub.odyssey.surf/",
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
                 }
             }];
         }
 
         return [];
     } catch (error) {
-        console.error('[Netvlyx-Proxy] Error:', error.message);
+        console.error('[Nuvio-Netvlyx] Stream resolution failed:', error.message);
         return [];
     }
 }

@@ -1,41 +1,47 @@
 /**
  * Nuvio Provider for Netvlyx
- * This script resolves video streams from the Netvlyx API.
+ * Proxied via Cloudflare Worker: 4-grass-8071.hdbdhdh825.workers.dev
  */
 
 async function getStreams(tmdbId, mediaType, season, episode) {
     try {
-        console.log(`[Netvlyx] Fetching streams for ${mediaType} (ID: ${tmdbId})`);
-
-        // 1. Logic to determine your Netvlyx slug based on tmdbId
-        // This is a placeholder; you may need to fetch the slug from your site first
-        const slug = tmdbId; 
-
-        // 2. Call the Netvlyx resolve-link API found in the GitHub source
-        const apiUrl = `https://netvlyx.pages.dev/api/resolve-link?slug=${slug}`;
+        const proxyBase = "https://4-grass-8071.hdbdhdh825.workers.dev";
+        const targetApi = `https://netvlyx.pages.dev/api/resolve-link?slug=${tmdbId}`;
         
-        const response = await fetch(apiUrl);
-        if (!response.ok) throw new Error('Failed to fetch from Netvlyx API');
+        // Construct the full proxied URL
+        // Usually, worker proxies expect the target as a query param or suffix
+        const proxiedUrl = `${proxyBase}/${targetApi}`;
+
+        const response = await fetch(proxiedUrl, {
+            headers: {
+                'User-Agent': 'Nuvio-App/1.0',
+                'Origin': 'https://netvlyx.pages.dev'
+            }
+        });
+
+        if (!response.ok) throw new Error(`Proxy error: ${response.status}`);
         
         const data = await response.json();
 
-        // 3. Format the response for Nuvio
-        // Nuvio expects an array of objects: { name, title, url, quality }
+        // Check if the API returned valid video data
         if (data && data.url) {
             return [{
-                name: "Netvlyx",
-                title: data.title || "Direct Link",
+                name: "Netvlyx (Cloudflare)",
+                title: data.title || `${mediaType.toUpperCase()} - ${tmdbId}`,
                 url: data.url,
-                quality: data.quality || "HD"
+                quality: "1080p", // Defaulting to 1080p if not specified
+                headers: {
+                    "User-Agent": "Mozilla/5.0",
+                    "Referer": "https://netvlyx.pages.dev/"
+                }
             }];
         }
 
         return [];
     } catch (error) {
-        console.error('[Netvlyx] Error:', error.message);
+        console.error('[Netvlyx-Proxy] Error:', error.message);
         return [];
     }
 }
 
-// Nuvio requires the getStreams function to be exported at the bottom
 module.exports = { getStreams };

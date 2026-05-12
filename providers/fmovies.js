@@ -257,9 +257,7 @@ function safeDecodeURIComponent(str) {
 
 // --- FIX: Correct buildStream to use the new buildMeta logic ---
 function buildStream(label, finalUrl, finalQuality, streamHeaders, size, tech, langHint, meta) {
-  // Use the buildMeta function to generate the UI object
   var ui = buildMeta(meta, label, finalQuality, size, tech, langHint);
-
   return {
     name: ui.name,
     title: ui.title,
@@ -275,33 +273,25 @@ function buildMeta(meta, label, quality, size, tech, langHint) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
   
-  // 1. Title Logic: Handle Series (S01 E01) vs Movies
-  var displayTitle = (meta && meta.title) ? meta.title : "Movie";
+  // Logic Fix: Use meta.title from TMDB if available, otherwise fallback
+  var isSeries = !!(meta && (meta.season || meta.episode));
+  var displayTitle = (meta && meta.title) ? meta.title : (isSeries ? "Series" : "Movie");
   var year = (meta && meta.year) ? " - " + meta.year : "";
   
-  // If season and episode exist in meta, prefix the title (e.g., S01 E01 | Title)
-  if (meta && meta.season && meta.episode) {
+  if (isSeries) {
     var s = meta.season < 10 ? "0" + meta.season : meta.season;
     var e = meta.episode < 10 ? "0" + meta.episode : meta.episode;
     displayTitle = "S" + s + " E" + e + " | " + displayTitle;
   }
   
-  var line1 = "🎬 " + displayTitle + year;
+  var line1 = (isSeries ? "📺 " : "🎬 ") + displayTitle + year;
   
-  // 2. Icons
   var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
-  var lIcon = "🌍"; 
+  var line2 = qIcon + " " + quality + " | 🌍 " + lang + (size ? " | 💾 " + size : "");
 
-  // 3. Line 2: Quality | Language | Size
-  var line2Parts = [qIcon + " " + quality, lIcon + " " + lang];
-  if (size) line2Parts.push("💾 " + size);
-  var line2 = line2Parts.join(" | ");
-
-  // 4. Line 3: Extension | Tech Bits
   var extMatch = cleanedLabel.match(/\.(mkv|mp4|m4v|avi|mov)$/i);
   var extension = extMatch ? extMatch[1].toUpperCase() : "MKV";
-  var techDetails = tech || "WEB-DL";
-  var line3 = "🎞️ " + extension + " | ℹ️ " + techDetails;
+  var line3 = "🎞️ " + extension + " | ℹ️ " + (tech || "WEB-DL");
 
   return {
     name: "4KHDHub | " + quality + (size ? " | " + size : ""),
@@ -887,7 +877,7 @@ function isTrustedDirectCandidate(link) {
   return false;
 }
 
-function resolveHubcloud(url, label, referer, quality, langHintFromCaller) {
+function resolveHubcloud(url, label, referer, quality, langHint, meta) {
   var baseHeaders = referer ? { Referer: referer } : {};
 
   function parseEntry(entryUrl, sourceReferer) {
@@ -897,23 +887,15 @@ function resolveHubcloud(url, label, referer, quality, langHintFromCaller) {
     }).then(function(html) {
       var $ = cheerio.load(html);
       var pageTitle = $("title").first().text().trim();
-      dbg("[parseEntry] Title:", pageTitle, "| HTML len:", html.length);
-
-      if (html.length < 500) {
-        dbg("[parseEntry] HTML too short, likely expired");
-        return [];
-      }
 
       var sizeText = $("i#size").first().text().trim() ||
         $("#size").first().text().trim() ||
         $("#file-size").first().text().trim();
       var size = sizeText || "";
-      var sizeBytes = parseBytes(sizeText);
-      if (sizeBytes && !size) size = formatBytes(sizeBytes);
-
+      
       var header = $("div.card-header").first().text().trim() || pageTitle;
       var tech = cleanTech(header);
-      var finalQuality = detectQualityFromSources([header, quality, langHintFromCaller]);
+      var finalQuality = detectQualityFromSources([header, quality, langHint]);
 
       var streamCandidates = [];
       var asyncTasks = [];
@@ -924,34 +906,66 @@ function resolveHubcloud(url, label, referer, quality, langHintFromCaller) {
         if (!link) return;
 
         var lowerLink = link.toLowerCase();
+        if (lowerLink.indexOf("javascript") !== -1 || lowerLink.indexOf("t.me/") !== -1) return;
 
-        if (
-          lowerLink.indexOf("javascript") !== -1 ||
-          lowerLink.indexOf("t.me/") !== -1 ||
-          lowerLink.indexOf("telegram") !== -1 ||
-          /^https?:\/\/(www\.)?4khdhub\./i.test(link) ||
-          /^https?:\/\/(www\.)?hdhub4u\./i.test(link)
-        ) return;
-
-        dbg("[parseEntry] Link:", link, "| text:", text);
-
+        // BuzzServer Logic
         if (text.indexOf("buzzserver") !== -1) {
           asyncTasks.push(
-            fetchResponse(link + "/download", {
-              headers: { Referer: link },
-              redirect: "manual"
-            }).then(function(res) {
-              var redirected =
-                res.headers.get("hx-redirect") ||
-                res.headers.get("HX-Redirect") ||
-                res.headers.get("location") || "";
+            fetchResponse(link + "/download", { headers: { Referer: link }, redirect: "manual" })
+            .then(function(res) {
+              var redirected = res.headers.get("location") || "";
               if (!redirected) return [];
-              return [buildStream(label + " BuzzServer", redirected, finalQuality, { Referer: link }, size, tech, header || langHintFromCaller)];
+              return [buildStream(label + " BuzzServer", redirected, finalQuality, { Referer: link }, size, tech, header, meta)];
             }).catch(function() { return []; })
           );
-          return;
         }
+        // 10Gbps / Hubcloud Direct Logic
+        else if (text.indexOf("10gbps") !== -1 || lowerLink.indexOf("10gbps") !== -1 || lowerLink.indexOf("gpdl.hubcloud") !== -1) {
+          asyncTasks.push(resolve10Gbps(link, label, finalQuality, size, tech, header, meta));
+        }
+        // Direct Playable Candidates
+        else if (isTrustedDirectCandidate(link)) {
+          streamCandidates.push(buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech, header, meta));
+        }
+      });
 
+      return Promise.all(asyncTasks).then(function(groups) {
+        var allCandidates = streamCandidates.slice();
+        for (var i = 0; i < groups.length; i++) {
+          allCandidates = allCandidates.concat(groups[i] || []);
+        }
+        
+        // Dedup and pick top 2
+        var seen = {};
+        var selected = [];
+        allCandidates.sort(function(a, b) { return hostConfidence(b.url) - hostConfidence(a.url); });
+        
+        for (var ci = 0; ci < allCandidates.length; ci++) {
+          var cu = allCandidates[ci].url.toLowerCase();
+          var providerKey = cu.indexOf("lotuscdn") !== -1 ? "fsl" : (cu.indexOf("workers.dev") !== -1 ? "workers" : "other" + ci);
+          if (!seen[providerKey]) {
+            seen[providerKey] = true;
+            selected.push(allCandidates[ci]);
+          }
+          if (selected.length >= 2) break;
+        }
+        return selected;
+      });
+    }).catch(function(e) {
+      dbg("[parseEntry] Error:", e.message);
+      return [];
+    });
+  }
+
+  // Final check for the redirect or direct link
+  if (/hubcloud\.php/i.test(url)) return parseEntry(url, url);
+  
+  return fetchText(url, { headers: baseHeaders }).then(function(html) {
+    var raw = $("#download").attr("href") || $("a[href*='hubcloud']").attr("href");
+    var entryUrl = fixUrl(raw, url);
+    return entryUrl ? parseEntry(entryUrl, url) : [];
+  });
+}
         if (
           text.indexOf("10gbps") !== -1 ||
           lowerLink.indexOf("10gbps") !== -1 ||
@@ -1023,57 +1037,95 @@ function resolveHubcloud(url, label, referer, quality, langHintFromCaller) {
 
   if (/hubcloud\.php/i.test(url)) {
     return parseEntry(url, url).catch(function() { return []; });
-  }
+function resolveHubcloud(url, label, referer, quality, langHint, meta) {
+  var baseHeaders = referer ? { Referer: referer } : {};
 
   return fetchText(url, { headers: baseHeaders }).then(function(html) {
     var $ = cheerio.load(html);
-
-    var directVarUrl = null;
-    var varUrlPatterns = [
-      /var\s+url\s*=\s*'([^']+)'/,
-      /var\s+url\s*=\s*"([^"]+)"/,
-      /'url'\s*:\s*'([^']+)'/,
-      /"url"\s*:\s*"([^"]+)"/
-    ];
-    for (var _pi = 0; _pi < varUrlPatterns.length; _pi++) {
-      var _m = html.match(varUrlPatterns[_pi]);
-      if (_m && _m[1] && _m[1].indexOf("http") === 0) {
-        directVarUrl = _m[1];
-        dbg("[resolveHubcloud] var url pattern found:", directVarUrl);
-        break;
-      }
-    }
-    if (directVarUrl) {
-      return parseEntry(directVarUrl, url);
-    }
-
-    var raw =
-      $("#download").attr("href") ||
-      $("a[href*='hubcloud.php']").attr("href") ||
-      $("a[href*='gamerxyt.com']").attr("href") ||
-      $("a[href*='/hubcloud.php']").attr("href") ||
-      $("a[href*='hubcloud.cx']").attr("href") ||
-      $("a[href*='hubcloud.foo/drive/']").not("[href*='/admin']").first().attr("href") ||
-      $("iframe[src*='hubcloud']").attr("src") ||
-      $("iframe").attr("src");
-
+    var raw = $("#download").attr("href") || $("a[href*='hubcloud']").attr("href") || $("iframe[src*='hubcloud']").attr("src");
     var entryUrl = fixUrl(raw, url);
-    dbg("[resolveHubcloud] Entry URL:", entryUrl, "| from:", url);
+    if (!entryUrl) return [];
 
-    if (!entryUrl) {
-      dbg("[resolveHubcloud] No entry URL - scanning all links:");
-      $("a[href]").each(function(_, el) {
-        var h = $(el).attr("href") || "";
-        var t = $(el).text().trim();
-        dbg("  link:", h, "| text:", t);
+    return fetchText(entryUrl, { headers: { Referer: url } }).then(function(eHtml) {
+        var e$ = cheerio.load(eHtml);
+        var size = e$("#size").text().trim() || "";
+        var header = e$(".card-header").text().trim() || "";
+        var tech = cleanTech(header);
+        var finalQuality = detectQualityFromSources([header, quality]);
+        
+        var results = [];
+        e$("a.btn").each(function(_, el) {
+            var link = fixUrl(e$(el).attr("href"), entryUrl);
+            if (isTrustedDirectCandidate(link)) {
+                results.push(buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech, langHint, meta));
+            }
+        });
+        return results;
+    });
+  }).catch(function() { return []; });
+}
+      return Promise.all(asyncTasks).then(function(groups) {
+        var allCandidates = streamCandidates.slice();
+        for (var i = 0; i < groups.length; i++) {
+          allCandidates = allCandidates.concat(groups[i] || []);
+        }
+        
+        // Dedup and pick top providers
+        var seen = {};
+        var selected = [];
+        allCandidates.sort(function(a, b) { return hostConfidence(b.url) - hostConfidence(a.url); });
+        
+        for (var ci = 0; ci < allCandidates.length; ci++) {
+          var cu = allCandidates[ci].url.toLowerCase();
+          var providerKey;
+          if (cu.indexOf("googleusercontent") !== -1) providerKey = "gdrive";
+          else if (cu.indexOf("lotuscdn") !== -1 || cu.indexOf("yummy.monster") !== -1) providerKey = "fsl";
+          else if (cu.indexOf(".workers.dev") !== -1) providerKey = "workers";
+          else if (cu.indexOf(".r2.dev") !== -1) providerKey = "r2";
+          else providerKey = "other_" + ci;
+
+          if (!seen[providerKey]) {
+            seen[providerKey] = true;
+            selected.push(allCandidates[ci]);
+          }
+          if (selected.length >= 2) break;
+        }
+        return selected;
       });
+    }).catch(function(e) {
+      dbg("[parseEntry] Error:", e.message);
       return [];
-    }
-    return parseEntry(entryUrl, url);
-  }).catch(function(e) {
-    dbg("[resolveHubcloud] ERROR:", e.message);
-    return [];
+    });
+  }
+
+  // Final check for the redirect or direct link
+  if (/hubcloud\.php/i.test(url)) return parseEntry(url, url);
+  
+  return fetchText(url, { headers: baseHeaders }).then(function(html) {
+    var raw = $("#download").attr("href") || $("a[href*='hubcloud']").attr("href") || $("iframe[src*='hubcloud']").attr("src");
+    var entryUrl = fixUrl(raw, url);
+    return entryUrl ? parseEntry(entryUrl, url) : [];
   });
+}
+
+function resolve10Gbps(url, label, quality, size, tech, langHint, meta) {
+  function step(current, depth) {
+    if (depth >= 6) return Promise.resolve([]);
+    return fetchResponse(current, {
+      redirect: "manual",
+      headers: { Referer: current }
+    }).then(function(res) {
+      var location = res.headers.get("location") || "";
+      if (location) return step(fixUrl(location, current), depth + 1);
+
+      var finalUrl = res.url || current;
+      if (isPlayableMediaUrl(finalUrl)) {
+        return [buildStream(label + " 10Gbps", finalUrl, quality, { Referer: current }, size, tech, langHint, meta)];
+      }
+      return [];
+    }).catch(function() { return []; });
+  }
+  return step(url, 0);
 }
 
 function resolveHblinks(url, label, referer, quality, langHint) {
@@ -1096,32 +1148,23 @@ function resolveHblinks(url, label, referer, quality, langHint) {
   }).catch(function() { return []; });
 }
 
-function resolveLink(rawUrl, label, referer, quality, langHint) {
+function resolveLink(rawUrl, label, referer, quality, langHint, meta) {
   if (!rawUrl) return Promise.resolve([]);
   quality = quality || "Auto";
-  referer = referer || "";
-
-  function finalize(streams) {
-    return Promise.resolve(validateResolvedStreams(streams));
+  
+  var lower = String(rawUrl).toLowerCase();
+  
+  if (lower.indexOf("hubcloud") !== -1) {
+      return resolveHubcloud(rawUrl, label, referer, quality, langHint, meta);
   }
-
-  function next(url) {
-    var lower = String(url || "").toLowerCase();
-    dbg("[resolveLink] ->", url);
-
-    if (/\.(m3u8|mp4|mkv)(\?|#|$)/i.test(url)) {
-      return finalize([buildStream(label, url, quality, referer ? { Referer: referer } : {}, "", "", langHint)]);
-    }
-    if (lower.indexOf("hubcloud") !== -1) return resolveHubcloud(url, label, referer, quality, langHint).then(finalize);
-    if (lower.indexOf("hubcdn") !== -1) return resolveHubcdn(url, label, quality, "", "", langHint).then(finalize);
-    if (lower.indexOf("hblinks") !== -1) return resolveHblinks(url, label, referer, quality, langHint).then(finalize);
-    if (lower.indexOf("hubdrive") !== -1) return resolveHubdrive(url, label, quality).then(finalize);
-    if (isTrustedDirectCandidate(url)) {
-      return finalize([buildStream(label, url, quality, referer ? { Referer: referer } : {}, "", "", langHint)]);
-    }
-    dbg("[resolveLink] SKIPPED (unknown type):", url);
-    return Promise.resolve([]);
+  
+  if (isTrustedDirectCandidate(rawUrl)) {
+      return Promise.resolve([buildStream(label, rawUrl, quality, { Referer: referer }, "", "", langHint, meta)]);
   }
+  
+  // Add other resolvers (Hubcdn, etc) here following the same pattern
+  return Promise.resolve([]);
+}
 
   if (rawUrl.indexOf("id=") !== -1 || rawUrl.indexOf("/id/") !== -1) {
     return getRedirectLinks(rawUrl).then(function(redirected) {
@@ -1140,20 +1183,16 @@ function extractLangHint(item) {
   return [item.fileTitle || "", item.label || "", item.rawHtml || ""].join(" ");
 }
 
-function extractFromPage(contentUrl, mediaType, season, episode) {
+function extractFromPage(contentUrl, mediaType, season, episode, meta) {
   return fetchText(contentUrl).then(function(html) {
     var $ = cheerio.load(html);
     var hasEpisodeList = $("div.episodes-list, div.episodelist, ul.episodios, div.season-item").length > 0;
     var isMoviePage = !hasEpisodeList;
 
-    dbg("[extractFromPage] URL:", contentUrl);
-    dbg("[extractFromPage] mediaType:", mediaType, "| isMoviePage:", isMoviePage);
-
     var links = (mediaType === "movie" || isMoviePage)
       ? collectMovieLinks($, contentUrl)
       : collectEpisodeLinks($, contentUrl, season, episode);
 
-    dbg("[extractFromPage] Links collected:", links.length);
     if (!links.length) return [];
 
     links = sortLinksByPriority(links);
@@ -1162,20 +1201,16 @@ function extractFromPage(contentUrl, mediaType, season, episode) {
       var quality = extractCandidateQuality(item);
       var label = cleanLabelText(item.fileTitle || item.label || PROVIDER_NAME);
       var langHint = extractLangHint(item);
-      return resolveLink(item.url, label, contentUrl, quality, langHint).catch(function(e) {
+      // FIX: Added 'meta' as the 6th argument here
+      return resolveLink(item.url, label, contentUrl, quality, langHint, meta).catch(function(e) {
         dbg("[extractFromPage] resolveLink FAILED:", item.url, "|", e.message || e);
         return [];
       });
     })).then(function(groups) {
       var streams = [];
       for (var i = 0; i < groups.length; i += 1) streams = streams.concat(groups[i] || []);
-      dbg("[extractFromPage] Pre-dedup streams:", streams.length);
-      streams.forEach(function(s, i) {
-        dbg("[extractFromPage] stream[" + i + "]:", s.title, "|", s.url);
-      });
       streams = dedupeStreams(streams);
       streams.sort(function(a, b) { return hostConfidence(b.url) - hostConfidence(a.url); });
-      dbg("[extractFromPage] Final streams:", streams.length);
       return streams;
     });
   });

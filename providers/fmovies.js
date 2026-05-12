@@ -876,167 +876,6 @@ function isTrustedDirectCandidate(link) {
   if (/\.(mkv|mp4|m3u8)(\?|#|$)/.test(u)) return true;
   return false;
 }
-
-function resolveHubcloud(url, label, referer, quality, langHint, meta) {
-  var baseHeaders = referer ? { Referer: referer } : {};
-
-  function parseEntry(entryUrl, sourceReferer) {
-    dbg("[parseEntry] Fetching:", entryUrl);
-    return fetchText(entryUrl, {
-      headers: assign(baseHeaders, { Referer: sourceReferer || url })
-    }).then(function(html) {
-      var $ = cheerio.load(html);
-      var pageTitle = $("title").first().text().trim();
-
-      var sizeText = $("i#size").first().text().trim() ||
-        $("#size").first().text().trim() ||
-        $("#file-size").first().text().trim();
-      var size = sizeText || "";
-      
-      var header = $("div.card-header").first().text().trim() || pageTitle;
-      var tech = cleanTech(header);
-      var finalQuality = detectQualityFromSources([header, quality, langHint]);
-
-      var streamCandidates = [];
-      var asyncTasks = [];
-
-      $("a.btn[href], a[href]").each(function(_, el) {
-        var link = fixUrl($(el).attr("href"), entryUrl);
-        var text = $(el).text().trim().toLowerCase();
-        if (!link) return;
-
-        var lowerLink = link.toLowerCase();
-        if (lowerLink.indexOf("javascript") !== -1 || lowerLink.indexOf("t.me/") !== -1) return;
-
-        // BuzzServer Logic
-        if (text.indexOf("buzzserver") !== -1) {
-          asyncTasks.push(
-            fetchResponse(link + "/download", { headers: { Referer: link }, redirect: "manual" })
-            .then(function(res) {
-              var redirected = res.headers.get("location") || "";
-              if (!redirected) return [];
-              return [buildStream(label + " BuzzServer", redirected, finalQuality, { Referer: link }, size, tech, header, meta)];
-            }).catch(function() { return []; })
-          );
-        }
-        // 10Gbps / Hubcloud Direct Logic
-        else if (text.indexOf("10gbps") !== -1 || lowerLink.indexOf("10gbps") !== -1 || lowerLink.indexOf("gpdl.hubcloud") !== -1) {
-          asyncTasks.push(resolve10Gbps(link, label, finalQuality, size, tech, header, meta));
-        }
-        // Direct Playable Candidates
-        else if (isTrustedDirectCandidate(link)) {
-          streamCandidates.push(buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech, header, meta));
-        }
-      });
-
-      return Promise.all(asyncTasks).then(function(groups) {
-        var allCandidates = streamCandidates.slice();
-        for (var i = 0; i < groups.length; i++) {
-          allCandidates = allCandidates.concat(groups[i] || []);
-        }
-        
-        // Dedup and pick top 2
-        var seen = {};
-        var selected = [];
-        allCandidates.sort(function(a, b) { return hostConfidence(b.url) - hostConfidence(a.url); });
-        
-        for (var ci = 0; ci < allCandidates.length; ci++) {
-          var cu = allCandidates[ci].url.toLowerCase();
-          var providerKey = cu.indexOf("lotuscdn") !== -1 ? "fsl" : (cu.indexOf("workers.dev") !== -1 ? "workers" : "other" + ci);
-          if (!seen[providerKey]) {
-            seen[providerKey] = true;
-            selected.push(allCandidates[ci]);
-          }
-          if (selected.length >= 2) break;
-        }
-        return selected;
-      });
-    }).catch(function(e) {
-      dbg("[parseEntry] Error:", e.message);
-      return [];
-    });
-  }
-
-  // Final check for the redirect or direct link
-  if (/hubcloud\.php/i.test(url)) return parseEntry(url, url);
-  
-  return fetchText(url, { headers: baseHeaders }).then(function(html) {
-    var raw = $("#download").attr("href") || $("a[href*='hubcloud']").attr("href");
-    var entryUrl = fixUrl(raw, url);
-    return entryUrl ? parseEntry(entryUrl, url) : [];
-  });
-}
-        if (
-          text.indexOf("10gbps") !== -1 ||
-          lowerLink.indexOf("10gbps") !== -1 ||
-          lowerLink.indexOf("gpdl.hubcloud") !== -1 ||
-          lowerLink.indexOf("pixel.hubcloud") !== -1
-        ) {
-          asyncTasks.push(resolve10Gbps(link, label, finalQuality, size, tech, header || langHintFromCaller));
-          return;
-        }
-
-        if (lowerLink.indexOf("goldmines") !== -1 && lowerLink.indexOf(".workers.dev") !== -1) {
-          asyncTasks.push(resolve10Gbps(link, label, finalQuality, size, tech, header || langHintFromCaller));
-          return;
-        }
-
-        if (lowerLink.indexOf("pub-") !== -1 && lowerLink.indexOf(".r2.dev/") !== -1) {
-          streamCandidates.push(buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech, header || langHintFromCaller));
-          return;
-        }
-
-        if (isTrustedDirectCandidate(link)) {
-          streamCandidates.push(buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech, header || langHintFromCaller));
-        }
-      });
-
-      dbg("[parseEntry] directStreams:", streamCandidates.length, "| asyncTasks:", asyncTasks.length);
-
-      if (!asyncTasks.length) {
-        if (!streamCandidates.length) return [];
-        streamCandidates.sort(function(a, b) { return hostConfidence(b.url) - hostConfidence(a.url); });
-        return [streamCandidates[0]];
-      }
-
-      return Promise.all(asyncTasks).then(function(groups) {
-        var allCandidates = streamCandidates.slice();
-        for (var i = 0; i < groups.length; i += 1) {
-          allCandidates = allCandidates.concat(groups[i] || []);
-        }
-        if (!allCandidates.length) {
-          dbg("[parseEntry] WARNING: allCandidates empty after all async tasks resolved");
-          return [];
-        }
-        allCandidates.sort(function(a, b) { return hostConfidence(b.url) - hostConfidence(a.url); });
-        var seen = {};
-        var selected = [];
-        for (var ci = 0; ci < allCandidates.length; ci++) {
-          var cu = allCandidates[ci].url.toLowerCase();
-          var providerKey;
-          if (cu.indexOf("googleusercontent") !== -1) providerKey = "gdrive";
-          else if (cu.indexOf("lotuscdn") !== -1 || cu.indexOf("yummy.monster") !== -1 || cu.indexOf("odyssey.surf") !== -1) providerKey = "fsl";
-          else if (cu.indexOf("10gbps") !== -1) providerKey = "10gbps";
-          else if (cu.indexOf(".workers.dev") !== -1) providerKey = "workers";
-          else if (cu.indexOf(".r2.dev") !== -1) providerKey = "r2";
-          else providerKey = "other_" + ci;
-          if (!seen[providerKey]) {
-            seen[providerKey] = true;
-            selected.push(allCandidates[ci]);
-          }
-          if (selected.length >= 2) break;
-        }
-        dbg("[parseEntry] candidates:", allCandidates.length, "| Best:", selected[0].url);
-        return selected;
-      });
-    }).catch(function(e) {
-      dbg("[parseEntry] ASYNC ERROR:", e.message, e.stack ? e.stack.slice(0,200) : "");
-      return [];
-    });
-  }
-
-  if (/hubcloud\.php/i.test(url)) {
-    return parseEntry(url, url).catch(function() { return []; });
 function resolveHubcloud(url, label, referer, quality, langHint, meta) {
   var baseHeaders = referer ? { Referer: referer } : {};
 
@@ -1047,85 +886,42 @@ function resolveHubcloud(url, label, referer, quality, langHint, meta) {
     if (!entryUrl) return [];
 
     return fetchText(entryUrl, { headers: { Referer: url } }).then(function(eHtml) {
-        var e$ = cheerio.load(eHtml);
-        var size = e$("#size").text().trim() || "";
-        var header = e$(".card-header").text().trim() || "";
-        var tech = cleanTech(header);
-        var finalQuality = detectQualityFromSources([header, quality]);
-        
-        var results = [];
-        e$("a.btn").each(function(_, el) {
-            var link = fixUrl(e$(el).attr("href"), entryUrl);
-            if (isTrustedDirectCandidate(link)) {
-                results.push(buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech, langHint, meta));
-            }
-        });
-        return results;
+      var e$ = cheerio.load(eHtml);
+      var size = e$("#size").text().trim() || "";
+      var header = e$(".card-header").text().trim() || "";
+      var tech = cleanTech(header);
+      var finalQuality = detectQualityFromSources([header, quality]);
+      
+      var asyncTasks = [];
+      var directStreams = [];
+
+      e$("a.btn").each(function(_, el) {
+        var link = fixUrl(e$(el).attr("href"), entryUrl);
+        var text = e$(el).text().toLowerCase();
+        if (!link) return;
+
+        if (text.indexOf("buzzserver") !== -1) {
+          asyncTasks.push(
+            fetchResponse(link + "/download", { headers: { Referer: link }, redirect: "manual" })
+            .then(function(res) {
+              var redir = res.headers.get("location");
+              return redir ? [buildStream(label + " Buzz", redir, finalQuality, { Referer: link }, size, tech, langHint, meta)] : [];
+            }).catch(function() { return []; })
+          );
+        } else if (text.indexOf("10gbps") !== -1 || link.includes("gpdl.hubcloud")) {
+          asyncTasks.push(resolve10Gbps(link, label, finalQuality, size, tech, langHint, meta));
+        } else if (isTrustedDirectCandidate(link)) {
+          directStreams.push(buildStream(label, link, finalQuality, { Referer: entryUrl }, size, tech, langHint, meta));
+        }
+      });
+
+      return Promise.all(asyncTasks).then(function(results) {
+        var all = directStreams.slice();
+        for (var i = 0; i < results.length; i++) all = all.concat(results[i] || []);
+        return all;
+      });
     });
   }).catch(function() { return []; });
-}
-      return Promise.all(asyncTasks).then(function(groups) {
-        var allCandidates = streamCandidates.slice();
-        for (var i = 0; i < groups.length; i++) {
-          allCandidates = allCandidates.concat(groups[i] || []);
-        }
-        
-        // Dedup and pick top providers
-        var seen = {};
-        var selected = [];
-        allCandidates.sort(function(a, b) { return hostConfidence(b.url) - hostConfidence(a.url); });
-        
-        for (var ci = 0; ci < allCandidates.length; ci++) {
-          var cu = allCandidates[ci].url.toLowerCase();
-          var providerKey;
-          if (cu.indexOf("googleusercontent") !== -1) providerKey = "gdrive";
-          else if (cu.indexOf("lotuscdn") !== -1 || cu.indexOf("yummy.monster") !== -1) providerKey = "fsl";
-          else if (cu.indexOf(".workers.dev") !== -1) providerKey = "workers";
-          else if (cu.indexOf(".r2.dev") !== -1) providerKey = "r2";
-          else providerKey = "other_" + ci;
-
-          if (!seen[providerKey]) {
-            seen[providerKey] = true;
-            selected.push(allCandidates[ci]);
-          }
-          if (selected.length >= 2) break;
-        }
-        return selected;
-      });
-    }).catch(function(e) {
-      dbg("[parseEntry] Error:", e.message);
-      return [];
-    });
-  }
-
-  // Final check for the redirect or direct link
-  if (/hubcloud\.php/i.test(url)) return parseEntry(url, url);
-  
-  return fetchText(url, { headers: baseHeaders }).then(function(html) {
-    var raw = $("#download").attr("href") || $("a[href*='hubcloud']").attr("href") || $("iframe[src*='hubcloud']").attr("src");
-    var entryUrl = fixUrl(raw, url);
-    return entryUrl ? parseEntry(entryUrl, url) : [];
-  });
-}
-
-function resolve10Gbps(url, label, quality, size, tech, langHint, meta) {
-  function step(current, depth) {
-    if (depth >= 6) return Promise.resolve([]);
-    return fetchResponse(current, {
-      redirect: "manual",
-      headers: { Referer: current }
-    }).then(function(res) {
-      var location = res.headers.get("location") || "";
-      if (location) return step(fixUrl(location, current), depth + 1);
-
-      var finalUrl = res.url || current;
-      if (isPlayableMediaUrl(finalUrl)) {
-        return [buildStream(label + " 10Gbps", finalUrl, quality, { Referer: current }, size, tech, langHint, meta)];
-      }
-      return [];
-    }).catch(function() { return []; });
-  }
-  return step(url, 0);
 }
 
 function resolveHblinks(url, label, referer, quality, langHint) {
@@ -1150,19 +946,30 @@ function resolveHblinks(url, label, referer, quality, langHint) {
 
 function resolveLink(rawUrl, label, referer, quality, langHint, meta) {
   if (!rawUrl) return Promise.resolve([]);
-  quality = quality || "Auto";
-  
   var lower = String(rawUrl).toLowerCase();
   
+  // 1. Hubcloud Resolver
   if (lower.indexOf("hubcloud") !== -1) {
-      return resolveHubcloud(rawUrl, label, referer, quality, langHint, meta);
+    return resolveHubcloud(rawUrl, label, referer, quality, langHint, meta);
   }
   
+  // 2. Hubcdn Resolver
+  if (lower.indexOf("hubcdn") !== -1) {
+    return resolveHubcdn(rawUrl, label, quality, "", "", langHint, meta);
+  }
+
+  // 3. Direct Playable Links
   if (isTrustedDirectCandidate(rawUrl)) {
-      return Promise.resolve([buildStream(label, rawUrl, quality, { Referer: referer }, "", "", langHint, meta)]);
+    return Promise.resolve([
+      buildStream(label, rawUrl, quality, { Referer: referer }, "", "", langHint, meta)
+    ]);
   }
-  
-  // Add other resolvers (Hubcdn, etc) here following the same pattern
+
+  // 4. Hubdrive (Note: usually requires login, but we try)
+  if (lower.indexOf("hubdrive") !== -1) {
+    return resolveHubdrive(rawUrl, label, quality, meta);
+  }
+
   return Promise.resolve([]);
 }
 

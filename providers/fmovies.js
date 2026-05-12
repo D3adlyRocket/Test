@@ -816,7 +816,7 @@ function resolveHubdrive(url, label, quality) {
   });
 }
 
-function resolve10Gbps(url, label, quality, size, tech, langHint) {
+function resolve10Gbps(url, label, quality, size, tech, langHint, meta) {
   function step(current, depth) {
     if (depth >= 6) return Promise.resolve([]);
     return fetchResponse(current, {
@@ -827,32 +827,16 @@ function resolve10Gbps(url, label, quality, size, tech, langHint) {
       var contentType = String(res.headers.get("content-type") || "").toLowerCase();
       var location = res.headers.get("location") || "";
 
-      dbg("[resolve10Gbps] depth:", depth, "| status:", res.status, "| url:", current, "| finalUrl:", finalUrl);
-
       if (location) {
         return step(fixUrl(location, current), depth + 1);
       }
 
-      if (
-        finalUrl.indexOf("video-downloads.googleusercontent.com/") !== -1 ||
-        finalUrl.indexOf(".r2.dev/") !== -1 ||
-        finalUrl.indexOf(".workers.dev/") !== -1 ||
-        finalUrl.indexOf("hub.lotuscdn.club/") !== -1 ||
-        finalUrl.indexOf("hub.yummy.monster/") !== -1 ||
-        finalUrl.indexOf("hub.odyssey.surf/") !== -1 ||
-        contentType.indexOf("video/") !== -1 ||
-        contentType.indexOf("octet-stream") !== -1
-      ) {
-        dbg("[resolve10Gbps] Terminal URL:", finalUrl);
-        return [buildStream(label + " 10Gbps", finalUrl, quality, { Referer: current }, size, tech, langHint)];
+      if (isPlayableMediaUrl(finalUrl) || contentType.indexOf("video/") !== -1) {
+        return [buildStream(label + " 10Gbps", finalUrl, quality, { Referer: current }, size, tech, langHint, meta)];
       }
 
-      dbg("[resolve10Gbps] Non-terminal, no redirect, URL may be dead");
       return [];
-    }).catch(function(e) {
-      dbg("[resolve10Gbps] ERROR:", e.message);
-      return [];
-    });
+    }).catch(function() { return []; });
   }
   return step(url, 0);
 }
@@ -972,13 +956,6 @@ function resolveLink(rawUrl, label, referer, quality, langHint, meta) {
 
   return Promise.resolve([]);
 }
-
-  if (rawUrl.indexOf("id=") !== -1 || rawUrl.indexOf("/id/") !== -1) {
-    return getRedirectLinks(rawUrl).then(function(redirected) {
-      return next(redirected || rawUrl);
-    }).catch(function() { return next(rawUrl); });
-  }
-
   return next(rawUrl);
 }
 

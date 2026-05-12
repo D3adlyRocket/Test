@@ -17,9 +17,11 @@ const HEADERS = {
   'Cookie': 'starstruck_7da72d90b632af60dd1158c068193d61=99f22538d0588cdd7ccfc783299f88a7'
 };
 
+// Headers used for video streams – matches animotvslash format
 const VIDEO_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-  'Referer': BASE_URL
+  'Referer': BASE_URL,
+  'Accept': 'video/webm,video/ogg,video/*;q=0.9,*/*;q=0.5'
 };
 
 async function fetchHTML(url) {
@@ -98,22 +100,22 @@ async function getSeriesSlug(tmdbId) {
   return slugify(title);
 }
 
-// ------------------------------------------------------------------
-// Main stream provider (returns original embed URLs)
-// ------------------------------------------------------------------
 async function getStreams(tmdbId, mediaType, season, episode) {
   console.log(`[pinoyhub] Request: ${mediaType} ID:${tmdbId} S${season}E${episode}`);
+
   try {
-    let pageUrl, contextTitle;
+    let pageUrl, contextTitle, displayTitle;
     if (mediaType === 'movie') {
       const movieTitle = await fetchTitleFromTMDB(tmdbId, 'movie');
       if (!movieTitle) throw new Error('Cannot fetch movie title');
       contextTitle = movieTitle;
+      displayTitle = 'Movie';
       const movieSlug = slugify(movieTitle);
       pageUrl = `${BASE_URL}/movies/${movieSlug}/`;
     } else {
       const seriesSlug = await getSeriesSlug(tmdbId);
       contextTitle = `${seriesSlug} S${season}E${episode}`;
+      displayTitle = `S${season}E${episode}`;
       pageUrl = `${BASE_URL}/episodes/${seriesSlug}-${season}x${episode}/`;
     }
     console.log(`[pinoyhub] Fetching page: ${pageUrl}`);
@@ -124,71 +126,30 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     if (links.length === 0) return [];
 
     const streams = [];
-    for (const link of links) {
+    for (let i = 0; i < links.length; i++) {
+      const link = links[i];
       if (link.quality.toLowerCase() === 'subtitle' || link.language.toLowerCase() === 'english') continue;
+
       console.log(`[pinoyhub] Processing ${link.quality} / ${link.language}: ${link.url}`);
       const external = await resolveInternalLink(link.url);
       if (!external) continue;
-      // Return the external URL as is (embed page) – Stremio will open in external browser
+
       streams.push({
-        name: `PinoyHub - ${link.quality} ${link.language}`,
-        title: contextTitle,
+        name: `PinoyHub - Stream ${streams.length + 1}`,
+        title: displayTitle,
         url: external,
-        quality: link.quality,
+        quality: 'Auto',
         headers: VIDEO_HEADERS,
-        provider: 'pinoyhub',
-        behaviorHints: { notWebReady: true }
+        provider: 'pinoyhub'
       });
     }
+
     console.log(`[pinoyhub] Returning ${streams.length} stream(s)`);
     return streams;
   } catch (err) {
-    console.error('[pinoyhub] Error:', err.message);
+    console.error('[pinoyhub] error:', err.message);
     return [];
   }
 }
 
-// ------------------------------------------------------------------
-// Catalog functions (movies, series, genres)
-// ------------------------------------------------------------------
-async function getCatalog(type, page = 1, genre = null) {
-  const isMovie = type === 'movie';
-  const basePath = isMovie ? '/movies' : '/series';
-  let url;
-  if (genre) {
-    const genreSlugMap = {
-      'Action': 'action',
-      'Drama': 'drama',
-      'Comedy': 'comedy',
-      'Horror': 'horror',
-      'Romance': 'romance',
-      'Thriller': 'thriller'
-    };
-    const slug = genreSlugMap[genre] || genre.toLowerCase();
-    url = `${BASE_URL}/genre/${slug}/page/${page}/`;
-  } else {
-    url = `${BASE_URL}${basePath}/page/${page}/`;
-  }
-  const html = await fetchHTML(url);
-  if (!html) return [];
-  const $ = cheerio.load(html);
-  const items = [];
-  $('article.item').each((i, el) => {
-    const link = $(el).find('a').first();
-    const href = link.attr('href');
-    const slug = href ? href.split('/').slice(-2, -1)[0] : null;
-    const title = link.find('h3').text().trim();
-    const poster = $(el).find('img').attr('src');
-    if (slug && title) {
-      items.push({
-        id: slug,
-        name: title,
-        poster: poster || null,
-        releaseDate: null
-      });
-    }
-  });
-  return items;
-}
-
-module.exports = { getStreams, getCatalog };
+module.exports = { getStreams };

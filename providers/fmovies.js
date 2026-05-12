@@ -255,37 +255,38 @@ function safeDecodeURIComponent(str) {
   try { return decodeURIComponent(str); } catch(e) { return str; }
 }
 
-function rebuildMetaFromFinal(url, fallbackLabel) {
-  var raw = safeDecodeURIComponent(String(url || ""));
+// --- FIX: Correct buildStream to use the new buildMeta logic ---
+function buildStream(label, finalUrl, finalQuality, streamHeaders, size, tech, langHint, meta) {
+  // Use the buildMeta function to generate the UI object
+  var ui = buildMeta(meta, label, finalQuality, size, tech, langHint);
+
   return {
-    quality: detectQualityFromSources([raw, fallbackLabel]),
-    size: extractSize(raw) || extractSize(fallbackLabel),
-    tech: cleanTech(raw + " " + fallbackLabel)
+    name: ui.name,
+    title: ui.title,
+    url: finalUrl,
+    quality: finalQuality,
+    headers: Object.keys(streamHeaders || {}).length ? streamHeaders : undefined,
+    behaviorHints: { 
+      bingeGroup: "4khdhub-" + String(finalQuality || "auto").toLowerCase() 
+    }
   };
 }
-
 function buildMeta(meta, label, quality, size, tech, langHint) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
   
-  // 1. IMPROVED Title Logic: Checks TMDB Meta, then the File Label
-  var displayTitle = "";
+  // 1. Title Logic: Handle Series (S01 E01) vs Movies
+  var displayTitle = (meta && meta.title) ? meta.title : "Movie";
+  var year = (meta && meta.year) ? " - " + meta.year : "";
   
-  if (meta && (meta.seriesTitle || meta.title)) {
-    // Priority 1: Use formal TMDB data if available
-    displayTitle = meta.seriesTitle || meta.title;
-    if (meta.year) displayTitle += " - " + meta.year;
-  } else {
-    // Priority 2: Fallback to cleaning the filename if meta is undefined
-    // Removes typical release groups and extensions for a cleaner look
-    displayTitle = cleanedLabel
-      .replace(/\.(mkv|mp4|m4v|avi)$/i, "")
-      .replace(/\b(2160p|1080p|720p|480p|WEB-DL|HDR|DoVi|HEVC|x265|x264|BluRay)\b.*/gi, "")
-      .replace(/[._]/g, " ")
-      .trim() || "Unknown Title";
+  // If season and episode exist in meta, prefix the title (e.g., S01 E01 | Title)
+  if (meta && meta.season && meta.episode) {
+    var s = meta.season < 10 ? "0" + meta.season : meta.season;
+    var e = meta.episode < 10 ? "0" + meta.episode : meta.episode;
+    displayTitle = "S" + s + " E" + e + " | " + displayTitle;
   }
   
-  var line1 = "🎬 " + displayTitle;
+  var line1 = "🎬 " + displayTitle + year;
   
   // 2. Icons
   var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
@@ -296,7 +297,7 @@ function buildMeta(meta, label, quality, size, tech, langHint) {
   if (size) line2Parts.push("💾 " + size);
   var line2 = line2Parts.join(" | ");
 
-  // 4. Line 3: Extension and Tech Bits
+  // 4. Line 3: Extension | Tech Bits
   var extMatch = cleanedLabel.match(/\.(mkv|mp4|m4v|avi|mov)$/i);
   var extension = extMatch ? extMatch[1].toUpperCase() : "MKV";
   var techDetails = tech || "WEB-DL";
@@ -305,36 +306,6 @@ function buildMeta(meta, label, quality, size, tech, langHint) {
   return {
     name: "4KHDHub | " + quality + (size ? " | " + size : ""),
     title: line1 + "\n" + line2 + "\n" + line3
-  };
-}
-
-function buildStream(label, url, quality, headers, size, tech, langHint, meta) {
-  var finalUrl = String(url || "").trim();
-  // Fallback meta to prevent crash if undefined
-  var safeMeta = meta || { title: "Movie", year: "" };
-
-  var rebuilt = rebuildMetaFromFinal(finalUrl, label);
-  var finalQuality = rebuilt.quality !== "Auto" ? rebuilt.quality : (quality || "Auto");
-  var finalSize = rebuilt.size || size || extractSize(label);
-  var finalTech = rebuilt.tech || tech || cleanTech(label);
-  
-  var ui = buildMeta(safeMeta, label, finalQuality, finalSize, finalTech, langHint);
-
-  var streamHeaders = headers || {};
-  if (finalUrl.indexOf(".workers.dev") !== -1) {
-      streamHeaders = { 
-        "Referer": "https://gamerxyt.com/", 
-        "User-Agent": DEFAULT_HEADERS["User-Agent"] 
-      };
-  }
-
-  return {
-    name: ui.name,
-    title: ui.title,
-    url: finalUrl,
-    quality: finalQuality,
-    headers: Object.keys(streamHeaders).length ? streamHeaders : undefined,
-    behaviorHints: { bingeGroup: "4khdhub-" + String(finalQuality || "auto").toLowerCase() }
   };
 }
 
@@ -1237,10 +1208,22 @@ function findContentUrl(tmdbId, mediaType) {
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
-  return findContentUrl(tmdbId, mediaType).then(function(contentUrl) {
-    if (!contentUrl) return [];
-    return extractFromPage(contentUrl, mediaType, season, episode);
+  return getTmdbNames(tmdbId, mediaType).then(function(tmdbData) {
+    // We use the TMDB name to search, but we also search for the site's specific title
+    return findContentUrl(tmdbId, mediaType).then(function(contentUrl) {
+      if (!contentUrl) return [];
+      
+      // Create a meta object that carries the Title, Year, Season, and Episode
+      var meta = {
+        title: tmdbData.title || "Movie",
+        year: tmdbData.year || "",
+        season: season,
+        episode: episode
+      };
+
+      // Pass this meta object into the extraction process
+      return extractFromPage(contentUrl, mediaType, season, episode, meta);
+    });
   }).catch(function() { return []; });
 }
-
 module.exports = { getStreams: getStreams };

@@ -273,18 +273,17 @@ function buildMeta(meta, label, quality, size, tech, langHint) {
   var cleanedLabel = cleanLabelText(label);
   var lang = inferLang((langHint || "") + " " + cleanedLabel);
   
-  // Logic Fix: Use meta.title from TMDB if available, otherwise fallback
   var isSeries = !!(meta && (meta.season || meta.episode));
   var displayTitle = (meta && meta.title) ? meta.title : (isSeries ? "Series" : "Movie");
   var year = (meta && meta.year) ? " - " + meta.year : "";
   
+  var line1;
   if (isSeries) {
-    var s = meta.season < 10 ? "0" + meta.season : meta.season;
-    var e = meta.episode < 10 ? "0" + meta.episode : meta.episode;
-    displayTitle = "S" + s + " E" + e + " | " + displayTitle;
+    var epTitlePart = meta.episodeTitle ? " - " + meta.episodeTitle : "";
+    line1 = "📺 S" + meta.season + "E" + meta.episode + epTitlePart + " | " + displayTitle + year;
+  } else {
+    line1 = "🎬 " + displayTitle + year;
   }
-  
-  var line1 = (isSeries ? "📺 " : "🎬 ") + displayTitle + year;
   
   var qIcon = (quality.indexOf('2160') !== -1 || quality.indexOf('4K') !== -1) ? '💎' : '📺';
   var line2 = qIcon + " " + quality + " | 🌍 " + lang + (size ? " | 💾 " + size : "");
@@ -486,6 +485,16 @@ function getTmdbNames(tmdbId, mediaType) {
     };
   }).catch(function() {
     return { title: "", original: "", year: "", duration: "" };
+  });
+}
+
+function getTmdbEpisodeName(tmdbId, season, episode) {
+  if (!season || !episode) return Promise.resolve("");
+  var url = "https://api.themoviedb.org/3/tv/" + tmdbId + "/season/" + season + "/episode/" + episode + "?api_key=" + TMDB_API_KEY;
+  return fetchJson(url).then(function(data) {
+    return data.name || "";
+  }).catch(function() {
+    return "";
   });
 }
 
@@ -1026,20 +1035,24 @@ function findContentUrl(tmdbId, mediaType) {
 
 function getStreams(tmdbId, mediaType, season, episode) {
   return getTmdbNames(tmdbId, mediaType).then(function(tmdbData) {
-    // We use the TMDB name to search, but we also search for the site's specific title
-    return findContentUrl(tmdbId, mediaType).then(function(contentUrl) {
-      if (!contentUrl) return [];
-      
-      // Create a meta object that carries the Title, Year, Season, and Episode
-      var meta = {
-        title: tmdbData.title || "Movie",
-        year: tmdbData.year || "",
-        season: season,
-        episode: episode
-      };
+    var epPromise = (mediaType === "tv") 
+      ? getTmdbEpisodeName(tmdbId, season, episode) 
+      : Promise.resolve("");
 
-      // Pass this meta object into the extraction process
-      return extractFromPage(contentUrl, mediaType, season, episode, meta);
+    return epPromise.then(function(epTitle) {
+      return findContentUrl(tmdbId, mediaType).then(function(contentUrl) {
+        if (!contentUrl) return [];
+        
+        var meta = {
+          title: tmdbData.title || "Movie",
+          year: tmdbData.year || "",
+          season: season,
+          episode: episode,
+          episodeTitle: epTitle
+        };
+
+        return extractFromPage(contentUrl, mediaType, season, episode, meta);
+      });
     });
   }).catch(function() { return []; });
 }

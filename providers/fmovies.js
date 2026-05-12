@@ -956,8 +956,6 @@ function resolveLink(rawUrl, label, referer, quality, langHint, meta) {
 
   return Promise.resolve([]);
 }
-  return next(rawUrl);
-}
 
 function extractCandidateQuality(item) {
   return detectQualityFromSources([item.fileTitle || "", item.label || "", item.rawHtml || ""]);

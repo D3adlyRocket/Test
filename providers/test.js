@@ -1,330 +1,322 @@
+"use strict";
+
 /**
- * PinoyMoviesHub Nuvio Plugin - Simple Edition
- * Domain: pinoymovieshub.win
- * Supports: Movies & TV Shows
- * Language: Filipino / Tagalog / English
- * Author: Enhanced by AI
- * Version: 4.0.0
+ * CONFIGURATION
+ * Updated to target HindMovie results from the Morpheus scraper.
  */
-
-var cheerio = require("cheerio-without-node-native");
-
-var PROVIDER_NAME = "PinoyMoviesHub";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var BASE_URL = "https://pinoymovieshub.win";
-
-var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.9",
-  "Referer": BASE_URL,
-  "Cookie": "starstruck_7da72d90b632af60dd1158c068193d61=99f22538d0588cdd7ccfc783299f88a7"
+var MURPH_BASE = "https://badboysxs-morpheus.hf.space";
+var PROVIDER_NAME = "HindMovie Murph";
+var PROVIDER_TAG = "[HindMovie Murph]";
+var REQUEST_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+  "Accept": "application/json, text/plain, */*"
 };
 
-// ===== UTILITY FUNCTIONS =====
+var __doomProbeCache = Object.create(null);
+var __doomProbeCacheTtlMs = 10 * 60 * 1000;
+var __doomProbeTimeoutMs = 6 * 1000;
 
-function merge(obj1, obj2) {
-  var out = {};
-  var k;
-  for (k in obj1 || {}) out[k] = obj1[k];
-  for (k in obj2 || {}) out[k] = obj2[k];
-  return out;
-}
+/**
+ * HELPER FUNCTIONS
+ */
+function withTimeout(promise, timeoutMs) {
+  return new Promise(function(resolve, reject) {
+    var settled = false;
+    var timer = setTimeout(function() {
+      if (settled) return;
+      settled = true;
+      reject(new Error("timeout"));
+    }, timeoutMs);
 
-function fetchText(url, options) {
-  options = options || {};
-  return fetch(url, {
-    method: options.method || "GET",
-    redirect: options.redirect || "follow",
-    headers: merge(HEADERS, options.headers || {}),
-    body: options.body
-  }).then(function(res) {
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    return res.text();
+    Promise.resolve(promise).then(function(value) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    }, function(error) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
   });
 }
 
-function fetchJson(url, options) {
-  options = options || {};
-  return fetch(url, {
-    method: options.method || "GET",
-    redirect: options.redirect || "follow",
-    headers: merge(HEADERS, options.headers || {}),
-    body: options.body
-  }).then(function(res) {
-    if (!res.ok) return null;
-    return res.json();
-  }).catch(function() { return null; });
+function mergeHeaders(base, extra) {
+  var merged = {};
+  var key;
+  for (key in base || {}) merged[key] = base[key];
+  for (key in extra || {}) merged[key] = extra[key];
+  return merged;
 }
 
-function slugify(title) {
-  return String(title || "").toLowerCase()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
+function normalizeQuality(value) {
+  var text = String(value || "");
+  if (/2160p|4k/i.test(text)) return "2160p";
+  var match = text.match(/(1080p|720p|480p|360p|240p)/i);
+  return match ? match[1].toLowerCase() : "Auto";
 }
 
-function parseQuality(text) {
-  var value = String(text || "").toLowerCase();
-  var m = value.match(/\b(2160p|1440p|1080p|720p|480p|360p|4k|uhd|hd|sd|cam)\b/);
-  if (m) {
-    var q = m[1];
-    if (q === "4k" || q === "uhd") return "2160p";
-    if (q === "hd") return "720p";
-    if (q === "sd") return "480p";
-    if (q === "cam") return "CAM";
-    return q;
-  }
-  return "Auto";
+function extractSize(value) {
+  var match = String(value || "").match(/\[([^\]]+)\]/);
+  return match ? match[1] : "";
 }
 
-function inferLang(text) {
-  var t = String(text || "").toLowerCase();
-  if (t.indexOf("tagalog") !== -1 || t.indexOf("filipino") !== -1) return "Tagalog";
-  if (t.indexOf("english") !== -1 || /\beng\b/.test(t)) return "English";
-  if (t.indexOf("spanish") !== -1) return "Spanish";
-  if (t.indexOf("korean") !== -1) return "Korean";
-  if (t.indexOf("japanese") !== -1) return "Japanese";
-  if (t.indexOf("chinese") !== -1) return "Chinese";
-  if (t.indexOf("hindi") !== -1) return "Hindi";
-  return "Tagalog";
+function looksLikeHls(url, contentType) {
+  var normalizedUrl = String(url || "").toLowerCase();
+  var normalizedType = String(contentType || "").toLowerCase();
+  return normalizedUrl.indexOf(".m3u8") !== -1
+    || normalizedType.indexOf("mpegurl") !== -1
+    || normalizedType.indexOf("application/x-mpegurl") !== -1
+    || normalizedType.indexOf("vnd.apple.mpegurl") !== -1;
 }
 
-// ===== TMDB =====
-
-function getTmdbTitle(tmdbId, mediaType) {
-  var type = mediaType === "tv" ? "tv" : "movie";
-  var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
-  return fetchJson(url).then(function(data) {
-    if (!data) return null;
-    if (mediaType === "tv") return data.name || data.original_name || null;
-    return data.title || data.original_title || null;
-  });
+function getProbeCacheKey(stream) {
+  var headers = stream && stream.headers ? stream.headers : {};
+  return [
+    stream && stream.url ? stream.url : "",
+    headers.Referer || headers.referer || "",
+    headers.Origin || headers.origin || ""
+  ].join("|");
 }
 
-function getTmdbEpisodeTitle(tmdbId, season, episode) {
-  if (!season || !episode) return Promise.resolve("");
-  var url = "https://api.themoviedb.org/3/tv/" + tmdbId + "/season/" + season + "/episode/" + episode + "?api_key=" + TMDB_API_KEY;
-  return fetchJson(url).then(function(data) {
-    return data.name || "";
-  }).catch(function() { return ""; });
-}
-
-// ===== DOOPLAYER API =====
-
-function extractPlayerData(html) {
-  var $ = cheerio.load(html);
-  var players = [];
-
-  // Look for dooplayer elements with data attributes
-  $("[data-post][data-type][data-source], [data-post][data-type], #dooplay_player, .dooplay_player, .dooplay_player_response").each(function(_, el) {
-    var postId = $(el).attr("data-post") || $(el).attr("data-id");
-    var type = $(el).attr("data-type") || "movie";
-    var source = $(el).attr("data-source") || $(el).attr("data-nume") || "1";
-    var nonce = $(el).attr("data-nonce") || "";
-
-    if (postId) {
-      players.push({
-        postId: postId,
-        type: type,
-        source: source,
-        nonce: nonce
-      });
-    }
-  });
-
-  // Also look in scripts for dooplayer initialization
-  var scripts = $("script").map(function(_, el) { return $(el).html() || ""; }).get();
-  var i;
-  for (i = 0; i < scripts.length; i++) {
-    var script = scripts[i];
-    var postMatch = script.match(/data-post[=:]\s*["'](\d+)["']/);
-    var typeMatch = script.match(/data-type[=:]\s*["']([^"']+)["']/);
-    var sourceMatch = script.match(/data-source[=:]\s*["']([^"']+)["']/);
-    var nonceMatch = script.match(/data-nonce[=:]\s*["']([^"']+)["']/);
-
-    if (postMatch) {
-      players.push({
-        postId: postMatch[1],
-        type: typeMatch ? typeMatch[1] : "movie",
-        source: sourceMatch ? sourceMatch[1] : "1",
-        nonce: nonceMatch ? nonceMatch[1] : ""
-      });
-    }
-  }
-
-  // Deduplicate by postId+source
-  var seen = {};
-  var unique = [];
-  for (i = 0; i < players.length; i++) {
-    var key = players[i].postId + "-" + players[i].source;
-    if (!seen[key]) {
-      seen[key] = 1;
-      unique.push(players[i]);
-    }
-  }
-
-  console.log("[PinoyMoviesHub] Found", unique.length, "player(s)");
-  return unique;
-}
-
-function callDooPlayerAPI(playerData) {
-  var apiUrl = BASE_URL + "/wp-json/dooplayer/v2/" + playerData.postId + "/" + playerData.type + "/" + playerData.source;
-  console.log("[PinoyMoviesHub] Calling Dooplayer API:", apiUrl);
-
-  return fetchJson(apiUrl, {
-    headers: merge(HEADERS, {
-      "X-Requested-With": "XMLHttpRequest"
-    })
-  }).then(function(data) {
-    if (!data) {
-      console.log("[PinoyMoviesHub] Dooplayer API returned null");
-      return null;
-    }
-    console.log("[PinoyMoviesHub] Dooplayer API response keys:", Object.keys(data || {}).join(", "));
-
-    var embedUrl = data.embed_url || data.url || data.source || data.link || data.file || data.src;
-    if (embedUrl) {
-      console.log("[PinoyMoviesHub] Dooplayer embed URL:", embedUrl);
-      return embedUrl;
-    }
-
-    if (data.data) {
-      embedUrl = data.data.embed_url || data.data.url || data.data.source || data.data.link || data.data.file || data.data.src;
-      if (embedUrl) {
-        console.log("[PinoyMoviesHub] Dooplayer nested embed URL:", embedUrl);
-        return embedUrl;
-      }
-    }
-
-    var html = data.html || data.iframe || data.embed || data.player;
-    if (html && typeof html === "string") {
-      var iframeMatch = html.match(/src=["']([^"']+)["']/);
-      if (iframeMatch && iframeMatch[1]) {
-        console.log("[PinoyMoviesHub] Dooplayer iframe src:", iframeMatch[1]);
-        return iframeMatch[1];
-      }
-    }
-
-    console.log("[PinoyMoviesHub] Dooplayer API response:", JSON.stringify(data).substring(0, 200));
+function getCachedProbeResult(cacheKey) {
+  var entry = __doomProbeCache[cacheKey];
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > __doomProbeCacheTtlMs) {
+    delete __doomProbeCache[cacheKey];
     return null;
-  }).catch(function(e) {
-    console.log("[PinoyMoviesHub] Dooplayer API error:", e.message);
-    return null;
-  });
+  }
+  return entry.ok;
 }
 
-// ===== STREAM BUILDER =====
-
-function buildStream(name, url, quality, language, displayTitle, meta) {
-  var lang = inferLang(language);
-  var isSeries = !!(meta && meta.season);
-  var host = "";
-  try { host = new URL(url).hostname.replace(/^www\./, "").replace(/\.com$/, "").replace(/\.top$/, "").replace(/\.click$/, ""); } catch(e) {}
-
-  // Detect if this is an embed URL (not a direct video file)
-  var isEmbed = !/\.(m3u8|mp4|mkv|webm|avi|mov)(\?|#|$)/i.test(url);
-  var q = isEmbed ? "Browser" : parseQuality(quality + " " + language);
-
-  var line1, line2;
-  if (isSeries) {
-    var epPart = meta.episodeTitle ? " - " + meta.episodeTitle : "";
-    line1 = "S" + meta.season + "E" + meta.episode + epPart + " | " + displayTitle;
-  } else {
-    line1 = displayTitle;
-  }
-
-  if (isEmbed) {
-    line2 = "Browser | " + lang + (host ? " | " + host : "");
-  } else {
-    line2 = q + " | " + lang + (host ? " | " + host : "");
-  }
-
-  return {
-    name: "PinoyMoviesHub" + (isEmbed ? " | " + lang + " | (Embed)" : " | " + q + " | " + lang),
-    title: line1 + "\n" + line2,
-    url: url,
-    quality: q,
-    headers: { Referer: BASE_URL },
-    provider: "pinoymovieshub",
-    behaviorHints: {
-      bingeGroup: "pinoymovieshub-" + (isEmbed ? "embed" : q.toLowerCase()),
-      notWebReady: isEmbed
-    }
+function setCachedProbeResult(cacheKey, ok) {
+  __doomProbeCache[cacheKey] = {
+    ok: !!ok,
+    timestamp: Date.now()
   };
 }
 
-// ===== MAIN ENTRY =====
+function responseIsSeekable(response, url) {
+  if (!response || !response.ok) return false;
+  var headers = response.headers;
+  var contentType = headers && headers.get ? headers.get("content-type") || "" : "";
+  if (looksLikeHls(url, contentType)) return true;
+  var acceptRanges = headers && headers.get ? headers.get("accept-ranges") || "" : "";
+  var contentRange = headers && headers.get ? headers.get("content-range") || "" : "";
+  return response.status === 206
+    || /bytes/i.test(acceptRanges)
+    || /^bytes\s+/i.test(contentRange);
+}
 
-function getStreams(tmdbId, mediaType, season, episode) {
-  console.log("[PinoyMoviesHub] === START for " + mediaType + " TMDB ID:" + tmdbId + " S" + season + "E" + episode + " ===");
+function probeStream(stream) {
+  if (!stream || !stream.url || typeof fetch !== "function") {
+    return Promise.resolve(false);
+  }
 
-  var epPromise = (mediaType === "tv")
-    ? getTmdbEpisodeTitle(tmdbId, season, episode)
-    : Promise.resolve("");
+  var cacheKey = getProbeCacheKey(stream);
+  var cached = getCachedProbeResult(cacheKey);
+  if (cached !== null) return Promise.resolve(cached);
 
-  return epPromise.then(function(episodeTitle) {
-    return getTmdbTitle(tmdbId, mediaType).then(function(title) {
-      if (!title) {
-        console.log("[PinoyMoviesHub] TMDB title not found");
-        return [];
-      }
-      console.log("[PinoyMoviesHub] TMDB title: '" + title + "'");
+  var url = stream.url;
+  var isHls = looksLikeHls(url, "");
+  var baseHeaders = mergeHeaders({}, stream.headers || {});
+  var rangedHeaders = mergeHeaders({}, baseHeaders);
+  if (!isHls && !rangedHeaders.Range && !rangedHeaders.range) {
+    rangedHeaders.Range = "bytes=0-1";
+  }
 
-      var slug = slugify(title);
-      var pageUrl, displayTitle;
+  var attempts = [
+    { method: "GET", headers: isHls ? baseHeaders : rangedHeaders, redirect: "follow" },
+    { method: "HEAD", headers: baseHeaders, redirect: "follow" }
+  ];
 
-      if (mediaType === "movie") {
-        displayTitle = title;
-        pageUrl = BASE_URL + "/movies/" + slug + "/";
-      } else {
-        displayTitle = title + " S" + season + "E" + episode;
-        pageUrl = BASE_URL + "/episodes/" + slug + "-" + season + "x" + episode + "/";
-      }
-
-      console.log("[PinoyMoviesHub] Fetching page:", pageUrl);
-
-      return fetchText(pageUrl).then(function(html) {
-        var meta = {
-          season: season,
-          episode: episode,
-          episodeTitle: episodeTitle
-        };
-
-        var players = extractPlayerData(html);
-        if (!players.length) {
-          console.log("[PinoyMoviesHub] No player data found");
-          return [];
-        }
-
-        console.log("[PinoyMoviesHub] Using Dooplayer API approach");
-
-        return Promise.all(players.map(function(player) {
-          return callDooPlayerAPI(player).then(function(embedUrl) {
-            if (!embedUrl) return null;
-            return buildStream(
-              "PinoyMoviesHub - Source " + player.source,
-              embedUrl,
-              "Auto",
-              "",
-              displayTitle,
-              meta
-            );
-          });
-        })).then(function(results) {
-          var streams = [];
-          var i;
-          for (i = 0; i < results.length; i++) {
-            if (results[i]) streams.push(results[i]);
-          }
-          console.log("[PinoyMoviesHub] Returning", streams.length, "stream(s)");
-          return streams;
-        });
+  function tryAttempt(index) {
+    if (index >= attempts.length) return Promise.resolve(false);
+    return withTimeout(fetch(url, attempts[index]), __doomProbeTimeoutMs)
+      .then(function(response) {
+        if (responseIsSeekable(response, url)) return true;
+        return tryAttempt(index + 1);
+      })
+      .catch(function() {
+        return tryAttempt(index + 1);
       });
+  }
+
+  return tryAttempt(0).then(function(ok) {
+    setCachedProbeResult(cacheKey, ok);
+    return ok;
+  });
+}
+
+function looksLikeDirectMediaUrl(url) {
+  var normalized = String(url || "").toLowerCase();
+  if (!/^https?:\/\//i.test(normalized)) return false;
+  if (/\/login\.php\b/.test(normalized) || /action=logout/.test(normalized)) return false;
+  return /\.m(?:kv|p4)(?:$|[?#])/.test(normalized)
+    || /\.m3u8(?:$|[?#])/.test(normalized)
+    || /\.ts(?:$|[?#])/.test(normalized);
+}
+
+function looksLikeMurphFallbackCandidate(stream) {
+  if (!stream || !stream.url) return false;
+  if (!looksLikeDirectMediaUrl(stream.url)) return false;
+  var size = Number(stream.videoSize || (stream.behaviorHints && stream.behaviorHints.videoSize) || 0);
+  if (size > 0) return true;
+  return /\[[^\]]+(gb|mb)\]/i.test(String(stream.title || ""))
+    || /hind\s*movie/i.test(String(stream.name || ""));
+}
+
+function filterSeekableStreams(streams) {
+  if (!Array.isArray(streams) || streams.length === 0) {
+    return Promise.resolve([]);
+  }
+  return Promise.all(streams.map(function(stream) {
+    return probeStream(stream)
+      .then(function(ok) { return { stream: stream, ok: ok }; })
+      .catch(function() { return { stream: stream, ok: false }; });
+  })).then(function(results) {
+    var filtered = results.filter(function(item) { return item.ok; }).map(function(item) { return item.stream; });
+    if (filtered.length === 0) {
+      filtered = results
+        .map(function(item) { return item.stream; })
+        .filter(looksLikeMurphFallbackCandidate);
+      if (filtered.length > 0) {
+        console.log(PROVIDER_TAG + " Seekable filter fallback kept " + filtered.length + "/" + streams.length + " streams");
+        return filtered;
+      }
+    }
+    if (filtered.length === 0) {
+      console.log(PROVIDER_TAG + " Seekable filter kept 0/" + streams.length + " streams; returning original streams as fallback");
+      return streams;
+    }
+    console.log(PROVIDER_TAG + " Seekable filter kept " + filtered.length + "/" + streams.length + " streams");
+    return filtered;
+  });
+}
+
+function fetchJson(url) {
+  return withTimeout(fetch(url, { headers: REQUEST_HEADERS, redirect: "follow" }), 15 * 1000).then(function(response) {
+    if (!response.ok) throw new Error("HTTP " + response.status + " -> " + url);
+    return response.json();
+  });
+}
+
+function absolutizeUrl(url) {
+  if (!url) return "";
+  url = String(url);
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("//")) return "https:" + url;
+  if (url.startsWith("/")) return MURPH_BASE + url;
+  return MURPH_BASE + "/" + url.replace(/^\.?\//, "");
+}
+
+function extractMurphStreams(payload) {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== "object") return [];
+  var candidates = [
+    payload.streams,
+    payload.data && payload.data.streams,
+    payload.result && payload.result.streams,
+    payload.data && payload.data.results,
+    payload.results,
+    payload.items
+  ];
+  for (var i = 0; i < candidates.length; i += 1) {
+    if (Array.isArray(candidates[i])) return candidates[i];
+  }
+  return [];
+}
+
+/**
+ * UPDATED MATCH LOGIC
+ */
+function isProviderMatch(name) {
+  // Filters specifically for HindMovie tags
+  return /hind\s*movie/i.test(String(name || ""));
+}
+
+function resolveImdbId(id, mediaType) {
+  if (!id) return Promise.resolve("");
+  if (String(id).startsWith("tt")) return Promise.resolve(String(id));
+
+  if (mediaType === "tv") {
+    var tvUrl = "https://api.themoviedb.org/3/tv/" + id + "/external_ids?api_key=" + TMDB_API_KEY;
+    return fetchJson(tvUrl).then(function(data) {
+      return data && data.imdb_id ? data.imdb_id : "";
+    }).catch(function() {
+      return "";
     });
-  }).catch(function(err) {
-    console.error("[PinoyMoviesHub] error:", err.message || err);
+  }
+
+  var movieUrl = "https://api.themoviedb.org/3/movie/" + id + "?api_key=" + TMDB_API_KEY;
+  return fetchJson(movieUrl).then(function(data) {
+    return data && data.imdb_id ? data.imdb_id : "";
+  }).catch(function() {
+    return "";
+  });
+}
+
+function buildEndpoint(imdbId, mediaType, season, episode) {
+  if (!imdbId) return "";
+  if (mediaType === "tv") {
+    if (season == null || episode == null) return "";
+    return MURPH_BASE + "/stream/series/" + imdbId + ":" + season + ":" + episode + ".json";
+  }
+  return MURPH_BASE + "/stream/movie/" + imdbId + ".json";
+}
+
+function dedupeStreams(streams) {
+  var seen = new Set();
+  return streams.filter(function(stream) {
+    var fingerprint = [stream.name || "", stream.title || "", stream.url || ""].join("|");
+    if (seen.has(fingerprint)) return false;
+    seen.add(fingerprint);
+    return true;
+  });
+}
+
+/**
+ * UPDATED MAPPING LOGIC
+ */
+function mapMurphStream(item) {
+  if (!item) return null;
+  var name = String(item.name || "");
+  
+  if (!isProviderMatch(name)) return null;
+  
+  var url = item.url || item.streamUrl || item.stream_url || item.src || item.file || "";
+  if (!url) return null;
+  var absoluteUrl = absolutizeUrl(url);
+  var title = item.title || item.description || item.label || "HindMovie stream";
+  
+  return {
+    // Replaces the raw "HindMovie" tag with your custom PROVIDER_NAME
+    name: name.replace(/hind\s*movie/i, PROVIDER_NAME),
+    title: title,
+    url: absoluteUrl,
+    quality: normalizeQuality(name + " " + title),
+    size: extractSize(title),
+    behaviorHints: item.behaviorHints,
+    videoSize: item.behaviorHints && item.behaviorHints.videoSize,
+    headers: void 0
+  };
+}
+
+function getStreams(id, type, season, episode) {
+  var mediaType = type === "series" ? "tv" : (type || "movie");
+  return resolveImdbId(id, mediaType).then(function(imdbId) {
+    if (!imdbId) return [];
+    var endpoint = buildEndpoint(imdbId, mediaType, season, episode);
+    if (!endpoint) return [];
+    return fetchJson(endpoint).then(function(payload) {
+      var streams = extractMurphStreams(payload);
+      var mapped = streams.map(mapMurphStream).filter(Boolean);
+      return filterSeekableStreams(dedupeStreams(mapped));
+    });
+  }).catch(function(error) {
+    console.error(PROVIDER_TAG + " " + (error && error.message ? error.message : String(error)));
     return [];
   });
 }
@@ -334,3 +326,80 @@ if (typeof module !== "undefined" && module.exports) {
 } else {
   global.getStreams = getStreams;
 }
+
+/**
+ * STREAM NORMALIZATION (DOOM PLUG)
+ */
+function __doomNormalizeHeaders(headers) {
+  if (!headers || typeof headers !== "object") return null;
+  var normalized = {};
+  var key;
+  for (key in headers) {
+    if (headers[key] !== undefined && headers[key] !== null && headers[key] !== "") {
+      normalized[key] = String(headers[key]);
+    }
+  }
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function __doomLooksWebReady(url) {
+  var normalized = String(url || "").toLowerCase();
+  return normalized.indexOf("https://") === 0
+    && (normalized.indexOf(".mp4") !== -1 || normalized.indexOf("format=mp4") !== -1);
+}
+
+function __doomNormalizeStream(rawStream) {
+  if (!rawStream || typeof rawStream !== "object") return null;
+  var targetUrl = rawStream.url || rawStream.externalUrl;
+  if (!targetUrl || typeof targetUrl !== "string") return null;
+
+  var requestHeaders = __doomNormalizeHeaders(rawStream.headers);
+  var behaviorHints = {};
+  var key;
+  for (key in rawStream.behaviorHints || {}) behaviorHints[key] = rawStream.behaviorHints[key];
+
+  if (rawStream.fileName && !behaviorHints.filename) behaviorHints.filename = rawStream.fileName;
+  if (typeof rawStream.size === "number" && rawStream.size > 0 && !behaviorHints.videoSize) {
+    behaviorHints.videoSize = rawStream.size;
+  }
+  if (typeof rawStream.videoSize === "number" && rawStream.videoSize > 0 && !behaviorHints.videoSize) {
+    behaviorHints.videoSize = rawStream.videoSize;
+  }
+  if (!behaviorHints.bingeGroup) {
+    var providerId = typeof PLUGIN_TAG !== "undefined" ? PLUGIN_TAG : (typeof TAG !== "undefined" ? TAG : "doom-plug");
+    behaviorHints.bingeGroup = String(providerId).replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  }
+  if (!__doomLooksWebReady(targetUrl) || requestHeaders) behaviorHints.notWebReady = true;
+  if (requestHeaders) behaviorHints.proxyHeaders = { request: requestHeaders };
+
+  var description = rawStream.description || rawStream.title || rawStream.name || "HindMovie stream";
+  return {
+    name: rawStream.name || PROVIDER_NAME,
+    title: description,
+    description: description,
+    url: targetUrl,
+    behaviorHints: behaviorHints
+  };
+}
+
+(function() {
+  if (typeof getStreams !== "function" || getStreams.__doomNormalizedWrapped) return;
+
+  var __doomOriginalGetStreamsForNormalization = getStreams;
+  var __doomNormalizedGetStreams = function() {
+    return Promise.resolve(__doomOriginalGetStreamsForNormalization.apply(this, arguments))
+      .then(function(streams) {
+        if (!Array.isArray(streams)) return [];
+        return streams.map(__doomNormalizeStream).filter(Boolean);
+      });
+  };
+
+  __doomNormalizedGetStreams.__doomNormalizedWrapped = true;
+  getStreams = __doomNormalizedGetStreams;
+
+  if (typeof module !== "undefined" && module.exports) {
+    module.exports.getStreams = getStreams;
+  } else if (typeof global !== "undefined") {
+    global.getStreams = getStreams;
+  }
+})();

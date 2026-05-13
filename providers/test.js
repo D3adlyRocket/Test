@@ -2,7 +2,6 @@
 
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var MURPH_BASE = "https://badboysxs-morpheus.hf.space"; 
-var TARGET_PROVIDER = "HindMovie"; 
 
 async function fetchJson(url) {
     try {
@@ -20,18 +19,19 @@ async function resolveImdbId(id, type) {
 }
 
 /**
- * STRONGER FILTERING LOGIC
- * Only matches if the source site is HindMovie
+ * STRICT FILTERING
+ * Based on 1000120661.jpg, we look for the literal string "HindMovie"
  */
-function isCorrectProvider(stream) {
+function isHindMovieSource(stream) {
     const name = String(stream.name || "").toLowerCase();
     const title = String(stream.title || "").toLowerCase();
     
-    // We only want HindMovie. We explicitly exclude HDHub4u.
-    const isHindMovie = name.includes("hindmovie") || title.includes("hindmovie");
-    const isHDHub = name.includes("hdhub") || title.includes("hdhub");
+    // Must contain "hindmovie"
+    const hasHindMovie = name.includes("hindmovie") || title.includes("hindmovie");
+    // Must NOT contain "hdhub" or "4khdhub"
+    const isNotHDHub = !name.includes("hdhub") && !title.includes("hdhub");
 
-    return isHindMovie && !isHDHub;
+    return hasHindMovie && isNotHDHub;
 }
 
 async function getStreams(id, type, season, episode) {
@@ -46,16 +46,18 @@ async function getStreams(id, type, season, episode) {
     if (!payload || !payload.streams) return [];
 
     return payload.streams
-        .filter(isCorrectProvider) // Use the strict provider filter
+        .filter(isHindMovieSource) 
         .map(s => {
             let finalUrl = s.url;
             if (finalUrl && !finalUrl.startsWith("http")) {
                 finalUrl = MURPH_BASE + (finalUrl.startsWith("/") ? "" : "/") + finalUrl;
             }
 
+            // We keep the title exactly as shown in 1000120661.jpg 
+            // so you get the "1080p 10Bit | Hindi-English" info correctly.
             return {
-                name: `[${TARGET_PROVIDER}]`,
-                title: s.title || "Hindi Stream",
+                name: "HindMovie",
+                title: s.title || "HindMovie Stream",
                 url: finalUrl,
                 behaviorHints: s.behaviorHints || { bingeGroup: "hind-movie-group" }
             };

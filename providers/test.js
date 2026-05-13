@@ -10,15 +10,11 @@ async function fetchJson(url) {
     } catch (e) { return null; }
 }
 
-/**
- * UPDATED: Fetches both IMDB ID and Movie Name
- */
 async function resolveMediaDetails(id, type) {
     const tmdbType = type === "series" ? "tv" : "movie";
     let imdbId = String(id).startsWith("tt") ? id : null;
     let title = "Movie";
 
-    // Fetch details from TMDB
     const detailsUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}`;
     const externalIdsUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}/external_ids?api_key=${TMDB_API_KEY}`;
     
@@ -47,9 +43,7 @@ function isHindMovieSource(stream) {
 }
 
 async function getStreams(id, type, season, episode) {
-    // Get the ID and the Title
     const { imdbId, title: movieTitle } = await resolveMediaDetails(id, type);
-    
     if (!imdbId) return [];
 
     const endpoint = (type === "series") 
@@ -68,7 +62,7 @@ async function getStreams(id, type, season, episode) {
             }
 
             return {
-                // Header format: HindMovie | Movie Title
+                // This sets the primary label seen in 1000120663.jpg
                 name: `HindMovie | ${movieTitle}`,
                 title: s.title || "HindMovie Stream",
                 url: finalUrl,
@@ -77,5 +71,52 @@ async function getStreams(id, type, season, episode) {
         });
 }
 
-if (typeof module !== "undefined") module.exports = { getStreams };
-else global.getStreams = getStreams;
+if (typeof module !== "undefined" && module.exports) {
+    module.exports = { getStreams: getStreams };
+} else {
+    global.getStreams = getStreams;
+}
+
+/**
+ * UPDATED NORMALIZATION BLOCK
+ * Fixes the "- Unknown" suffix seen in screenshot 1000120663.jpg
+ */
+function __doomNormalizeStream(rawStream) {
+    if (!rawStream || !rawStream.url) return null;
+
+    var behaviorHints = rawStream.behaviorHints || {};
+    if (!behaviorHints.bingeGroup) {
+        behaviorHints.bingeGroup = "hind-movie-plugin";
+    }
+
+    return {
+        // By using the rawStream.name directly here, we prevent 
+        // the "- Unknown" suffix from being added.
+        name: rawStream.name,
+        title: rawStream.title,
+        url: rawStream.url,
+        behaviorHints: behaviorHints
+    };
+}
+
+(function() {
+    if (typeof getStreams !== "function" || getStreams.__doomNormalizedWrapped) return;
+
+    var __doomOriginalGetStreams = getStreams;
+    var __doomNormalizedGetStreams = function() {
+        return Promise.resolve(__doomOriginalGetStreams.apply(this, arguments))
+            .then(function(streams) {
+                if (!Array.isArray(streams)) return [];
+                return streams.map(__doomNormalizeStream).filter(Boolean);
+            });
+    };
+
+    __doomNormalizedGetStreams.__doomNormalizedWrapped = true;
+    getStreams = __doomNormalizedGetStreams;
+
+    if (typeof module !== "undefined" && module.exports) {
+        module.exports.getStreams = getStreams;
+    } else if (typeof global !== "undefined") {
+        global.getStreams = getStreams;
+    }
+})();

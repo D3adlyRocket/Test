@@ -10,32 +10,46 @@ async function fetchJson(url) {
     } catch (e) { return null; }
 }
 
-async function resolveImdbId(id, type) {
-    if (String(id).startsWith("tt")) return id;
+/**
+ * UPDATED: Fetches both IMDB ID and Movie Name
+ */
+async function resolveMediaDetails(id, type) {
     const tmdbType = type === "series" ? "tv" : "movie";
-    const url = `https://api.themoviedb.org/3/${tmdbType}/${id}${type === "series" ? "/external_ids" : ""}?api_key=${TMDB_API_KEY}`;
-    const data = await fetchJson(url);
-    return data ? (data.imdb_id || null) : null;
+    let imdbId = String(id).startsWith("tt") ? id : null;
+    let title = "Movie";
+
+    // Fetch details from TMDB
+    const detailsUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}`;
+    const externalIdsUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}/external_ids?api_key=${TMDB_API_KEY}`;
+    
+    const [details, external] = await Promise.all([
+        fetchJson(detailsUrl),
+        fetchJson(externalIdsUrl)
+    ]);
+
+    if (details) {
+        title = details.title || details.name || "Movie";
+    }
+    
+    if (!imdbId && external) {
+        imdbId = external.imdb_id;
+    }
+
+    return { imdbId, title };
 }
 
-/**
- * STRICT FILTERING
- * Based on 1000120661.jpg, we look for the literal string "HindMovie"
- */
 function isHindMovieSource(stream) {
     const name = String(stream.name || "").toLowerCase();
     const title = String(stream.title || "").toLowerCase();
-    
-    // Must contain "hindmovie"
     const hasHindMovie = name.includes("hindmovie") || title.includes("hindmovie");
-    // Must NOT contain "hdhub" or "4khdhub"
     const isNotHDHub = !name.includes("hdhub") && !title.includes("hdhub");
-
     return hasHindMovie && isNotHDHub;
 }
 
 async function getStreams(id, type, season, episode) {
-    const imdbId = await resolveImdbId(id, type);
+    // Get the ID and the Title
+    const { imdbId, title: movieTitle } = await resolveMediaDetails(id, type);
+    
     if (!imdbId) return [];
 
     const endpoint = (type === "series") 
@@ -53,10 +67,9 @@ async function getStreams(id, type, season, episode) {
                 finalUrl = MURPH_BASE + (finalUrl.startsWith("/") ? "" : "/") + finalUrl;
             }
 
-            // We keep the title exactly as shown in 1000120661.jpg 
-            // so you get the "1080p 10Bit | Hindi-English" info correctly.
             return {
-                name: "HindMovie",
+                // Header format: HindMovie | Movie Title
+                name: `HindMovie | ${movieTitle}`,
                 title: s.title || "HindMovie Stream",
                 url: finalUrl,
                 behaviorHints: s.behaviorHints || { bingeGroup: "hind-movie-group" }

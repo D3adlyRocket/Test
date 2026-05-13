@@ -1,290 +1,336 @@
-// providers/pinoyhub.js
-const cheerio = require('cheerio');
-const puppeteer = require('puppeteer');
-
-const BASE_URL = 'https://pinoymovieshub.win';
-const TMDB_API_KEY = '6dc830f9624b43261325bed3bf7d0dfa';
-
-// ------------------------------------------------------------------
-// Default headers – update the cookie if it expires
-// ------------------------------------------------------------------
-const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Referer': BASE_URL,
-  'Cookie': 'starstruck_7da72d90b632af60dd1158c068193d61=99f22538d0588cdd7ccfc783299f88a7'
-};
-
-// Headers used when playing the final video stream
-const VIDEO_HEADERS = {
-  'User-Agent': HEADERS['User-Agent'],
-  'Referer': BASE_URL,
-  'Accept': 'video/webm,video/ogg,video/*;q=0.9,*/*;q=0.5'
-};
-
-// ------------------------------------------------------------------
-// Puppeteer browser instance (reused)
-// ------------------------------------------------------------------
-let browser = null;
-
 /**
- * Extracts the first .m3u8 or .mp4 URL from a player page using headless Chrome.
- * Mimics the Python Selenium script exactly.
+ * PinoyMoviesHub Nuvio Plugin - Simple Edition
+ * Domain: pinoymovieshub.win
+ * Supports: Movies & TV Shows
+ * Language: Filipino / Tagalog / English
+ * Author: Enhanced by AI
+ * Version: 4.0.0
  */
-async function extractMediaPuppeteer(pageUrl, timeoutMs = 15000) {
-  try {
-    if (!browser || !browser.isConnected()) {
-      browser = await puppeteer.launch({
-        headless: 'new',
-        args: ['--no-sandbox', '--disable-gpu', '--mute-audio']
-      });
-    }
 
-    const page = await browser.newPage();
+var cheerio = require("cheerio-without-node-native");
 
-    // Prevent detection as headless (optional)
-    await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    });
+var PROVIDER_NAME = "PinoyMoviesHub";
+var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var BASE_URL = "https://pinoymovieshub.win";
 
-    let mediaUrl = null;
+var HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Referer": BASE_URL,
+  "Cookie": "starstruck_7da72d90b632af60dd1158c068193d61=99f22538d0588cdd7ccfc783299f88a7"
+};
 
-    // Listen for network responses – capture any .m3u8 or .mp4
-    page.on('response', (response) => {
-      const url = response.url();
-      if (/\.(m3u8|mp4)(\?|$)/i.test(url) && response.ok()) {
-        mediaUrl = url;  // first match wins
-      }
-    });
+// ===== UTILITY FUNCTIONS =====
 
-    // Load the page and wait until network is mostly idle
-    await page.goto(pageUrl, { waitUntil: 'networkidle2', timeout: timeoutMs });
-
-    // If no media request appeared, simulate video play and wait a bit
-    if (!mediaUrl) {
-      try {
-        await page.evaluate(() => {
-          const v = document.querySelector('video');
-          if (v) v.play();
-        });
-      } catch (e) {}
-
-      try {
-        await page.waitForResponse(
-          (res) => /\.(m3u8|mp4)(\?|$)/i.test(res.url()) && res.ok(),
-          { timeout: 5000 }
-        );
-      } catch (e) {}
-    }
-
-    await page.close();
-    return mediaUrl;  // null if nothing found
-  } catch (err) {
-    console.error(`[pinoyhub] Puppeteer extraction error for ${pageUrl}: ${err.message}`);
-    return null;
-  }
+function merge(obj1, obj2) {
+  var out = {};
+  var k;
+  for (k in obj1 || {}) out[k] = obj1[k];
+  for (k in obj2 || {}) out[k] = obj2[k];
+  return out;
 }
 
-// ------------------------------------------------------------------
-// Optional: static HTML extraction (fallback if Puppeteer fails)
-// ------------------------------------------------------------------
-async function extractDirectMediaUrl(pageUrl) {
-  try {
-    const res = await fetch(pageUrl, { headers: HEADERS, redirect: 'follow' });
-    if (!res.ok) return null;
-    const html = await res.text();
-    const $ = cheerio.load(html);
-
-    // Check <video> tag
-    const videoSrc = $('video').attr('src');
-    if (videoSrc && /\.(m3u8|mp4)/i.test(videoSrc)) return videoSrc;
-
-    // Check <source> inside <video>
-    const sourceSrc = $('video source[type*="video"]').attr('src');
-    if (sourceSrc && /\.(m3u8|mp4)/i.test(sourceSrc)) return sourceSrc;
-
-    // Look inside <script> tags
-    const scripts = $('script').map((i, el) => $(el).html()).get();
-    for (const script of scripts) {
-      if (!script) continue;
-      const match = script.match(/(["'])(https?:\/\/[^"']*\.(?:m3u8|mp4)[^"']*)\1/);
-      if (match) return match[2];
-    }
-
-    return null;
-  } catch (err) {
-    return null;
-  }
-}
-
-// ------------------------------------------------------------------
-// General fetch helpers
-// ------------------------------------------------------------------
-async function fetchHTML(url) {
-  try {
-    const res = await fetch(url, { headers: HEADERS, redirect: 'follow' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.text();
-  } catch (err) {
-    console.error(`[pinoyhub] fetch error ${url}:`, err.message);
-    return null;
-  }
-}
-
-async function fetchJSON(url) {
-  try {
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch {
-    return null;
-  }
-}
-
-// ------------------------------------------------------------------
-// Follow internal /links/... redirect to the final external URL
-// ------------------------------------------------------------------
-async function resolveInternalLink(linkUrl) {
-  console.log(`[pinoyhub] Following internal link: ${linkUrl}`);
-  try {
-    const res = await fetch(linkUrl, { headers: HEADERS, redirect: 'follow' });
-    const finalUrl = res.url;
-    if (finalUrl !== linkUrl && !finalUrl.includes('pinoymovieshub.win')) {
-      console.log(`[pinoyhub] Redirected to: ${finalUrl}`);
-      return finalUrl;
-    }
-  } catch (err) {}
-  return null;
-}
-
-// ------------------------------------------------------------------
-// Extract download links from the page
-// ------------------------------------------------------------------
-function extractDownloadLinks(html) {
-  const $ = cheerio.load(html);
-  const table = $('#download .links_table table');
-  if (!table.length) {
-    console.log('[pinoyhub] Download table not found');
-    return [];
-  }
-
-  const links = [];
-  table.find('tbody tr').each((i, row) => {
-    const cols = $(row).find('td');
-    if (cols.length < 4) return;
-    const a = $(cols[0]).find('a');
-    if (!a.length) return;
-    let url = a.attr('href');
-    if (url && !url.startsWith('http')) url = BASE_URL + url;
-    const quality = $(cols[1]).find('strong.quality').text().trim() || 'Unknown';
-    const language = $(cols[2]).text().trim();
-    links.push({ url, quality, language });
+function fetchText(url, options) {
+  options = options || {};
+  return fetch(url, {
+    method: options.method || "GET",
+    redirect: options.redirect || "follow",
+    headers: merge(HEADERS, options.headers || {}),
+    body: options.body
+  }).then(function(res) {
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.text();
   });
-  return links;
 }
 
-// ------------------------------------------------------------------
-// TMDB helpers
-// ------------------------------------------------------------------
-async function fetchTitleFromTMDB(tmdbId, mediaType) {
-  const endpoint = mediaType === 'tv'
-    ? `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_API_KEY}`
-    : `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}`;
-  const data = await fetchJSON(endpoint);
-  if (!data) return null;
-  return mediaType === 'tv' ? (data.name || data.original_name) : (data.title || data.original_title);
+function fetchJson(url, options) {
+  options = options || {};
+  return fetch(url, {
+    method: options.method || "GET",
+    redirect: options.redirect || "follow",
+    headers: merge(HEADERS, options.headers || {}),
+    body: options.body
+  }).then(function(res) {
+    if (!res.ok) return null;
+    return res.json();
+  }).catch(function() { return null; });
 }
 
 function slugify(title) {
-  return title
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+  return String(title || "").toLowerCase()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
-// ------------------------------------------------------------------
-// Main function – the addon calls this
-// ------------------------------------------------------------------
-async function getStreams(tmdbId, mediaType, season, episode) {
-  console.log(`[pinoyhub] === START for ${mediaType} TMDB ID:${tmdbId} S${season}E${episode} ===`);
+function parseQuality(text) {
+  var value = String(text || "").toLowerCase();
+  var m = value.match(/\b(2160p|1440p|1080p|720p|480p|360p|4k|uhd|hd|sd|cam)\b/);
+  if (m) {
+    var q = m[1];
+    if (q === "4k" || q === "uhd") return "2160p";
+    if (q === "hd") return "720p";
+    if (q === "sd") return "480p";
+    if (q === "cam") return "CAM";
+    return q;
+  }
+  return "Auto";
+}
 
-  try {
-    const tmdbTitle = await fetchTitleFromTMDB(tmdbId, mediaType);
-    if (!tmdbTitle) {
-      console.log('[pinoyhub] TMDB title not found');
-      return [];
-    }
-    console.log(`[pinoyhub] TMDB title: "${tmdbTitle}"`);
+function inferLang(text) {
+  var t = String(text || "").toLowerCase();
+  if (t.indexOf("tagalog") !== -1 || t.indexOf("filipino") !== -1) return "Tagalog";
+  if (t.indexOf("english") !== -1 || /\beng\b/.test(t)) return "English";
+  if (t.indexOf("spanish") !== -1) return "Spanish";
+  if (t.indexOf("korean") !== -1) return "Korean";
+  if (t.indexOf("japanese") !== -1) return "Japanese";
+  if (t.indexOf("chinese") !== -1) return "Chinese";
+  if (t.indexOf("hindi") !== -1) return "Hindi";
+  return "Tagalog";
+}
 
-    let pageUrl, displayTitle;
-    if (mediaType === 'movie') {
-      const movieSlug = slugify(tmdbTitle);
-      pageUrl = `${BASE_URL}/movies/${movieSlug}/`;
-      displayTitle = tmdbTitle;
-    } else {
-      const seriesSlug = slugify(tmdbTitle);
-      pageUrl = `${BASE_URL}/episodes/${seriesSlug}-${season}x${episode}/`;
-      displayTitle = `${tmdbTitle} S${season}E${episode}`;
-    }
+// ===== TMDB =====
 
-    const html = await fetchHTML(pageUrl);
-    if (!html) return [];
+function getTmdbTitle(tmdbId, mediaType) {
+  var type = mediaType === "tv" ? "tv" : "movie";
+  var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
+  return fetchJson(url).then(function(data) {
+    if (!data) return null;
+    if (mediaType === "tv") return data.name || data.original_name || null;
+    return data.title || data.original_title || null;
+  });
+}
 
-    const links = extractDownloadLinks(html);
-    if (links.length === 0) return [];
+function getTmdbEpisodeTitle(tmdbId, season, episode) {
+  if (!season || !episode) return Promise.resolve("");
+  var url = "https://api.themoviedb.org/3/tv/" + tmdbId + "/season/" + season + "/episode/" + episode + "?api_key=" + TMDB_API_KEY;
+  return fetchJson(url).then(function(data) {
+    return data.name || "";
+  }).catch(function() { return ""; });
+}
 
-    const streams = [];
-    for (const link of links) {
-      // Skip subtitle-only rows
-      if (/subtitle/i.test(link.quality) || /subtitle/i.test(link.language)) {
-        console.log(`[pinoyhub] Skipping subtitle row: ${link.quality} / ${link.language}`);
-        continue;
-      }
+// ===== DOOPLAYER API =====
 
-      console.log(`[pinoyhub] Processing ${link.quality} / ${link.language}: ${link.url}`);
-      const externalUrl = await resolveInternalLink(link.url);
-      if (!externalUrl) continue;
+function extractPlayerData(html) {
+  var $ = cheerio.load(html);
+  var players = [];
 
-      // ---- New extraction logic ----
-      let finalUrl = await extractMediaPuppeteer(externalUrl);   // 1. Try Puppeteer
-      if (!finalUrl) {
-        finalUrl = await extractDirectMediaUrl(externalUrl);     // 2. Fallback to static HTML
-      }
-      if (!finalUrl) {
-        finalUrl = externalUrl;                                  // 3. Keep player page URL
-      }
+  // Look for dooplayer elements with data attributes
+  $("[data-post][data-type][data-source], [data-post][data-type], #dooplay_player, .dooplay_player, .dooplay_player_response").each(function(_, el) {
+    var postId = $(el).attr("data-post") || $(el).attr("data-id");
+    var type = $(el).attr("data-type") || "movie";
+    var source = $(el).attr("data-source") || $(el).attr("data-nume") || "1";
+    var nonce = $(el).attr("data-nonce") || "";
 
-      streams.push({
-        name: `PinoyHub - ${link.quality}`,
-        title: `${displayTitle} [${link.language}]`,
-        url: finalUrl,
-        quality: link.quality,
-        headers: finalUrl !== externalUrl
-          ? { ...VIDEO_HEADERS, Referer: externalUrl }
-          : VIDEO_HEADERS,
-        provider: 'pinoyhub'
+    if (postId) {
+      players.push({
+        postId: postId,
+        type: type,
+        source: source,
+        nonce: nonce
       });
     }
+  });
 
-    console.log(`[pinoyhub] Returning ${streams.length} stream(s)`);
-    return streams;
+  // Also look in scripts for dooplayer initialization
+  var scripts = $("script").map(function(_, el) { return $(el).html() || ""; }).get();
+  var i;
+  for (i = 0; i < scripts.length; i++) {
+    var script = scripts[i];
+    var postMatch = script.match(/data-post[=:]\s*["'](\d+)["']/);
+    var typeMatch = script.match(/data-type[=:]\s*["']([^"']+)["']/);
+    var sourceMatch = script.match(/data-source[=:]\s*["']([^"']+)["']/);
+    var nonceMatch = script.match(/data-nonce[=:]\s*["']([^"']+)["']/);
 
-  } catch (err) {
-    console.error('[pinoyhub] error:', err.message);
+    if (postMatch) {
+      players.push({
+        postId: postMatch[1],
+        type: typeMatch ? typeMatch[1] : "movie",
+        source: sourceMatch ? sourceMatch[1] : "1",
+        nonce: nonceMatch ? nonceMatch[1] : ""
+      });
+    }
+  }
+
+  // Deduplicate by postId+source
+  var seen = {};
+  var unique = [];
+  for (i = 0; i < players.length; i++) {
+    var key = players[i].postId + "-" + players[i].source;
+    if (!seen[key]) {
+      seen[key] = 1;
+      unique.push(players[i]);
+    }
+  }
+
+  console.log("[PinoyMoviesHub] Found", unique.length, "player(s)");
+  return unique;
+}
+
+function callDooPlayerAPI(playerData) {
+  var apiUrl = BASE_URL + "/wp-json/dooplayer/v2/" + playerData.postId + "/" + playerData.type + "/" + playerData.source;
+  console.log("[PinoyMoviesHub] Calling Dooplayer API:", apiUrl);
+
+  return fetchJson(apiUrl, {
+    headers: merge(HEADERS, {
+      "X-Requested-With": "XMLHttpRequest"
+    })
+  }).then(function(data) {
+    if (!data) {
+      console.log("[PinoyMoviesHub] Dooplayer API returned null");
+      return null;
+    }
+    console.log("[PinoyMoviesHub] Dooplayer API response keys:", Object.keys(data || {}).join(", "));
+
+    var embedUrl = data.embed_url || data.url || data.source || data.link || data.file || data.src;
+    if (embedUrl) {
+      console.log("[PinoyMoviesHub] Dooplayer embed URL:", embedUrl);
+      return embedUrl;
+    }
+
+    if (data.data) {
+      embedUrl = data.data.embed_url || data.data.url || data.data.source || data.data.link || data.data.file || data.data.src;
+      if (embedUrl) {
+        console.log("[PinoyMoviesHub] Dooplayer nested embed URL:", embedUrl);
+        return embedUrl;
+      }
+    }
+
+    var html = data.html || data.iframe || data.embed || data.player;
+    if (html && typeof html === "string") {
+      var iframeMatch = html.match(/src=["']([^"']+)["']/);
+      if (iframeMatch && iframeMatch[1]) {
+        console.log("[PinoyMoviesHub] Dooplayer iframe src:", iframeMatch[1]);
+        return iframeMatch[1];
+      }
+    }
+
+    console.log("[PinoyMoviesHub] Dooplayer API response:", JSON.stringify(data).substring(0, 200));
+    return null;
+  }).catch(function(e) {
+    console.log("[PinoyMoviesHub] Dooplayer API error:", e.message);
+    return null;
+  });
+}
+
+// ===== STREAM BUILDER =====
+
+function buildStream(name, url, quality, language, displayTitle, meta) {
+  var lang = inferLang(language);
+  var isSeries = !!(meta && meta.season);
+  var host = "";
+  try { host = new URL(url).hostname.replace(/^www\./, "").replace(/\.com$/, "").replace(/\.top$/, "").replace(/\.click$/, ""); } catch(e) {}
+
+  // Detect if this is an embed URL (not a direct video file)
+  var isEmbed = !/\.(m3u8|mp4|mkv|webm|avi|mov)(\?|#|$)/i.test(url);
+  var q = isEmbed ? "Browser" : parseQuality(quality + " " + language);
+
+  var line1, line2;
+  if (isSeries) {
+    var epPart = meta.episodeTitle ? " - " + meta.episodeTitle : "";
+    line1 = "S" + meta.season + "E" + meta.episode + epPart + " | " + displayTitle;
+  } else {
+    line1 = displayTitle;
+  }
+
+  if (isEmbed) {
+    line2 = "Browser | " + lang + (host ? " | " + host : "");
+  } else {
+    line2 = q + " | " + lang + (host ? " | " + host : "");
+  }
+
+  return {
+    name: "PinoyMoviesHub" + (isEmbed ? " | " + lang + " | (Embed)" : " | " + q + " | " + lang),
+    title: line1 + "\n" + line2,
+    url: url,
+    quality: q,
+    headers: { Referer: BASE_URL },
+    provider: "pinoymovieshub",
+    behaviorHints: {
+      bingeGroup: "pinoymovieshub-" + (isEmbed ? "embed" : q.toLowerCase()),
+      notWebReady: isEmbed
+    }
+  };
+}
+
+// ===== MAIN ENTRY =====
+
+function getStreams(tmdbId, mediaType, season, episode) {
+  console.log("[PinoyMoviesHub] === START for " + mediaType + " TMDB ID:" + tmdbId + " S" + season + "E" + episode + " ===");
+
+  var epPromise = (mediaType === "tv")
+    ? getTmdbEpisodeTitle(tmdbId, season, episode)
+    : Promise.resolve("");
+
+  return epPromise.then(function(episodeTitle) {
+    return getTmdbTitle(tmdbId, mediaType).then(function(title) {
+      if (!title) {
+        console.log("[PinoyMoviesHub] TMDB title not found");
+        return [];
+      }
+      console.log("[PinoyMoviesHub] TMDB title: '" + title + "'");
+
+      var slug = slugify(title);
+      var pageUrl, displayTitle;
+
+      if (mediaType === "movie") {
+        displayTitle = title;
+        pageUrl = BASE_URL + "/movies/" + slug + "/";
+      } else {
+        displayTitle = title + " S" + season + "E" + episode;
+        pageUrl = BASE_URL + "/episodes/" + slug + "-" + season + "x" + episode + "/";
+      }
+
+      console.log("[PinoyMoviesHub] Fetching page:", pageUrl);
+
+      return fetchText(pageUrl).then(function(html) {
+        var meta = {
+          season: season,
+          episode: episode,
+          episodeTitle: episodeTitle
+        };
+
+        var players = extractPlayerData(html);
+        if (!players.length) {
+          console.log("[PinoyMoviesHub] No player data found");
+          return [];
+        }
+
+        console.log("[PinoyMoviesHub] Using Dooplayer API approach");
+
+        return Promise.all(players.map(function(player) {
+          return callDooPlayerAPI(player).then(function(embedUrl) {
+            if (!embedUrl) return null;
+            return buildStream(
+              "PinoyMoviesHub - Source " + player.source,
+              embedUrl,
+              "Auto",
+              "",
+              displayTitle,
+              meta
+            );
+          });
+        })).then(function(results) {
+          var streams = [];
+          var i;
+          for (i = 0; i < results.length; i++) {
+            if (results[i]) streams.push(results[i]);
+          }
+          console.log("[PinoyMoviesHub] Returning", streams.length, "stream(s)");
+          return streams;
+        });
+      });
+    });
+  }).catch(function(err) {
+    console.error("[PinoyMoviesHub] error:", err.message || err);
     return [];
-  }
+  });
 }
 
-// Cleanup function (call it when your addon shuts down to close the browser)
-async function close() {
-  if (browser) {
-    await browser.close();
-    browser = null;
-    console.log('[pinoyhub] Puppeteer browser closed');
-  }
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { getStreams: getStreams };
+} else {
+  global.getStreams = getStreams;
 }
-
-module.exports = { getStreams, close };

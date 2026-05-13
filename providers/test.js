@@ -62,11 +62,13 @@ async function getStreams(id, type, season, episode) {
             }
 
             return {
-                // This sets the primary label seen in 1000120663.jpg
                 name: `HindMovie | ${movieTitle}`,
                 title: s.title || "HindMovie Stream",
                 url: finalUrl,
-                behaviorHints: s.behaviorHints || { bingeGroup: "hind-movie-group" }
+                behaviorHints: { 
+                    // Changed bingeGroup to force Android TV to refresh its list
+                    bingeGroup: "hind-movie-v3-refresh" 
+                }
             };
         });
 }
@@ -78,24 +80,17 @@ if (typeof module !== "undefined" && module.exports) {
 }
 
 /**
- * UPDATED NORMALIZATION BLOCK
- * Fixes the "- Unknown" suffix seen in screenshot 1000120663.jpg
+ * ANDROID TV COMPATIBILITY NORMALIZER
  */
 function __doomNormalizeStream(rawStream) {
     if (!rawStream || !rawStream.url) return null;
 
-    var behaviorHints = rawStream.behaviorHints || {};
-    if (!behaviorHints.bingeGroup) {
-        behaviorHints.bingeGroup = "hind-movie-plugin";
-    }
-
     return {
-        // By using the rawStream.name directly here, we prevent 
-        // the "- Unknown" suffix from being added.
+        // Force the name to exactly what we defined, no suffixes
         name: rawStream.name,
         title: rawStream.title,
         url: rawStream.url,
-        behaviorHints: behaviorHints
+        behaviorHints: rawStream.behaviorHints
     };
 }
 

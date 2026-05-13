@@ -1,13 +1,9 @@
 "use strict";
 
-/**
- * CONFIGURATION
- * Updated to target HindMovie results from the Morpheus scraper.
- */
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var MURPH_BASE = "https://badboysxs-morpheus.hf.space";
-var PROVIDER_NAME = "HindMovie Murph";
-var PROVIDER_TAG = "[HindMovie Murph]";
+var PROVIDER_NAME = "HindMoviez";
+var PROVIDER_TAG = "[HindMoviez]";
 var REQUEST_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "Accept": "application/json, text/plain, */*"
@@ -17,9 +13,6 @@ var __doomProbeCache = Object.create(null);
 var __doomProbeCacheTtlMs = 10 * 60 * 1000;
 var __doomProbeTimeoutMs = 6 * 1000;
 
-/**
- * HELPER FUNCTIONS
- */
 function withTimeout(promise, timeoutMs) {
   return new Promise(function(resolve, reject) {
     var settled = false;
@@ -28,7 +21,6 @@ function withTimeout(promise, timeoutMs) {
       settled = true;
       reject(new Error("timeout"));
     }, timeoutMs);
-
     Promise.resolve(promise).then(function(value) {
       if (settled) return;
       settled = true;
@@ -92,10 +84,7 @@ function getCachedProbeResult(cacheKey) {
 }
 
 function setCachedProbeResult(cacheKey, ok) {
-  __doomProbeCache[cacheKey] = {
-    ok: !!ok,
-    timestamp: Date.now()
-  };
+  __doomProbeCache[cacheKey] = { ok: !!ok, timestamp: Date.now() };
 }
 
 function responseIsSeekable(response, url) {
@@ -105,20 +94,14 @@ function responseIsSeekable(response, url) {
   if (looksLikeHls(url, contentType)) return true;
   var acceptRanges = headers && headers.get ? headers.get("accept-ranges") || "" : "";
   var contentRange = headers && headers.get ? headers.get("content-range") || "" : "";
-  return response.status === 206
-    || /bytes/i.test(acceptRanges)
-    || /^bytes\s+/i.test(contentRange);
+  return response.status === 206 || /bytes/i.test(acceptRanges) || /^bytes\s+/i.test(contentRange);
 }
 
 function probeStream(stream) {
-  if (!stream || !stream.url || typeof fetch !== "function") {
-    return Promise.resolve(false);
-  }
-
+  if (!stream || !stream.url || typeof fetch !== "function") return Promise.resolve(false);
   var cacheKey = getProbeCacheKey(stream);
   var cached = getCachedProbeResult(cacheKey);
   if (cached !== null) return Promise.resolve(cached);
-
   var url = stream.url;
   var isHls = looksLikeHls(url, "");
   var baseHeaders = mergeHeaders({}, stream.headers || {});
@@ -126,12 +109,10 @@ function probeStream(stream) {
   if (!isHls && !rangedHeaders.Range && !rangedHeaders.range) {
     rangedHeaders.Range = "bytes=0-1";
   }
-
   var attempts = [
     { method: "GET", headers: isHls ? baseHeaders : rangedHeaders, redirect: "follow" },
     { method: "HEAD", headers: baseHeaders, redirect: "follow" }
   ];
-
   function tryAttempt(index) {
     if (index >= attempts.length) return Promise.resolve(false);
     return withTimeout(fetch(url, attempts[index]), __doomProbeTimeoutMs)
@@ -139,11 +120,8 @@ function probeStream(stream) {
         if (responseIsSeekable(response, url)) return true;
         return tryAttempt(index + 1);
       })
-      .catch(function() {
-        return tryAttempt(index + 1);
-      });
+      .catch(function() { return tryAttempt(index + 1); });
   }
-
   return tryAttempt(0).then(function(ok) {
     setCachedProbeResult(cacheKey, ok);
     return ok;
@@ -153,52 +131,28 @@ function probeStream(stream) {
 function looksLikeDirectMediaUrl(url) {
   var normalized = String(url || "").toLowerCase();
   if (!/^https?:\/\//i.test(normalized)) return false;
-  if (/\/login\.php\b/.test(normalized) || /action=logout/.test(normalized)) return false;
-  return /\.m(?:kv|p4)(?:$|[?#])/.test(normalized)
-    || /\.m3u8(?:$|[?#])/.test(normalized)
-    || /\.ts(?:$|[?#])/.test(normalized);
-}
-
-function looksLikeMurphFallbackCandidate(stream) {
-  if (!stream || !stream.url) return false;
-  if (!looksLikeDirectMediaUrl(stream.url)) return false;
-  var size = Number(stream.videoSize || (stream.behaviorHints && stream.behaviorHints.videoSize) || 0);
-  if (size > 0) return true;
-  return /\[[^\]]+(gb|mb)\]/i.test(String(stream.title || ""))
-    || /hind\s*movie/i.test(String(stream.name || ""));
+  return /\.m(?:kv|p4|3u8|ts)(?:$|[?#])/.test(normalized);
 }
 
 function filterSeekableStreams(streams) {
-  if (!Array.isArray(streams) || streams.length === 0) {
-    return Promise.resolve([]);
-  }
+  if (!Array.isArray(streams) || streams.length === 0) return Promise.resolve([]);
   return Promise.all(streams.map(function(stream) {
     return probeStream(stream)
       .then(function(ok) { return { stream: stream, ok: ok }; })
       .catch(function() { return { stream: stream, ok: false }; });
   })).then(function(results) {
     var filtered = results.filter(function(item) { return item.ok; }).map(function(item) { return item.stream; });
+    // If probing fails all of them, return everything as a backup
     if (filtered.length === 0) {
-      filtered = results
-        .map(function(item) { return item.stream; })
-        .filter(looksLikeMurphFallbackCandidate);
-      if (filtered.length > 0) {
-        console.log(PROVIDER_TAG + " Seekable filter fallback kept " + filtered.length + "/" + streams.length + " streams");
-        return filtered;
-      }
-    }
-    if (filtered.length === 0) {
-      console.log(PROVIDER_TAG + " Seekable filter kept 0/" + streams.length + " streams; returning original streams as fallback");
       return streams;
     }
-    console.log(PROVIDER_TAG + " Seekable filter kept " + filtered.length + "/" + streams.length + " streams");
     return filtered;
   });
 }
 
 function fetchJson(url) {
   return withTimeout(fetch(url, { headers: REQUEST_HEADERS, redirect: "follow" }), 15 * 1000).then(function(response) {
-    if (!response.ok) throw new Error("HTTP " + response.status + " -> " + url);
+    if (!response.ok) throw new Error("HTTP " + response.status);
     return response.json();
   });
 }
@@ -215,14 +169,7 @@ function absolutizeUrl(url) {
 function extractMurphStreams(payload) {
   if (Array.isArray(payload)) return payload;
   if (!payload || typeof payload !== "object") return [];
-  var candidates = [
-    payload.streams,
-    payload.data && payload.data.streams,
-    payload.result && payload.result.streams,
-    payload.data && payload.data.results,
-    payload.results,
-    payload.items
-  ];
+  var candidates = [payload.streams, (payload.data && payload.data.streams), payload.results];
   for (var i = 0; i < candidates.length; i += 1) {
     if (Array.isArray(candidates[i])) return candidates[i];
   }
@@ -230,93 +177,69 @@ function extractMurphStreams(payload) {
 }
 
 /**
- * UPDATED MATCH LOGIC
+ * UPDATED MATCH LOGIC FOR HINDMOVIEZ
  */
 function isProviderMatch(name) {
-  // Filters specifically for HindMovie tags
-  return /hind\s*movie/i.test(String(name || ""));
+  var n = String(name || "").toLowerCase();
+  // Checks for various spellings of HindMoviez
+  return n.indexOf("hind") !== -1 || n.indexOf("moviez") !== -1 || n.indexOf("hmz") !== -1;
 }
 
 function resolveImdbId(id, mediaType) {
   if (!id) return Promise.resolve("");
   if (String(id).startsWith("tt")) return Promise.resolve(String(id));
-
-  if (mediaType === "tv") {
-    var tvUrl = "https://api.themoviedb.org/3/tv/" + id + "/external_ids?api_key=" + TMDB_API_KEY;
-    return fetchJson(tvUrl).then(function(data) {
-      return data && data.imdb_id ? data.imdb_id : "";
-    }).catch(function() {
-      return "";
-    });
-  }
-
-  var movieUrl = "https://api.themoviedb.org/3/movie/" + id + "?api_key=" + TMDB_API_KEY;
-  return fetchJson(movieUrl).then(function(data) {
-    return data && data.imdb_id ? data.imdb_id : "";
-  }).catch(function() {
-    return "";
-  });
+  var url = "https://api.themoviedb.org/3/" + (mediaType === "tv" ? "tv" : "movie") + "/" + id + (mediaType === "tv" ? "/external_ids" : "") + "?api_key=" + TMDB_API_KEY;
+  return fetchJson(url).then(function(data) { return data && data.imdb_id ? data.imdb_id : ""; }).catch(function() { return ""; });
 }
 
 function buildEndpoint(imdbId, mediaType, season, episode) {
   if (!imdbId) return "";
-  if (mediaType === "tv") {
-    if (season == null || episode == null) return "";
-    return MURPH_BASE + "/stream/series/" + imdbId + ":" + season + ":" + episode + ".json";
-  }
-  return MURPH_BASE + "/stream/movie/" + imdbId + ".json";
+  return mediaType === "tv" 
+    ? MURPH_BASE + "/stream/series/" + imdbId + ":" + season + ":" + episode + ".json"
+    : MURPH_BASE + "/stream/movie/" + imdbId + ".json";
 }
 
 function dedupeStreams(streams) {
   var seen = new Set();
   return streams.filter(function(stream) {
-    var fingerprint = [stream.name || "", stream.title || "", stream.url || ""].join("|");
+    var fingerprint = [stream.url || ""].join("|");
     if (seen.has(fingerprint)) return false;
     seen.add(fingerprint);
     return true;
   });
 }
 
-/**
- * UPDATED MAPPING LOGIC
- */
 function mapMurphStream(item) {
   if (!item) return null;
   var name = String(item.name || "");
-  
   if (!isProviderMatch(name)) return null;
   
-  var url = item.url || item.streamUrl || item.stream_url || item.src || item.file || "";
+  var url = item.url || item.streamUrl || item.src || "";
   if (!url) return null;
-  var absoluteUrl = absolutizeUrl(url);
-  var title = item.title || item.description || item.label || "HindMovie stream";
-  
+
+  var title = item.title || item.description || "HindMoviez Stream";
   return {
-    // Replaces the raw "HindMovie" tag with your custom PROVIDER_NAME
-    name: name.replace(/hind\s*movie/i, PROVIDER_NAME),
+    name: PROVIDER_NAME,
     title: title,
-    url: absoluteUrl,
+    url: absolutizeUrl(url),
     quality: normalizeQuality(name + " " + title),
     size: extractSize(title),
-    behaviorHints: item.behaviorHints,
-    videoSize: item.behaviorHints && item.behaviorHints.videoSize,
-    headers: void 0
+    behaviorHints: item.behaviorHints || {}
   };
 }
 
 function getStreams(id, type, season, episode) {
-  var mediaType = type === "series" ? "tv" : (type || "movie");
+  var mediaType = type === "series" ? "tv" : "movie";
   return resolveImdbId(id, mediaType).then(function(imdbId) {
     if (!imdbId) return [];
     var endpoint = buildEndpoint(imdbId, mediaType, season, episode);
-    if (!endpoint) return [];
     return fetchJson(endpoint).then(function(payload) {
       var streams = extractMurphStreams(payload);
       var mapped = streams.map(mapMurphStream).filter(Boolean);
+      // We dedupe first, then return them
       return filterSeekableStreams(dedupeStreams(mapped));
     });
-  }).catch(function(error) {
-    console.error(PROVIDER_TAG + " " + (error && error.message ? error.message : String(error)));
+  }).catch(function(err) {
     return [];
   });
 }
@@ -327,79 +250,24 @@ if (typeof module !== "undefined" && module.exports) {
   global.getStreams = getStreams;
 }
 
-/**
- * STREAM NORMALIZATION (DOOM PLUG)
- */
-function __doomNormalizeHeaders(headers) {
-  if (!headers || typeof headers !== "object") return null;
-  var normalized = {};
-  var key;
-  for (key in headers) {
-    if (headers[key] !== undefined && headers[key] !== null && headers[key] !== "") {
-      normalized[key] = String(headers[key]);
-    }
-  }
-  return Object.keys(normalized).length ? normalized : null;
-}
-
-function __doomLooksWebReady(url) {
-  var normalized = String(url || "").toLowerCase();
-  return normalized.indexOf("https://") === 0
-    && (normalized.indexOf(".mp4") !== -1 || normalized.indexOf("format=mp4") !== -1);
-}
-
-function __doomNormalizeStream(rawStream) {
-  if (!rawStream || typeof rawStream !== "object") return null;
-  var targetUrl = rawStream.url || rawStream.externalUrl;
-  if (!targetUrl || typeof targetUrl !== "string") return null;
-
-  var requestHeaders = __doomNormalizeHeaders(rawStream.headers);
-  var behaviorHints = {};
-  var key;
-  for (key in rawStream.behaviorHints || {}) behaviorHints[key] = rawStream.behaviorHints[key];
-
-  if (rawStream.fileName && !behaviorHints.filename) behaviorHints.filename = rawStream.fileName;
-  if (typeof rawStream.size === "number" && rawStream.size > 0 && !behaviorHints.videoSize) {
-    behaviorHints.videoSize = rawStream.size;
-  }
-  if (typeof rawStream.videoSize === "number" && rawStream.videoSize > 0 && !behaviorHints.videoSize) {
-    behaviorHints.videoSize = rawStream.videoSize;
-  }
-  if (!behaviorHints.bingeGroup) {
-    var providerId = typeof PLUGIN_TAG !== "undefined" ? PLUGIN_TAG : (typeof TAG !== "undefined" ? TAG : "doom-plug");
-    behaviorHints.bingeGroup = String(providerId).replace(/[^a-z0-9]+/gi, "-").toLowerCase();
-  }
-  if (!__doomLooksWebReady(targetUrl) || requestHeaders) behaviorHints.notWebReady = true;
-  if (requestHeaders) behaviorHints.proxyHeaders = { request: requestHeaders };
-
-  var description = rawStream.description || rawStream.title || rawStream.name || "HindMovie stream";
+// DOOM NORMALIZATION BLOCK
+function __doomNormalizeStream(raw) {
+  if (!raw || !raw.url) return null;
+  var bh = raw.behaviorHints || {};
+  if (!bh.bingeGroup) bh.bingeGroup = "hindmoviez-group";
   return {
-    name: rawStream.name || PROVIDER_NAME,
-    title: description,
-    description: description,
-    url: targetUrl,
-    behaviorHints: behaviorHints
+    name: raw.name || PROVIDER_NAME,
+    title: raw.title,
+    url: raw.url,
+    behaviorHints: bh
   };
 }
 
 (function() {
-  if (typeof getStreams !== "function" || getStreams.__doomNormalizedWrapped) return;
-
-  var __doomOriginalGetStreamsForNormalization = getStreams;
-  var __doomNormalizedGetStreams = function() {
-    return Promise.resolve(__doomOriginalGetStreamsForNormalization.apply(this, arguments))
-      .then(function(streams) {
-        if (!Array.isArray(streams)) return [];
-        return streams.map(__doomNormalizeStream).filter(Boolean);
-      });
+  var oldGet = getStreams;
+  getStreams = function() {
+    return Promise.resolve(oldGet.apply(this, arguments)).then(function(s) {
+      return Array.isArray(s) ? s.map(__doomNormalizeStream).filter(Boolean) : [];
+    });
   };
-
-  __doomNormalizedGetStreams.__doomNormalizedWrapped = true;
-  getStreams = __doomNormalizedGetStreams;
-
-  if (typeof module !== "undefined" && module.exports) {
-    module.exports.getStreams = getStreams;
-  } else if (typeof global !== "undefined") {
-    global.getStreams = getStreams;
-  }
 })();

@@ -2,7 +2,7 @@
 
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var MURPH_BASE = "https://badboysxs-morpheus.hf.space"; 
-var PROVIDER_NAME = "HindMovie"; // Match his page naming
+var TARGET_PROVIDER = "HindMovie"; 
 
 async function fetchJson(url) {
     try {
@@ -19,11 +19,19 @@ async function resolveImdbId(id, type) {
     return data ? (data.imdb_id || null) : null;
 }
 
-function isHindiStream(stream) {
+/**
+ * STRONGER FILTERING LOGIC
+ * Only matches if the source site is HindMovie
+ */
+function isCorrectProvider(stream) {
     const name = String(stream.name || "").toLowerCase();
     const title = String(stream.title || "").toLowerCase();
-    // Broad match: checks for HindMovie, HindMoviez, or any "Hind" mention
-    return name.includes("hind") || title.includes("hind") || name.includes("hm");
+    
+    // We only want HindMovie. We explicitly exclude HDHub4u.
+    const isHindMovie = name.includes("hindmovie") || title.includes("hindmovie");
+    const isHDHub = name.includes("hdhub") || title.includes("hdhub");
+
+    return isHindMovie && !isHDHub;
 }
 
 async function getStreams(id, type, season, episode) {
@@ -37,18 +45,16 @@ async function getStreams(id, type, season, episode) {
     const payload = await fetchJson(endpoint);
     if (!payload || !payload.streams) return [];
 
-    // Filter and Map
     return payload.streams
-        .filter(isHindiStream)
+        .filter(isCorrectProvider) // Use the strict provider filter
         .map(s => {
-            // Clean up the URL (Morpheus URLs can be relative or absolute)
             let finalUrl = s.url;
             if (finalUrl && !finalUrl.startsWith("http")) {
                 finalUrl = MURPH_BASE + (finalUrl.startsWith("/") ? "" : "/") + finalUrl;
             }
 
             return {
-                name: `[${PROVIDER_NAME}]`,
+                name: `[${TARGET_PROVIDER}]`,
                 title: s.title || "Hindi Stream",
                 url: finalUrl,
                 behaviorHints: s.behaviorHints || { bingeGroup: "hind-movie-group" }

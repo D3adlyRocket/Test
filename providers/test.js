@@ -279,13 +279,13 @@ function generateXTrSignature(method, accept, contentType, url, body, useAltKey,
 
 function makeClientInfo_mbox(bm) {
   var model = bm ? bm.model : "sdk_gphone64_x86_64";
-  return '{"package_name":"com.community.mbox.in","version_name":"3.0.03.0529.03","version_code":50020042,"os":"android","os_version":"16","device_id":"' + DEVICE_ID + '","install_store":"ps","gaid":"d7578036d13336cc","brand":"google","model":"' + model + '","system_language":"en","net":"NETWORK_WIFI","region":"IN","timezone":"Asia/Calcutta","sp_code":""}';
+  return '{"package_name":"com.community.mbox.in","version_name":"3.0.03.0529.03","version_code":50020042,"os":"android","os_version":"16","device_id":"' + DEVICE_ID + '","install_store":"ps","gaid":"d7578036d13336cc","brand":"google","model":"' + model + '","system_language":"en","net":"NETWORK_WIFI","region":"IN","timezone":"Asia/Kolkata","sp_code":""}';
 }
 
 function makeClientInfo_oneroom(bm) {
   var brand = bm ? bm.model : "Pixel 7";
   var model = bm ? bm.brand : "Google";
-  return '{"package_name":"com.community.oneroom","version_name":"3.0.13.0325.03","version_code":50020088,"os":"android","os_version":"13","install_ch":"ps","device_id":"' + DEVICE_ID + '","install_store":"ps","gaid":"1b2212c1-dadf-43c3-a0c8-bd6ce48ae22d","brand":"' + brand + '","model":"' + model + '","system_language":"en","net":"NETWORK_WIFI","region":"IN","timezone":"Asia/Calcutta","sp_code":"","X-Play-Mode":"1","X-Idle-Data":"1","X-Family-Mode":"0","X-Content-Mode":"0"}';
+  return '{"package_name":"com.community.oneroom","version_name":"3.0.13.0325.03","version_code":50020088,"os":"android","os_version":"13","install_ch":"ps","device_id":"' + DEVICE_ID + '","install_store":"ps","gaid":"1b2212c1-dadf-43c3-a0c8-bd6ce48ae22d","brand":"' + brand + '","model":"' + model + '","system_language":"en","net":"NETWORK_WIFI","region":"IN","timezone":"Asia/Kolkata","sp_code":"","X-Play-Mode":"1","X-Idle-Data":"1","X-Family-Mode":"0","X-Content-Mode":"0"}';
 }
 
 function buildPostHeaders(url, jsonBody) {

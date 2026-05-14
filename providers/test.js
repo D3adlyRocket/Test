@@ -1,117 +1,47 @@
-"use strict";
-
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var MURPH_BASE = "https://badboysxs-morpheus.hf.space"; 
-
-async function fetchJson(url) {
-    try {
-        const resp = await fetch(url, { method: "GET" });
-        return resp.ok ? await resp.json() : null;
-    } catch (e) { return null; }
-}
-
-async function resolveMediaDetails(id, type) {
-    const tmdbType = type === "series" ? "tv" : "movie";
-    let imdbId = String(id).startsWith("tt") ? id : null;
-    let title = "Movie";
-
-    const detailsUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}?api_key=${TMDB_API_KEY}`;
-    const externalIdsUrl = `https://api.themoviedb.org/3/${tmdbType}/${id}/external_ids?api_key=${TMDB_API_KEY}`;
-    
-    const [details, external] = await Promise.all([
-        fetchJson(detailsUrl),
-        fetchJson(externalIdsUrl)
-    ]);
-
-    if (details) {
-        title = details.title || details.name || "Movie";
-    }
-    
-    if (!imdbId && external) {
-        imdbId = external.imdb_id;
-    }
-
-    return { imdbId, title };
-}
-
-function isHindMovieSource(stream) {
-    const name = String(stream.name || "").toLowerCase();
-    const title = String(stream.title || "").toLowerCase();
-    const hasHindMovie = name.includes("hindmovie") || title.includes("hindmovie");
-    const isNotHDHub = !name.includes("hdhub") && !title.includes("hdhub");
-    return hasHindMovie && isNotHDHub;
-}
-
-async function getStreams(id, type, season, episode) {
-    const { imdbId, title: movieTitle } = await resolveMediaDetails(id, type);
-    if (!imdbId) return [];
-
-    const endpoint = (type === "series") 
-        ? `${MURPH_BASE}/stream/series/${imdbId}:${season}:${episode}.json`
-        : `${MURPH_BASE}/stream/movie/${imdbId}.json`;
-
-    const payload = await fetchJson(endpoint);
-    if (!payload || !payload.streams) return [];
-
-    return payload.streams
-        .filter(isHindMovieSource) 
-        .map(s => {
-            let finalUrl = s.url;
-            if (finalUrl && !finalUrl.startsWith("http")) {
-                finalUrl = MURPH_BASE + (finalUrl.startsWith("/") ? "" : "/") + finalUrl;
-            }
-
-            return {
-                name: `HindMovie | ${movieTitle}`,
-                title: s.title || "HindMovie Stream",
-                url: finalUrl,
-                behaviorHints: { 
-                    // Changed bingeGroup to force Android TV to refresh its list
-                    bingeGroup: "hind-movie-v3-refresh" 
-                }
-            };
-        });
-}
-
-if (typeof module !== "undefined" && module.exports) {
-    module.exports = { getStreams: getStreams };
-} else {
-    global.getStreams = getStreams;
-}
+const cheerio = require('cheerio');
+const fetch = require('node-fetch');
 
 /**
- * ANDROID TV COMPATIBILITY NORMALIZER
+ * Nuvio-compatible getStreams module
+ * This replaces the "scraper" part of your script with a live resolver.
  */
-function __doomNormalizeStream(rawStream) {
-    if (!rawStream || !rawStream.url) return null;
+async function getStreams(title, url) {
+    try {
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            }
+        });
+        
+        const html = await response.text();
+        const $ = cheerio.load(html);
+        const streams = [];
 
-    return {
-        // Force the name to exactly what we defined, no suffixes
-        name: rawStream.name,
-        title: rawStream.title,
-        url: rawStream.url,
-        behaviorHints: rawStream.behaviorHints
-    };
+        // 1TamilMV usually stores magnets in specific anchor tags or hidden inputs
+        $('a[href^="magnet:?"]').each((_, el) => {
+            const magnet = $(el).attr('href');
+            // Try to find quality info (1080p, 720p) in the surrounding text or the link name
+            const linkText = $(el).text().trim() || $(el).closest('tr').text().trim();
+            
+            streams.push({
+                name: '1TamilMV',
+                title: linkText.split('\n')[0].substring(0, 100), // Clean up title
+                infoHash: extractHash(magnet),
+                magnet: magnet
+            });
+        });
+
+        return streams;
+    } catch (err) {
+        console.error('Error in getStreams:', err);
+        return [];
+    }
 }
 
-(function() {
-    if (typeof getStreams !== "function" || getStreams.__doomNormalizedWrapped) return;
+// Helper to extract infoHash for Nuvio's internal player
+function extractHash(magnet) {
+    const match = magnet.match(/btih:([a-zA-Z0-9]+)/);
+    return match ? match[1].toLowerCase() : null;
+}
 
-    var __doomOriginalGetStreams = getStreams;
-    var __doomNormalizedGetStreams = function() {
-        return Promise.resolve(__doomOriginalGetStreams.apply(this, arguments))
-            .then(function(streams) {
-                if (!Array.isArray(streams)) return [];
-                return streams.map(__doomNormalizeStream).filter(Boolean);
-            });
-    };
-
-    __doomNormalizedGetStreams.__doomNormalizedWrapped = true;
-    getStreams = __doomNormalizedGetStreams;
-
-    if (typeof module !== "undefined" && module.exports) {
-        module.exports.getStreams = getStreams;
-    } else if (typeof global !== "undefined") {
-        global.getStreams = getStreams;
-    }
-})();
+module.exports = { getStreams };

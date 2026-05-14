@@ -1,7 +1,7 @@
-/**
- * Pomfy - Surgical Fix (English & De-Duplicated)
+ /**
+ * Pomfy - Surgical Fix
  * 100% Original functional logic.
- * Fixed: Title Language, Duplication, and URL Info.
+ * Debug "clutter" streams removed.
  */
 
 var __async = (__this, __arguments, generator) => {
@@ -28,6 +28,10 @@ const HEADERS = {
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,webp,image/apng,*/*;q=0.8",
   "Accept-Language": "pt-BR,pt;q=0.9",
   "Referer": "https://pomfy.online/",
+  "Sec-Fetch-Dest": "iframe",
+  "Sec-Fetch-Mode": "navigate",
+  "Sec-Fetch-Site": "cross-site",
+  "Upgrade-Insecure-Requests": "1",
   "Cookie": COOKIE
 };
 
@@ -197,18 +201,27 @@ class AES256GCM_Manual {
 }
 
 // ==============================================
-// HELPERS
+// ORIGINAL HELPERS (RESTORED)
 // ==============================================
 
 function generateFingerprint() {
   const viewerId = "bed4fadd25c8dcdcaced26e318c3be5a";
   const deviceId = "b69c7e41fe010d4445b827dd95aa89fc";
   const timestamp = Math.floor(Date.now() / 1000);
-  const payload = { viewer_id: viewerId, device_id: deviceId, confidence: 0.93, iat: timestamp, exp: timestamp + 600 };
-  return { token: bytesToBase64(stringToUtf8Bytes(JSON.stringify(payload))), viewer_id: viewerId, device_id: deviceId, confidence: 0.93 };
+  const payload = {
+    viewer_id: viewerId,
+    device_id: deviceId,
+    confidence: 0.93,
+    iat: timestamp,
+    exp: timestamp + 600
+  };
+  const token = bytesToBase64(stringToUtf8Bytes(JSON.stringify(payload)));
+  return { token, viewer_id: viewerId, device_id: deviceId, confidence: 0.93 };
 }
 
-function isImdbId(id) { return typeof id === "string" && id.toLowerCase().startsWith("tt"); }
+function isImdbId(id) {
+  return typeof id === "string" && id.toLowerCase().startsWith("tt");
+}
 
 async function convertImdbToTmdb(imdbId, mediaType) {
   try {
@@ -227,7 +240,8 @@ function decryptPlayback(playback) {
     const key1 = base64ToBytes(playback.key_parts[0]);
     const key2 = base64ToBytes(playback.key_parts[1]);
     const key = new Uint8Array(key1.length + key2.length);
-    key.set(key1, 0); key.set(key2, key1.length);
+    key.set(key1, 0);
+    key.set(key2, key1.length);
     const encryptedData = base64ToBytes(playback.payload);
     const ciphertext = encryptedData.slice(0, -16);
     const cipher = new AES256GCM_Manual(key);
@@ -240,15 +254,15 @@ function decryptPlayback(playback) {
 }
 
 // ==============================================
-// MAIN ENGINE
+// MAIN GETSTREAMS (CLUTTER REMOVED)
 // ==============================================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   const streams = [];
-  const seenUrls = new Set(); // DUPLICATION GUARD
   let finalTmdbId = tmdbId;
 
   try {
+    // 1. Resolve ID
     if (isImdbId(tmdbId)) {
       const conversion = await convertImdbToTmdb(tmdbId, mediaType);
       if (conversion.success) finalTmdbId = conversion.tmdbId;
@@ -257,7 +271,11 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const s = mediaType === "movie" ? 1 : (season || 1);
     const e = mediaType === "movie" ? 1 : (episode || 1);
 
-    const pomfyUrl = mediaType === "movie" ? `${API_POMFY}/filme/${finalTmdbId}` : `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`;
+    // 2. Initial Pomfy Call
+    const pomfyUrl = mediaType === "movie"
+      ? `${API_POMFY}/filme/${finalTmdbId}`
+      : `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`;
+
     const response = await fetch(pomfyUrl, { headers: HEADERS });
     if (!response.ok) return [];
 
@@ -268,60 +286,98 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const byseUrl = linkMatch[1];
     const byseId = byseUrl.split("/").pop();
 
+    // 3. Details Call
     const detailsUrl = `https://pomfy-cdn.shop/api/videos/${byseId}/embed/details`;
-    const detailsResponse = await fetch(detailsUrl, { headers: { "referer": byseUrl, "x-embed-origin": "api.pomfy.stream", "user-agent": USER_AGENT, "Cookie": COOKIE } });
-    const detailsData = await detailsResponse.json();
+    const detailsResponse = await fetch(detailsUrl, {
+      headers: {
+        "accept": "*/*",
+        "referer": byseUrl,
+        "x-embed-origin": "api.pomfy.stream",
+        "x-embed-parent": byseUrl,
+        "user-agent": USER_AGENT,
+        "Cookie": COOKIE
+      }
+    });
+    if (!detailsResponse.ok) return [];
 
+    const detailsData = await detailsResponse.json();
     const embedUrl = detailsData.embed_frame_url;
     const embedDomain = new URL(embedUrl).origin;
 
+    // 4. Challenge (Silent)
+    try {
+      await fetch(`${embedDomain}/api/videos/access/challenge`, {
+        method: 'POST',
+        headers: { 'accept': '*/*', 'origin': embedDomain, 'referer': embedUrl, 'user-agent': USER_AGENT }
+      });
+    } catch (err) {}
+
+    // 5. Playback
+    const fingerprint = generateFingerprint();
     const playbackUrl = `${embedDomain}/api/videos/${byseId}/embed/playback`;
     const playbackResponse = await fetch(playbackUrl, {
       method: "POST",
-      headers: { "content-type": "application/json", "origin": embedDomain, "referer": embedUrl, "user-agent": USER_AGENT },
-      body: JSON.stringify({ fingerprint: generateFingerprint() })
+      headers: {
+        "content-type": "application/json",
+        "origin": embedDomain,
+        "referer": embedUrl,
+        "x-embed-origin": "api.pomfy.stream",
+        "x-embed-parent": byseUrl,
+        "user-agent": USER_AGENT
+      },
+      body: JSON.stringify({ fingerprint: fingerprint })
     });
+
+    if (!playbackResponse.ok) return [];
+
     const playbackData = await playbackResponse.json();
     if (!playbackData.playback) return [];
 
+    // 6. Final Decrypt
     const decryptResult = decryptPlayback(playbackData.playback);
 
-    if (decryptResult.success && !seenUrls.has(decryptResult.url)) {
-      seenUrls.add(decryptResult.url); // Mark as seen
+            if (decryptResult.success) {
+      // 1. Get Resolution & Format from the actual decrypted URL/Data
+      // If the API provides it, we use it; otherwise, we extract from the URL
+      const autoRes = decryptResult.url.includes('1080') ? '1080p' : 
+                      decryptResult.url.includes('720') ? '720p' : 'Auto';
+      const autoFormat = decryptResult.url.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
 
-      // 1. Resolve English Title & Duration
-      let englishTitle = "Unknown";
-      let duration = "Auto Duration";
-      let year = detailsData.year || "2026";
-      
+      // 2. Get Duration from TMDB (via a quick fetch if not in details)
+      let duration = "N/A";
       try {
-        const tmdbUrl = `${TMDB_BASE_URL}/${mediaType}/${finalTmdbId}?api_key=${TMDB_API_KEY}&language=en-US`;
+        const tmdbUrl = `${TMDB_BASE_URL}/${mediaType}/${finalTmdbId}?api_key=${TMDB_API_KEY}`;
         const tmdbRes = await fetch(tmdbUrl);
         const tmdbData = await tmdbRes.json();
-        englishTitle = tmdbData.title || tmdbData.name || detailsData.title;
         const runtime = tmdbData.runtime || (tmdbData.episode_run_time ? tmdbData.episode_run_time[0] : null);
         duration = runtime ? `${runtime} min` : "Auto Duration";
-        if (tmdbData.release_date || tmdbData.first_air_date) year = (tmdbData.release_date || tmdbData.first_air_date).split('-')[0];
-      } catch (e) {}
+      } catch (e) { duration = "Auto Duration"; }
 
-      // 2. Technical Data from URL & Playback
-      const videoUrl = decryptResult.url;
-      const res = videoUrl.includes('1080') ? '1080p' : '720p';
-      const format = videoUrl.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
-      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / 1073741824).toFixed(2)} GB` : "Multi-Bitrate";
+      // 3. Get Movie Name and Year (Fallback to search if missing)
+      const title = detailsData.title || "Unknown Title";
+      const year = detailsData.year || "2026";
       
-      // Scrape extra technical tags from the URL string
-      const techMatch = videoUrl.match(/(WEB-DL|AMZN|NF|DDP5\.1|H264|H265|HEVC)/gi);
-      const techTags = techMatch ? techMatch.join(' | ').toUpperCase() : 'DIRECT';
+      // 4. Size & Language
+      // Note: Most HLS (.m3u8) streams are "Variable" because they scale.
+      // Language is usually in the metadata; defaults to Multi if unknown.
+      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / 1024 / 1024 / 1024).toFixed(2)} GB` : "Variable Size";
+      const language = detailsData.language || "English / Dual";
 
       streams.push({
-        name: `Pomfy | ${res}\n${englishTitle} (${year})\n${res} | English / Dual | ${size}\n${format} | ${duration} | ${techTags}`,
-        url: videoUrl,
-        quality: res === '1080p' ? 1080 : 720,
-        headers: { "User-Agent": USER_AGENT, "Referer": embedUrl }
+        name: `Pomfy | ${autoRes}\n${title} (${year})\n${autoRes} | ${language} | ${size}\n${autoFormat} | ${duration} | Surgical Fix`,
+        url: decryptResult.url,
+        quality: autoRes.includes('1080') ? 1080 : 720,
+        headers: {
+          "User-Agent": USER_AGENT,
+          "Referer": embedUrl
+        }
       });
     }
-  } catch (error) { console.error("Stream failed:", error); }
+
+
+  } catch (error) {
+    console.error("Stream failed:", error);
+  }
 
   return streams;
 }

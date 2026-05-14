@@ -254,33 +254,85 @@ function decryptPlayback(playback) {
 }
 
 // ==============================================
-// MAIN GETSTREAMS (DUPLICATE FIX APPLIED)
+// MAIN GETSTREAMS (CLEANED & FIXED)
 // ==============================================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   const streams = [];
-  const processedUrls = new Set(); // <--- 1. TRACKER ADDED HERE
+  const processedUrls = new Set(); // Guard for duplicate results
   let finalTmdbId = tmdbId;
 
   try {
-    // ... [Logic for ID resolution and API calls remains exactly as you have it] ...
+    // 1. Resolve ID
+    if (isImdbId(tmdbId)) {
+      const conversion = await convertImdbToTmdb(tmdbId, mediaType);
+      if (conversion.success) finalTmdbId = conversion.tmdbId;
+    }
 
-    // 6. Final Decrypt
+    const s = mediaType === "movie" ? 1 : (season || 1);
+    const e = mediaType === "movie" ? 1 : (episode || 1);
+
+    // 2. Initial Pomfy Call
+    const pomfyUrl = mediaType === "movie"
+      ? `${API_POMFY}/filme/${finalTmdbId}`
+      : `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`;
+
+    const response = await fetch(pomfyUrl, { headers: HEADERS });
+    if (!response.ok) return [];
+
+    const html = await response.text();
+    const linkMatch = html.match(/const link\s*=\s*"([^"]+)"/);
+    if (!linkMatch) return [];
+
+    const byseUrl = linkMatch[1];
+    const byseId = byseUrl.split("/").pop();
+
+    // 3. Details Call
+    const detailsUrl = `https://pomfy-cdn.shop/api/videos/${byseId}/embed/details`;
+    const detailsResponse = await fetch(detailsUrl, {
+      headers: {
+        "accept": "*/*",
+        "referer": byseUrl,
+        "x-embed-origin": "api.pomfy.stream",
+        "user-agent": USER_AGENT,
+        "Cookie": COOKIE
+      }
+    });
+    if (!detailsResponse.ok) return [];
+
+    const detailsData = await detailsResponse.json();
+    const embedUrl = detailsData.embed_frame_url;
+    const embedDomain = new URL(embedUrl).origin;
+
+    // 4. Playback
+    const playbackUrl = `${embedDomain}/api/videos/${byseId}/embed/playback`;
+    const playbackResponse = await fetch(playbackUrl, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "origin": embedDomain,
+        "referer": embedUrl,
+        "user-agent": USER_AGENT
+      },
+      body: JSON.stringify({ fingerprint: generateFingerprint() })
+    });
+
+    if (!playbackResponse.ok) return [];
+    const playbackData = await playbackResponse.json();
+    if (!playbackData.playback) return [];
+
+    // 5. Final Decrypt & Header Formatting
     const decryptResult = decryptPlayback(playbackData.playback);
-    const processedUrls = new Set(); // Internal guard to stop duplicate headers
 
     if (decryptResult.success && !processedUrls.has(decryptResult.url)) {
       processedUrls.add(decryptResult.url);
 
-      // Extract Resolution
       const autoRes = decryptResult.url.includes('1080') ? '1080p' : 
                       decryptResult.url.includes('720') ? '720p' : 'Auto';
       
-      // Extract Language (Fallback to English if not found)
       const language = detailsData.language || "English / Dual";
 
       streams.push({
-        // THIS IS THE LINE THAT CHANGES YOUR HEADER
         name: `Pomfy | ${autoRes} | ${language}`,
         url: decryptResult.url,
         quality: autoRes.includes('1080') ? 1080 : 720,
@@ -297,4 +349,5 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
   return streams;
 }
+
 module.exports = { getStreams };

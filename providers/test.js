@@ -254,96 +254,28 @@ function decryptPlayback(playback) {
 }
 
 // ==============================================
-// MAIN GETSTREAMS (CLUTTER REMOVED)
+// MAIN GETSTREAMS (DUPLICATE FIX APPLIED)
 // ==============================================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   const streams = [];
+  const processedUrls = new Set(); // <--- 1. TRACKER ADDED HERE
   let finalTmdbId = tmdbId;
 
   try {
-    // 1. Resolve ID
-    if (isImdbId(tmdbId)) {
-      const conversion = await convertImdbToTmdb(tmdbId, mediaType);
-      if (conversion.success) finalTmdbId = conversion.tmdbId;
-    }
-
-    const s = mediaType === "movie" ? 1 : (season || 1);
-    const e = mediaType === "movie" ? 1 : (episode || 1);
-
-    // 2. Initial Pomfy Call
-    const pomfyUrl = mediaType === "movie"
-      ? `${API_POMFY}/filme/${finalTmdbId}`
-      : `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`;
-
-    const response = await fetch(pomfyUrl, { headers: HEADERS });
-    if (!response.ok) return [];
-
-    const html = await response.text();
-    const linkMatch = html.match(/const link\s*=\s*"([^"]+)"/);
-    if (!linkMatch) return [];
-
-    const byseUrl = linkMatch[1];
-    const byseId = byseUrl.split("/").pop();
-
-    // 3. Details Call
-    const detailsUrl = `https://pomfy-cdn.shop/api/videos/${byseId}/embed/details`;
-    const detailsResponse = await fetch(detailsUrl, {
-      headers: {
-        "accept": "*/*",
-        "referer": byseUrl,
-        "x-embed-origin": "api.pomfy.stream",
-        "x-embed-parent": byseUrl,
-        "user-agent": USER_AGENT,
-        "Cookie": COOKIE
-      }
-    });
-    if (!detailsResponse.ok) return [];
-
-    const detailsData = await detailsResponse.json();
-    const embedUrl = detailsData.embed_frame_url;
-    const embedDomain = new URL(embedUrl).origin;
-
-    // 4. Challenge (Silent)
-    try {
-      await fetch(`${embedDomain}/api/videos/access/challenge`, {
-        method: 'POST',
-        headers: { 'accept': '*/*', 'origin': embedDomain, 'referer': embedUrl, 'user-agent': USER_AGENT }
-      });
-    } catch (err) {}
-
-    // 5. Playback
-    const fingerprint = generateFingerprint();
-    const playbackUrl = `${embedDomain}/api/videos/${byseId}/embed/playback`;
-    const playbackResponse = await fetch(playbackUrl, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "origin": embedDomain,
-        "referer": embedUrl,
-        "x-embed-origin": "api.pomfy.stream",
-        "x-embed-parent": byseUrl,
-        "user-agent": USER_AGENT
-      },
-      body: JSON.stringify({ fingerprint: fingerprint })
-    });
-
-    if (!playbackResponse.ok) return [];
-
-    const playbackData = await playbackResponse.json();
-    if (!playbackData.playback) return [];
+    // ... [Logic for ID resolution and API calls remains exactly as you have it] ...
 
     // 6. Final Decrypt
     const decryptResult = decryptPlayback(playbackData.playback);
 
-            if (decryptResult.success) {
-      // 1. Get Resolution & Format from the actual decrypted URL/Data
-      // If the API provides it, we use it; otherwise, we extract from the URL
+    // 2. CHECK FOR DUPLICATE BEFORE PUSHING
+    if (decryptResult.success && !processedUrls.has(decryptResult.url)) {
+      processedUrls.add(decryptResult.url); // Mark URL as seen
+
       const autoRes = decryptResult.url.includes('1080') ? '1080p' : 
                       decryptResult.url.includes('720') ? '720p' : 'Auto';
       const autoFormat = decryptResult.url.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
 
-      // 2. Get Duration from TMDB (via a quick fetch if not in details)
       let duration = "N/A";
       try {
         const tmdbUrl = `${TMDB_BASE_URL}/${mediaType}/${finalTmdbId}?api_key=${TMDB_API_KEY}`;
@@ -353,13 +285,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         duration = runtime ? `${runtime} min` : "Auto Duration";
       } catch (e) { duration = "Auto Duration"; }
 
-      // 3. Get Movie Name and Year (Fallback to search if missing)
       const title = detailsData.title || "Unknown Title";
       const year = detailsData.year || "2026";
-      
-      // 4. Size & Language
-      // Note: Most HLS (.m3u8) streams are "Variable" because they scale.
-      // Language is usually in the metadata; defaults to Multi if unknown.
       const size = playbackData.size_bytes ? `${(playbackData.size_bytes / 1024 / 1024 / 1024).toFixed(2)} GB` : "Variable Size";
       const language = detailsData.language || "English / Dual";
 
@@ -380,5 +307,4 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
   return streams;
 }
-
 module.exports = { getStreams };

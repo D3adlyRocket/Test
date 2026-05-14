@@ -315,6 +315,8 @@ function buildGetHeaders(url) {
     "accept":          "application/json",
     "content-type":    "application/json",
     "connection":      "keep-alive",
+    "X-Forwarded-For": "103.211.218.1", // A random Mumbai-based IP
+    "X-Real-IP": "103.211.218.1",
     "x-client-token":  xct,
     "x-tr-signature":  xtr,
     "x-client-info":   makeClientInfo_mbox(null),

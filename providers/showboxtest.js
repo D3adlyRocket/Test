@@ -1,90 +1,112 @@
 /**
- * ShowBox "Universal" Direct Scraper
- * Bypasses encryption using a web-index fallback
- * Version: 2026.05.09
+ * Pomfy - Mobile & TV Compatibility Fix
+ * Standardized headers to ensure cross-platform fetching.
  */
 
-const LOCAL_COOKIE_URL = "http://192.168.1.176:8080/cookie.txt";
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => { try { step(generator.next(value)); } catch (e) { reject(e); } };
+    var rejected = (value) => { try { step(generator.throw(value)); } catch (e) { reject(e); } };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
 
-async function getStreams(tmdbId, type, s, e) {
-    try {
-        // 1. Fetch the user's Febbox Cookie
-        const cookieFetch = await fetch(LOCAL_COOKIE_URL).catch(() => null);
-        if (!cookieFetch) {
-            console.log("[ShowBox] Error: Could not reach cookie.txt at " + LOCAL_COOKIE_URL);
-            return [];
-        }
-        const uiCookie = (await cookieFetch.text()).trim();
-        const headers = { 'Cookie': `ui=${uiCookie}`, 'User-Agent': 'Mozilla/5.0' };
+const API_POMFY = "https://api.pomfy.stream";
+const TMDB_API_KEY = "3644dd4950b67cd8067b8772de576d6b";
+const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 
-        // 2. Map TMDB ID to a Title (Showbox search needs titles)
-        const metaUrl = `https://api.themoviedb.org/3/${type === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=439c478a771f35c05022f9feabcca01c`;
-        const meta = await (await fetch(metaUrl)).json();
-        const title = type === 'tv' ? meta.name : meta.title;
+// Updated to a more universal User-Agent that doesn't trigger "Mobile vs Desktop" blocks
+const UNIVERSAL_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36";
+const COOKIE = "SITE_TOTAL_ID=aTYqe6GU65PNmeCXpelwJwAAAMi; __dtsu=104017651574995957BEB724C6373F9E; __cc_id=a44d1e52993b9c2Oaaf40eba24989a06";
 
-        // 3. Search using the Public Web Index (Bypasses Triple-DES encryption requirements)
-        const searchUrl = `https://www.showbox.media/index/search?keyword=${encodeURIComponent(title)}`;
-        const searchData = await (await fetch(searchUrl)).json();
-        const match = searchData?.data?.list?.find(i => 
-            (type === 'tv' ? i.box_type === 2 : i.box_type === 1)
-        );
-        if (!match) return [];
+const GET_HEADERS = (referer = "https://pomfy.online/") => ({
+  "User-Agent": UNIVERSAL_UA,
+  "Accept": "application/json, text/plain, */*",
+  "Referer": referer,
+  "Origin": new URL(referer).origin,
+  "Cookie": COOKIE
+});
 
-        // 4. Get the Febbox Share ID
-        const shareApi = `https://www.showbox.media/index/share_link?id=${match.id}&type=${match.box_type}`;
-        const shareData = await (await fetch(shareApi)).json();
-        const shareKey = shareData?.data?.link?.split('/share/')[1];
-        if (!shareKey) return [];
+// [Keep your original base64ToBytes, utf8BytesToString, stringToUtf8Bytes, and AES256GCM_Manual here exactly as they are]
 
-        // 5. Navigate the Febbox folder structure
-        let listUrl = `https://www.febbox.com/file/file_share_list?share_key=${shareKey}&parent_id=0`;
-        let listData = await (await fetch(listUrl, { headers })).json();
-        let files = listData?.data?.file_list || [];
+async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
+  const streams = [];
+  let finalTmdbId = tmdbId;
 
-        let targetFid = null;
-        if (type === 'movie') {
-            const video = files.find(f => f.file_icon === 'video_icon' || f.file_name.match(/\.(mp4|mkv|mov)$/i));
-            targetFid = video?.fid;
-        } else {
-            // TV Logic: Look for Season Folder -> Look for Episode File
-            const seasonFolder = files.find(f => f.file_name.toLowerCase().includes(`season ${s}`));
-            if (seasonFolder) {
-                const epUrl = `https://www.febbox.com/file/file_share_list?share_key=${shareKey}&parent_id=${seasonFolder.fid}`;
-                const epData = await (await fetch(epUrl, { headers })).json();
-                const epFile = epData?.data?.file_list?.find(f => 
-                    f.file_name.toLowerCase().includes(`e${String(e).padStart(2, '0')}`) || 
-                    f.file_name.toLowerCase().includes(`ep${e}`)
-                );
-                targetFid = epFile?.fid;
-            }
-        }
-
-        if (!targetFid) return [];
-
-        // 6. Extraction: Scrape the direct stream links from the file info API
-        const infoUrl = `https://www.febbox.com/file/file_info?fid=${targetFid}&share_key=${shareKey}`;
-        const infoData = await (await fetch(infoUrl, { headers })).json();
-        const videoList = infoData?.data?.video_list || {};
-
-        const results = [];
-        for (const [quality, data] of Object.entries(videoList)) {
-            if (data.url) {
-                results.push({
-                    name: `Showbox [${quality.toUpperCase()}]`,
-                    url: data.url,
-                    quality: quality.replace('p', ''),
-                    provider: "Febbox-Direct"
-                });
-            }
-        }
-
-        return results;
-
-    } catch (err) {
-        console.log("[ShowBox Scraper] Critical Error: " + err.message);
-        return [];
+  try {
+    // 1. Resolve ID (Same logic as before)
+    if (typeof tmdbId === "string" && tmdbId.startsWith("tt")) {
+      const url = `${TMDB_BASE_URL}/find/${tmdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+      const data = await (await fetch(url)).json();
+      const res = mediaType === "tv" ? data.tv_results : data.movie_results;
+      if (res && res.length > 0) finalTmdbId = res[0].id;
     }
+
+    const s = mediaType === "movie" ? 1 : (season || 1);
+    const e = mediaType === "movie" ? 1 : (episode || 1);
+    const pomfyUrl = mediaType === "movie" ? `${API_POMFY}/filme/${finalTmdbId}` : `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`;
+
+    // 2. Fetch with Universal Headers
+    const html = await (await fetch(pomfyUrl, { headers: GET_HEADERS() })).text();
+    const linkMatch = html.match(/const link\s*=\s*"([^"]+)"/);
+    if (!linkMatch) return [];
+
+    const byseUrl = linkMatch[1];
+    const byseId = byseUrl.split("/").pop();
+    const embedDomain = "https://pomfy-cdn.shop";
+
+    // 3. Playback Handshake (The part that usually fails on Mobile)
+    const ts = Math.floor(Date.now() / 1000);
+    const fingerprint = {
+      token: bytesToBase64(stringToUtf8Bytes(JSON.stringify({ 
+        viewer_id: "bed4fadd25c8dcdcaced26e318c3be5a", 
+        iat: ts, exp: ts + 600 
+      }))),
+      viewer_id: "bed4fadd25c8dcdcaced26e318c3be5a"
+    };
+
+    const pbResp = await fetch(`${embedDomain}/api/videos/${byseId}/embed/playback`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Referer": byseUrl,
+        "X-Embed-Origin": "api.pomfy.stream",
+        "X-Embed-Parent": byseUrl,
+        "User-Agent": UNIVERSAL_UA
+      },
+      body: JSON.stringify({ fingerprint })
+    });
+
+    const pbData = await pbResp.json();
+    if (!pbData.playback) return [];
+
+    // 4. Decrypt (Original Engine)
+    const pb = pbData.playback;
+    const iv = base64ToBytes(pb.iv);
+    const key = new Uint8Array([...base64ToBytes(pb.key_parts[0]), ...base64ToBytes(pb.key_parts[1])]);
+    const encryptedData = base64ToBytes(pb.payload);
+    
+    const cipher = new AES256GCM_Manual(key);
+    const decrypted = JSON.parse(cipher.decrypt(iv, encryptedData.slice(0, -16)));
+    
+    const finalUrl = (decrypted.url || decrypted.sources?.[0]?.url).replace(/\\u0026/g, '&');
+
+    // 5. Final Stream
+    streams.push({
+      name: "Pomfy | Multi-Platform",
+      url: finalUrl,
+      quality: 2160,
+      headers: {
+        "User-Agent": UNIVERSAL_UA,
+        "Referer": embedDomain
+      }
+    });
+
+  } catch (error) {
+    // Silent catch to keep UI clean
+  }
+  return streams;
 }
 
-// Export for Nuvio
-global.getStreams = getStreams;
+module.exports = { getStreams };

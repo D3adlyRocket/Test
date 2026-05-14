@@ -336,11 +336,18 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     // 6. Final Decrypt
     const decryptResult = decryptPlayback(playbackData.playback);
 
-    if (decryptResult.success) {
+        if (decryptResult.success) {
+      // Extracting metadata if available, or using defaults
+      const title = detailsData.title || (mediaType === "movie" ? "Movie" : "Episode");
+      const year = detailsData.year || "";
+      const resolution = "1080p/720p";
+      const language = "PT-BR / English"; //
+      const format = "HLS/M3U8";
+
       streams.push({
-        name: `Pomfy | 1080p/4K`,
+        name: `Pomfy | ${resolution}\n${title} ${year}\n${resolution} | ${language} | Variable Size\n${format} | Auto Duration | Surgical Fix`,
         url: decryptResult.url,
-        quality: 2160,
+        quality: 1080,
         headers: {
           "User-Agent": USER_AGENT,
           "Referer": embedUrl

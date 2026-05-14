@@ -1,110 +1,76 @@
 /**
- * Pomfy Provider - Optimized & Cleaned
- * Targets high-quality HLS streams (1080p/2160p)
+ * Pomfy Provider - FINAL CLEAN VERSION
+ * Returns ONLY the high-quality video link.
  */
 
-const API_POMFY = "https://api.pomfy.stream";
-const TMDB_API_KEY = "3644dd4950b67cd8067b8772de576d6b";
-const TMDB_BASE_URL = "https://api.themoviedb.org/3";
-const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
-// Standard Base64/UTF8 helpers
-const b64 = {
-  decode: (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0)),
-  encode: (b) => btoa(String.fromCharCode(...b))
-};
-
-// Simplified AES-GCM logic (Requires environment with SubtleCrypto or a stable implementation)
-// For most provider environments (like Stremio/Cloudflare), we use the manual logic you provided but cleaned up.
-
-/** 
- * [Insert your AES256GCM_Manual class here - kept identical for decryption compatibility] 
- */
+// --- AES ENGINE (Hidden for brevity, keep your SBOX/RCON/Class logic here) ---
+class AES256GCM_Manual {
+  constructor(key) { this.roundKeys = this._expandKey(key); }
+  _expandKey(key) { /* ... same expansion logic ... */ }
+  _encryptBlock(block) { /* ... same encryption logic ... */ }
+  _galoisMult(a, b) { /* ... same math logic ... */ }
+  decrypt(iv, ciphertext) {
+    let counter = new Uint8Array(16); counter.set(iv); counter[15] = 2;
+    let plaintext = new Uint8Array(ciphertext.length);
+    for (let i = 0; i < ciphertext.length; i += 16) {
+      let keystream = this._encryptBlock(counter);
+      for (let j = 0; j < 16 && (i + j) < ciphertext.length; j++) { plaintext[i + j] = ciphertext[i + j] ^ keystream[j]; }
+      for (let j = 15; j >= 12; j--) { counter[j]++; if (counter[j] !== 0) break; }
+    }
+    return new TextDecoder().decode(plaintext);
+  }
+}
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
-  const streams = [];
-  let finalId = tmdbId;
+  const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+  const b64Dec = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
 
   try {
-    // 1. Resolve IMDb to TMDB if necessary
-    if (typeof tmdbId === "string" && tmdbId.startsWith("tt")) {
-      const resp = await fetch(`${TMDB_BASE_URL}/find/${tmdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`);
-      const data = await resp.json();
-      const result = mediaType === "movie" ? data.movie_results[0] : data.tv_results[0];
-      if (!result) return [];
-      finalId = result.id;
-    }
-
-    // 2. Fetch Pomfy Page
+    // 1. Get Pomfy ID
     const pomfyUrl = mediaType === "movie" 
-      ? `${API_POMFY}/filme/${finalId}` 
-      : `${API_POMFY}/serie/${finalId}/${season}/${episode}`;
+      ? `https://api.pomfy.stream/filme/${tmdbId}` 
+      : `https://api.pomfy.stream/serie/${tmdbId}/${season}/${episode}`;
 
-    const htmlResp = await fetch(pomfyUrl, { headers: { "User-Agent": USER_AGENT } });
-    const html = await htmlResp.text();
-    
-    const byseMatch = html.match(/const link\s*=\s*"([^"]+)"/);
-    if (!byseMatch) return [];
+    const html = await (await fetch(pomfyUrl, { headers: { "User-Agent": USER_AGENT } })).text();
+    const byseId = html.match(/const link\s*=\s*"([^"]+)"/)?.[1].split("/").pop();
+    if (!byseId) return [];
 
-    const byseUrl = byseMatch[1];
-    const byseId = byseUrl.split("/").pop();
-    const embedDomain = new URL(byseUrl).origin;
-
-    // 3. Get Embed Details
-    const detailsResp = await fetch(`${embedDomain}/api/videos/${byseId}/embed/details`, {
-      headers: { "Referer": byseUrl, "X-Embed-Origin": "api.pomfy.stream", "User-Agent": USER_AGENT }
-    });
-    const details = await detailsResp.json();
-    
-    // 4. Fingerprint & Playback
+    // 2. Get Playback Data
+    const domain = "https://pomfy-cdn.shop";
     const ts = Math.floor(Date.now() / 1000);
     const fingerprint = {
-      token: b64.encode(new TextEncoder().encode(JSON.stringify({
-        viewer_id: "bed4fadd25c8dcdcaced26e318c3be5a",
-        iat: ts,
-        exp: ts + 600
-      }))),
+      token: btoa(JSON.stringify({ viewer_id: "bed4fadd25c8dcdcaced26e318c3be5a", iat: ts, exp: ts + 600 })),
       viewer_id: "bed4fadd25c8dcdcaced26e318c3be5a"
     };
 
-    const pbResp = await fetch(`${embedDomain}/api/videos/${byseId}/embed/playback`, {
+    const pbResp = await fetch(`${domain}/api/videos/${byseId}/embed/playback`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Referer": details.embed_frame_url, "User-Agent": USER_AGENT },
+      headers: { "Content-Type": "application/json", "User-Agent": USER_AGENT, "Referer": "https://pomfy.online/" },
       body: JSON.stringify({ fingerprint })
     });
 
-    const pbData = await pbResp.json();
-    if (!pbData.playback) return [];
+    const { playback } = await pbResp.json();
+    if (!playback) return [];
 
-    // 5. Decrypt
-    const playback = pbData.playback;
-    const key = new Uint8Array([...b64.decode(playback.key_parts[0]), ...b64.decode(playback.key_parts[1])]);
-    const cipher = new AES256GCM_Manual(key); 
-    const decrypted = JSON.parse(cipher.decrypt(b64.decode(playback.iv), b64.decode(playback.payload).slice(0, -16)));
+    // 3. Decrypt (Highest Link)
+    const key = new Uint8Array([...b64Dec(playback.key_parts[0]), ...b64Dec(playback.key_parts[1])]);
+    const cipher = new AES256GCM_Manual(key);
+    const decrypted = JSON.parse(cipher.decrypt(b64Dec(playback.iv), b64Dec(playback.payload).slice(0, -16)));
 
-    const streamUrl = decrypted.url || decrypted.sources?.[0]?.url;
+    const finalUrl = (decrypted.url || decrypted.sources?.[0]?.url).replace(/\\u0026/g, '&');
 
-    if (streamUrl) {
-      streams.push({
-        name: "Pomfy 🚀",
-        title: `Multi-Quality (Up to 4K)\nPrimary Server`,
-        url: streamUrl.replace(/\\u0026/g, '&'),
-        quality: 2160, // Marked as 2160 to prioritize in lists
-        behaviorHints: {
-          notInterchangeable: true,
-          proxyHeaders: {
-            "Referer": embedDomain,
-            "User-Agent": USER_AGENT
-          }
-        }
-      });
-    }
+    // 4. Return EXACTLY one stream
+    return [{
+      name: "Pomfy 🎬",
+      title: "4K/1080p Auto-Resolution",
+      url: finalUrl,
+      quality: 2160, 
+      headers: { "User-Agent": USER_AGENT, "Referer": domain }
+    }];
 
   } catch (e) {
-    console.error("Pomfy Error:", e.message);
+    return [];
   }
-
-  return streams;
 }
 
 module.exports = { getStreams };

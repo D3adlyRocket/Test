@@ -258,41 +258,20 @@ function decryptPlayback(playback) {
 // ==============================================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
-  let streams = []; 
+  let streams = [];
   let finalTmdbId = tmdbId;
 
   try {
-    // 1. Resolve ID
+    // 1. Resolve ID (Quick)
     if (isImdbId(tmdbId)) {
       const conversion = await convertImdbToTmdb(tmdbId, mediaType);
       if (conversion.success) finalTmdbId = conversion.tmdbId;
     }
 
-    // Default metadata in case TMDB fails
-    let englishTitle = "Unknown Title";
-    let englishYear = "2026";
-    let duration = "Auto Duration";
-
-    // 2. English Metadata Fetch (Wrapped so it doesn't kill the script)
-    try {
-      const tmdbUrl = `${TMDB_BASE_URL}/${mediaType}/${finalTmdbId}?api_key=${TMDB_API_KEY}&language=en-US`;
-      const tmdbRes = await fetch(tmdbUrl);
-      const tmdbData = await tmdbRes.json();
-      if (tmdbData.id) {
-        englishTitle = tmdbData.title || tmdbData.name || "Unknown Title";
-        const dateStr = tmdbData.release_date || tmdbData.first_air_date || "2026";
-        englishYear = dateStr.split('-')[0];
-        const runtime = tmdbData.runtime || (tmdbData.episode_run_time ? tmdbData.episode_run_time[0] : null);
-        if (runtime) duration = `${runtime} min`;
-      }
-    } catch (e) { 
-      console.log("English metadata fetch failed, using defaults.");
-    }
-
     const s = mediaType === "movie" ? 1 : (season || 1);
     const e = mediaType === "movie" ? 1 : (episode || 1);
 
-    // 3. Initial Pomfy Call
+    // 2. Pomfy Call
     const pomfyUrl = mediaType === "movie"
       ? `${API_POMFY}/filme/${finalTmdbId}`
       : `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`;
@@ -307,16 +286,16 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const byseUrl = linkMatch[1];
     const byseId = byseUrl.split("/").pop();
 
-    // 4. Details Call
+    // 3. Details & Playback (The Core)
     const detailsUrl = `https://pomfy-cdn.shop/api/videos/${byseId}/embed/details`;
     const detailsResponse = await fetch(detailsUrl, {
       headers: { "referer": byseUrl, "x-embed-origin": "api.pomfy.stream", "user-agent": USER_AGENT, "Cookie": COOKIE }
     });
     const detailsData = await detailsResponse.json();
+    
     const embedUrl = detailsData.embed_frame_url;
     const embedDomain = new URL(embedUrl).origin;
 
-    // 5. Playback Call
     const fingerprint = generateFingerprint();
     const playbackUrl = `${embedDomain}/api/videos/${byseId}/embed/playback`;
     const playbackResponse = await fetch(playbackUrl, {
@@ -328,33 +307,34 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const playbackData = await playbackResponse.json();
     if (!playbackData.playback) return [];
 
-    // 6. Decrypt & Push
+    // 4. Decrypt 
     const decryptResult = decryptPlayback(playbackData.playback);
 
     if (decryptResult.success) {
       const videoUrl = decryptResult.url;
+      
+      // Auto logic
       const autoRes = videoUrl.includes('1080') ? '1080p' : videoUrl.includes('720') ? '720p' : 'Auto';
       const autoFormat = videoUrl.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
-      const extraInfo = videoUrl.toLowerCase().includes('dub') ? 'Dubbed' : 
-                        videoUrl.toLowerCase().includes('leg') ? 'Subbed' : 'Multi-Audio';
-      const sizeStr = playbackData.size_bytes ? `${(playbackData.size_bytes / (1024**3)).toFixed(2)} GB` : "Variable Size";
-
-      // If TMDB failed, use the site's title
-      const finalTitle = (englishTitle === "Unknown Title" && detailsData.title) ? detailsData.title : englishTitle;
+      
+      // Extract from site data instead of external TMDB to ensure it doesn't break
+      const title = detailsData.title || "Movie";
+      const year = detailsData.year || "2026";
+      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / (1024**3)).toFixed(2)} GB` : "Variable Size";
 
       streams.push({
-        name: `Pomfy | ${autoRes}\n${finalTitle} (${englishYear})\n${autoRes} | English / Dual | ${sizeStr}\n${autoFormat} | ${duration} | ${extraInfo}`,
+        name: `Pomfy | ${autoRes}\n${title} (${year})\n${autoRes} | English / Dual | ${size}\n${autoFormat} | Surgical Fix`,
         url: videoUrl,
         quality: autoRes.includes('1080') ? 1080 : 720,
         headers: { "User-Agent": USER_AGENT, "Referer": embedUrl }
       });
     }
   } catch (error) {
-    console.error("Stream failed:", error);
+    console.error("Critical Fetch Error:", error);
   }
 
-  // Ensure only one unique stream is returned to prevent duplication
-  return streams.length > 0 ? [streams[0]] : [];
+  // RETURN EXACTLY ONE STREAM (Fixes duplication)
+  return streams.slice(0, 1);
 }
 
 module.exports = { getStreams };

@@ -1,6 +1,6 @@
 /**
- * Pomfy - Restored Original Logic
- * Strictly functional version with Duplicate & Language fixes.
+ * Pomfy - RESTORED WORKING VERSION
+ * Back to basics. Original fetching logic.
  */
 
 var __async = (__this, __arguments, generator) => {
@@ -244,7 +244,7 @@ function decryptPlayback(playback) {
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   const streams = [];
-  const processedUrls = new Set(); // DUPLICATION PREVENTER
+  const processedUrls = new Set(); // DUPLICATION GUARD
   let finalTmdbId = tmdbId;
 
   try {
@@ -288,7 +288,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     if (decryptResult.success && !processedUrls.has(decryptResult.url)) {
       processedUrls.add(decryptResult.url);
 
-      // Metadata handling - English Focus
+      // Metadata - FORCED EN-US
       let title = detailsData.title || "Unknown";
       let duration = "Auto Duration";
       let year = detailsData.year || "2026";
@@ -307,7 +307,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       const sizeStr = playbackData.size_bytes ? `${(playbackData.size_bytes / 1073741824).toFixed(2)} GB` : "Variable Size";
 
       streams.push({
-        name: `Pomfy | ${autoRes}\n${title} (${year})\n${autoRes} | English / Dual | ${sizeStr}\n${autoFormat} | ${duration} | Surgical Fix`,
+        name: `Pomfy | ${autoRes}\n${title} (${year})\n${autoRes} | English / Dual | ${sizeStr}\n${autoFormat} | ${duration} | Corrected Fix`,
         url: decryptResult.url,
         quality: autoRes === '1080p' ? 1080 : 720,
         headers: { "User-Agent": USER_AGENT, "Referer": embedUrl }

@@ -258,20 +258,38 @@ function decryptPlayback(playback) {
 // ==============================================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
-  const streams = [];
+  let streams = []; // Clear array at start
   let finalTmdbId = tmdbId;
 
   try {
-    // 1. Resolve ID
+    // 1. Resolve ID & Fetch English Metadata from TMDB
     if (isImdbId(tmdbId)) {
       const conversion = await convertImdbToTmdb(tmdbId, mediaType);
       if (conversion.success) finalTmdbId = conversion.tmdbId;
     }
 
+    // Fetch English Title and Duration in one go
+    let englishTitle = "Unknown Title";
+    let englishYear = "2026";
+    let duration = "N/A";
+
+    try {
+      const tmdbUrl = `${TMDB_BASE_URL}/${mediaType}/${finalTmdbId}?api_key=${TMDB_API_KEY}&language=en-US`;
+      const tmdbRes = await fetch(tmdbUrl);
+      const tmdbData = await tmdbRes.json();
+      
+      englishTitle = tmdbData.title || tmdbData.name || "Unknown Title";
+      const dateStr = tmdbData.release_date || tmdbData.first_air_date || "2026";
+      englishYear = dateStr.split('-')[0];
+      
+      const runtime = tmdbData.runtime || (tmdbData.episode_run_time ? tmdbData.episode_run_time[0] : null);
+      duration = runtime ? `${runtime} min` : "Auto Duration";
+    } catch (e) { console.error("TMDB English Fetch Failed"); }
+
     const s = mediaType === "movie" ? 1 : (season || 1);
     const e = mediaType === "movie" ? 1 : (episode || 1);
 
-    // 2. Initial Pomfy Call
+    // 2. Pomfy Interaction
     const pomfyUrl = mediaType === "movie"
       ? `${API_POMFY}/filme/${finalTmdbId}`
       : `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`;
@@ -286,100 +304,55 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const byseUrl = linkMatch[1];
     const byseId = byseUrl.split("/").pop();
 
-    // 3. Details Call
+    // 3. Details & Playback
     const detailsUrl = `https://pomfy-cdn.shop/api/videos/${byseId}/embed/details`;
     const detailsResponse = await fetch(detailsUrl, {
-      headers: {
-        "accept": "*/*",
-        "referer": byseUrl,
-        "x-embed-origin": "api.pomfy.stream",
-        "x-embed-parent": byseUrl,
-        "user-agent": USER_AGENT,
-        "Cookie": COOKIE
-      }
+      headers: { "referer": byseUrl, "x-embed-origin": "api.pomfy.stream", "user-agent": USER_AGENT, "Cookie": COOKIE }
     });
-    if (!detailsResponse.ok) return [];
-
     const detailsData = await detailsResponse.json();
     const embedUrl = detailsData.embed_frame_url;
     const embedDomain = new URL(embedUrl).origin;
 
-    // 4. Challenge (Silent)
-    try {
-      await fetch(`${embedDomain}/api/videos/access/challenge`, {
-        method: 'POST',
-        headers: { 'accept': '*/*', 'origin': embedDomain, 'referer': embedUrl, 'user-agent': USER_AGENT }
-      });
-    } catch (err) {}
-
-    // 5. Playback
     const fingerprint = generateFingerprint();
     const playbackUrl = `${embedDomain}/api/videos/${byseId}/embed/playback`;
     const playbackResponse = await fetch(playbackUrl, {
       method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "origin": embedDomain,
-        "referer": embedUrl,
-        "x-embed-origin": "api.pomfy.stream",
-        "x-embed-parent": byseUrl,
-        "user-agent": USER_AGENT
-      },
-      body: JSON.stringify({ fingerprint: fingerprint })
+      headers: { "content-type": "application/json", "origin": embedDomain, "referer": embedUrl, "user-agent": USER_AGENT },
+      body: JSON.stringify({ fingerprint })
     });
-
-    if (!playbackResponse.ok) return [];
 
     const playbackData = await playbackResponse.json();
     if (!playbackData.playback) return [];
 
-    // 6. Final Decrypt
+    // 4. Decrypt & Build Stream
     const decryptResult = decryptPlayback(playbackData.playback);
 
-            if (decryptResult.success) {
-      // 1. Get Resolution & Format from the actual decrypted URL/Data
-      // If the API provides it, we use it; otherwise, we extract from the URL
-      const autoRes = decryptResult.url.includes('1080') ? '1080p' : 
-                      decryptResult.url.includes('720') ? '720p' : 'Auto';
-      const autoFormat = decryptResult.url.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
-
-      // 2. Get Duration from TMDB (via a quick fetch if not in details)
-      let duration = "N/A";
-      try {
-        const tmdbUrl = `${TMDB_BASE_URL}/${mediaType}/${finalTmdbId}?api_key=${TMDB_API_KEY}`;
-        const tmdbRes = await fetch(tmdbUrl);
-        const tmdbData = await tmdbRes.json();
-        const runtime = tmdbData.runtime || (tmdbData.episode_run_time ? tmdbData.episode_run_time[0] : null);
-        duration = runtime ? `${runtime} min` : "Auto Duration";
-      } catch (e) { duration = "Auto Duration"; }
-
-      // 3. Get Movie Name and Year (Fallback to search if missing)
-      const title = detailsData.title || "Unknown Title";
-      const year = detailsData.year || "2026";
+    if (decryptResult.success) {
+      const videoUrl = decryptResult.url;
+      const autoRes = videoUrl.includes('1080') ? '1080p' : videoUrl.includes('720') ? '720p' : 'Auto';
+      const autoFormat = videoUrl.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
       
-      // 4. Size & Language
-      // Note: Most HLS (.m3u8) streams are "Variable" because they scale.
-      // Language is usually in the metadata; defaults to Multi if unknown.
-      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / 1024 / 1024 / 1024).toFixed(2)} GB` : "Variable Size";
-      const language = detailsData.language || "English / Dual";
+      // Extract Extra Info from URL (checks for Dub, Leg, or Dual tags)
+      const extraInfo = videoUrl.toLowerCase().includes('dub') ? 'Dubbed' : 
+                        videoUrl.toLowerCase().includes('leg') ? 'Subbed' : 'Multi-Audio';
+
+      // SIZE NOTE: Pomfy uses HLS (.m3u8). These files don't have a fixed size 
+      // because they are chunks. Only MP4 files provide a direct size.
+      const sizeStr = playbackData.size_bytes ? `${(playbackData.size_bytes / (1024**3)).toFixed(2)} GB` : "Variable (HLS)";
 
       streams.push({
-        name: `Pomfy | ${autoRes}\n${title} (${year})\n${autoRes} | ${language} | ${size}\n${autoFormat} | ${duration} | Surgical Fix`,
-        url: decryptResult.url,
+        name: `Pomfy | ${autoRes}\n${englishTitle} (${englishYear})\n${autoRes} | English / Dual | ${sizeStr}\n${autoFormat} | ${duration} | ${extraInfo}`,
+        url: videoUrl,
         quality: autoRes.includes('1080') ? 1080 : 720,
-        headers: {
-          "User-Agent": USER_AGENT,
-          "Referer": embedUrl
-        }
+        headers: { "User-Agent": USER_AGENT, "Referer": embedUrl }
       });
-    }
-
-
+        }
   } catch (error) {
     console.error("Stream failed:", error);
   }
 
-  return streams;
+  // Final Safety: If the UI is duplicating, we ensure we only return the FIRST unique stream found.
+  return streams.length > 1 ? [streams[0]] : streams;
 }
 
 module.exports = { getStreams };

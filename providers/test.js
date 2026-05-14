@@ -1,7 +1,7 @@
 // ============================================================
 //  MovieBox plugin for Nuvio
-//  Original Script by Xyr0nX
-//  Author: Xyr0nX/Antonio-Ante
+//  Original Script by xyr0nx
+//  Author: Xyr0nX
 //  Github: https://github.com/Xyr0nX
 // ============================================================
 
@@ -50,8 +50,20 @@ if (typeof fetch === "undefined") {
   };
 }
 
+function proxyFetch(url, opts) {
+  if (!PROXY_URL || url.indexOf("themoviedb.org") >= 0) {
+    return fetch(url, opts);
+  }
+  var proxyTarget = PROXY_URL.replace(/\/$/, "") + "/proxy?url=" + encodeURIComponent(url);
+  return fetch(proxyTarget, opts);
+}
+
+var PLUGIN_ID   = "moviebox";
+var PLUGIN_NAME = "MovieBox";
 var MAIN_URL    = "https://api3.aoneroom.com";
 var TMDB_KEY    = "1865f43a0549ca50d341dd9ab8b29f49";
+
+var PROXY_URL   = "https://xyr0nx-proxy.python-hacking19.workers.dev";
 
 var SECRET_KEY_DEFAULT = [239,168,145,151,78,236,211,20,141,246,58,166,17,96,45,239,209,1,37,155,165,33,2,44,87,174,5,102,189,142];
 var SECRET_KEY_ALT     = [94,169,246,158,115,184,215,242,253,218,141,98,185,120,82,44,116,219,94,246,56,103,150,89,235,105,188,153,34,192];
@@ -87,6 +99,8 @@ var HOME_SECTIONS = [
   { id: "1|2;classify=Hindi dub;country=United States", name: "USA (Series)" },
   { id: "1|1;country=Japan",                            name: "Japan (Movies)" },
   { id: "1|2;country=Japan",                            name: "Japan (Series)" },
+  { id: "1|1;country=China",                            name: "China (Movies)" },
+  { id: "1|2;country=China",                            name: "China (Series)" },
   { id: "1|1;country=Korea",                            name: "South Korean (Movies)" },
   { id: "1|2;country=Korea",                            name: "South Korean (Series)" },
   { id: "1|1;classify=Hindi dub;genre=Action",          name: "Action (Movies)" },
@@ -279,13 +293,13 @@ function generateXTrSignature(method, accept, contentType, url, body, useAltKey,
 
 function makeClientInfo_mbox(bm) {
   var model = bm ? bm.model : "sdk_gphone64_x86_64";
-  return '{"package_name":"com.community.mbox.in","version_name":"3.0.03.0529.03","version_code":50020042,"os":"android","os_version":"16","device_id":"' + DEVICE_ID + '","install_store":"ps","gaid":"d7578036d13336cc","brand":"google","model":"' + model + '","system_language":"en","net":"NETWORK_WIFI","region":"IN","timezone":"Asia/Kolkata","sp_code":""}';
+  return '{"package_name":"com.community.mbox.in","version_name":"3.0.03.0529.03","version_code":50020042,"os":"android","os_version":"16","device_id":"' + DEVICE_ID + '","install_store":"ps","gaid":"d7578036d13336cc","brand":"google","model":"' + model + '","system_language":"en","net":"NETWORK_WIFI","region":"IN","timezone":"Asia/Calcutta","sp_code":""}';
 }
 
 function makeClientInfo_oneroom(bm) {
   var brand = bm ? bm.model : "Pixel 7";
   var model = bm ? bm.brand : "Google";
-  return '{"package_name":"com.community.oneroom","version_name":"3.0.13.0325.03","version_code":50020088,"os":"android","os_version":"13","install_ch":"ps","device_id":"' + DEVICE_ID + '","install_store":"ps","gaid":"1b2212c1-dadf-43c3-a0c8-bd6ce48ae22d","brand":"' + brand + '","model":"' + model + '","system_language":"en","net":"NETWORK_WIFI","region":"IN","timezone":"Asia/Kolkata","sp_code":"","X-Play-Mode":"1","X-Idle-Data":"1","X-Family-Mode":"0","X-Content-Mode":"0"}';
+  return '{"package_name":"com.community.oneroom","version_name":"3.0.13.0325.03","version_code":50020088,"os":"android","os_version":"13","install_ch":"ps","device_id":"' + DEVICE_ID + '","install_store":"ps","gaid":"1b2212c1-dadf-43c3-a0c8-bd6ce48ae22d","brand":"' + brand + '","model":"' + model + '","system_language":"en","net":"NETWORK_WIFI","region":"US","timezone":"Asia/Calcutta","sp_code":"","X-Play-Mode":"1","X-Idle-Data":"1","X-Family-Mode":"0","X-Content-Mode":"0"}';
 }
 
 function buildPostHeaders(url, jsonBody) {
@@ -294,9 +308,7 @@ function buildPostHeaders(url, jsonBody) {
   var xct = generateXClientToken(ts);
   var xtr = generateXTrSignature("POST", "application/json", "application/json; charset=utf-8", url, jsonBody, false, ts);
   return {
-    "X-Forwarded-For": "103.211.218.1", // <--- ADD THIS (Mumbai IP)
-    "X-Real-IP": "103.211.218.1",      // <--- ADD THIS
-    "user-agent": "com.community.mbox.in/50020042 (Linux; U; Android 16; en_IN; sdk_gphone64_x86_64; Build/BP22.250325.006; Cronet/133.0.6876.3)",
+    "user-agent":      "com.community.mbox.in/50020042 (Linux; U; Android 16; en_IN; sdk_gphone64_x86_64; Build/BP22.250325.006; Cronet/133.0.6876.3)",
     "accept":          "application/json",
     "content-type":    "application/json; charset=utf-8",
     "connection":      "keep-alive",
@@ -317,8 +329,6 @@ function buildGetHeaders(url) {
     "accept":          "application/json",
     "content-type":    "application/json",
     "connection":      "keep-alive",
-    "X-Forwarded-For": "103.211.218.1", // A random Mumbai-based IP
-    "X-Real-IP": "103.211.218.1",
     "x-client-token":  xct,
     "x-tr-signature":  xtr,
     "x-client-info":   makeClientInfo_mbox(null),
@@ -395,7 +405,7 @@ function tmdbToSubjectId(tmdbId, type) {
       var searchBody = '{"page": 1, "perPage": 20, "keyword": "' + (title||'').replace(/"/g,'\\"') + '"}';
       var searchHdrs = buildPostHeaders(searchUrl, searchBody);
 
-      return fetch(searchUrl, { method: "POST", headers: searchHdrs, body: searchBody })
+      return proxyFetch(searchUrl, { method: "POST", headers: searchHdrs, body: searchBody })
         .then(function(r) { return r.json(); })
         .then(function(root) {
           var results  = (root.data && root.data.results) || [];
@@ -443,6 +453,13 @@ function tmdbToSubjectId(tmdbId, type) {
 }
 
 var MovixPlugin = {
+  id:          PLUGIN_ID,
+  name:        PLUGIN_NAME,
+  version:     "1.0.0",
+  description: "MovieBox - Movies, Series & Anime for Nuvio.",
+  language:    "hi",
+  logo:        "https://raw.githubusercontent.com/Xyr0nX/gif-host/refs/heads/main/moviebox.png",
+
   getHomeSections: function(sectionCallback) {
     HOME_SECTIONS.forEach(function(sec) {
       sectionCallback({ id: sec.id, title: sec.name, items: [] });
@@ -474,7 +491,7 @@ var MovixPlugin = {
       var sort     = options["sort"]     || "ForYou";
       var body = '{"page":' + pg + ',"perPage":' + perPage + ',"channelId":"' + channelId + '","classify":"' + classify + '","country":"' + country + '","year":"' + year + '","genre":"' + genre + '","sort":"' + sort + '"}';
       var headers = buildPostHeaders(url, body);
-      return fetch(url, { method: "POST", headers: headers, body: body })
+      return proxyFetch(url, { method: "POST", headers: headers, body: body })
         .then(function(r) { return r.json(); })
         .then(function(root) {
           var d = root.data || {};
@@ -486,7 +503,7 @@ var MovixPlugin = {
     var url     = MAIN_URL + "/wefeed-mobile-bff/tab/ranking-list?tabId=0&categoryType=" +
                   encodeURIComponent(data) + "&page=" + pg + "&perPage=" + perPage;
     var headers = buildGetHeaders(url);
-    return fetch(url, { method: "GET", headers: headers })
+    return proxyFetch(url, { method: "GET", headers: headers })
       .then(function(r) { return r.json(); })
       .then(function(root) {
         var d = root.data || {};
@@ -500,7 +517,7 @@ var MovixPlugin = {
     var pg   = page || 1;
     var body = '{"page": ' + pg + ', "perPage": 20, "keyword": "' + (query||'').replace(/"/g,'\\"') + '"}';
     var headers = buildPostHeaders(url, body);
-    return fetch(url, { method: "POST", headers: headers, body: body })
+    return proxyFetch(url, { method: "POST", headers: headers, body: body })
       .then(function(r) { return r.json(); })
       .then(function(root) {
         var results = (root.data && root.data.results) || [];
@@ -531,7 +548,7 @@ var MovixPlugin = {
         var subjectUrl = MAIN_URL + "/wefeed-mobile-bff/subject-api/get?subjectId=" + subjectId;
         var subHdrs    = buildPlayHeaders(subjectUrl, null);
 
-        return fetch(subjectUrl, { method: "GET", headers: subHdrs })
+        return proxyFetch(subjectUrl, { method: "GET", headers: subHdrs })
           .then(function(subResp) {
             var token = null;
             try {
@@ -564,7 +581,7 @@ var MovixPlugin = {
                           "&se=" + se + "&ep=" + ep;
               var pHdrs = buildPlayHeaders(pUrl, ctx.token);
 
-              return fetch(pUrl, { method: "GET", headers: pHdrs })
+              return proxyFetch(pUrl, { method: "GET", headers: pHdrs })
                 .then(function(r) { return r.json(); })
                 .then(function(root) {
                   var streamList = (root.data && root.data.streams) || [];
@@ -580,14 +597,14 @@ var MovixPlugin = {
                       var hdrs       = { "Referer": MAIN_URL };
                       if (signCookie) { hdrs["Cookie"] = signCookie; }
 
-                      var label = "MovieBox (" + lang + ")" + (quality ? " " + quality + "p" : "");
+                      var label = PLUGIN_NAME + " (" + lang + ")" + (quality ? " " + quality + "p" : "");
                       streams.push({
                         url:     stream.url,
                         quality: quality,
                         type:    sType,
                         label:   label,
                         title:   label,
-                        name:    "MovieBox",
+                        name:    PLUGIN_NAME,
                         headers: hdrs,
                       });
 
@@ -599,7 +616,7 @@ var MovixPlugin = {
                         "x-tr-signature": generateXTrSignature("GET", "", "", c1Url, null, false, ts1),
                       });
                       subFetches.push(
-                        fetch(c1Url, { method: "GET", headers: c1Hdrs })
+                        proxyFetch(c1Url, { method: "GET", headers: c1Hdrs })
                           .then(function(r) { return r.json(); })
                           .then(function(sr) {
                             ((sr.data && sr.data.extCaptions) || []).forEach(function(cap) {
@@ -627,7 +644,7 @@ var MovixPlugin = {
                         "x-tr-signature":  generateXTrSignature("GET", "", "", c2Url, null, false, ts2),
                       };
                       subFetches.push(
-                        fetch(c2Url, { method: "GET", headers: c2Hdrs })
+                        proxyFetch(c2Url, { method: "GET", headers: c2Hdrs })
                           .then(function(r) { return r.json(); })
                           .then(function(sr) {
                             ((sr.data && sr.data.extCaptions) || []).forEach(function(cap) {
@@ -646,7 +663,7 @@ var MovixPlugin = {
 
                   var fbUrl  = MAIN_URL + "/wefeed-mobile-bff/subject-api/get?subjectId=" + sid;
                   var fbHdrs = buildPlayHeaders(fbUrl, ctx.token);
-                  return fetch(fbUrl, { method: "GET", headers: fbHdrs })
+                  return proxyFetch(fbUrl, { method: "GET", headers: fbHdrs })
                     .then(function(r) { return r.json(); })
                     .then(function(fbRoot) {
                       var detectors = (fbRoot.data && fbRoot.data.resourceDetectors) || [];
@@ -654,14 +671,14 @@ var MovixPlugin = {
                         (det.resolutionList || []).forEach(function(video) {
                           if (!video.resourceLink) { return; }
                           var q     = video.resolution || 0;
-                          var lbl   = "MovieBox S" + video.se + "E" + video.ep + " " + q + "p (" + lang + ")";
+                          var lbl   = PLUGIN_NAME + " S" + video.se + "E" + video.ep + " " + q + "p (" + lang + ")";
                           streams.push({
                             url:     video.resourceLink,
                             quality: q,
                             type:    "mp4",
                             label:   lbl,
                             title:   lbl,
-                            name:    "MovieBox",
+                            name:    PLUGIN_NAME,
                             headers: { "Referer": MAIN_URL },
                           });
                         });

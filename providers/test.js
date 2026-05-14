@@ -336,24 +336,44 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     // 6. Final Decrypt
     const decryptResult = decryptPlayback(playbackData.playback);
 
-        if (decryptResult.success) {
-      // Extracting metadata if available, or using defaults
-      const title = detailsData.title || (mediaType === "movie" ? "Movie" : "Episode");
-      const year = detailsData.year || "";
-      const resolution = "1080p/720p";
-      const language = "PT-BR / English"; //
-      const format = "HLS/M3U8";
+            if (decryptResult.success) {
+      // 1. Get Resolution & Format from the actual decrypted URL/Data
+      // If the API provides it, we use it; otherwise, we extract from the URL
+      const autoRes = decryptResult.url.includes('1080') ? '1080p' : 
+                      decryptResult.url.includes('720') ? '720p' : 'Auto';
+      const autoFormat = decryptResult.url.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
+
+      // 2. Get Duration from TMDB (via a quick fetch if not in details)
+      let duration = "N/A";
+      try {
+        const tmdbUrl = `${TMDB_BASE_URL}/${mediaType}/${finalTmdbId}?api_key=${TMDB_API_KEY}`;
+        const tmdbRes = await fetch(tmdbUrl);
+        const tmdbData = await tmdbRes.json();
+        const runtime = tmdbData.runtime || (tmdbData.episode_run_time ? tmdbData.episode_run_time[0] : null);
+        duration = runtime ? `${runtime} min` : "Auto Duration";
+      } catch (e) { duration = "Auto Duration"; }
+
+      // 3. Get Movie Name and Year (Fallback to search if missing)
+      const title = detailsData.title || "Unknown Title";
+      const year = detailsData.year || "2026";
+      
+      // 4. Size & Language
+      // Note: Most HLS (.m3u8) streams are "Variable" because they scale.
+      // Language is usually in the metadata; defaults to Multi if unknown.
+      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / 1024 / 1024 / 1024).toFixed(2)} GB` : "Variable Size";
+      const language = detailsData.language || "English / Dual";
 
       streams.push({
-        name: `Pomfy | ${resolution}\n${title} ${year}\n${resolution} | ${language} | Variable Size\n${format} | Auto Duration | Surgical Fix`,
+        name: `Pomfy | ${autoRes}\n${title} (${year})\n${autoRes} | ${language} | ${size}\n${autoFormat} | ${duration} | Surgical Fix`,
         url: decryptResult.url,
-        quality: 1080,
+        quality: autoRes.includes('1080') ? 1080 : 720,
         headers: {
           "User-Agent": USER_AGENT,
           "Referer": embedUrl
         }
       });
     }
+
 
   } catch (error) {
     console.error("Stream failed:", error);

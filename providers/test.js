@@ -294,7 +294,9 @@ function buildPostHeaders(url, jsonBody) {
   var xct = generateXClientToken(ts);
   var xtr = generateXTrSignature("POST", "application/json", "application/json; charset=utf-8", url, jsonBody, false, ts);
   return {
-    "user-agent":      "com.community.mbox.in/50020042 (Linux; U; Android 16; en_IN; sdk_gphone64_x86_64; Build/BP22.250325.006; Cronet/133.0.6876.3)",
+    "X-Forwarded-For": "103.211.218.1", // <--- ADD THIS (Mumbai IP)
+    "X-Real-IP": "103.211.218.1",      // <--- ADD THIS
+    "user-agent": "com.community.mbox.in/50020042 (Linux; U; Android 16; en_IN; sdk_gphone64_x86_64; Build/BP22.250325.006; Cronet/133.0.6876.3)",
     "accept":          "application/json",
     "content-type":    "application/json; charset=utf-8",
     "connection":      "keep-alive",

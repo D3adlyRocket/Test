@@ -1,7 +1,6 @@
 /**
- * Pomfy - Surgical Fix v2
- * 100% Original functional logic.
- * Fixed: Title Language, Duplication, and Size formatting.
+ * Pomfy - Restored Original Logic
+ * Strictly functional version with Duplicate & Language fixes.
  */
 
 var __async = (__this, __arguments, generator) => {
@@ -26,13 +25,13 @@ const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML
 const HEADERS = {
   "User-Agent": USER_AGENT,
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,webp,image/apng,*/*;q=0.8",
-  "Accept-Language": "pt-BR,pt;q=0.9",
+  "Accept-Language": "en-US,en;q=0.9",
   "Referer": "https://pomfy.online/",
   "Cookie": COOKIE
 };
 
 // ==============================================
-// BASE64 / UTF-8 / AES-256-GCM (ORIGINAL VERBATIM)
+// BASE64 / UTF-8 / AES-256-GCM (CORE LOGIC)
 // ==============================================
 
 const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -197,7 +196,7 @@ class AES256GCM_Manual {
 }
 
 // ==============================================
-// HELPERS (English title forced)
+// HELPERS
 // ==============================================
 
 function generateFingerprint() {
@@ -240,12 +239,12 @@ function decryptPlayback(playback) {
 }
 
 // ==============================================
-// MAIN ENGINE (Duplicate guard added)
+// MAIN ENGINE
 // ==============================================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   const streams = [];
-  const processedUrls = new Set(); // Prevent duplicates
+  const processedUrls = new Set(); // DUPLICATION PREVENTER
   let finalTmdbId = tmdbId;
 
   try {
@@ -286,12 +285,10 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const decryptResult = decryptPlayback(playbackData.playback);
 
-    if (decryptResult.success) {
-      // Check for duplicates
-      if (processedUrls.has(decryptResult.url)) return streams;
+    if (decryptResult.success && !processedUrls.has(decryptResult.url)) {
       processedUrls.add(decryptResult.url);
 
-      // Force English Metadata
+      // Metadata handling - English Focus
       let title = detailsData.title || "Unknown";
       let duration = "Auto Duration";
       let year = detailsData.year || "2026";
@@ -306,11 +303,11 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       } catch (e) {}
 
       const autoRes = decryptResult.url.includes('1080') ? '1080p' : '720p';
-      const autoFormat = decryptResult.url.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
-      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / 1073741824).toFixed(2)} GB` : "Variable Size";
+      const autoFormat = decryptResult.url.split('.').pop().split('?')[0].toUpperCase() || 'M3U8';
+      const sizeStr = playbackData.size_bytes ? `${(playbackData.size_bytes / 1073741824).toFixed(2)} GB` : "Variable Size";
 
       streams.push({
-        name: `Pomfy | ${autoRes}\n${title} (${year})\n${autoRes} | English / Dual | ${size}\n${autoFormat} | ${duration} | Surgical Fix`,
+        name: `Pomfy | ${autoRes}\n${title} (${year})\n${autoRes} | English / Dual | ${sizeStr}\n${autoFormat} | ${duration} | Surgical Fix`,
         url: decryptResult.url,
         quality: autoRes === '1080p' ? 1080 : 720,
         headers: { "User-Agent": USER_AGENT, "Referer": embedUrl }

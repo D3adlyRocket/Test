@@ -1,7 +1,7 @@
 /**
- * Pomfy - Surgical Fix (English & De-Duplicated)
+ * Pomfy - Final Surgical Fix
  * 100% Original functional logic.
- * Fixed: Title Language, Duplication, and URL Info.
+ * Fixed: Duplication, English Titles, URL Data Extraction.
  */
 
 var __async = (__this, __arguments, generator) => {
@@ -26,7 +26,7 @@ const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML
 const HEADERS = {
   "User-Agent": USER_AGENT,
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,webp,image/apng,*/*;q=0.8",
-  "Accept-Language": "pt-BR,pt;q=0.9",
+  "Accept-Language": "en-US,en;q=0.9",
   "Referer": "https://pomfy.online/",
   "Cookie": COOKIE
 };
@@ -287,9 +287,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const decryptResult = decryptPlayback(playbackData.playback);
 
     if (decryptResult.success && !seenUrls.has(decryptResult.url)) {
-      seenUrls.add(decryptResult.url); // Mark as seen
+      seenUrls.add(decryptResult.url); // Mark URL as processed
 
-      // 1. Resolve English Title & Duration
+      // 1. Resolve English Title & Duration from TMDB (FORCED EN-US)
       let englishTitle = "Unknown";
       let duration = "Auto Duration";
       let year = detailsData.year || "2026";
@@ -308,9 +308,11 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       const videoUrl = decryptResult.url;
       const res = videoUrl.includes('1080') ? '1080p' : '720p';
       const format = videoUrl.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
-      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / 1073741824).toFixed(2)} GB` : "Multi-Bitrate";
       
-      // Scrape extra technical tags from the URL string
+      // Clean up Size Label
+      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / 1073741824).toFixed(2)} GB` : "Variable";
+      
+      // Extract Tech Info from the URL (WEB-DL, AMZN, DDP5.1, etc.)
       const techMatch = videoUrl.match(/(WEB-DL|AMZN|NF|DDP5\.1|H264|H265|HEVC)/gi);
       const techTags = techMatch ? techMatch.join(' | ').toUpperCase() : 'DIRECT';
 

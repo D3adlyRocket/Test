@@ -259,26 +259,19 @@ function decryptPlayback(playback) {
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   let streams = [];
-  let finalTmdbId = tmdbId;
-
+  
   try {
-    // 1. Resolve ID (Quick)
-    if (isImdbId(tmdbId)) {
-      const conversion = await convertImdbToTmdb(tmdbId, mediaType);
-      if (conversion.success) finalTmdbId = conversion.tmdbId;
-    }
-
+    // 1. Determine the path
     const s = mediaType === "movie" ? 1 : (season || 1);
     const e = mediaType === "movie" ? 1 : (episode || 1);
-
-    // 2. Pomfy Call
+    
+    // Use the ID directly (Pomfy accepts TMDB IDs)
     const pomfyUrl = mediaType === "movie"
-      ? `${API_POMFY}/filme/${finalTmdbId}`
-      : `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`;
+      ? `${API_POMFY}/filme/${tmdbId}`
+      : `${API_POMFY}/serie/${tmdbId}/${s}/${e}`;
 
+    // 2. Get the "Byse" Link
     const response = await fetch(pomfyUrl, { headers: HEADERS });
-    if (!response.ok) return [];
-
     const html = await response.text();
     const linkMatch = html.match(/const link\s*=\s*"([^"]+)"/);
     if (!linkMatch) return [];
@@ -286,55 +279,42 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const byseUrl = linkMatch[1];
     const byseId = byseUrl.split("/").pop();
 
-    // 3. Details & Playback (The Core)
+    // 3. Get Embed Details
     const detailsUrl = `https://pomfy-cdn.shop/api/videos/${byseId}/embed/details`;
-    const detailsResponse = await fetch(detailsUrl, {
-      headers: { "referer": byseUrl, "x-embed-origin": "api.pomfy.stream", "user-agent": USER_AGENT, "Cookie": COOKIE }
+    const detailsRes = await fetch(detailsUrl, {
+      headers: { "referer": byseUrl, "x-embed-origin": "api.pomfy.stream", "user-agent": USER_AGENT }
     });
-    const detailsData = await detailsResponse.json();
-    
+    const detailsData = await detailsRes.json();
     const embedUrl = detailsData.embed_frame_url;
     const embedDomain = new URL(embedUrl).origin;
 
-    const fingerprint = generateFingerprint();
+    // 4. Get Playback Data
     const playbackUrl = `${embedDomain}/api/videos/${byseId}/embed/playback`;
-    const playbackResponse = await fetch(playbackUrl, {
+    const playbackRes = await fetch(playbackUrl, {
       method: "POST",
       headers: { "content-type": "application/json", "origin": embedDomain, "referer": embedUrl, "user-agent": USER_AGENT },
-      body: JSON.stringify({ fingerprint })
+      body: JSON.stringify({ fingerprint: generateFingerprint() })
     });
+    const playbackData = await playbackRes.json();
 
-    const playbackData = await playbackResponse.json();
-    if (!playbackData.playback) return [];
-
-    // 4. Decrypt 
+    // 5. Decrypt and Build
     const decryptResult = decryptPlayback(playbackData.playback);
-
     if (decryptResult.success) {
       const videoUrl = decryptResult.url;
+      const res = videoUrl.includes('1080') ? '1080p' : '720p';
       
-      // Auto logic
-      const autoRes = videoUrl.includes('1080') ? '1080p' : videoUrl.includes('720') ? '720p' : 'Auto';
-      const autoFormat = videoUrl.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
-      
-      // Extract from site data instead of external TMDB to ensure it doesn't break
-      const title = detailsData.title || "Movie";
-      const year = detailsData.year || "2026";
-      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / (1024**3)).toFixed(2)} GB` : "Variable Size";
-
       streams.push({
-        name: `Pomfy | ${autoRes}\n${title} (${year})\n${autoRes} | English / Dual | ${size}\n${autoFormat} | Surgical Fix`,
+        name: `Pomfy | ${res}\n${detailsData.title || 'Video'}\nDirect Stream | HLS`,
         url: videoUrl,
-        quality: autoRes.includes('1080') ? 1080 : 720,
+        quality: res === '1080p' ? 1080 : 720,
         headers: { "User-Agent": USER_AGENT, "Referer": embedUrl }
       });
     }
-  } catch (error) {
-    console.error("Critical Fetch Error:", error);
+  } catch (err) {
+    // Silently fail or log for your own debug
   }
 
-  // RETURN EXACTLY ONE STREAM (Fixes duplication)
-  return streams.slice(0, 1);
+  return streams; 
 }
 
 module.exports = { getStreams };

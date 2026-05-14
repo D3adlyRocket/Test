@@ -267,31 +267,21 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     // 6. Final Decrypt
     const decryptResult = decryptPlayback(playbackData.playback);
+    const processedUrls = new Set(); // Internal guard to stop duplicate headers
 
-    // 2. CHECK FOR DUPLICATE BEFORE PUSHING
     if (decryptResult.success && !processedUrls.has(decryptResult.url)) {
-      processedUrls.add(decryptResult.url); // Mark URL as seen
+      processedUrls.add(decryptResult.url);
 
+      // Extract Resolution
       const autoRes = decryptResult.url.includes('1080') ? '1080p' : 
                       decryptResult.url.includes('720') ? '720p' : 'Auto';
-      const autoFormat = decryptResult.url.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
-
-      let duration = "N/A";
-      try {
-        const tmdbUrl = `${TMDB_BASE_URL}/${mediaType}/${finalTmdbId}?api_key=${TMDB_API_KEY}`;
-        const tmdbRes = await fetch(tmdbUrl);
-        const tmdbData = await tmdbRes.json();
-        const runtime = tmdbData.runtime || (tmdbData.episode_run_time ? tmdbData.episode_run_time[0] : null);
-        duration = runtime ? `${runtime} min` : "Auto Duration";
-      } catch (e) { duration = "Auto Duration"; }
-
-      const title = detailsData.title || "Unknown Title";
-      const year = detailsData.year || "2026";
-      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / 1024 / 1024 / 1024).toFixed(2)} GB` : "Variable Size";
+      
+      // Extract Language (Fallback to English if not found)
       const language = detailsData.language || "English / Dual";
 
       streams.push({
-        name: `Pomfy | ${autoRes}\n${title} (${year})\n${autoRes} | ${language} | ${size}\n${autoFormat} | ${duration} | Surgical Fix`,
+        // THIS IS THE LINE THAT CHANGES YOUR HEADER
+        name: `Pomfy | ${autoRes} | ${language}`,
         url: decryptResult.url,
         quality: autoRes.includes('1080') ? 1080 : 720,
         headers: {

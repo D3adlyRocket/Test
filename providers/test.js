@@ -1,7 +1,7 @@
 /**
- * Pomfy - Surgical Fix
+ * Pomfy - Surgical Fix (RESTORED STABLE)
  * 100% Original functional logic.
- * Debug "clutter" streams removed.
+ * Full recovery of the fetching engine.
  */
 
 var __async = (__this, __arguments, generator) => {
@@ -18,8 +18,6 @@ var __async = (__this, __arguments, generator) => {
 };
 
 const API_POMFY = "https://api.pomfy.stream";
-const TMDB_API_KEY = "3644dd4950b67cd8067b8772de576d6b";
-const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 const COOKIE = "SITE_TOTAL_ID=aTYqe6GU65PNmeCXpelwJwAAAMi; __dtsu=104017651574995957BEB724C6373F9E; __cc_id=a44d1e52993b9c2Oaaf40eba24989a06";
 const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36";
 
@@ -28,15 +26,11 @@ const HEADERS = {
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,webp,image/apng,*/*;q=0.8",
   "Accept-Language": "pt-BR,pt;q=0.9",
   "Referer": "https://pomfy.online/",
-  "Sec-Fetch-Dest": "iframe",
-  "Sec-Fetch-Mode": "navigate",
-  "Sec-Fetch-Site": "cross-site",
-  "Upgrade-Insecure-Requests": "1",
   "Cookie": COOKIE
 };
 
 // ==============================================
-// BASE64 / UTF-8 / AES-256-GCM (ORIGINAL VERBATIM)
+// BASE64 / UTF-8 / AES-256-GCM (CORE ENGINE)
 // ==============================================
 
 const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -201,7 +195,7 @@ class AES256GCM_Manual {
 }
 
 // ==============================================
-// ORIGINAL HELPERS (RESTORED)
+// HELPERS
 // ==============================================
 
 function generateFingerprint() {
@@ -217,21 +211,6 @@ function generateFingerprint() {
   };
   const token = bytesToBase64(stringToUtf8Bytes(JSON.stringify(payload)));
   return { token, viewer_id: viewerId, device_id: deviceId, confidence: 0.93 };
-}
-
-function isImdbId(id) {
-  return typeof id === "string" && id.toLowerCase().startsWith("tt");
-}
-
-async function convertImdbToTmdb(imdbId, mediaType) {
-  try {
-    const url = `${TMDB_BASE_URL}/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
-    const response = await fetch(url, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
-    const data = await response.json();
-    const results = mediaType === "tv" ? (data.tv_results || []) : (data.movie_results || []);
-    if (results && results.length > 0) return { success: true, tmdbId: results[0].id };
-    return { success: false };
-  } catch (error) { return { success: false }; }
 }
 
 function decryptPlayback(playback) {
@@ -254,24 +233,23 @@ function decryptPlayback(playback) {
 }
 
 // ==============================================
-// MAIN GETSTREAMS (CLUTTER REMOVED)
+// STABLE GETSTREAMS ENGINE
 // ==============================================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   let streams = [];
-  
+
   try {
-    // 1. Determine the path
     const s = mediaType === "movie" ? 1 : (season || 1);
     const e = mediaType === "movie" ? 1 : (episode || 1);
-    
-    // Use the ID directly (Pomfy accepts TMDB IDs)
+
     const pomfyUrl = mediaType === "movie"
       ? `${API_POMFY}/filme/${tmdbId}`
       : `${API_POMFY}/serie/${tmdbId}/${s}/${e}`;
 
-    // 2. Get the "Byse" Link
     const response = await fetch(pomfyUrl, { headers: HEADERS });
+    if (!response.ok) return [];
+
     const html = await response.text();
     const linkMatch = html.match(/const link\s*=\s*"([^"]+)"/);
     if (!linkMatch) return [];
@@ -279,16 +257,15 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const byseUrl = linkMatch[1];
     const byseId = byseUrl.split("/").pop();
 
-    // 3. Get Embed Details
     const detailsUrl = `https://pomfy-cdn.shop/api/videos/${byseId}/embed/details`;
     const detailsRes = await fetch(detailsUrl, {
       headers: { "referer": byseUrl, "x-embed-origin": "api.pomfy.stream", "user-agent": USER_AGENT }
     });
     const detailsData = await detailsRes.json();
+    
     const embedUrl = detailsData.embed_frame_url;
     const embedDomain = new URL(embedUrl).origin;
 
-    // 4. Get Playback Data
     const playbackUrl = `${embedDomain}/api/videos/${byseId}/embed/playback`;
     const playbackRes = await fetch(playbackUrl, {
       method: "POST",
@@ -297,24 +274,26 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     });
     const playbackData = await playbackRes.json();
 
-    // 5. Decrypt and Build
-    const decryptResult = decryptPlayback(playbackData.playback);
-    if (decryptResult.success) {
-      const videoUrl = decryptResult.url;
-      const res = videoUrl.includes('1080') ? '1080p' : '720p';
-      
-      streams.push({
-        name: `Pomfy | ${res}\n${detailsData.title || 'Video'}\nDirect Stream | HLS`,
-        url: videoUrl,
-        quality: res === '1080p' ? 1080 : 720,
-        headers: { "User-Agent": USER_AGENT, "Referer": embedUrl }
-      });
+    if (playbackData.playback) {
+      const decryptResult = decryptPlayback(playbackData.playback);
+      if (decryptResult.success) {
+        const videoUrl = decryptResult.url;
+        const res = videoUrl.includes('1080') ? '1080p' : '720p';
+        const size = playbackData.size_bytes ? `${(playbackData.size_bytes / (1024**3)).toFixed(2)} GB` : "Variable";
+
+        streams.push({
+          name: `Pomfy | ${res}\n${detailsData.title || 'Video'}\nDirect Stream | HLS | ${size}\nSurgical Fix`,
+          url: videoUrl,
+          quality: res === '1080p' ? 1080 : 720,
+          headers: { "User-Agent": USER_AGENT, "Referer": embedUrl }
+        });
+      }
     }
   } catch (err) {
-    // Silently fail or log for your own debug
+    console.error("Fetch failed:", err);
   }
 
-  return streams; 
+  return streams;
 }
 
 module.exports = { getStreams };

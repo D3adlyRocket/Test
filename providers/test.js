@@ -1,7 +1,7 @@
 /**
- * Pomfy - Final Surgical Fix
+ * Pomfy - Surgical Fix v2
  * 100% Original functional logic.
- * Fixed: Duplication, English Titles, URL Data Extraction.
+ * Fixed: Title Language, Duplication, and Size formatting.
  */
 
 var __async = (__this, __arguments, generator) => {
@@ -26,7 +26,7 @@ const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML
 const HEADERS = {
   "User-Agent": USER_AGENT,
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,webp,image/apng,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.9",
+  "Accept-Language": "pt-BR,pt;q=0.9",
   "Referer": "https://pomfy.online/",
   "Cookie": COOKIE
 };
@@ -197,7 +197,7 @@ class AES256GCM_Manual {
 }
 
 // ==============================================
-// HELPERS
+// HELPERS (English title forced)
 // ==============================================
 
 function generateFingerprint() {
@@ -240,12 +240,12 @@ function decryptPlayback(playback) {
 }
 
 // ==============================================
-// MAIN ENGINE
+// MAIN ENGINE (Duplicate guard added)
 // ==============================================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   const streams = [];
-  const seenUrls = new Set(); // DUPLICATION GUARD
+  const processedUrls = new Set(); // Prevent duplicates
   let finalTmdbId = tmdbId;
 
   try {
@@ -286,40 +286,33 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const decryptResult = decryptPlayback(playbackData.playback);
 
-    if (decryptResult.success && !seenUrls.has(decryptResult.url)) {
-      seenUrls.add(decryptResult.url); // Mark URL as processed
+    if (decryptResult.success) {
+      // Check for duplicates
+      if (processedUrls.has(decryptResult.url)) return streams;
+      processedUrls.add(decryptResult.url);
 
-      // 1. Resolve English Title & Duration from TMDB (FORCED EN-US)
-      let englishTitle = "Unknown";
+      // Force English Metadata
+      let title = detailsData.title || "Unknown";
       let duration = "Auto Duration";
       let year = detailsData.year || "2026";
-      
+
       try {
         const tmdbUrl = `${TMDB_BASE_URL}/${mediaType}/${finalTmdbId}?api_key=${TMDB_API_KEY}&language=en-US`;
         const tmdbRes = await fetch(tmdbUrl);
         const tmdbData = await tmdbRes.json();
-        englishTitle = tmdbData.title || tmdbData.name || detailsData.title;
+        title = tmdbData.title || tmdbData.name || title;
         const runtime = tmdbData.runtime || (tmdbData.episode_run_time ? tmdbData.episode_run_time[0] : null);
         duration = runtime ? `${runtime} min` : "Auto Duration";
-        if (tmdbData.release_date || tmdbData.first_air_date) year = (tmdbData.release_date || tmdbData.first_air_date).split('-')[0];
       } catch (e) {}
 
-      // 2. Technical Data from URL & Playback
-      const videoUrl = decryptResult.url;
-      const res = videoUrl.includes('1080') ? '1080p' : '720p';
-      const format = videoUrl.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
-      
-      // Clean up Size Label
-      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / 1073741824).toFixed(2)} GB` : "Variable";
-      
-      // Extract Tech Info from the URL (WEB-DL, AMZN, DDP5.1, etc.)
-      const techMatch = videoUrl.match(/(WEB-DL|AMZN|NF|DDP5\.1|H264|H265|HEVC)/gi);
-      const techTags = techMatch ? techMatch.join(' | ').toUpperCase() : 'DIRECT';
+      const autoRes = decryptResult.url.includes('1080') ? '1080p' : '720p';
+      const autoFormat = decryptResult.url.split('.').pop().split('?')[0].toUpperCase() || 'HLS';
+      const size = playbackData.size_bytes ? `${(playbackData.size_bytes / 1073741824).toFixed(2)} GB` : "Variable Size";
 
       streams.push({
-        name: `Pomfy | ${res}\n${englishTitle} (${year})\n${res} | English / Dual | ${size}\n${format} | ${duration} | ${techTags}`,
-        url: videoUrl,
-        quality: res === '1080p' ? 1080 : 720,
+        name: `Pomfy | ${autoRes}\n${title} (${year})\n${autoRes} | English / Dual | ${size}\n${autoFormat} | ${duration} | Surgical Fix`,
+        url: decryptResult.url,
+        quality: autoRes === '1080p' ? 1080 : 720,
         headers: { "User-Agent": USER_AGENT, "Referer": embedUrl }
       });
     }

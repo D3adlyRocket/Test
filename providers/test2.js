@@ -381,53 +381,60 @@ function resolveHubCloud(url, label, quality) {
     if (visitedUrls.has(url)) return [];
     visitedUrls.add(url);
     try {
-      // 1. Fetch the HubCloud page first to get the 'Bridge' to the blog
-      console.log("[" + PROVIDER_NAME + "] HubCloud: Initial probe...");
+      console.log("[" + PROVIDER_NAME + "] HubCloud: Probing " + url.substring(0, 60));
+      
+      // 1. Get the original HubCloud page content
       const res = yield fetchSafe(url, { headers: HEADERS });
       if (!res) return [];
-      const html = yield res.text();
+      const rawHtml = yield res.text();
       
-      // 2. Check if we need to jump to the GamerX blog
-      let targetUrl = url;
-      const blogMatch = html.match(/href=['"]([^'"]+gamerxyt\.com[^'"]+)['"]/);
-      if (blogMatch) {
-          targetUrl = blogMatch[1];
-          console.log("[" + PROVIDER_NAME + "] HubCloud: Navigating to blog redirect...");
+      const streams = [];
+
+      // 2. CHECK FOR GOOGLE LINKS IMMEDIATELY (Safety First)
+      // Sometimes the link is already in the HubCloud HTML but hidden
+      const instantMatch = rawHtml.match(/https:\/\/video-downloads\.googleusercontent\.com\/[^'"]+/g);
+      if (instantMatch) {
+          instantMatch.forEach(link => streams.push(makeStream("Direct | " + quality, label, link, quality)));
+          console.log("[" + PROVIDER_NAME + "] HubCloud: Found instant Google link!");
+          return streams; 
       }
 
-      // 3. Fetch the final page (Blog or HubCloud) with a 'Referer' to trick it
+      // 3. Find the Bridge to the Blog
+      let targetUrl = url;
+      const blogMatch = rawHtml.match(/href=['"]([^'"]+gamerxyt\.com[^'"]+)['"]/);
+      if (blogMatch) {
+          targetUrl = blogMatch[1];
+          console.log("[" + PROVIDER_NAME + "] HubCloud: Found Blog Link -> " + targetUrl.substring(0, 40));
+      }
+
+      // 4. Fetch the target page (Blog or HubCloud)
       const $ = yield fetchHtml(targetUrl, { 
           headers: __spreadProps(__spreadValues({}, HEADERS), { 
-              "Referer": url,
-              "Cookie": "xyt=1; xla=s4t" // Re-inserting the key cookies
+              "Referer": url, // Crucial for bypass
+              "Cookie": "xyt=1; xla=s4t"
           }) 
       });
-      if (!$) return [];
 
-      const streams = [];
-      const pageHtml = $.html();
+      if ($) {
+          const pageHtml = $.html();
+          // Master Search on the new page
+          const googleLinks = pageHtml.match(/https:\/\/video-downloads\.googleusercontent\.com\/[^'"]+/g);
+          if (googleLinks) {
+              googleLinks.forEach(link => {
+                  streams.push(makeStream("Direct | " + quality, label, link, quality));
+              });
+          }
 
-      // 4. THE MASTER SEARCH: Look for any Google Video link anywhere in the code
-      // This is what you found in your DevTools!
-      const googleLinks = pageHtml.match(/https:\/\/video-downloads\.googleusercontent\.com\/[^'"]+/g);
-      if (googleLinks) {
-          googleLinks.forEach(link => {
-              streams.push(makeStream("Direct | " + quality, label + " [High Speed]", link, quality));
+          // Button Scraping
+          $("a.btn, .download-link, a[href*='drive.google'], a[href*='googleusercontent']").each((i, el) => {
+              const href = $(el).attr("href");
+              if (href && (href.includes("googleusercontent") || href.includes("drive.google"))) {
+                  streams.push(makeStream("HubCloud | " + quality, label, href, quality));
+              }
           });
       }
 
-      // 5. Fallback: Standard button scraping
-      $("a.btn, .download-link, a[href*='drive.google']").each((i, el) => {
-        const href = $(el).attr("href");
-        const text = $(el).text().toLowerCase();
-        if (!href || href.startsWith("javascript")) return;
-        
-        if (text.includes("10gbps") || text.includes("direct") || href.includes("googleusercontent")) {
-            streams.push(makeStream("HubCloud | " + quality, label, href, quality));
-        }
-      });
-
-      console.log("[" + PROVIDER_NAME + "] HubCloud: Success, found " + streams.length + " links");
+      console.log("[" + PROVIDER_NAME + "] HubCloud: Final count -> " + streams.length);
       return streams;
     } catch (e) {
       console.error("[" + PROVIDER_NAME + "] HubCloud error: " + e.message);

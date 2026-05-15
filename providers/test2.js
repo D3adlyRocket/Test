@@ -381,52 +381,53 @@ function resolveHubCloud(url, label, quality) {
     if (visitedUrls.has(url)) return [];
     visitedUrls.add(url);
     try {
-      // These headers include the 'xyt=1' cookie we found in your DevTools
-      const hubHeaders = __spreadProps(__spreadValues({}, HEADERS), { 
-        "Cookie": "xyt=1; xla=s4t", 
-        "Referer": url 
-      });
-
-      console.log("[" + PROVIDER_NAME + "] HubCloud: Probing " + url.substring(0, 60));
-      const res = yield fetchSafe(url, { headers: hubHeaders });
+      // 1. Fetch the HubCloud page first to get the 'Bridge' to the blog
+      console.log("[" + PROVIDER_NAME + "] HubCloud: Initial probe...");
+      const res = yield fetchSafe(url, { headers: HEADERS });
       if (!res) return [];
-      
       const html = yield res.text();
-      const $ = cheerio.load(html);
+      
+      // 2. Check if we need to jump to the GamerX blog
+      let targetUrl = url;
+      const blogMatch = html.match(/href=['"]([^'"]+gamerxyt\.com[^'"]+)['"]/);
+      if (blogMatch) {
+          targetUrl = blogMatch[1];
+          console.log("[" + PROVIDER_NAME + "] HubCloud: Navigating to blog redirect...");
+      }
+
+      // 3. Fetch the final page (Blog or HubCloud) with a 'Referer' to trick it
+      const $ = yield fetchHtml(targetUrl, { 
+          headers: __spreadProps(__spreadValues({}, HEADERS), { 
+              "Referer": url,
+              "Cookie": "xyt=1; xla=s4t" // Re-inserting the key cookies
+          }) 
+      });
+      if (!$) return [];
+
       const streams = [];
-      const origin = getOrigin(url);
+      const pageHtml = $.html();
 
-      // BYPASS LOGIC: Look for the Google link or the GamerXyt blog link immediately
-      const googleMatch = html.match(/href=['"]([^'"]+googleusercontent[^'"]+)['"]/);
-      if (googleMatch) {
-        console.log("[" + PROVIDER_NAME + "] HubCloud: Found direct Google link!");
-        streams.push(makeStream("Direct | " + quality, label + " [High Speed]", googleMatch[1], quality));
+      // 4. THE MASTER SEARCH: Look for any Google Video link anywhere in the code
+      // This is what you found in your DevTools!
+      const googleLinks = pageHtml.match(/https:\/\/video-downloads\.googleusercontent\.com\/[^'"]+/g);
+      if (googleLinks) {
+          googleLinks.forEach(link => {
+              streams.push(makeStream("Direct | " + quality, label + " [High Speed]", link, quality));
+          });
       }
 
-      // If we are on the GamerXyt blog page, find the final button
-      if (url.includes("gamerxyt.com") || html.includes("gamerxyt.com")) {
-        $("a, button").each((i, el) => {
-          const href = $(el).attr("href") || $(el).attr("formaction");
-          if (href && href.includes("googleusercontent")) {
-            streams.push(makeStream("Direct | " + quality, label, href, quality));
-          }
-        });
-      }
-
-      // STANDARD LOGIC: Fallback to scraping buttons
-      $("a.btn, a.btn-success, .download-link").each((i, el) => {
-        const text = $(el).text().toLowerCase();
+      // 5. Fallback: Standard button scraping
+      $("a.btn, .download-link, a[href*='drive.google']").each((i, el) => {
         const href = $(el).attr("href");
+        const text = $(el).text().toLowerCase();
         if (!href || href.startsWith("javascript")) return;
-
-        const absLink = href.startsWith("http") ? href : origin + (href.startsWith("/") ? "" : "/") + href;
         
-        if (text.includes("10gbps") || text.includes("direct") || text.includes("download")) {
-           streams.push(makeStream("HubCloud | " + quality, label, absLink, quality));
+        if (text.includes("10gbps") || text.includes("direct") || href.includes("googleusercontent")) {
+            streams.push(makeStream("HubCloud | " + quality, label, href, quality));
         }
       });
 
-      console.log("[" + PROVIDER_NAME + "] HubCloud: found " + streams.length + " streams");
+      console.log("[" + PROVIDER_NAME + "] HubCloud: Success, found " + streams.length + " links");
       return streams;
     } catch (e) {
       console.error("[" + PROVIDER_NAME + "] HubCloud error: " + e.message);

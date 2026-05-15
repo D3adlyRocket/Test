@@ -308,7 +308,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     if (decryptResult.success) {
         const meta = await getTmdbMetadata(finalTmdbId, mediaType);
         const resLabel = decryptResult.url.includes('1080') ? '1080p' : (decryptResult.url.includes('720') ? '720p' : 'Auto');
-        const language = detailsData.language || "English / Dual";
+        const language = detailsData.language || "English • Portuguese";
 
         streams.push({
             name: `Pomfy | ${resLabel} | ${language}`,

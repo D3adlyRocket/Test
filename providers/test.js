@@ -333,22 +333,20 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const playbackData = await playbackResponse.json();
     if (!playbackData.playback) return [];
 
-                // 6. Final Decrypt
+                    // 6. Final Decrypt
     const decryptResult = decryptPlayback(playbackData.playback);
 
     if (decryptResult.success) {
-      // Force clean resolution label
+      // Hardcode the labels to prevent the app from adding ".0"
       const resLabel = decryptResult.url.includes('1080') ? '1080p' : 
                        decryptResult.url.includes('720') ? '720p' : 'Auto';
       
       const language = detailsData.language || "English / Dual";
-      const movieTitle = detailsData.title || "Movie";
-      const movieYear = detailsData.year ? `(${detailsData.year})` : "";
 
-      // We only provide Line 1 and Line 2. 
-      // The app's UI will handle generating the sub-label automatically.
+      // We provide ONLY the header line. 
+      // The app will use this to generate the rest of the UI.
       streams.push({
-        name: `Pomfy | ${resLabel} | ${language}\n${movieTitle} ${movieYear}`,
+        name: `Pomfy | ${resLabel} | ${language}`,
         url: decryptResult.url,
         quality: resLabel.includes('1080') ? 1080 : 720,
         headers: {

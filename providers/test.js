@@ -42,12 +42,22 @@ async function getTmdbMetadata(tmdbId, type) {
         const res = await fetch(url);
         const data = await res.json();
         const date = data.release_date || data.first_air_date || "";
+        
+        // Logic to get duration: Movie runtime OR first episode runtime for TV
+        let duration = "N/A";
+        if (type === 'movie' && data.runtime) {
+            duration = data.runtime + ' min';
+        } else if (type === 'tv' && data.episode_run_time && data.episode_run_time.length > 0) {
+            duration = data.episode_run_time[0] + ' min';
+        }
+
         return {
             name: data.title || data.name || "Pomfy",
             year: date ? date.split('-')[0] : "",
-            duration: (type === 'movie' && data.runtime) ? data.runtime + ' min' : (type === 'tv' && data.episode_run_time?.length > 0 ? data.episode_run_time[0] + ' min' : "94 min")
+            duration: duration
         };
-    } catch (e) { return { name: "Pomfy", year: "", duration: "94 min" }; }
+    } catch (e) { 
+        return { name: "Pomfy", year: "", duration: "94 min" }; }
 }
 
 function buildTitle(meta, res, lang, format, size, extra, season, episode) {
@@ -320,16 +330,25 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const decryptResult = decryptPlayback(playbackData.playback);
 
     if (decryptResult.success) {
+        // This 'await' fetches the duration/year from TMDB exactly like Movix
         const meta = await getTmdbMetadata(finalTmdbId, mediaType);
-        const resLabel = decryptResult.url.includes('1080') ? '1080p' : (decryptResult.url.includes('720') ? '720p' : 'Auto');
-        const language = detailsData.language || "English • Portuguese";
+        
+        const resLabel = decryptResult.url.includes('1080') ? '1080p' : 
+                         decryptResult.url.includes('720') ? '720p' : 'Auto';
+        
+        const language = detailsData.language || "English / Dual";
 
         streams.push({
+            // Header
             name: `Pomfy | ${resLabel} | ${language}`,
+            // Sub-label using the duration we just fetched
             title: buildTitle(meta, resLabel, language, 'm3u8', 'Variable Size', 'Pomfy', season, episode),
             url: decryptResult.url,
             quality: resLabel.includes('1080') ? 1080 : 720,
-            headers: { "User-Agent": USER_AGENT, "Referer": embedUrl }
+            headers: {
+                "User-Agent": USER_AGENT,
+                "Referer": embedUrl
+            }
         });
     }
   } catch (error) { console.error("Stream failed:", error); }

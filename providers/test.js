@@ -18,10 +18,40 @@ var __async = (__this, __arguments, generator) => {
 };
 
 const API_POMFY = "https://api.pomfy.stream";
-const TMDB_API_KEY = "3644dd4950b67cd8067b8772de576d6b";
-const TMDB_BASE_URL = "https://api.themoviedb.org/3";
+const TMDB_KEY = '3644dd4950b67cd8067b8772de576d6b';
+const API_POMFY = "https://api.pomfy.stream";
 const COOKIE = "SITE_TOTAL_ID=aTYqe6GU65PNmeCXpelwJwAAAMi; __dtsu=104017651574995957BEB724C6373F9E; __cc_id=a44d1e52993b9c2Oaaf40eba24989a06";
 const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36";
+
+// Helper to fetch Movie Name, Year, and Duration
+async function getTmdbMetadata(tmdbId, type) {
+    const url = `https://api.themoviedb.org/3/${type === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_KEY}&language=en-US`;
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+        const date = data.release_date || data.first_air_date || "";
+        return {
+            name: data.title || data.name || "Pomfy",
+            year: date ? date.split('-')[0] : "",
+            duration: (type === 'movie' && data.runtime) ? data.runtime + ' min' : (type === 'tv' && data.episode_run_time?.length > 0 ? data.episode_run_time[0] + ' min' : "94 min")
+        };
+    } catch (e) { return { name: "Pomfy", year: "", duration: "94 min" }; }
+}
+
+// The Nuvio-style Layout Builder
+function buildTitle(meta, res, lang, format, size, extra, season, episode) {
+    let line1 = '🎬 ';
+    if (season && episode) {
+        line1 += `S${season} E${episode} | ${meta.name}`;
+    } else {
+        line1 += `${meta.name}${meta.year ? ' (' + meta.year + ')' : ''}`;
+    }
+
+    const columns = [res, lang, '💾 ' + (size || 'Variable Size')];
+    const line3 = `${(format || 'M3U8').toUpperCase()} | ${meta.duration} | ${extra}`;
+
+    return `${line1}\n${columns.join(' | ')}\n${line3}`;
+}
 
 const HEADERS = {
   "User-Agent": USER_AGENT,
@@ -333,27 +363,31 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const playbackData = await playbackResponse.json();
     if (!playbackData.playback) return [];
 
-                    // 6. Final Decrypt
+    // 6. Final Decrypt & UI Construction
     const decryptResult = decryptPlayback(playbackData.playback);
 
     if (decryptResult.success) {
-      // Hardcode the labels to prevent the app from adding ".0"
-      const resLabel = decryptResult.url.includes('1080') ? '1080p' : 
-                       decryptResult.url.includes('720') ? '720p' : 'Auto';
-      
-      const language = detailsData.language || "English / Dual";
+        // Fetch the extra metadata (Year/Duration)
+        const meta = await getTmdbMetadata(tmdbId, mediaType);
+        
+        // Clean resolution string (Prevents the .0 issue)
+        const resLabel = decryptResult.url.includes('1080') ? '1080p' : 
+                         decryptResult.url.includes('720') ? '720p' : 'Auto';
+        
+        const language = detailsData.language || "English / Dual";
 
-      // We provide ONLY the header line. 
-      // The app will use this to generate the rest of the UI.
-      streams.push({
-        name: `Pomfy | ${resLabel} | ${language}`,
-        url: decryptResult.url,
-        quality: resLabel.includes('1080') ? 1080 : 720,
-        headers: {
-          "User-Agent": USER_AGENT,
-          "Referer": embedUrl
-        }
-      });
+        streams.push({
+            // This is the BOLD HEADER
+            name: `Pomfy | ${resLabel} | ${language}`,
+            // This is the MULTI-LINE INFO underneath
+            title: buildTitle(meta, resLabel, language, 'm3u8', 'Variable Size', 'Pomfy', season, episode),
+            url: decryptResult.url,
+            quality: resLabel.includes('1080') ? 1080 : 720,
+            headers: {
+                "User-Agent": USER_AGENT,
+                "Referer": embedUrl
+            }
+        });
     }
     
   } catch (error) {

@@ -52,6 +52,7 @@ var HEADERS = {
 };
 var visitedUrls = /* @__PURE__ */ new Set();
 var processedFiles = /* @__PURE__ */ new Set();
+
 function fetchSafe(_0) {
   return __async(this, arguments, function* (url, options = {}, timeout = REQUEST_TIMEOUT) {
     try {
@@ -383,7 +384,9 @@ function resolveHubCloud(url, label, quality) {
     visitedUrls.add(url);
     try {
       let bridgeUrl = url;
-      if (!url.includes("hubcloud.php")) {
+      const origin = getOrigin(url);
+      
+      if (!url.includes("hubcloud.php") && !url.includes("/drive/")) {
         console.log("[" + PROVIDER_NAME + "] HubCloud: fetching landing page " + url.substring(0, 80));
         const hubHeaders = __spreadProps(__spreadValues({}, HEADERS), { "Referer": MAIN_URL + "/", "Cookie": "xla=s4t" });
         const $ = yield fetchHtml(url, { headers: hubHeaders });
@@ -395,7 +398,6 @@ function resolveHubCloud(url, label, quality) {
         const varUrlMatch = html.match(/var url\s*=\s*'([^']+)'/);
         if (varUrlMatch) {
           bridgeUrl = varUrlMatch[1];
-          console.log("[" + PROVIDER_NAME + "] HubCloud: found bridge URL -> " + bridgeUrl.substring(0, 100));
         } else {
           const downloadHref = $("#download").attr("href") || $("a").filter((i, el) => {
             var _a;
@@ -405,36 +407,42 @@ function resolveHubCloud(url, label, quality) {
             console.log("[" + PROVIDER_NAME + "] HubCloud: no bridge URL found");
             return [];
           }
-          bridgeUrl = downloadHref.startsWith("http") ? downloadHref : getOrigin(url) + "/" + downloadHref.replace(/^\//, "");
+          bridgeUrl = downloadHref.startsWith("http") ? downloadHref : origin + "/" + downloadHref.replace(/^\//, "");
         }
       }
-      console.log("[" + PROVIDER_NAME + "] HubCloud: fetching bridge page " + bridgeUrl.substring(0, 100));
+
+      console.log("[" + PROVIDER_NAME + "] HubCloud: fetching download/bridge page " + bridgeUrl.substring(0, 100));
       const $b = yield fetchHtml(bridgeUrl, { headers: __spreadProps(__spreadValues({}, HEADERS), { "Referer": url, "Cookie": "xla=s4t" }) });
       if (!$b)
         return [];
-      const detectedQuality = parseQuality($b("div.card-header").text()) || quality;
+
+      const detectedQuality = parseQuality($b("div.card-header, h1, h2, title").text()) || quality;
       const streams = [];
       const bridgeRef = bridgeUrl;
+
       const fslLink = $b("a#fsl").attr("href");
       if (fslLink) {
-        console.log("[" + PROVIDER_NAME + "] HubCloud: FSL link found");
         streams.push(makeStream("FSL | " + detectedQuality, label + " [FSL Server]", fslLink, detectedQuality, { "Referer": bridgeRef }));
       }
-      $b("a.btn, a.btn2, a.btn-success, a.btn-success1, a.btn-lg").each((i, el) => {
+
+      // Scan all potential anchor elements for download and stream nodes
+      $b("a.btn, a.btn2, a.btn-success, a.btn-success1, a.btn-lg, a.download, #download").each((i, el) => {
         const link = $b(el).attr("href");
         const text = $b(el).text().toLowerCase();
-        if (!link)
+        if (!link || link.startsWith("javascript:"))
           return;
-        if (text.includes("fsl") && !link.includes("fsl")) {
-          streams.push(makeStream("FSL | " + detectedQuality, label + " [FSL]", link, detectedQuality, { "Referer": bridgeRef }));
-        } else if (text.includes("download file") || text.includes("s3 server")) {
-          streams.push(makeStream("HubCloud | " + detectedQuality, label + " [" + text.toUpperCase().trim() + "]", link, detectedQuality, { "Referer": bridgeRef }));
+
+        const absoluteLink = link.startsWith("http") ? link : origin + (link.startsWith("/") ? "" : "/") + link;
+
+        if (text.includes("fsl") && !absoluteLink.includes("fsl")) {
+          streams.push(makeStream("FSL | " + detectedQuality, label + " [FSL]", absoluteLink, detectedQuality, { "Referer": bridgeRef }));
+        } else if (text.includes("download") || text.includes("server") || text.includes("direct") || absoluteLink.match(/\.(mp4|mkv|m4v)$/i)) {
+          streams.push(makeStream("HubCloud | " + detectedQuality, label + " [" + (text.toUpperCase().trim() || "DIRECT") + "]", absoluteLink, detectedQuality, { "Referer": bridgeRef }));
         } else if (text.includes("10gbps") || text.includes("10 gbps")) {
-          streams.push(makeStream("10Gbps | " + detectedQuality, label + " [10Gbps]", link, detectedQuality, { "Referer": bridgeRef }));
-        } else if (text.includes("fslv2")) {
-          streams.push(makeStream("FSLv2 | " + detectedQuality, label + " [FSLv2]", link, detectedQuality, { "Referer": bridgeRef }));
+          streams.push(makeStream("10Gbps | " + detectedQuality, label + " [10Gbps]", absoluteLink, detectedQuality, { "Referer": bridgeRef }));
         }
       });
+
       console.log("[" + PROVIDER_NAME + "] HubCloud: found " + streams.length + " playable streams");
       return streams;
     } catch (e) {
@@ -448,7 +456,45 @@ function resolveGDFlix(url, label, quality) {
     if (visitedUrls.has(url))
       return [];
     visitedUrls.add(url);
-    return [];
+    try {
+      console.log("[" + PROVIDER_NAME + "] GDFlix: fetching resource page " + url.substring(0, 80));
+      const $ = yield fetchHtml(url, { headers: HEADERS });
+      if (!$) {
+        console.log("[" + PROVIDER_NAME + "] GDFlix: initialization page missing");
+        return [];
+      }
+
+      const streams = [];
+      const origin = getOrigin(url);
+      const detectedQuality = parseQuality($("h1, h2, .filename, title").text()) || quality;
+
+      // Locate download tokens/paths common to GDFlix platforms
+      $("a.btn, a.btn-success, button[formaction]").each((i, el) => {
+        let link = $(el).attr("href") || $(el).attr("formaction");
+        const text = $(el).text().toLowerCase();
+        if (!link || link.startsWith("javascript:")) return;
+
+        const absoluteLink = link.startsWith("http") ? link : origin + (link.startsWith("/") ? "" : "/") + link;
+
+        if (text.includes("download") || text.includes("watch") || text.includes("stream") || text.includes("drive")) {
+          streams.push(makeStream("GDFlix | " + detectedQuality, label + " [Cloud Server]", absoluteLink, detectedQuality, { "Referer": url }));
+        }
+      });
+
+      // Look for fallbacks or inline redirect values
+      const htmlContent = $.html();
+      const redirectMatch = htmlContent.match(/window\.location\.replace\(['"]([^'"]+)['"]\)/) || htmlContent.match(/var url\s*=\s*['"]([^'"]+)['"]/);
+      if (redirectMatch && streams.length === 0) {
+        const nextUrl = redirectMatch[1].startsWith("http") ? redirectMatch[1] : origin + redirectMatch[1];
+        return yield resolveGDFlix(nextUrl, label, detectedQuality);
+      }
+
+      console.log("[" + PROVIDER_NAME + "] GDFlix: parsed " + streams.length + " links");
+      return streams;
+    } catch (e) {
+      console.error("[" + PROVIDER_NAME + "] GDFlix parsing failed: " + e.message);
+      return [];
+    }
   });
 }
 function resolveZinkCloud(url, label, quality) {

@@ -333,22 +333,24 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const playbackData = await playbackResponse.json();
     if (!playbackData.playback) return [];
 
-    // 6. Final Decrypt
+        // 6. Final Decrypt
     const decryptResult = decryptPlayback(playbackData.playback);
 
-       if (decryptResult.success) {
-      const autoRes = decryptResult.url.includes('1080') ? '1080p' : 
-                      decryptResult.url.includes('720') ? '720p' : 'Auto';
+    if (decryptResult.success) {
+      // Force resolution to string and remove any trailing .0
+      const resLabel = decryptResult.url.includes('1080') ? '1080p' : 
+                       decryptResult.url.includes('720') ? '720p' : 'Auto';
       
       const language = detailsData.language || "English / Dual";
-      // Get title and year from detailsData or fallback to a placeholder if not present
-      const title = detailsData.title || "Unknown Title";
-      const year = detailsData.year || "";
+      
+      // Use the info Pomfy provides in the details call
+      const movieTitle = detailsData.title || "Movie";
+      const movieYear = detailsData.year || "2026";
 
       streams.push({
-        name: `Pomfy | ${autoRes} | ${language}\n${title} (${year})`,
+        name: `Pomfy | ${resLabel} | ${language}\n${movieTitle} (${movieYear})`,
         url: decryptResult.url,
-        quality: autoRes.includes('1080') ? 1080 : 720,
+        quality: resLabel.includes('1080') ? 1080 : 720,
         headers: {
           "User-Agent": USER_AGENT,
           "Referer": embedUrl

@@ -445,10 +445,34 @@ function resolveHubCloud(url, label, quality) {
 }
 function resolveGDFlix(url, label, quality) {
   return __async(this, null, function* () {
-    if (visitedUrls.has(url))
-      return [];
+    if (visitedUrls.has(url)) return [];
     visitedUrls.add(url);
-    return [];
+    try {
+      console.log("[" + PROVIDER_NAME + "] GDFlix: Probing " + url.substring(0, 60));
+      const res = yield fetchSafe(url, { headers: HEADERS });
+      if (!res) return [];
+      const html = yield res.text();
+      const $ = cheerio.load(html);
+
+      const streams = [];
+      // GDFlix often hides the link in a 'Direct Download' button or a script redirect
+      const driveLink = html.match(/window\.location\.replace\(['"]([^'"]+)['"]\)/) || 
+                        html.match(/href=['"]([^'"]+googleusercontent[^'"]+)['"]/);
+
+      if (driveLink) {
+        streams.push(makeStream("GDFlix | Direct", label, driveLink[1], quality));
+      }
+
+      // Check for HubCloud buttons inside GDFlix
+      $("a[href*='hubcloud']").each((i, el) => {
+        const href = $(el).attr("href");
+        if (href) streams.push(...yield resolveHubCloud(href, label, quality));
+      });
+
+      return streams;
+    } catch (e) {
+      return [];
+    }
   });
 }
 function resolveZinkCloud(url, label, quality) {

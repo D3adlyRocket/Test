@@ -62,7 +62,7 @@ async function getTmdbMetadata(tmdbId, type) {
 
 function buildTitle(meta, res, lang, format, size, extra, season, episode) {
     // Icon Logic
-    const qIcon = res.includes('1080') ? '💎' : '📺';
+    const qIcon = res.includes('1080') ? '📺' : '💎';
     const lIcon = '🌍'; // Global icon for Pomfy's Dual/English streams
 
     // --- Line 1: Identity ---
@@ -336,7 +336,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         const resLabel = decryptResult.url.includes('1080') ? '1080p' : 
                          decryptResult.url.includes('720') ? '720p' : 'Auto';
         
-        const language = detailsData.language || "English / Dual";
+        const language = detailsData.language || "English • Portuguese";
 
         streams.push({
             // Header

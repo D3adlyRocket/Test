@@ -333,22 +333,25 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const playbackData = await playbackResponse.json();
     if (!playbackData.playback) return [];
 
-        // 6. Final Decrypt
+            // 6. Final Decrypt
     const decryptResult = decryptPlayback(playbackData.playback);
 
     if (decryptResult.success) {
-      // Force resolution to string and remove any trailing .0
       const resLabel = decryptResult.url.includes('1080') ? '1080p' : 
                        decryptResult.url.includes('720') ? '720p' : 'Auto';
       
       const language = detailsData.language || "English / Dual";
-      
-      // Use the info Pomfy provides in the details call
       const movieTitle = detailsData.title || "Movie";
-      const movieYear = detailsData.year || "2026";
+      const movieYear = detailsData.year ? `(${detailsData.year})` : "";
+      
+      // Clean formatting for the app's list view
+      const size = detailsData.size || "Variable Size";
+      const duration = detailsData.duration || "94 min";
+      const format = "M3U8";
+      const extra = "Surgical Fix";
 
       streams.push({
-        name: `Pomfy | ${resLabel} | ${language}\n${movieTitle} (${movieYear})`,
+        name: `Pomfy | ${resLabel} | ${language}\n${movieTitle} ${movieYear}\n${resLabel} | ${language} | ${size}\n${format} | ${duration} | ${extra}`,
         url: decryptResult.url,
         quality: resLabel.includes('1080') ? 1080 : 720,
         headers: {

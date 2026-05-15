@@ -378,64 +378,55 @@ function resolveEmbed(imdbId, label, isTv = false, season, episode) {
 }
 function resolveHubCloud(url, label, quality) {
   return __async(this, null, function* () {
-    if (visitedUrls.has(url))
-      return [];
+    if (visitedUrls.has(url)) return [];
     visitedUrls.add(url);
     try {
-      let bridgeUrl = url;
-      if (!url.includes("hubcloud.php")) {
-        console.log("[" + PROVIDER_NAME + "] HubCloud: fetching landing page " + url.substring(0, 80));
-        const hubHeaders = __spreadProps(__spreadValues({}, HEADERS), { "Referer": MAIN_URL + "/", "Cookie": "xla=s4t" });
-        const $ = yield fetchHtml(url, { headers: hubHeaders });
-        if (!$) {
-          console.log("[" + PROVIDER_NAME + "] HubCloud: landing page fetch failed");
-          return [];
-        }
-        const html = $.html();
-        const varUrlMatch = html.match(/var url\s*=\s*'([^']+)'/);
-        if (varUrlMatch) {
-          bridgeUrl = varUrlMatch[1];
-          console.log("[" + PROVIDER_NAME + "] HubCloud: found bridge URL -> " + bridgeUrl.substring(0, 100));
-        } else {
-          const downloadHref = $("#download").attr("href") || $("a").filter((i, el) => {
-            var _a;
-            return (_a = $(el).attr("href")) == null ? void 0 : _a.includes("hubcloud.php");
-          }).attr("href");
-          if (!downloadHref) {
-            console.log("[" + PROVIDER_NAME + "] HubCloud: no bridge URL found");
-            return [];
-          }
-          bridgeUrl = downloadHref.startsWith("http") ? downloadHref : getOrigin(url) + "/" + downloadHref.replace(/^\//, "");
-        }
-      }
-      console.log("[" + PROVIDER_NAME + "] HubCloud: fetching bridge page " + bridgeUrl.substring(0, 100));
-      const $b = yield fetchHtml(bridgeUrl, { headers: __spreadProps(__spreadValues({}, HEADERS), { "Referer": url, "Cookie": "xla=s4t" }) });
-      if (!$b)
-        return [];
-      const detectedQuality = parseQuality($b("div.card-header").text()) || quality;
+      // These headers include the 'xyt=1' cookie we found in your DevTools
+      const hubHeaders = __spreadProps(__spreadValues({}, HEADERS), { 
+        "Cookie": "xyt=1; xla=s4t", 
+        "Referer": url 
+      });
+
+      console.log("[" + PROVIDER_NAME + "] HubCloud: Probing " + url.substring(0, 60));
+      const res = yield fetchSafe(url, { headers: hubHeaders });
+      if (!res) return [];
+      
+      const html = yield res.text();
+      const $ = cheerio.load(html);
       const streams = [];
-      const bridgeRef = bridgeUrl;
-      const fslLink = $b("a#fsl").attr("href");
-      if (fslLink) {
-        console.log("[" + PROVIDER_NAME + "] HubCloud: FSL link found");
-        streams.push(makeStream("FSL | " + detectedQuality, label + " [FSL Server]", fslLink, detectedQuality, { "Referer": bridgeRef }));
+      const origin = getOrigin(url);
+
+      // BYPASS LOGIC: Look for the Google link or the GamerXyt blog link immediately
+      const googleMatch = html.match(/href=['"]([^'"]+googleusercontent[^'"]+)['"]/);
+      if (googleMatch) {
+        console.log("[" + PROVIDER_NAME + "] HubCloud: Found direct Google link!");
+        streams.push(makeStream("Direct | " + quality, label + " [High Speed]", googleMatch[1], quality));
       }
-      $b("a.btn, a.btn2, a.btn-success, a.btn-success1, a.btn-lg").each((i, el) => {
-        const link = $b(el).attr("href");
-        const text = $b(el).text().toLowerCase();
-        if (!link)
-          return;
-        if (text.includes("fsl") && !link.includes("fsl")) {
-          streams.push(makeStream("FSL | " + detectedQuality, label + " [FSL]", link, detectedQuality, { "Referer": bridgeRef }));
-        } else if (text.includes("download file") || text.includes("s3 server")) {
-          streams.push(makeStream("HubCloud | " + detectedQuality, label + " [" + text.toUpperCase().trim() + "]", link, detectedQuality, { "Referer": bridgeRef }));
-        } else if (text.includes("10gbps") || text.includes("10 gbps")) {
-          streams.push(makeStream("10Gbps | " + detectedQuality, label + " [10Gbps]", link, detectedQuality, { "Referer": bridgeRef }));
-        } else if (text.includes("fslv2")) {
-          streams.push(makeStream("FSLv2 | " + detectedQuality, label + " [FSLv2]", link, detectedQuality, { "Referer": bridgeRef }));
+
+      // If we are on the GamerXyt blog page, find the final button
+      if (url.includes("gamerxyt.com") || html.includes("gamerxyt.com")) {
+        $("a, button").each((i, el) => {
+          const href = $(el).attr("href") || $(el).attr("formaction");
+          if (href && href.includes("googleusercontent")) {
+            streams.push(makeStream("Direct | " + quality, label, href, quality));
+          }
+        });
+      }
+
+      // STANDARD LOGIC: Fallback to scraping buttons
+      $("a.btn, a.btn-success, .download-link").each((i, el) => {
+        const text = $(el).text().toLowerCase();
+        const href = $(el).attr("href");
+        if (!href || href.startsWith("javascript")) return;
+
+        const absLink = href.startsWith("http") ? href : origin + (href.startsWith("/") ? "" : "/") + href;
+        
+        if (text.includes("10gbps") || text.includes("direct") || text.includes("download")) {
+           streams.push(makeStream("HubCloud | " + quality, label, absLink, quality));
         }
       });
-      console.log("[" + PROVIDER_NAME + "] HubCloud: found " + streams.length + " playable streams");
+
+      console.log("[" + PROVIDER_NAME + "] HubCloud: found " + streams.length + " streams");
       return streams;
     } catch (e) {
       console.error("[" + PROVIDER_NAME + "] HubCloud error: " + e.message);

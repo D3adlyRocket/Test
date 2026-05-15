@@ -336,15 +336,17 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     // 6. Final Decrypt
     const decryptResult = decryptPlayback(playbackData.playback);
 
-    if (decryptResult.success) {
+       if (decryptResult.success) {
       const autoRes = decryptResult.url.includes('1080') ? '1080p' : 
                       decryptResult.url.includes('720') ? '720p' : 'Auto';
       
       const language = detailsData.language || "English / Dual";
+      // Get title and year from detailsData or fallback to a placeholder if not present
+      const title = detailsData.title || "Unknown Title";
+      const year = detailsData.year || "";
 
       streams.push({
-        // SURGICAL FIX APPLIED HERE ONLY
-        name: `Pomfy | ${autoRes} | ${language}`,
+        name: `Pomfy | ${autoRes} | ${language}\n${title} (${year})`,
         url: decryptResult.url,
         quality: autoRes.includes('1080') ? 1080 : 720,
         headers: {

@@ -333,25 +333,22 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const playbackData = await playbackResponse.json();
     if (!playbackData.playback) return [];
 
-            // 6. Final Decrypt
+                // 6. Final Decrypt
     const decryptResult = decryptPlayback(playbackData.playback);
 
     if (decryptResult.success) {
+      // Force clean resolution label
       const resLabel = decryptResult.url.includes('1080') ? '1080p' : 
                        decryptResult.url.includes('720') ? '720p' : 'Auto';
       
       const language = detailsData.language || "English / Dual";
       const movieTitle = detailsData.title || "Movie";
       const movieYear = detailsData.year ? `(${detailsData.year})` : "";
-      
-      // Clean formatting for the app's list view
-      const size = detailsData.size || "Variable Size";
-      const duration = detailsData.duration || "94 min";
-      const format = "M3U8";
-      const extra = "Surgical Fix";
 
+      // We only provide Line 1 and Line 2. 
+      // The app's UI will handle generating the sub-label automatically.
       streams.push({
-        name: `Pomfy | ${resLabel} | ${language}\n${movieTitle} ${movieYear}\n${resLabel} | ${language} | ${size}\n${format} | ${duration} | ${extra}`,
+        name: `Pomfy | ${resLabel} | ${language}\n${movieTitle} ${movieYear}`,
         url: decryptResult.url,
         quality: resLabel.includes('1080') ? 1080 : 720,
         headers: {
@@ -360,7 +357,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         }
       });
     }
-
+    
   } catch (error) {
     console.error("Stream failed:", error);
   }

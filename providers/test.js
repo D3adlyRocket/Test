@@ -51,14 +51,28 @@ async function getTmdbMetadata(tmdbId, type) {
 }
 
 function buildTitle(meta, res, lang, format, size, extra, season, episode) {
+    // Icon Logic
+    const qIcon = res.includes('1080') ? '💎' : '📺';
+    const lIcon = '🌍'; // Global icon for Pomfy's Dual/English streams
+
+    // --- Line 1: Identity ---
     let line1 = '🎬 ';
     if (season && episode) {
         line1 += `S${season} E${episode} | ${meta.name}`;
     } else {
         line1 += `${meta.name}${meta.year ? ' (' + meta.year + ')' : ''}`;
     }
-    const columns = [res, lang, '💾 ' + (size || 'Variable Size')];
-    const line3 = `${(format || 'M3U8').toUpperCase()} | ${meta.duration} | ${extra}`;
+
+    // --- Line 2: Technical Specs with Icons ---
+    const columns = [
+        `${qIcon} ${res}`,
+        `${lIcon} ${lang}`,
+        `💾 ${size || 'Variable Size'}`
+    ];
+
+    // --- Line 3: Format, Duration & Extra ---
+    const line3 = `🎞️ ${(format || 'M3U8').toUpperCase()} | ⏱️ ${meta.duration} | 🛠️ ${extra}`;
+
     return `${line1}\n${columns.join(' | ')}\n${line3}`;
 }
 

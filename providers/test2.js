@@ -342,7 +342,18 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             // Header
             name: `Pomfy | ${resLabel} | ${language}`,
             // Sub-label using the duration we just fetched
-            title: buildTitle(meta, resLabel, language, 'm3u8', 'Variable Size', 'Pomfy', season, episode),
+            const size = await getM3U8Size(decryptResult.url, meta.duration);
+
+        title: buildTitle(
+        meta,
+        resLabel,
+        language,
+        'm3u8',
+        size,
+        'Pomfy',
+        season,
+        episode
+),
             url: decryptResult.url,
             quality: resLabel.includes('1080') ? 1080 : 720,
             headers: {
@@ -354,5 +365,139 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
   } catch (error) { console.error("Stream failed:", error); }
   return streams;
 }
+async function getM3U8Size(m3u8Url, durationText) {
+    try {
+        const res = await fetch(m3u8Url, {
+            headers: {
+                "User-Agent": USER_AGENT,
+                "Referer": "https://pomfy.online/"
+            }
+        });
 
+        if (!res.ok) return "Variable Size";
+
+        const text = await res.text();
+
+        // --------------------------------
+        // METHOD 1: Exact segment size
+        // --------------------------------
+
+        const lines = text.split("\n");
+
+        const segments = lines.filter(line =>
+            line &&
+            !line.startsWith("#") &&
+            (
+                line.includes(".ts") ||
+                line.includes(".m4s")
+            )
+        );
+
+        // Use first 8 segments for estimation
+        const sampleSegments = segments.slice(0, 8);
+
+        if (sampleSegments.length > 0) {
+
+            let totalSampleSize = 0;
+
+            for (const seg of sampleSegments) {
+
+                const segUrl = seg.startsWith("http")
+                    ? seg
+                    : new URL(seg, m3u8Url).href;
+
+                try {
+
+                    const head = await fetch(segUrl, {
+                        method: "HEAD",
+                        headers: {
+                            "User-Agent": USER_AGENT,
+                            "Referer": "https://pomfy.online/"
+                        }
+                    });
+
+                    const len = Number(
+                        head.headers.get("content-length")
+                    );
+
+                    if (len > 0) {
+                        totalSampleSize += len;
+                    }
+
+                } catch {}
+            }
+
+            // Estimate using segment duration
+            const durations = [];
+
+            const regex = /#EXTINF:([\d\.]+)/g;
+
+            let match;
+
+            while ((match = regex.exec(text)) !== null) {
+                durations.push(parseFloat(match[1]));
+            }
+
+            const avgSegDuration =
+                durations.length > 0
+                    ? durations.reduce((a,b)=>a+b,0) / durations.length
+                    : 6;
+
+            const totalDurationSec =
+                parseInt(durationText) * 60;
+
+            const estimatedSegments =
+                totalDurationSec / avgSegDuration;
+
+            const avgSegSize =
+                totalSampleSize / sampleSegments.length;
+
+            const estimatedTotal =
+                avgSegSize * estimatedSegments;
+
+            return formatBytes(estimatedTotal);
+        }
+
+        // --------------------------------
+        // METHOD 2: Bitrate fallback
+        // --------------------------------
+
+        const bwMatch = text.match(/BANDWIDTH=(\d+)/);
+
+        if (bwMatch) {
+
+            const bandwidth = parseInt(bwMatch[1]);
+
+            const mins = parseInt(durationText);
+
+            const secs = mins * 60;
+
+            const size =
+                (bandwidth * secs) / 8;
+
+            return formatBytes(size);
+        }
+
+        return "Variable Size";
+
+    } catch (e) {
+        return "Variable Size";
+    }
+}
+function formatBytes(bytes) {
+
+    if (!bytes || isNaN(bytes))
+        return "Variable Size";
+
+    const gb =
+        bytes / 1024 / 1024 / 1024;
+
+    if (gb >= 1)
+        return `${gb.toFixed(2)} GB`;
+
+    const mb =
+        bytes / 1024 / 1024;
+
+    return `${mb.toFixed(0)} MB`;
+}
 module.exports = { getStreams };

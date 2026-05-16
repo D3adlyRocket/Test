@@ -264,21 +264,18 @@ function generateFingerprint() {
 }
 
 function normalizeMediaType(type) {
-    if (!type) return "movie";
-
-    type = String(type).toLowerCase();
+    type = String(type || "").toLowerCase();
 
     if (
-        type === "tv" ||
-        type === "series" ||
-        type === "show"
+        type.includes("tv") ||
+        type.includes("series") ||
+        type.includes("show")
     ) {
         return "tv";
     }
 
     return "movie";
 }
-
 function isImdbId(id) {
     return typeof id === "string" &&
         id.toLowerCase().startsWith("tt");
@@ -325,7 +322,14 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       if (conversion.success) finalTmdbId = conversion.tmdbId;
     }
     
-    const isTv = mediaType === "tv";
+    const isTv = [
+    "tv",
+    "series",
+    "show",
+    "tvshow",
+    "tvshows",
+    "tv_series"
+].includes(String(mediaType).toLowerCase());
 
 const s = Number(season) || 1;
 const e = Number(episode) || 1;

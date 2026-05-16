@@ -142,6 +142,16 @@ function utf8BytesToString(bytes) {
   }
   return str;
 }
+function formatBytes(bytes) {
+  if (!bytes || isNaN(bytes)) return "Variable Size";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (bytes >= 1024 && i < units.length - 1) {
+    bytes /= 1024;
+    i++;
+  }
+  return `${bytes.toFixed(2)} ${units[i]}`;
+}
 function stringToUtf8Bytes(str) {
   const bytes = [];
   for (let i = 0; i < str.length; i++) {
@@ -304,15 +314,15 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     if (!response.ok) return [];
 
     const html = await response.text();
-    
-    if (!linkMatch) return [];
-
-    const byseUrl = linkMatch[1];
-    const byseId = byseUrl.split("/").pop();
     let linkMatch =
     html.match(/const\s+link\s*=\s*"([^"]+)"/) ||
     html.match(/"link"\s*:\s*"([^"]+)"/) ||
     html.match(/const\s+link\s*=\s*'([^']+)'/);
+    if (!linkMatch) return [];
+
+    const byseUrl = linkMatch[1];
+    const byseId = byseUrl.split("/").pop();
+    
     const detailsResponse = await fetch(`https://pomfy-cdn.shop/api/videos/${byseId}/embed/details`, {
       headers: { "accept": "*/*", "referer": byseUrl, "x-embed-origin": "api.pomfy.stream", "x-embed-parent": byseUrl, "user-agent": USER_AGENT, "Cookie": COOKIE }
     });

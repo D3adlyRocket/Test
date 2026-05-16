@@ -353,8 +353,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         const language = detailsData.language || "English • Portuguese";
         const size = await getM3U8Size(resolvedUrl, meta.duration);
 
-        streams.push({
-            // The 'name' is what displays in the top bar
+                streams.push({
             name: `Pomfy | ${resLabel} | ${language}`,
             title: buildTitle(
                 meta,
@@ -367,8 +366,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
                 mediaType === "tv" ? e : null
             ),
             url: resolvedUrl,
-            // REMOVED: quality: ... 
-            // By removing the quality key, the UI stops appending the "- 1080.0" to the name
+            // Pass quality as an empty string to trick the UI into showing nothing
+            quality: "", 
             headers: {
                 "User-Agent": USER_AGENT,
                 "Referer": embedUrl

@@ -303,7 +303,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       if (conversion.success) finalTmdbId = conversion.tmdbId;
     }
     
-    // Fixed Series handling: Safeguard falls back to 1 if argument missing or falsy
     const s = mediaType === "movie" ? 1 : (season || 1);
     const e = mediaType === "movie" ? 1 : (episode || 1);
 
@@ -344,20 +343,18 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         const meta = await getTmdbMetadata(finalTmdbId, mediaType);
         const resolvedUrl = decryptResult.url;
 
-        // Pick up resolution variants embedded inside structural URL paths or fallback
         let resLabel = 'Auto';
         if (resolvedUrl.includes('1080') || resolvedUrl.includes('_1080p')) {
             resLabel = '1080p';
         } else if (resolvedUrl.includes('720') || resolvedUrl.includes('_720p')) {
             resLabel = '720p';
-        } else if (resolvedUrl.includes('480') || resolvedUrl.includes('_480p')) {
-            resLabel = '480p';
         }
 
         const language = detailsData.language || "English • Portuguese";
         const size = await getM3U8Size(resolvedUrl, meta.duration);
 
         streams.push({
+            // The 'name' is what displays in the top bar
             name: `Pomfy | ${resLabel} | ${language}`,
             title: buildTitle(
                 meta,
@@ -370,7 +367,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
                 mediaType === "tv" ? e : null
             ),
             url: resolvedUrl,
-            quality: resLabel.includes('1080') ? 1080 : (resLabel.includes('720') ? 720 : 480),
+            // REMOVED: quality: ... 
+            // By removing the quality key, the UI stops appending the "- 1080.0" to the name
             headers: {
                 "User-Agent": USER_AGENT,
                 "Referer": embedUrl

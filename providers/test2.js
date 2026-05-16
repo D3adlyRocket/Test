@@ -303,7 +303,7 @@ function decryptPlayback(playback) {
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
 
-    mediaType = normalizeMediaType(mediaType);
+    
 
     const streams = [];
   let finalTmdbId = tmdbId;

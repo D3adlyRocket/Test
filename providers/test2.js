@@ -365,7 +365,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             language,
             'm3u8',
             size,
-            'Pomfy',
             season,
             episode
         ),

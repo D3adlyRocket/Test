@@ -465,9 +465,9 @@ async function getM3U8Size(m3u8Url, durationText) {
                     ? durations.reduce((a,b)=>a+b,0) / durations.length
                     : 6;
 
-            const totalDurationSec =
-                parseInt(durationText) * 60;
-
+            const minutes = parseInt(durationText) || 0;
+            const totalDurationSec = minutes * 60;
+          
             const estimatedSegments =
                 totalDurationSec / avgSegDuration;
 

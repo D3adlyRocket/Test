@@ -353,9 +353,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         const language = detailsData.language || "English • Portuguese";
         const size = await getM3U8Size(resolvedUrl, meta.duration);
 
-                    streams.push({
-            // Set name to a zero-width space so the leading part is invisible
-            name: '\u200B', 
+                streams.push({
+            // Place the icon here. The UI will render: 🎦 - Pomfy...
+            name: '🎦', 
             
             title: buildTitle(
                 meta,
@@ -370,8 +370,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             
             url: resolvedUrl,
 
-            // Put your actual display text here. 
-            // The UI will render: [Invisible Name] - Pomfy | 1080p...
+            // Your main info stays here
             quality: `Pomfy | ${resLabel} | ${language}`, 
 
             headers: {

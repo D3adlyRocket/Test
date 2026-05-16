@@ -40,9 +40,11 @@ var __async = (__this, __arguments, generator) => {
 
 // src/zinkmovies/index.js
 var cheerio = require("cheerio-without-node-native");
+var CryptoJS = require("crypto-js");
 var PROVIDER_NAME = "Asura | ZinkMovies";
 var MAIN_URL = "https://new7.zinkmovies.biz";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var HRUJO_KEY = "1EN-Yy+CfM39lPQMhPhiCSKDaYA6mRO++nHNRq9ZfhtGHPwC8DWQq9q5IGK49Iqc";
 var REQUEST_TIMEOUT = 1e4;
 var HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
@@ -114,9 +116,18 @@ function similarity(s1, s2, year) {
     return 0;
   const clean = (s) => s.toLowerCase().replace(/[^a-z0-9\s]/g, "").split(/\s+/).filter(Boolean);
   const w1 = clean(s1);
-  const w2 = new Set(clean(s2));
-  const intersection = w1.filter((x) => w2.has(x)).length;
+  const w2 = clean(s2);
+  const w2Set = new Set(w2);
+  const intersection = w1.filter((x) => w2Set.has(x)).length;
   let score = intersection / Math.max(w1.length, 1);
+  if (w1.length <= 4 && score > 0) {
+    const s1lower = s1.toLowerCase().trim();
+    const s2lower = s2.toLowerCase().trim();
+    const prefixLen = Math.min(s1lower.length, s2lower.length);
+    if (s2lower.substring(0, prefixLen) !== s1lower.substring(0, prefixLen)) {
+      score = Math.max(0, score - 0.5);
+    }
+  }
   if (year && String(s2).includes(String(year)))
     score += 0.3;
   if (s2.toLowerCase().startsWith(s1.toLowerCase()))
@@ -148,7 +159,13 @@ function dedupe(streams) {
   });
 }
 function makeStream(name, title, url, quality, headers = {}) {
-  return { name: PROVIDER_NAME + " | " + name, title, url, quality, headers };
+  return {
+    name: PROVIDER_NAME + " | " + name,
+    title,
+    url,
+    quality,
+    headers: __spreadValues({ "User-Agent": HEADERS["User-Agent"] }, headers)
+  };
 }
 function getOrigin(url) {
   try {
@@ -257,57 +274,134 @@ function extractBraceObject(str, startIdx) {
   }
   return null;
 }
+function decryptPlaylist(encryptedText, p3Key) {
+  if (!encryptedText || !CryptoJS)
+    return encryptedText;
+  if (!p3Key || p3Key.length < 16)
+    return encryptedText;
+  const ivStr = p3Key.substring(0, 16);
+  try {
+    const key = CryptoJS.enc.Base64.parse(HRUJO_KEY);
+    const iv = CryptoJS.enc.Utf8.parse(ivStr);
+    const decrypted = CryptoJS.AES.decrypt(encryptedText, key, {
+      iv,
+      mode: CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7
+    });
+    const result = decrypted.toString(CryptoJS.enc.Utf8);
+    if (result && result.length > 0) {
+      console.log("[" + PROVIDER_NAME + "] Embed: AES-256 decrypt OK (" + result.length + " bytes)");
+      return result;
+    }
+  } catch (e) {
+    console.log("[" + PROVIDER_NAME + "] Embed: AES-256 try 1 failed: " + e.message);
+  }
+  try {
+    const key = CryptoJS.enc.Utf8.parse(p3Key.substring(0, 32));
+    const iv = CryptoJS.enc.Utf8.parse(ivStr);
+    const decrypted = CryptoJS.AES.decrypt(encryptedText, key, {
+      iv,
+      mode: CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7
+    });
+    const result = decrypted.toString(CryptoJS.enc.Utf8);
+    if (result && result.length > 0) {
+      console.log("[" + PROVIDER_NAME + "] Embed: AES-256 try 2 OK (" + result.length + " bytes)");
+      return result;
+    }
+  } catch (e) {
+    console.log("[" + PROVIDER_NAME + "] Embed: AES-256 try 2 failed: " + e.message);
+  }
+  return encryptedText;
+}
 function resolveEmbed(imdbId, label, isTv = false, season, episode) {
   return __async(this, null, function* () {
     if (!imdbId)
       return [];
     try {
-      const s = season != null ? Number(season) : 1;
-      const e = episode != null ? Number(episode) : 1;
       let playerUrl = "https://hrujo406fix.com/play/" + imdbId;
-      if (isTv && !isNaN(s) && !isNaN(e))
-        playerUrl += "?s=" + s + "&e=" + e;
+      if (isTv && season && episode) {
+        playerUrl += "?s=" + season + "&e=" + episode;
+      }
       console.log("[" + PROVIDER_NAME + "] Embed: fetching " + playerUrl);
-      const res = yield fetchSafe(playerUrl, { headers: HEADERS }, 1e4);
-      if (!res || !res.ok) {
-        console.log("[" + PROVIDER_NAME + "] Embed: page fetch failed (" + (res ? res.status : "null") + ")");
+      const res = yield fetchSafe(playerUrl, {
+        headers: __spreadProps(__spreadValues({}, HEADERS), { "Referer": "https://new7.zinkmovies.biz/", "Origin": "https://new7.zinkmovies.biz" })
+      }, 1e4);
+      if (!res) {
+        console.log("[" + PROVIDER_NAME + "] Embed: fetch returned null");
+        return [];
+      }
+      if (!res.ok) {
+        console.log("[" + PROVIDER_NAME + "] Embed: page fetch failed (" + res.status + ")");
         return [];
       }
       const html = yield res.text();
+      console.log("[" + PROVIDER_NAME + "] Embed: page OK (" + html.length + " bytes)");
       let p3Raw = null;
-      const p3Start = html.indexOf("let p3 = ");
-      if (p3Start >= 0) {
-        const braceIdx = html.indexOf("{", p3Start);
-        if (braceIdx >= 0)
-          p3Raw = extractBraceObject(html, braceIdx);
-      }
-      if (!p3Raw) {
-        const p3Start2 = html.indexOf("var p3 = ");
-        if (p3Start2 >= 0) {
-          const braceIdx = html.indexOf("{", p3Start2);
-          if (braceIdx >= 0)
+      const p3VarPatterns = ["let p3 = ", "var p3 = ", "const p3 = ", "window.p3 = ", "p3 = "];
+      for (const pat of p3VarPatterns) {
+        const idx = html.indexOf(pat);
+        if (idx >= 0) {
+          const braceIdx = html.indexOf("{", idx + pat.length);
+          if (braceIdx >= 0) {
             p3Raw = extractBraceObject(html, braceIdx);
+            if (p3Raw)
+              break;
+          }
         }
       }
       if (!p3Raw) {
-        const p3Start3 = html.indexOf("p3 = ");
-        if (p3Start3 >= 0) {
-          const braceIdx = html.indexOf("{", p3Start3);
-          if (braceIdx >= 0)
-            p3Raw = extractBraceObject(html, braceIdx);
+        const hdvIdx = html.indexOf("new HDVBPlayer(");
+        if (hdvIdx >= 0) {
+          const argStart = hdvIdx + "new HDVBPlayer(".length;
+          const argEnd = html.indexOf(")", argStart);
+          if (argEnd > argStart) {
+            const varName = html.substring(argStart, argEnd).trim();
+            const varIdx = html.indexOf(varName + " = ");
+            if (varIdx >= 0) {
+              const braceIdx = html.indexOf("{", varIdx + varName.length + 3);
+              if (braceIdx >= 0)
+                p3Raw = extractBraceObject(html, braceIdx);
+            }
+          }
         }
       }
       if (!p3Raw) {
-        console.log("[" + PROVIDER_NAME + "] Embed: p3 object not found in page");
+        const scriptStart = html.indexOf("<script");
+        while (scriptStart >= 0) {
+          const closeTag = html.indexOf(">", scriptStart);
+          const scriptEnd = html.indexOf("</script>", closeTag);
+          if (closeTag < 0 || scriptEnd < 0)
+            break;
+          const content = html.substring(closeTag + 1, scriptEnd).trim();
+          if (content.startsWith("{")) {
+            try {
+              JSON.parse(content);
+              p3Raw = content;
+              break;
+            } catch (e) {
+            }
+            try {
+              JSON.parse(content.replace(/\\\//g, "/"));
+              p3Raw = content.replace(/\\\//g, "/");
+              break;
+            } catch (e) {
+            }
+          }
+          break;
+        }
+      }
+      if (!p3Raw) {
+        console.log("[" + PROVIDER_NAME + "] Embed: p3 object not found (preview: " + html.substring(0, 120).replace(/\n/g, " ") + ")");
         return [];
       }
       let p3;
       try {
         p3 = JSON.parse(p3Raw);
-      } catch (e2) {
+      } catch (e) {
         try {
           p3 = JSON.parse(p3Raw.replace(/\\\//g, "/"));
-        } catch (e3) {
+        } catch (e2) {
           console.log("[" + PROVIDER_NAME + "] Embed: p3 JSON parse failed");
           return [];
         }
@@ -316,9 +410,33 @@ function resolveEmbed(imdbId, label, isTv = false, season, episode) {
         console.log("[" + PROVIDER_NAME + "] Embed: p3 missing file or key");
         return [];
       }
-      const playlistUrl = p3.file.startsWith("http") ? p3.file : "https://hrujo406fix.com" + p3.file;
-      console.log("[" + PROVIDER_NAME + "] Embed: playlist URL = " + playlistUrl.substring(0, 100));
-      let currentUrl = playlistUrl;
+      let currentUrl = "";
+      if (isTv && typeof p3.file === "object" && p3.file !== null) {
+        const s = String(season || 1);
+        const e = String(episode || 1);
+        let hash = "";
+        if (Array.isArray(p3.file)) {
+          for (const entry of p3.file) {
+            if (entry && String(entry[0]) === s && String(entry[1]) === e && entry[2]) {
+              hash = entry[2];
+              break;
+            }
+          }
+        } else {
+          const seasonObj = p3.file[s];
+          if (seasonObj && seasonObj[e])
+            hash = seasonObj[e];
+        }
+        if (!hash) {
+          console.log("[" + PROVIDER_NAME + "] Embed: no hash for S" + s + "E" + e);
+          return [];
+        }
+        console.log("[" + PROVIDER_NAME + "] Embed: TV hash " + hash.substring(0, 40) + "...");
+        currentUrl = "https://hrujo406fix.com/playlist/" + hash + ".txt";
+      } else {
+        currentUrl = p3.file.startsWith("http") ? p3.file : "https://hrujo406fix.com" + p3.file;
+      }
+      console.log("[" + PROVIDER_NAME + "] Embed: playlist URL = " + currentUrl.substring(0, 100));
       for (let attempt = 0; attempt < 3; attempt++) {
         console.log("[" + PROVIDER_NAME + "] Embed: POST attempt " + (attempt + 1) + " -> " + currentUrl.substring(0, 80));
         const fRes = yield fetchSafe(currentUrl, {
@@ -330,7 +448,8 @@ function resolveEmbed(imdbId, label, isTv = false, season, episode) {
           break;
         }
         const data = (yield fRes.text()).trim();
-        let finalUrl = data;
+        console.log("[" + PROVIDER_NAME + "] Embed: response (" + data.length + " bytes) starts with: " + data.substring(0, 80));
+        let finalUrl = decryptPlaylist(data, p3.key);
         if (data.startsWith("[") || data.startsWith("{")) {
           try {
             const json = JSON.parse(data);
@@ -350,7 +469,7 @@ function resolveEmbed(imdbId, label, isTv = false, season, episode) {
             };
             const item = Array.isArray(json) ? json[0] : json;
             finalUrl = findFile(item) || "";
-          } catch (e2) {
+          } catch (e) {
             console.log("[" + PROVIDER_NAME + "] Embed: JSON parse of response failed");
             break;
           }
@@ -412,27 +531,20 @@ function resolveHubCloud(url, label, quality) {
       const $b = yield fetchHtml(bridgeUrl, { headers: __spreadProps(__spreadValues({}, HEADERS), { "Referer": url, "Cookie": "xla=s4t" }) });
       if (!$b)
         return [];
-      const detectedQuality = parseQuality($b("div.card-header").text()) || quality;
+      const headerText = $b("div.card-header").text() || "";
+      const detectedQuality = parseQuality(headerText) || quality;
       const streams = [];
       const bridgeRef = bridgeUrl;
-      const fslLink = $b("a#fsl").attr("href");
-      if (fslLink) {
-        console.log("[" + PROVIDER_NAME + "] HubCloud: FSL link found");
-        streams.push(makeStream("FSL | " + detectedQuality, label + " [FSL Server]", fslLink, detectedQuality, { "Referer": bridgeRef }));
-      }
-      $b("a.btn, a.btn2, a.btn-success, a.btn-success1, a.btn-lg").each((i, el) => {
+      $b("a.btn").each((i, el) => {
         const link = $b(el).attr("href");
-        const text = $b(el).text().toLowerCase();
+        const text = $b(el).text().trim();
+        const label2 = $b(el).text().toLowerCase();
         if (!link)
           return;
-        if (text.includes("fsl") && !link.includes("fsl")) {
-          streams.push(makeStream("FSL | " + detectedQuality, label + " [FSL]", link, detectedQuality, { "Referer": bridgeRef }));
-        } else if (text.includes("download file") || text.includes("s3 server")) {
-          streams.push(makeStream("HubCloud | " + detectedQuality, label + " [" + text.toUpperCase().trim() + "]", link, detectedQuality, { "Referer": bridgeRef }));
-        } else if (text.includes("10gbps") || text.includes("10 gbps")) {
-          streams.push(makeStream("10Gbps | " + detectedQuality, label + " [10Gbps]", link, detectedQuality, { "Referer": bridgeRef }));
-        } else if (text.includes("fslv2")) {
-          streams.push(makeStream("FSLv2 | " + detectedQuality, label + " [FSLv2]", link, detectedQuality, { "Referer": bridgeRef }));
+        if (label2.includes("fsl")) {
+          const synced = link + "1" + (/* @__PURE__ */ new Date()).getMinutes();
+          console.log("[" + PROVIDER_NAME + "] HubCloud: FSL link found (quality=" + detectedQuality + ")");
+          streams.push(makeStream("FSL | " + detectedQuality, text + " [" + headerText + "]", synced, detectedQuality, { "Referer": bridgeRef }));
         }
       });
       console.log("[" + PROVIDER_NAME + "] HubCloud: found " + streams.length + " playable streams");
@@ -482,8 +594,14 @@ function resolveZinkCloud(url, label, quality) {
       ]);
       const streams = [];
       if (workerData && workerData.success && workerData.url) {
+        let workerUrl = workerData.url;
+        if (workerUrl.match(/\.zip$/i)) {
+          const stripped = workerUrl.replace(/\.zip$/i, "");
+          console.log("[" + PROVIDER_NAME + "] ZinkCloud: Worker URL had .zip, trying without: " + stripped.substring(0, 80));
+          workerUrl = stripped;
+        }
         console.log("[" + PROVIDER_NAME + "] ZinkCloud: Worker URL obtained");
-        streams.push(makeStream("Worker | " + quality, label + " [Direct]", workerData.url, quality, { "Referer": dlPageUrl }));
+        streams.push(makeStream("Worker | " + quality, label + " [Direct]", workerUrl, quality, { "Referer": dlPageUrl }));
       }
       const hubLinks = [];
       if (dlHtml) {
@@ -583,10 +701,9 @@ function extractFromPage(pageUrl, label, isTv = false, targetSeason, targetEpiso
           if (sMatch) {
             sNum = parseInt(sMatch[1]);
           } else {
-            const parentHeader = $(el).closest("div, section, article").prevAll("h1,h2,h3,h4,strong,p").first().text().toUpperCase();
-            const hm = parentHeader.match(/SEASON\s*(\d+)/i);
-            if (hm)
-              sNum = parseInt(hm[1]);
+            const pageSeason = $.html().match(/Season\s*(\d+)/i);
+            if (pageSeason)
+              sNum = parseInt(pageSeason[1]);
           }
           if (sNum === targetSeason || sNum === null) {
             collected.push({ href, text, quality });

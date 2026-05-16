@@ -1,5 +1,3 @@
-Does it look Alright   
-  
 /**  
  * Pomfy - Surgical Fix (Nuvio Layout Edition)  
  */  

@@ -304,12 +304,15 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     if (!response.ok) return [];
 
     const html = await response.text();
-    const linkMatch = html.match(/const link\s*=\s*"([^"]+)"/);
+    
     if (!linkMatch) return [];
 
     const byseUrl = linkMatch[1];
     const byseId = byseUrl.split("/").pop();
-
+    let linkMatch =
+    html.match(/const\s+link\s*=\s*"([^"]+)"/) ||
+    html.match(/"link"\s*:\s*"([^"]+)"/) ||
+    html.match(/const\s+link\s*=\s*'([^']+)'/);
     const detailsResponse = await fetch(`https://pomfy-cdn.shop/api/videos/${byseId}/embed/details`, {
       headers: { "accept": "*/*", "referer": byseUrl, "x-embed-origin": "api.pomfy.stream", "x-embed-parent": byseUrl, "user-agent": USER_AGENT, "Cookie": COOKIE }
     });

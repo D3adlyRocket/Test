@@ -353,8 +353,10 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         const language = detailsData.language || "English • Portuguese";
         const size = await getM3U8Size(resolvedUrl, meta.duration);
 
-                streams.push({
+            streams.push({
+            // We keep your full descriptive string here
             name: `Pomfy | ${resLabel} | ${language}`,
+            
             title: buildTitle(
                 meta,
                 resLabel,
@@ -365,9 +367,14 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
                 mediaType === "tv" ? s : null,
                 mediaType === "tv" ? e : null
             ),
+            
             url: resolvedUrl,
-            // Pass quality as an empty string to trick the UI into showing nothing
-            quality: "", 
+
+            // This is a 'Zero Width Space' (\u200B). 
+            // It satisfies the UI's requirement for a value so it won't show 'Unknown', 
+            // but it is physically invisible on your screen.
+            quality: '\u200B', 
+
             headers: {
                 "User-Agent": USER_AGENT,
                 "Referer": embedUrl

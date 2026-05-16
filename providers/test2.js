@@ -3,7 +3,6 @@
 Pomfy - Surgical Fix (Nuvio Layout Edition)
 */
 
-
 var __async = (__this, __arguments, generator) => {
 return new Promise((resolve, reject) => {
 var fulfilled = (value) => {

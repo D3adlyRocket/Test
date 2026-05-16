@@ -263,16 +263,7 @@ function generateFingerprint() {
   return { token: bytesToBase64(stringToUtf8Bytes(JSON.stringify(payload))), viewer_id: viewerId, device_id: deviceId, confidence: 0.93 };
 }
 
-function normalizeMediaType(type) {
-    type = String(type || "").toLowerCase();
 
-    if (
-        type.includes("tv") ||
-        type.includes("series") ||
-        type.includes("show")
-    ) {
-        return "tv";
-    }
 
     return "movie";
 }

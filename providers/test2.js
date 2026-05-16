@@ -60,7 +60,7 @@ async function getTmdbMetadata(tmdbId, type) {
         return { name: "Pomfy", year: "", duration: "94 min" }; }
 }
 
-function buildTitle(meta, res, lang, format, size, extra, season, episode) {
+function buildTitle(meta, res, lang, format, size, season, episode) {
     // Icon Logic
     const qIcon = res.includes('1080') ? '📺' : '💎';
     const lIcon = '🌍'; // Global icon for Pomfy's Dual/English streams
@@ -81,7 +81,7 @@ function buildTitle(meta, res, lang, format, size, extra, season, episode) {
     ];
 
     // --- Line 3: Format, Duration & Extra ---
-    const line3 = `🎞️ ${(format || 'M3U8').toUpperCase()} | ⏱️ ${meta.duration} | 🛠️ ${extra}`;
+    const line3 =`🎞️ ${(format || 'M3U8').toUpperCase()} | ⏱️ ${meta.duration} | ⚡ Adaptive`;
 
     return `${line1}\n${columns.join(' | ')}\n${line3}`;
 }

@@ -81,7 +81,7 @@ function buildTitle(meta, res, lang, format, size, extra, season, episode) {
     ];
 
     // --- Line 3: Format, Duration & Extra ---
-    const line3 = `🎞️ ${(format || 'M3U8').toUpperCase()} | ⏱️ ${meta.duration} | 🛠️ ${extra}`;
+    const line3 = `🎞️ ${(format || 'M3U8').toUpperCase()} | ⏱️ ${meta.duration} | ⚡ ${extra}`;
 
     return `${line1}\n${columns.join(' | ')}\n${line3}`;
 }
@@ -369,7 +369,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             language,
             'm3u8',
             size,
-            null,
+            adaptive,
             season,
             episode
         ),

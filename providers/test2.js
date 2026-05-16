@@ -43,7 +43,6 @@ async function getTmdbMetadata(tmdbId, type) {
         const data = await res.json();
         const date = data.release_date || data.first_air_date || "";
         
-        // Logic to get duration: Movie runtime OR first episode runtime for TV
         let duration = "N/A";
         if (type === 'movie' && data.runtime) {
             duration = data.runtime + ' min';
@@ -57,15 +56,14 @@ async function getTmdbMetadata(tmdbId, type) {
             duration: duration
         };
     } catch (e) { 
-        return { name: "Pomfy", year: "", duration: "94 min" }; }
+        return { name: "Pomfy", year: "", duration: "94 min" }; 
+    }
 }
 
 function buildTitle(meta, res, lang, format, size, extra, season, episode) {
-    // Icon Logic
     const qIcon = res.includes('1080') ? '📺' : '💎';
-    const lIcon = '🌍'; // Global icon for Pomfy's Dual/English streams
+    const lIcon = '🌍'; 
 
-    // --- Line 1: Identity ---
     let line1 = '🎬 ';
     if (season && episode) {
         line1 += `S${season} E${episode} | ${meta.name}`;
@@ -73,20 +71,18 @@ function buildTitle(meta, res, lang, format, size, extra, season, episode) {
         line1 += `${meta.name}${meta.year ? ' (' + meta.year + ')' : ''}`;
     }
 
-    // --- Line 2: Technical Specs with Icons ---
     const columns = [
         `${qIcon} ${res}`,
         `${lIcon} ${lang}`,
         `💾 ${size || 'Variable Size'}`
     ];
 
-    // --- Line 3: Format, Duration & Extra ---
-    const line3 = `🎞️ ${(format || 'M3U8').toUpperCase()} | ⏱️ ${meta.duration} | ⚡ ${extra}`;
+    const line3 = `🎞️ ${(format || 'M3U8').toUpperCase()} | ⏱️ ${meta.duration} | ⚡ ${extra || 'Direct'}`;
 
     return `${line1}\n${columns.join(' | ')}\n${line3}`;
 }
 
-// --- ENCRYPTION LOGIC (KEEP AS IS) ---
+// --- ENCRYPTION LOGIC ---
 const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 function base64ToBytes(base64) {
   let b64 = base64.replace(/-/g, '+').replace(/_/g, '/');
@@ -306,6 +302,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       const conversion = await convertImdbToTmdb(tmdbId, mediaType);
       if (conversion.success) finalTmdbId = conversion.tmdbId;
     }
+    
+    // Fixed Series handling: Safeguard falls back to 1 if argument missing or falsy
     const s = mediaType === "movie" ? 1 : (season || 1);
     const e = mediaType === "movie" ? 1 : (episode || 1);
 
@@ -343,50 +341,46 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const decryptResult = decryptPlayback(playbackData.playback);
 
     if (decryptResult.success) {
-    const meta = await getTmdbMetadata(finalTmdbId, mediaType);
+        const meta = await getTmdbMetadata(finalTmdbId, mediaType);
+        const resolvedUrl = decryptResult.url;
 
-    const resLabel =
-        decryptResult.url.includes('1080')
-            ? '1080p'
-            : decryptResult.url.includes('720')
-                ? '720p'
-                : 'Auto';
-
-    const language =
-        detailsData.language || "English • Portuguese";
-
-    const size = await getM3U8Size(
-        decryptResult.url,
-        meta.duration
-    );
-
-    streams.push({
-        name: `Pomfy | ${resLabel} | ${language}`,
-
-        title: buildTitle(
-            meta,
-            resLabel,
-            language,
-            'm3u8',
-            size,
-            null,
-            season,
-            episode
-        ),
-
-        url: decryptResult.url,
-
-        quality: resLabel.includes('1080') ? 1080 : 720,
-
-        headers: {
-            "User-Agent": USER_AGENT,
-            "Referer": embedUrl
+        // Pick up resolution variants embedded inside structural URL paths or fallback
+        let resLabel = 'Auto';
+        if (resolvedUrl.includes('1080') || resolvedUrl.includes('_1080p')) {
+            resLabel = '1080p';
+        } else if (resolvedUrl.includes('720') || resolvedUrl.includes('_720p')) {
+            resLabel = '720p';
+        } else if (resolvedUrl.includes('480') || resolvedUrl.includes('_480p')) {
+            resLabel = '480p';
         }
-    });
-}
+
+        const language = detailsData.language || "English • Portuguese";
+        const size = await getM3U8Size(resolvedUrl, meta.duration);
+
+        streams.push({
+            name: `Pomfy | ${resLabel} | ${language}`,
+            title: buildTitle(
+                meta,
+                resLabel,
+                language,
+                'm3u8',
+                size,
+                null,
+                mediaType === "tv" ? s : null,
+                mediaType === "tv" ? e : null
+            ),
+            url: resolvedUrl,
+            quality: resLabel.includes('1080') ? 1080 : (resLabel.includes('720') ? 720 : 480),
+            headers: {
+                "User-Agent": USER_AGENT,
+                "Referer": embedUrl
+            }
+        });
+    }
   } catch (error) { console.error("Stream failed:", error); }
   return streams;
 }
+
 async function getM3U8Size(m3u8Url, durationText) {
     try {
         const res = await fetch(m3u8Url, {
@@ -397,113 +391,72 @@ async function getM3U8Size(m3u8Url, durationText) {
         });
 
         if (!res.ok) return "Variable Size";
-
         const text = await res.text();
 
-        // --------------------------------
-        // METHOD 1: Exact segment size
-        // --------------------------------
+        // Check if playlist is a multi-variant playlist instead of actual media segments
+        if (text.includes("#EXT-X-STREAM-INF")) {
+            const lines = text.split("\n");
+            for (let line of lines) {
+                line = line.trim();
+                if (line && !line.startsWith("#")) {
+                    const fallbackUrl = line.startsWith("http") ? line : new URL(line, m3u8Url).href;
+                    return getM3U8Size(fallbackUrl, durationText);
+                }
+            }
+        }
 
+        // --- METHOD 1: Segment Sampling ---
         const lines = text.split("\n");
-
         const segments = lines.filter(line =>
-            line &&
-            !line.startsWith("#") &&
-            (
-                line.includes(".ts") ||
-                line.includes(".m4s")
-            )
+            line && !line.startsWith("#") && (line.includes(".ts") || line.includes(".m4s"))
         );
 
-        // Use first 8 segments for estimation
         const sampleSegments = segments.slice(0, 8);
-
         if (sampleSegments.length > 0) {
-
             let totalSampleSize = 0;
-
             for (const seg of sampleSegments) {
-
-                const segUrl = seg.startsWith("http")
-                    ? seg
-                    : new URL(seg, m3u8Url).href;
-
+                const segUrl = seg.startsWith("http") ? seg : new URL(seg, m3u8Url).href;
                 try {
-
                     const head = await fetch(segUrl, {
                         method: "HEAD",
-                        headers: {
-                            "User-Agent": USER_AGENT,
-                            "Referer": "https://pomfy.online/"
-                        }
+                        headers: { "User-Agent": USER_AGENT, "Referer": "https://pomfy.online/" }
                     });
-
-                    const len = Number(
-                        head.headers.get("content-length")
-                    );
-
-                    if (len > 0) {
-                        totalSampleSize += len;
-                    }
-
+                    const len = Number(head.headers.get("content-length"));
+                    if (len > 0) totalSampleSize += len;
                 } catch {}
             }
 
-            // Estimate using segment duration
             const durations = [];
-
             const regex = /#EXTINF:([\d\.]+)/g;
-
             let match;
-
             while ((match = regex.exec(text)) !== null) {
                 durations.push(parseFloat(match[1]));
             }
 
-            const avgSegDuration =
-                durations.length > 0
-                    ? durations.reduce((a,b)=>a+b,0) / durations.length
-                    : 6;
-
+            const avgSegDuration = durations.length > 0 ? (durations.reduce((a, b) => a + b, 0) / durations.length) : 6;
             const minutes = parseInt(durationText) || 0;
             const totalDurationSec = minutes * 60;
-          
-            const estimatedSegments =
-                totalDurationSec / avgSegDuration;
+            const estimatedSegments = totalDurationSec / avgSegDuration;
+            const avgSegSize = totalSampleSize / sampleSegments.length;
+            const estimatedTotal = avgSegSize * estimatedSegments;
 
-            const avgSegSize =
-                totalSampleSize / sampleSegments.length;
-
-            const estimatedTotal =
-                avgSegSize * estimatedSegments;
-
-            return formatBytes(estimatedTotal);
+            if (estimatedTotal > 0) return formatBytes(estimatedTotal);
         }
 
-        // --------------------------------
-        // METHOD 2: Bitrate fallback
-        // --------------------------------
-
+        // --- METHOD 2: Bitrate Fallback ---
         const bwMatch = text.match(/BANDWIDTH=(\d+)/);
-
         if (bwMatch) {
-
             const bandwidth = parseInt(bwMatch[1]);
-
-            const mins = parseInt(durationText);
-
+            const mins = parseInt(durationText) || 90;
             const secs = mins * 60;
-
-            const size =
-                (bandwidth * secs) / 8;
-
+            const size = (bandwidth * secs) / 8;
             return formatBytes(size);
         }
 
         return "Variable Size";
-
     } catch (e) {
         return "Variable Size";
     }
 }
+
 module.exports = { getStreams };

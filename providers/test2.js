@@ -304,8 +304,15 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     if (!response.ok) return [];
 
     const html = await response.text();
-    const linkMatch = html.match(/const link\s*=\s*"([^"]+)"/);
-    if (!linkMatch) return [];
+    let linkMatch =
+    html.match(/const\s+link\s*=\s*"([^"]+)"/) ||
+    html.match(/"link"\s*:\s*"([^"]+)"/) ||
+    html.match(/link\s*=\s*'([^']+)'/);
+
+    if (!linkMatch) {
+    console.log("❌ LINK NOT FOUND - HTML CHANGED");
+    return [];
+    }
 
     const byseUrl = linkMatch[1];
     const byseId = byseUrl.split("/").pop();

@@ -330,37 +330,47 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const decryptResult = decryptPlayback(playbackData.playback);
 
     if (decryptResult.success) {
-        // This 'await' fetches the duration/year from TMDB exactly like Movix
-        const meta = await getTmdbMetadata(finalTmdbId, mediaType);
-        
-        const resLabel = decryptResult.url.includes('1080') ? '1080p' : 
-                         decryptResult.url.includes('720') ? '720p' : 'Auto';
-        
-        const language = detailsData.language || "English • Portuguese";
+    const meta = await getTmdbMetadata(finalTmdbId, mediaType);
 
-        streams.push({
-            // Header
-            name: `Pomfy | ${resLabel} | ${language}`,
-            // Sub-label using the duration we just fetched
-            const size = await getM3U8Size(decryptResult.url, meta.duration);
+    const resLabel =
+        decryptResult.url.includes('1080')
+            ? '1080p'
+            : decryptResult.url.includes('720')
+                ? '720p'
+                : 'Auto';
 
-            title: buildTitle(
-             meta,
-             resLabel,
-             language,
-             'm3u8',
-              size,
-              season,
-             episode
-            ),
-            url: decryptResult.url,
-            quality: resLabel.includes('1080') ? 1080 : 720,
-            headers: {
-                "User-Agent": USER_AGENT,
-                "Referer": embedUrl
-            }
-        });
-    }
+    const language =
+        detailsData.language || "English • Portuguese";
+
+    const size = await getM3U8Size(
+        decryptResult.url,
+        meta.duration
+    );
+
+    streams.push({
+        name: `Pomfy | ${resLabel} | ${language}`,
+
+        title: buildTitle(
+            meta,
+            resLabel,
+            language,
+            'm3u8',
+            size,
+            null,
+            season,
+            episode
+        ),
+
+        url: decryptResult.url,
+
+        quality: resLabel.includes('1080') ? 1080 : 720,
+
+        headers: {
+            "User-Agent": USER_AGENT,
+            "Referer": embedUrl
+        }
+    });
+}
   } catch (error) { console.error("Stream failed:", error); }
   return streams;
 }

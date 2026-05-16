@@ -263,7 +263,26 @@ function generateFingerprint() {
   return { token: bytesToBase64(stringToUtf8Bytes(JSON.stringify(payload))), viewer_id: viewerId, device_id: deviceId, confidence: 0.93 };
 }
 
-function isImdbId(id) { return typeof id === "string" && id.toLowerCase().startsWith("tt"); }
+function normalizeMediaType(type) {
+    if (!type) return "movie";
+
+    type = String(type).toLowerCase();
+
+    if (
+        type === "tv" ||
+        type === "series" ||
+        type === "show"
+    ) {
+        return "tv";
+    }
+
+    return "movie";
+}
+
+function isImdbId(id) {
+    return typeof id === "string" &&
+        id.toLowerCase().startsWith("tt");
+}
 
 async function convertImdbToTmdb(imdbId, mediaType) {
   try {
@@ -295,7 +314,10 @@ function decryptPlayback(playback) {
 }
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
-  const streams = [];
+
+    mediaType = normalizeMediaType(mediaType);
+
+    const streams = [];
   let finalTmdbId = tmdbId;
   try {
     if (isImdbId(tmdbId)) {
@@ -343,12 +365,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         const meta = await getTmdbMetadata(finalTmdbId, mediaType);
         const resolvedUrl = decryptResult.url;
 
-        let resLabel = 'Auto';
-        if (resolvedUrl.includes('1080') || resolvedUrl.includes('_1080p')) {
-            resLabel = '1080p';
-        } else if (resolvedUrl.includes('720') || resolvedUrl.includes('_720p')) {
-            resLabel = '720p';
-        }
+        let resLabel = await detectQuality(resolvedUrl);
 
         const language = detailsData.language || "English • Portuguese";
         const size = await getM3U8Size(resolvedUrl, meta.duration);
@@ -460,5 +477,43 @@ async function getM3U8Size(m3u8Url, durationText) {
         return "Variable Size";
     }
 }
+async function detectQuality(m3u8Url) {
+    try {
+        const res = await fetch(m3u8Url, {
+            headers: {
+                "User-Agent": USER_AGENT,
+                "Referer": "https://pomfy.online/"
+            }
+        });
 
+        if (!res.ok) return "Auto";
+
+        const text = await res.text();
+
+        if (text.includes("RESOLUTION=1920x1080")) {
+            return "1080p";
+        }
+
+        if (text.includes("RESOLUTION=1280x720")) {
+            return "720p";
+        }
+
+        if (text.includes("RESOLUTION=854x480")) {
+            return "480p";
+        }
+
+        if (text.includes("BANDWIDTH=8000000")) {
+            return "1080p";
+        }
+
+        if (text.includes("BANDWIDTH=4000000")) {
+            return "720p";
+        }
+
+        return "Auto";
+
+    } catch {
+        return "Auto";
+    }
+}
 module.exports = { getStreams };

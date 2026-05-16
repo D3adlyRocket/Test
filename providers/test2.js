@@ -325,10 +325,14 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       if (conversion.success) finalTmdbId = conversion.tmdbId;
     }
     
-    const s = mediaType === "movie" ? 1 : (season || 1);
-    const e = mediaType === "movie" ? 1 : (episode || 1);
+    const isTv = mediaType === "tv";
 
-    const pomfyUrl = mediaType === "movie" ? `${API_POMFY}/filme/${finalTmdbId}` : `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`;
+const s = Number(season) || 1;
+const e = Number(episode) || 1;
+
+const pomfyUrl = isTv
+    ? `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`
+    : `${API_POMFY}/filme/${finalTmdbId}`;
     const response = await fetch(pomfyUrl, { headers: HEADERS });
     if (!response.ok) return [];
 
@@ -381,14 +385,14 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
                 'm3u8',
                 size,
                 null,
-                mediaType === "tv" ? s : null,
-                mediaType === "tv" ? e : null
+                isTv ? s : null,
+                isTv ? e : null
             ),
             
             url: resolvedUrl,
 
             // Your main info stays here
-            quality: resLabel, 
+            quality: `Pomfy | ${resLabel} | ${language}`,
 
             headers: {
                 "User-Agent": USER_AGENT,

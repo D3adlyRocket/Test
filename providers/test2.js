@@ -353,9 +353,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         const language = detailsData.language || "English • Portuguese";
         const size = await getM3U8Size(resolvedUrl, meta.duration);
 
-            streams.push({
-            // We keep your full descriptive string here
-            name: `Pomfy | ${resLabel} | ${language}`,
+                    streams.push({
+            // Set name to a zero-width space so the leading part is invisible
+            name: '\u200B', 
             
             title: buildTitle(
                 meta,
@@ -370,10 +370,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             
             url: resolvedUrl,
 
-            // This is a 'Zero Width Space' (\u200B). 
-            // It satisfies the UI's requirement for a value so it won't show 'Unknown', 
-            // but it is physically invisible on your screen.
-            quality: '\u200B', 
+            // Put your actual display text here. 
+            // The UI will render: [Invisible Name] - Pomfy | 1080p...
+            quality: `Pomfy | ${resLabel} | ${language}`, 
 
             headers: {
                 "User-Agent": USER_AGENT,

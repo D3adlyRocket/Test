@@ -1,11 +1,11 @@
-/** * Pomfy - Surgical Fix (2026 CDN Edition) 
+/** * Pomfy - Handshake Edition (2026)
  */
 
 const TMDB_KEY = '3644dd4950b67cd8067b8772de576d6b';
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";
 const API_POMFY = "https://api.pomfy.stream";
 
-// Domain and Browser data from your 15:05 screenshot
+// Browser Data from your 15:11/15:12 screenshots
 const TARGET_DOMAIN = "398fitus.com";
 const TARGET_ORIGIN = `https://${TARGET_DOMAIN}`;
 const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
@@ -13,19 +13,18 @@ const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML
 const HEADERS = {
     "User-Agent": USER_AGENT,
     "Accept": "*/*",
-    "Accept-Encoding": "gzip, deflate, br",
     "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
     "Origin": TARGET_ORIGIN,
-    "Referer": TARGET_ORIGIN + "/",
+    "Referer": "https://api.pomfy.stream/",
     "Sec-Ch-Ua": '"Chromium";v="137", "Not)A;Brand";v="24"',
     "Sec-Ch-Ua-Mobile": "?1",
     "Sec-Ch-Ua-Platform": '"Android"',
     "Sec-Fetch-Dest": "empty",
     "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "cross-site"
+    "Sec-Fetch-Site": "same-origin"
 };
 
-// --- CRYPTO HELPERS ---
+// --- CRYPTO ---
 const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 function base64ToBytes(base64) {
@@ -134,26 +133,24 @@ class AES256GCM_Manual {
     }
 }
 
-// --- CORE SCRAPER ---
+// --- SCRAPER ---
 
 function generateFingerprint() {
-    const timestamp = Math.floor(Date.now() / 1000);
-    const payload = {
-        viewer_id: Math.random().toString(36).substring(2, 15),
-        device_id: Math.random().toString(36).substring(2, 15),
-        confidence: 0.99,
-        iat: timestamp,
-        exp: timestamp + 3600
-    };
-    const bytes = new TextEncoder().encode(JSON.stringify(payload));
-    let result = '';
+    const ts = Math.floor(Date.now() / 1000);
+    const payload = JSON.stringify({
+        viewer_id: Math.random().toString(36).substring(2, 12),
+        device_id: Math.random().toString(36).substring(2, 12),
+        confidence: 0.99, iat: ts, exp: ts + 3600
+    });
+    const bytes = new TextEncoder().encode(payload);
+    let b64 = "";
     for (let i = 0; i < bytes.length; i += 3) {
         const b0 = bytes[i], b1 = i + 1 < bytes.length ? bytes[i + 1] : 0, b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
-        result += BASE64_CHARS[b0 >> 2] + BASE64_CHARS[((b0 & 0x03) << 4) | (b1 >> 4)];
-        result += i + 1 < bytes.length ? BASE64_CHARS[((b1 & 0x0f) << 2) | (b2 >> 6)] : '=';
-        result += i + 2 < bytes.length ? BASE64_CHARS[b2 & 0x3f] : '=';
+        b64 += BASE64_CHARS[b0 >> 2] + BASE64_CHARS[((b0 & 0x03) << 4) | (b1 >> 4)];
+        b64 += i + 1 < bytes.length ? BASE64_CHARS[((b1 & 0x0f) << 2) | (b2 >> 6)] : '=';
+        b64 += i + 2 < bytes.length ? BASE64_CHARS[b2 & 0x3f] : '=';
     }
-    return { token: result };
+    return { token: b64 };
 }
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
@@ -161,26 +158,40 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     try {
         const s = season || 1;
         const e = episode || 1;
-        const pomfyUrl = mediaType === "movie" ? `${API_POMFY}/filme/${tmdbId}` : `${API_POMFY}/serie/${tmdbId}/${s}/${e}`;
+        const pageUrl = mediaType === "movie" ? `${API_POMFY}/filme/${tmdbId}` : `${API_POMFY}/serie/${tmdbId}/${s}/${e}`;
 
-        const entryRes = await fetch(pomfyUrl, { headers: HEADERS });
-        if (!entryRes.ok) return [];
+        // 1. Fetch initial HTML to find play-token
+        const htmlRes = await fetch(pageUrl, { headers: HEADERS });
+        const html = await htmlRes.text();
 
-        const html = await entryRes.text();
-        const linkMatch = html.match(/const\s+link\s*=\s*["'](https?:\/\/[^"']+)["']/);
-        if (!linkMatch) return [];
+        const tokenMatch = html.match(/play-token\?t=([^"']+)/);
+        if (!tokenMatch) {
+            console.error("Token not found in HTML");
+            return [];
+        }
+        const t = tokenMatch[1];
 
-        const byseUrl = linkMatch[1];
+        // 2. Perform Handshake (NEW STEP)
+        const handshakeRes = await fetch(`${API_POMFY}/api/play-token?t=${t}`, {
+            headers: {
+                ...HEADERS,
+                "Referer": pageUrl,
+                "X-Requested-With": "XMLHttpRequest"
+            }
+        });
+        const handshake = await handshakeRes.json();
+        const byseUrl = handshake.link; 
+        if (!byseUrl) return [];
+
         const byseId = byseUrl.split("/").pop();
 
-        // 1. Get Details
+        // 3. Details
         const detailsRes = await fetch(`https://pomfy-cdn.shop/api/videos/${byseId}/embed/details`, {
             headers: { ...HEADERS, "Referer": byseUrl }
         });
-        if (!detailsRes.ok) return [];
         const details = await detailsRes.json();
 
-        // 2. Fetch Playback
+        // 4. Playback
         const embedDomain = new URL(details.embed_frame_url).origin;
         const playbackRes = await fetch(`${embedDomain}/api/videos/${byseId}/embed/playback`, {
             method: "POST",
@@ -192,27 +203,25 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             },
             body: JSON.stringify({ fingerprint: generateFingerprint() })
         });
+        const playData = await playbackRes.json();
 
-        if (!playbackRes.ok) return [];
-        const data = await playbackRes.json();
-
-        // 3. Decrypt
-        const iv = base64ToBytes(data.playback.iv);
-        const k1 = base64ToBytes(data.playback.key_parts[0]);
-        const k2 = base64ToBytes(data.playback.key_parts[1]);
+        // 5. Decrypt
+        const iv = base64ToBytes(playData.playback.iv);
+        const k1 = base64ToBytes(playData.playback.key_parts[0]);
+        const k2 = base64ToBytes(playData.playback.key_parts[1]);
         const key = new Uint8Array([...k1, ...k2]);
-        const encrypted = base64ToBytes(data.playback.payload);
+        const encrypted = base64ToBytes(playData.playback.payload);
         const ciphertext = encrypted.slice(0, -16);
 
         const cipher = new AES256GCM_Manual(key);
         const videoData = JSON.parse(cipher.decrypt(iv, ciphertext));
 
-        let m3u8 = videoData.url || (videoData.sources && videoData.sources[0].url);
+        const m3u8 = videoData.url || (videoData.sources && videoData.sources[0].url);
 
         if (m3u8) {
             streams.push({
                 name: "🎦 Pomfy",
-                quality: `Auto | ${details.language || 'Multi'}`,
+                quality: `Auto | ${details.language || 'English'}`,
                 url: m3u8.replace(/\\u0026/g, '&'),
                 headers: {
                     "User-Agent": USER_AGENT,
@@ -222,7 +231,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             });
         }
     } catch (err) {
-        console.error("Fetch Error:", err);
+        console.error("Pomfy Error:", err);
     }
     return streams;
 }

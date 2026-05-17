@@ -1,6 +1,3 @@
-Don't need to change #6 because it works.  
-  
-Can you does all look good now   
 /**  
  * Pomfy - Surgical Fix (Nuvio Layout Edition)  
  */  

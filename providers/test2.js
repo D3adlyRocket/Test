@@ -313,14 +313,18 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       if (conversion.success) finalTmdbId = conversion.tmdbId;
     }
     
-    const isTv = [
-    "tv",
-    "series",
-    "show",
-    "tvshow",
-    "tvshows",
-    "tv_series"
-].includes(String(mediaType).toLowerCase());
+    const type = String(mediaType || "").toLowerCase();
+
+
+const type = String(mediaType || "").toLowerCase();
+
+const isTv =
+    type === "tv" ||
+    type === "series" ||
+    type === "show" ||
+    type === "tvshow" ||
+    type === "tvshows" ||
+    type === "tv_series";
 
 const s = Number(season) || 1;
 const e = Number(episode) || 1;
@@ -328,8 +332,8 @@ const e = Number(episode) || 1;
 const pomfyUrl = isTv
     ? `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`
     : `${API_POMFY}/filme/${finalTmdbId}`;
-    const response = await fetch(pomfyUrl, { headers: HEADERS });
-    if (!response.ok) return [];
+
+console.log("Pomfy URL:", pomfyUrl);
 
     const html = await response.text();
 

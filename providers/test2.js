@@ -388,7 +388,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             url: resolvedUrl,  
   
             // Your main info stays here  
-            quality: resLabel,   
+            quality: `Pomfy | ${resLabel} | ${language}`,
   
             headers: {  
                 "User-Agent": USER_AGENT,  

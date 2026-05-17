@@ -1,4 +1,6 @@
-
+Don't need to change #6 because it works.  
+  
+Can you does all look good now   
 /**  
  * Pomfy - Surgical Fix (Nuvio Layout Edition)  
  */  
@@ -326,14 +328,10 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       if (conversion.success) finalTmdbId = conversion.tmdbId;  
     }  
       
-    const isTv = mediaType === "tv";  
+    const s = mediaType === "movie" ? 1 : (season || 1);  
+    const e = mediaType === "movie" ? 1 : (episode || 1);  
   
-const s = Number(season) || 1;  
-const e = Number(episode) || 1;  
-  
-const pomfyUrl = isTv  
-    ? `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`  
-    : `${API_POMFY}/filme/${finalTmdbId}`;  
+    const pomfyUrl = mediaType === "movie" ? `${API_POMFY}/filme/${finalTmdbId}` : `${API_POMFY}/serie/${finalTmdbId}/${s}/${e}`;  
     const response = await fetch(pomfyUrl, { headers: HEADERS });  
     if (!response.ok) return [];  
   
@@ -386,14 +384,14 @@ const pomfyUrl = isTv
                 'm3u8',  
                 size,  
                 null,  
-                isTv ? s : null,  
-                isTv ? e : null  
+                mediaType === "tv" ? s : null,  
+                mediaType === "tv" ? e : null  
             ),  
               
             url: resolvedUrl,  
   
             // Your main info stays here  
-            quality: `Pomfy | ${resLabel} | ${language}`,  
+            quality: resLabel,   
   
             headers: {  
                 "User-Agent": USER_AGENT,  
@@ -512,17 +510,13 @@ async function detectQuality(m3u8Url) {
         }  
   
         if (text.includes("BANDWIDTH=4000000")) {  
-    return "720p";  
-}  
+            return "720p";  
+        }  
   
-if (m3u8Url.includes("1080")) return "1080p";  
-if (m3u8Url.includes("720")) return "720p";  
-if (m3u8Url.includes("480")) return "480p";  
+        return "Auto";  
   
-return "Auto";  
-  
-} catch {  
-    return "Auto";  
-}  
+    } catch {  
+        return "Auto";  
+    }  
 }  
 module.exports = { getStreams };

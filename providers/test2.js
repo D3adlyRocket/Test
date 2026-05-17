@@ -335,7 +335,16 @@ const pomfyUrl = isTv
 
 console.log("Pomfy URL:", pomfyUrl);
 
-    const html = await response.text();
+const response = await fetch(pomfyUrl, {
+    headers: HEADERS
+});
+
+if (!response.ok) {
+    console.log("Pomfy request failed:", response.status);
+    return [];
+}
+
+const html = await response.text();
 
 let linkMatch =
     html.match(/const\s+link\s*=\s*"([^"]+)"/) ||

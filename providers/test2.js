@@ -332,11 +332,16 @@ const pomfyUrl = isTv
     if (!response.ok) return [];
 
     const html = await response.text();
-    let linkMatch =
+
+let linkMatch =
     html.match(/const\s+link\s*=\s*"([^"]+)"/) ||
-    html.match(/"link"\s*:\s*"([^"]+)"/) ||
-    html.match(/const\s+link\s*=\s*'([^']+)'/);
-    if (!linkMatch) return [];
+    html.match(/const\s+link\s*=\s*'([^']+)'/) ||
+    html.match(/"link"\s*:\s*"([^"]+)"/);
+
+if (!linkMatch) {
+    console.log("No embed link found");
+    return [];
+}
 
     const byseUrl = linkMatch[1];
     const byseId = byseUrl.split("/").pop();

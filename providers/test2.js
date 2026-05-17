@@ -506,14 +506,18 @@ async function detectQuality(m3u8Url) {
             return "1080p";  
         }  
   
-        if (text.includes("BANDWIDTH=4000000")) {  
-            return "720p";  
-        }  
-  
-        return "Auto";  
-  
-    } catch {  
-        return "Auto";  
-    }  
+        if (text.includes("BANDWIDTH=4000000")) {
+    return "720p";
+}
+
+if (m3u8Url.includes("1080")) return "1080p";
+if (m3u8Url.includes("720")) return "720p";
+if (m3u8Url.includes("480")) return "480p";
+
+return "Auto";
+
+} catch {
+    return "Auto";
+}
 }  
 module.exports = { getStreams };

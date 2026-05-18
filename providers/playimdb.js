@@ -6,12 +6,12 @@ var TMDB_API = "https://api.themoviedb.org/3";
 var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-// Known intermediate shortener patterns used by the provider
+// Modern multi-step shortener gateway variations used by the site
 var SHORTENER_DOMAINS = [
-  "unblockedgames",
-  "creativeexpressionsblog",
-  "examzculture",
-  "examdegree"
+  "unblockedgames.world",
+  "creativeexpressionsblog.com",
+  "examzculture.in",
+  "examdegree.site"
 ];
 
 function getBaseUrl(url) {
@@ -88,7 +88,9 @@ function extractTextCenterLinks(html) {
   var links = [];
   var divRe = /<div[^>]*class="[^"]*text-center[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
   var divM;
-  while ((divM = divRe.exec(divRe.source)) !== null) { // Fix loop boundary safety
+  // Safety wrapper around regex object mapping loops
+  var rawSource = html;
+  while ((divM = divRe.exec(rawSource)) !== null) {
     var divHtml = divM[1];
     var aRe = /<a\s[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
     var aM;
@@ -239,14 +241,16 @@ function parseSearchResults(html) {
   return results;
 }
 
-// Bypasses the link shortener steps with updated support for _wp_http/2 and dynamic cookies
+// Fixed Step Bypasser containing modern security/cookie/referer headers
 function bypassHrefli(url) {
   var host = getBaseUrl(url);
   console.log("[UHDMovies] bypassHrefli: " + url);
-  return fetchText(url).then(function(html) {
+  
+  return fetchText(url, { "Referer": "https://links.modpro.blog/" }).then(function(html) {
     var formUrl = extractFormAction(html);
     var formData = extractFormInputs(html);
     if (!formUrl) return Promise.resolve(null);
+    
     return fetch(formUrl, {
       method: "POST",
       headers: {
@@ -263,25 +267,27 @@ function bypassHrefli(url) {
     var formUrl = extractFormAction(html);
     var formData = extractFormInputs(html);
     if (!formUrl) return null;
+    
     return fetch(formUrl, {
       method: "POST",
       headers: {
         "User-Agent": USER_AGENT,
         "Content-Type": "application/x-www-form-urlencoded",
-        "Referer": host
+        "Referer": host + "/"
       },
       body: toFormEncoded(formData)
     }).then(function(res) {
+      var trackingUrl = res.url;
       return res.text().then(function(t) {
-        return { html: t, formData: formData };
+        return { html: t, formData: formData, lastUrl: trackingUrl };
       });
     });
   }).then(function(result) {
     if (!result) return null;
     
-    // Look for dynamic cookie generation script injection patterns
-    var cookieMatch = result.html.match(/s_343\('([^']+)',\s*'([^']+)'/);
     var cookieHeader = {};
+    // Extract modern challenge engine cookie keys (e.g. s_343 challenge pattern)
+    var cookieMatch = result.html.match(/s_343\('([^']+)',\s*'([^']+)'/);
     if (cookieMatch) {
       cookieHeader["Cookie"] = cookieMatch[1].trim() + "=" + cookieMatch[2].trim();
     } else {
@@ -293,8 +299,9 @@ function bypassHrefli(url) {
       cookieHeader["Cookie"] = skToken + "=" + wpHttp2;
     }
 
+    // Capture precise path configuration inside injected attributes
     var linkMatch = result.html.match(/c\.setAttribute\("href",\s*"([^"]+)"\)/);
-    var targetGoUrl = linkMatch ? (host + linkMatch[1].trim()) : null;
+    var targetGoUrl = linkMatch ? fixUrl(linkMatch[1].trim(), host) : null;
     
     if (!targetGoUrl) {
       var scriptFallback = extractScriptContaining(result.html, "?go=");
@@ -303,6 +310,7 @@ function bypassHrefli(url) {
     }
 
     if (!targetGoUrl) return null;
+    cookieHeader["Referer"] = result.lastUrl || host;
     return fetchText(targetGoUrl, cookieHeader);
   }).then(function(html) {
     if (!html) return null;
@@ -310,7 +318,7 @@ function bypassHrefli(url) {
     return driveUrl || null;
   }).then(function(driveUrl) {
     if (!driveUrl) return null;
-    return fetchText(driveUrl).then(function(html) {
+    return fetchText(driveUrl, { "Referer": host }).then(function(html) {
       var pathM = html.match(/replace\("([^"]+)"\)/);
       if (!pathM || pathM[1] === "/404") return null;
       return fixUrl(pathM[1], getBaseUrl(driveUrl));
@@ -433,7 +441,7 @@ function extractDriveseedPage(url) {
   return Promise.resolve().then(function() {
     if (url.indexOf("r?key=") !== -1) {
       return fetchText(url).then(function(html) {
-        var redirectM = html.match(/replace\("([^"]+)"\)/);
+        var redirectM = html.match(/window\.location\.replace\("([^"]+)"\)/) || html.match(/replace\("([^"]+)"\)/);
         if (!redirectM) return html;
         var base = getBaseUrl(url);
         return fetchText(base + redirectM[1]);
@@ -507,7 +515,7 @@ function getMovieLinks(pageUrl) {
       for (var j = i + 1; j < Math.min(i + 6, parts.length); j++) {
         var btnM = parts[j].match(/<a[^>]*class="[^"]*maxbutton-1[^"]*"[^>]*href="([^"]+)"/i) || parts[j].match(/<a[^>]*href="([^"]+)"[^>]*class="[^"]*maxbutton-1[^"]*"/i);
         if (btnM) {
-          links.push({ sourceName, sourceLink: btnM[1] });
+          links.push({ sourceName: sourceName, sourceLink: btnM[1] });
           break;
         }
       }
@@ -586,7 +594,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           var sourceLink = linkData.sourceLink;
           if (!sourceLink) return Promise.resolve([]);
           
-          // Updated matching logic: triggers the bypasser for any detected shortener gateway
+          // Verify against structural array of known gateway shortener string fragments
           var requiresBypass = SHORTENER_DOMAINS.some(function(domain) {
             return sourceLink.indexOf(domain) !== -1;
           });

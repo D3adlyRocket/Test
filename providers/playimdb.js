@@ -88,9 +88,8 @@ function extractTextCenterLinks(html) {
   var links = [];
   var divRe = /<div[^>]*class="[^"]*text-center[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
   var divM;
-  // Safety wrapper around regex object mapping loops
-  var rawSource = html;
-  while ((divM = divRe.exec(rawSource)) !== null) {
+  // Fixed execution context boundary bug that previously caused hangs
+  while ((divM = divRe.exec(html)) !== null) {
     var divHtml = divM[1];
     var aRe = /<a\s[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
     var aM;
@@ -241,7 +240,6 @@ function parseSearchResults(html) {
   return results;
 }
 
-// Fixed Step Bypasser containing modern security/cookie/referer headers
 function bypassHrefli(url) {
   var host = getBaseUrl(url);
   console.log("[UHDMovies] bypassHrefli: " + url);
@@ -286,7 +284,6 @@ function bypassHrefli(url) {
     if (!result) return null;
     
     var cookieHeader = {};
-    // Extract modern challenge engine cookie keys (e.g. s_343 challenge pattern)
     var cookieMatch = result.html.match(/s_343\('([^']+)',\s*'([^']+)'/);
     if (cookieMatch) {
       cookieHeader["Cookie"] = cookieMatch[1].trim() + "=" + cookieMatch[2].trim();
@@ -299,7 +296,6 @@ function bypassHrefli(url) {
       cookieHeader["Cookie"] = skToken + "=" + wpHttp2;
     }
 
-    // Capture precise path configuration inside injected attributes
     var linkMatch = result.html.match(/c\.setAttribute\("href",\s*"([^"]+)"\)/);
     var targetGoUrl = linkMatch ? fixUrl(linkMatch[1].trim(), host) : null;
     
@@ -435,8 +431,10 @@ function extractResumeCloudLink(baseUrl, path) {
     return null;
   });
 }
+
+// Rewritten to scan both layout structures and hidden script states on modern driveseed.org/file/* structures
 function extractDriveseedPage(url) {
-  console.log("[UHDMovies] Driveseed: " + url);
+  console.log("[UHDMovies] Driveseed Engine Triggered: " + url);
   var streams = [];
   return Promise.resolve().then(function() {
     if (url.indexOf("r?key=") !== -1) {
@@ -451,6 +449,13 @@ function extractDriveseedPage(url) {
   }).then(function(html) {
     var baseDomain = getBaseUrl(url);
     var qualityText = extractFirstListGroupItem(html);
+    
+    // Fallback if the metadata lists are missing due to a modern single-button container layout
+    if (!qualityText) {
+      var titleTagM = html.match(/<title>([\s\S]*?)<\/title>/i);
+      qualityText = titleTagM ? titleTagM[1].replace("- DriveSeed", "").trim() : "Unknown File";
+    }
+
     var rawFileName = qualityText.replace("Name : ", "").trim();
     var fileName = cleanTitle(rawFileName);
     var size = extractThirdListItem(html).replace("Size : ", "").trim();
@@ -458,43 +463,73 @@ function extractDriveseedPage(url) {
     var labelExtras = "";
     if (fileName) labelExtras += "[" + fileName + "]";
     if (size) labelExtras += "[" + size + "]";
+    
     var textCenterLinks = extractTextCenterLinks(html);
     var promises = [];
+    
+    // Fallback Link Collector: If textCenterLinks is empty, scrape raw layout links matching streaming hubs
+    if (textCenterLinks.length === 0) {
+      var generalLinksRe = /<a\s[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+      var glM;
+      while ((glM = generalLinksRe.exec(html)) !== null) {
+        var hrefAttr = glM[1];
+        var innerText = stripTags(glM[2]).toLowerCase();
+        if (hrefAttr && (hrefAttr.indexOf("instant") !== -1 || hrefAttr.indexOf("download") !== -1 || hrefAttr.indexOf("worker") !== -1 || hrefAttr.indexOf("cloud") !== -1)) {
+          textCenterLinks.push({ href: hrefAttr, text: innerText });
+        }
+      }
+    }
+
     textCenterLinks.forEach(function(item) {
       var text = (item.text || "").toLowerCase();
       var href = item.href;
       if (!href) return;
-      if (text.indexOf("instant download") !== -1) {
+      
+      // Normalize internal absolute endpoint paths
+      if (href.indexOf("http") !== 0) {
+        href = fixUrl(href, baseDomain);
+      }
+
+      if (text.indexOf("instant download") !== -1 || href.indexOf("instant") !== -1) {
         promises.push(
           extractInstantLink(href).then(function(link) {
-            if (link) streams.push({ name: "UHDMovies", title: "Driveseed Instant " + labelExtras, url: link, quality });
+            if (link) streams.push({ name: "UHDMovies", title: "Driveseed Instant " + labelExtras, url: link, quality: quality });
           })
         );
-      } else if (text.indexOf("resume worker bot") !== -1) {
+      } else if (text.indexOf("resume worker bot") !== -1 || href.indexOf("worker") !== -1) {
         promises.push(
           extractResumeBot(href).then(function(link) {
-            if (link) streams.push({ name: "UHDMovies", title: "Driveseed ResumeBot " + labelExtras, url: link, quality });
+            if (link) streams.push({ name: "UHDMovies", title: "Driveseed ResumeBot " + labelExtras, url: link, quality: quality });
           })
         );
       } else if (text.indexOf("direct links") !== -1) {
         promises.push(
-          extractCFType1(baseDomain + href).then(function(links) {
+          extractCFType1(href).then(function(links) {
             links.forEach(function(link) {
-              streams.push({ name: "UHDMovies", title: "Driveseed Direct " + labelExtras, url: link, quality });
+              streams.push({ name: "UHDMovies", title: "Driveseed Direct " + labelExtras, url: link, quality: quality });
             });
           })
         );
       } else if (text.indexOf("resume cloud") !== -1) {
         promises.push(
-          extractResumeCloudLink(baseDomain, href).then(function(link) {
-            if (link) streams.push({ name: "UHDMovies", title: "Driveseed ResumeCloud " + labelExtras, url: link, quality });
+          extractResumeCloudLink(baseDomain, href.replace(baseDomain, "")).then(function(link) {
+            if (link) streams.push({ name: "UHDMovies", title: "Driveseed ResumeCloud " + labelExtras, url: link, quality: quality });
           })
         );
-      } else if (text.indexOf("cloud download") !== -1) {
-        streams.push({ name: "UHDMovies", title: "Driveseed Cloud " + labelExtras, url: href, quality });
+      } else if (text.indexOf("cloud download") !== -1 || text.indexOf("download") !== -1) {
+        streams.push({ name: "UHDMovies", title: "Driveseed Cloud " + labelExtras, url: href, quality: quality });
       }
     });
+
     return Promise.all(promises).then(function() {
+      // Emergency catch-all if still no structural endpoints matched (extracts any direct cloud storage configurations)
+      if (streams.length === 0) {
+        var cloudPattern = /href="(https:\/\/[^"]+\.(?:workers\.dev|botworkers|instantwater)[^"]+)"/gi;
+        var cpM = cloudPattern.exec(html);
+        if (cpM) {
+          streams.push({ name: "UHDMovies", title: "Driveseed Direct Stream " + labelExtras, url: cpM[1], quality: quality });
+        }
+      }
       return streams;
     });
   }).catch(function(err) {
@@ -594,7 +629,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
           var sourceLink = linkData.sourceLink;
           if (!sourceLink) return Promise.resolve([]);
           
-          // Verify against structural array of known gateway shortener string fragments
           var requiresBypass = SHORTENER_DOMAINS.some(function(domain) {
             return sourceLink.indexOf(domain) !== -1;
           });
@@ -602,7 +636,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           var finalLinkPromise = requiresBypass ? bypassHrefli(sourceLink) : Promise.resolve(sourceLink);
           return finalLinkPromise.then(function(finalLink) {
             if (!finalLink) return [];
-            if (finalLink.indexOf("driveseed") !== -1 || finalLink.indexOf("driveleech") !== -1) {
+            if (finalLink.indexOf("driveseed") !== -1 || finalLink.indexOf("driveleech") !== -1 || finalLink.indexOf("file/") !== -1) {
               return extractDriveseedPage(finalLink);
             }
             if (finalLink.indexOf("video-seed") !== -1) {

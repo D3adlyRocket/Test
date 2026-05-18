@@ -6,7 +6,6 @@ var TMDB_API = "https://api.themoviedb.org/3";
 var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-// Modern multi-step shortener gateway variations used by the site
 var SHORTENER_DOMAINS = [
   "unblockedgames.world",
   "creativeexpressionsblog.com",
@@ -88,7 +87,6 @@ function extractTextCenterLinks(html) {
   var links = [];
   var divRe = /<div[^>]*class="[^"]*text-center[^"]*"[^>]*>([\s\S]*?)<\/div>/gi;
   var divM;
-  // Fixed execution context boundary bug that previously caused hangs
   while ((divM = divRe.exec(html)) !== null) {
     var divHtml = divM[1];
     var aRe = /<a\s[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
@@ -350,32 +348,23 @@ function extractVideoSeed(finallink) {
     return null;
   });
 }
+
+// Updated String Extraction Mechanism
 function extractInstantLink(finallink) {
-  console.log("[UHDMovies] InstantLink: " + finallink);
-  var hostM = finallink.match(/^https?:\/\/([^\/]+)/);
-  var host = hostM ? hostM[1] : finallink.indexOf("video-leech") !== -1 ? "video-leech.pro" : "video-seed.pro";
-  var tokenParts = finallink.split("url=");
-  if (tokenParts.length < 2) return Promise.resolve(null);
-  var token = tokenParts[1];
-  return fetch("https://" + host + "/api", {
-    method: "POST",
-    headers: {
-      "User-Agent": USER_AGENT,
-      "Content-Type": "application/x-www-form-urlencoded",
-      "x-token": host,
-      "Referer": finallink
-    },
-    body: "keys=" + encodeURIComponent(token)
-  }).then(function(res) {
-    return res.text();
-  }).then(function(text) {
-    var m = text.match(/url":"([^"]+)"/);
-    return m ? m[1].replace(/\\\//g, "/") : null;
-  }).catch(function(err) {
-    console.error("[UHDMovies] InstantLink error: " + err.message);
-    return null;
-  });
+  console.log("[UHDMovies] InstantLink Direct Parser: " + finallink);
+  try {
+    var tokenParts = finallink.split("url=");
+    if (tokenParts.length < 2) return Promise.resolve(null);
+    var cleanUrl = decodeURIComponent(tokenParts[1]);
+    if (cleanUrl.indexOf("http") === 0) {
+      return Promise.resolve(cleanUrl);
+    }
+    return Promise.resolve(null);
+  } catch (e) {
+    return Promise.resolve(null);
+  }
 }
+
 function extractResumeBot(url) {
   console.log("[UHDMovies] ResumeBot: " + url);
   return fetchText(url).then(function(html) {
@@ -431,8 +420,6 @@ function extractResumeCloudLink(baseUrl, path) {
     return null;
   });
 }
-
-// Rewritten to scan both layout structures and hidden script states on modern driveseed.org/file/* structures
 function extractDriveseedPage(url) {
   console.log("[UHDMovies] Driveseed Engine Triggered: " + url);
   var streams = [];
@@ -450,7 +437,6 @@ function extractDriveseedPage(url) {
     var baseDomain = getBaseUrl(url);
     var qualityText = extractFirstListGroupItem(html);
     
-    // Fallback if the metadata lists are missing due to a modern single-button container layout
     if (!qualityText) {
       var titleTagM = html.match(/<title>([\s\S]*?)<\/title>/i);
       qualityText = titleTagM ? titleTagM[1].replace("- DriveSeed", "").trim() : "Unknown File";
@@ -467,7 +453,6 @@ function extractDriveseedPage(url) {
     var textCenterLinks = extractTextCenterLinks(html);
     var promises = [];
     
-    // Fallback Link Collector: If textCenterLinks is empty, scrape raw layout links matching streaming hubs
     if (textCenterLinks.length === 0) {
       var generalLinksRe = /<a\s[^>]*href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
       var glM;
@@ -485,7 +470,6 @@ function extractDriveseedPage(url) {
       var href = item.href;
       if (!href) return;
       
-      // Normalize internal absolute endpoint paths
       if (href.indexOf("http") !== 0) {
         href = fixUrl(href, baseDomain);
       }
@@ -522,7 +506,6 @@ function extractDriveseedPage(url) {
     });
 
     return Promise.all(promises).then(function() {
-      // Emergency catch-all if still no structural endpoints matched (extracts any direct cloud storage configurations)
       if (streams.length === 0) {
         var cloudPattern = /href="(https:\/\/[^"]+\.(?:workers\.dev|botworkers|instantwater)[^"]+)"/gi;
         var cpM = cloudPattern.exec(html);
@@ -611,18 +594,13 @@ function getStreams(tmdbId, mediaType, season, episode) {
   var allStreams = [];
   return getTmdbDetails(tmdbId, mediaType).then(function(tmdbDetails) {
     if (!tmdbDetails) return [];
-    console.log("[UHDMovies] Title: " + tmdbDetails.title + " (" + tmdbDetails.year + ")");
     return searchByTitle(tmdbDetails.title, tmdbDetails.year);
   }).then(function(searchResults) {
-    if (!searchResults || searchResults.length === 0) {
-      console.log("[UHDMovies] No search results");
-      return [];
-    }
+    if (!searchResults || searchResults.length === 0) return [];
     var isSeries = mediaType === "series" || mediaType === "tv";
     function processResult(index) {
       if (index >= searchResults.length) return Promise.resolve(allStreams);
       var result = searchResults[index];
-      console.log("[UHDMovies] Processing: " + result.title);
       var linksPromise = isSeries && season && episode ? getTvEpisodeLink(result.url, season, episode) : getMovieLinks(result.url);
       return linksPromise.then(function(links) {
         var extractPromises = links.map(function(linkData) {
@@ -639,8 +617,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
             if (finalLink.indexOf("driveseed") !== -1 || finalLink.indexOf("driveleech") !== -1 || finalLink.indexOf("file/") !== -1) {
               return extractDriveseedPage(finalLink);
             }
-            if (finalLink.indexOf("video-seed") !== -1) {
-              return extractVideoSeed(finalLink).then(function(url) {
+            if (finalLink.indexOf("video-seed") !== -1 || finalLink.indexOf("video-leech") !== -1) {
+              return extractInstantLink(finalLink).then(function(url) {
                 if (!url) return [];
                 return [{ name: "UHDMovies", title: "UHDMovies " + (linkData.quality || "Unknown"), url: url, quality: linkData.quality || "Unknown" }];
               });

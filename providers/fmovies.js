@@ -430,7 +430,6 @@ function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
     return results.some(Boolean);
   });
 }
-
 function getStreams(id, type, season, episode, providerContext = null) {
   return __async(this, null, function* () {
     const requestedType = String(type).toLowerCase();
@@ -438,77 +437,69 @@ function getStreams(id, type, season, episode, providerContext = null) {
     const baseUrl = getStreamingCommunityBaseUrl();
     const commonHeaders = getCommonHeaders();
     let tmdbId = id.toString();
-let resolvedSeason = season;
+    let resolvedSeason = season;
 
-console.log("[DEBUG] Incoming ID:", id);
-console.log("[DEBUG] Incoming Type:", normalizedType);
+    console.log("[DEBUG] Incoming ID:", id);
+    console.log("[DEBUG] Incoming Type:", normalizedType);
 
-// 1. Explicit tmdb: IDs
-if (tmdbId.startsWith("tmdb:")) {
+    // 1. Resolve standard TMDB ID / IMDb parsing
+    if (tmdbId.startsWith("tmdb:")) {
+      tmdbId = tmdbId.replace("tmdb:", "");
+    } else if (tmdbId.startsWith("tt")) {
+      console.log("[TMDB] Converting IMDb:", tmdbId);
+      const convertedId = yield getTmdbId(tmdbId, normalizedType);
+      if (convertedId) {
+        tmdbId = convertedId;
+      } else {
+        console.warn(`[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`);
+        return [];
+      }
+    }
 
-  tmdbId = tmdbId.replace("tmdb:", "");
-
-  console.log("[DEBUG] Using explicit TMDB ID:", tmdbId);
-
-// 2. Plain numeric TMDB IDs
-} else if (/^\d+$/.test(tmdbId)) {
-
-  console.log("[DEBUG] Using numeric TMDB ID:", tmdbId);
-
-// 3. IMDb IDs
-} else if (tmdbId.startsWith("tt")) {
-
-  console.log("[TMDB] Converting IMDb:", tmdbId);
-
-  const convertedId = yield getTmdbId(
-    tmdbId,
-    normalizedType
-  );
-
-  if (convertedId) {
-
-    tmdbId = convertedId;
-
-    console.log(
-      `[VixSrc] Converted ${id} to TMDB ID: ${convertedId}`
-    );
-
-  } else {
-
-    console.warn(
-      `[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`
-    );
-
-    return [];
-  }
-
-// 4. Invalid IDs
-} else {
-
-  console.warn(
-    `[VixSrc] Invalid ID format: ${tmdbId}`
-  );
-
-  return [];
-}
-
-console.log("[DEBUG] Final TMDB ID:", tmdbId);
+    console.log("[DEBUG] Final TMDB ID:", tmdbId);
+    
+    // Fetch actual metadata from TMDB to get the clean title
     let metadata = { name: "StreamingCommunity", year: "", duration: "94 min" };
     try {
-    
-    metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode); 
+      metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode); 
     } catch (e) {
       console.error("[StreamingCommunity] Error fetching metadata:", e);
     }
 
+    // --- FIX: Translate TMDB ID to StreamingCommunity Internal ID via Search ---
+    let internalId = tmdbId; 
+    try {
+      const searchUrl = `${baseUrl}/api/search?q=${encodeURIComponent(metadata.name)}`;
+      const searchResponse = yield fetch(searchUrl, { headers: commonHeaders });
+      if (searchResponse.ok) {
+        const searchData = yield searchResponse.json().catch(() => null);
+        // Look for a title match and release year match to be precise
+        if (searchData && searchData.data) {
+          const matchedContent = searchData.data.find(item => {
+            const nameMatches = item.name.toLowerCase() === metadata.name.toLowerCase();
+            const yearMatches = metadata.year ? String(item.scadenza || item.last_air_date || "").includes(metadata.year) : true;
+            return nameMatches;
+          }) || searchData.data[0]; // Fallback to first result if strict year matching fails
+          
+          if (matchedContent && matchedContent.id) {
+            internalId = matchedContent.id.toString();
+            console.log(`[StreamingCommunity] Translated TMDB ${tmdbId} to Internal ID ${internalId} for: ${metadata.name}`);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("[StreamingCommunity] ID Translation failed, trying fallback:", err);
+    }
+    // -------------------------------------------------------------------------
+
     let url;
     let apiUrl;
     if (normalizedType === "movie") {
-      url = `${baseUrl}/movie/${tmdbId}`;
-      apiUrl = `${baseUrl}/api/movie/${tmdbId}`;
+      url = `${baseUrl}/movie/${internalId}`;
+      apiUrl = `${baseUrl}/api/movie/${internalId}`;
     } else if (normalizedType === "tv") {
-      url = `${baseUrl}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
-      apiUrl = `${baseUrl}/api/tv/${tmdbId}/${resolvedSeason}/${episode}`;
+      url = `${baseUrl}/tv/${internalId}/${resolvedSeason}/${episode}`;
+      apiUrl = `${baseUrl}/api/tv/${internalId}/${resolvedSeason}/${episode}`;
     } else {
       return [];
     }
@@ -570,89 +561,67 @@ console.log("[DEBUG] Final TMDB ID:", tmdbId);
         console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
 
         let streamLanguage = "English";
-let detectedQuality = "Auto";
+        let detectedQuality = "Auto";
 
-try {
-  const playlistResponse = yield fetch(streamUrl, {
-    headers: streamHeaders
-  });
+        try {
+          const playlistResponse = yield fetch(streamUrl, {
+            headers: streamHeaders
+          });
 
-  if (playlistResponse.ok) {
-    const playlistText = yield playlistResponse.text();
+          if (playlistResponse.ok) {
+            const playlistText = yield playlistResponse.text();
+            const playlistQuality = checkQualityFromText(playlistText);
 
-    // Detect quality
-    const playlistQuality =
-      checkQualityFromText(playlistText);
+            detectedQuality =
+              playlistQuality ||
+              getQualityFromUrl(streamUrl) ||
+              getQualityFromUrl(embedUrl) ||
+              "Auto";
 
-    detectedQuality =
-      playlistQuality ||
-      getQualityFromUrl(streamUrl) ||
-      getQualityFromUrl(embedUrl) ||
-      "Auto";
+            const languageMatches = [...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)];
+            const uniqueLanguages = [...new Set(languageMatches.map(x => x[1].toLowerCase()))];
 
-    // Detect unique audio languages
-const languageMatches = [
-  ...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)
-];
+            if (uniqueLanguages.length > 1) {
+              streamLanguage = "Multi-Audio";
+            } else if (uniqueLanguages.length === 1) {
+              const lang = uniqueLanguages[0];
+              if (lang.includes("it")) streamLanguage = "Italian";
+              else if (lang.includes("en")) streamLanguage = "English";
+              else if (lang.includes("es")) streamLanguage = "Spanish";
+              else if (lang.includes("fr")) streamLanguage = "French";
+              else streamLanguage = lang.toUpperCase();
+            } else {
+              streamLanguage = "English";
+            }
 
-const uniqueLanguages = [
-  ...new Set(
-    languageMatches.map(x =>
-      x[1].toLowerCase()
-    )
-  )
-];
+            console.log(`[StreamingCommunity] Quality: ${detectedQuality} | Lang: ${streamLanguage}`);
+          }
+        } catch (e) {
+          console.warn("[StreamingCommunity] Quality detection failed:", e);
+        }
 
-if (uniqueLanguages.length > 1) {
-  streamLanguage = "Multi-Audio";
-} else if (uniqueLanguages.length === 1) {
-  const lang = uniqueLanguages[0];
-
-  if (lang.includes("it")) streamLanguage = "Italian";
-  else if (lang.includes("en")) streamLanguage = "English";
-  else if (lang.includes("es")) streamLanguage = "Spanish";
-  else if (lang.includes("fr")) streamLanguage = "French";
-  else streamLanguage = lang.toUpperCase();
-} else {
-  streamLanguage = "English";
-}
-
-    console.log(
-      `[StreamingCommunity] Quality: ${detectedQuality} | Lang: ${streamLanguage}`
-    );
-  }
-} catch (e) {
-  console.warn(
-    "[StreamingCommunity] Quality detection failed:",
-    e
-  );
-}
-
-        // Calculate runtime manifest size boundaries dynamically
         const computedSize = yield getM3U8Size(streamUrl, metadata.duration, streamHeaders);
 
-        // Improved Format Detection
-let detectedFormat = "STREAM"; 
-const urlToCheck = streamUrl.toLowerCase();
+        let detectedFormat = "STREAM"; 
+        const urlToCheck = streamUrl.toLowerCase();
 
-if (urlToCheck.includes(".m3u8") || urlToCheck.includes("hls")) {
-  detectedFormat = "HLS";
-} else if (urlToCheck.includes(".mpd") || urlToCheck.includes("dash")) {
-  detectedFormat = "DASH";
-} else if (urlToCheck.includes(".mp4")) {
-  detectedFormat = "MP4";
-} else if (urlToCheck.includes(".mkv")) {
-  detectedFormat = "MKV";
-}
+        if (urlToCheck.includes(".m3u8") || urlToCheck.includes("hls")) {
+          detectedFormat = "HLS";
+        } else if (urlToCheck.includes(".mpd") || urlToCheck.includes("dash")) {
+          detectedFormat = "DASH";
+        } else if (urlToCheck.includes(".mp4")) {
+          detectedFormat = "MP4";
+        } else if (urlToCheck.includes(".mkv")) {
+          detectedFormat = "MKV";
+        }
 
-
-const generatedTitle = buildTitle(
-  metadata,
-  detectedQuality,
-  streamLanguage,
-  detectedFormat,
-  computedSize,
-  "VixSrc",
+        const generatedTitle = buildTitle(
+          metadata,
+          detectedQuality,
+          streamLanguage,
+          detectedFormat,
+          computedSize,
+          "VixSrc",
           normalizedType === "tv" ? resolvedSeason : null,
           normalizedType === "tv" ? episode : null
         );
@@ -678,5 +647,4 @@ const generatedTitle = buildTitle(
     }
   });
 }
-
 module.exports = { getStreams };

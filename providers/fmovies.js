@@ -291,7 +291,7 @@ function extractMasterPlaylistFromEmbedHtml(html) {
 
 // --- NEW STRUCTURAL METADATA ENGINE & MULTI-LINE UI BUILDERS ---
 function formatBytes(bytes) {
-  if (!bytes || isNaN(bytes)) return "Variable Size";
+  if (!bytes || isNaN(bytes)) return "";
   const units = ["B", "KB", "MB", "GB"];
   let i = 0;
   while (bytes >= 1024 && i < units.length - 1) {

@@ -323,10 +323,8 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       
       const text = yield res.text();
       
-      // FIX 2: Better matching for sub-playlists bandwidth lines to secure sizing data
       const matches = [...text.matchAll(/BANDWIDTH=(\d+)/gi)];
       if (matches.length > 0) {
-        // Grab the highest resolution playlist option bandwidth for realistic target sizing
         const bandwidths = matches.map(m => parseInt(m[1])).sort((a, b) => b - a);
         const bps = bandwidths[0]; 
         const mins = parseInt(durationText) || 90;
@@ -398,6 +396,7 @@ async function getMetadata(id, type, season, episode) {
     return { name: "VixSrc", year: "", duration: "90 min" };
   }
 }
+
 function getStreams(id, type, season, episode, providerContext = null) {
   return __async(this, null, function* () {
     const requestedType = String(type).toLowerCase();
@@ -405,7 +404,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
     const baseUrl = getStreamingCommunityBaseUrl();
     const commonHeaders = getCommonHeaders();
     
-    // 1. EXTRACT INBOUND ID (Inspired by VidLink's clean extraction layout)
+    // 1. EXTRACT INBOUND ID
     let tmdbId = id.toString().replace("tmdb:", "");
     let resolvedSeason = season;
 
@@ -420,11 +419,9 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
     }
 
-    // 3. THE FIX: Catch the specific wrong ID ('705669') passed by the app's database
+    // 3. THE INTERCEPTOR: Catch collision IDs passed by mismatched databases
     let internalId = tmdbId;
     if (tmdbId === "687163" || tmdbId === "705669") {
-      // If the app requests Priscilla (705669) while you are trying to watch Project Hail Mary,
-      // we force the scraper to use the correct metadata and internal video player mapping.
       tmdbId = "687163"; 
       internalId = "640875"; 
     } else {
@@ -443,7 +440,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
       } catch(e) {}
     }
 
-    // Rest of your original metadata fetching and playlist token extraction continues exactly as it was below...
     let metadata = { name: "VixSrc Video", year: "", duration: "90 min" };
     try {
       metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode); 
@@ -506,12 +502,14 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const computedSize = yield getM3U8Size(streamUrl, metadata.duration, streamHeaders);
         let detectedFormat = "M3U8"; 
 
+        // FIX: Realigned properties matching original buildTitle implementation signature
         const generatedTitle = buildTitle(
           metadata,
           detectedQuality,
           streamLanguage,
           detectedFormat,
           computedSize,
+          "VixSrc",
           normalizedType === "tv" ? resolvedSeason : null,
           normalizedType === "tv" ? episode : null
         );

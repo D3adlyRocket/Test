@@ -302,10 +302,46 @@ function formatBytes(bytes) {
 }
 
 function buildTitle(meta, res, lang, format, size, extra, season, episode) {
-  const qIcon = res.includes("1080") || res.includes("4K") ? "📺" : "💎";
+  const qIcon =
+    res.includes("4K") || res.includes("2160")
+      ? "🌟"
+      : res.includes("1080")
+      ? "📺"
+      : "💎";
+
   const lIcon = "🌍";
 
+  let cleanLang = "English";
+
+  // Auto detect multi-audio
+  if (
+    typeof lang === "string" &&
+    (
+      lang.includes(",") ||
+      lang.includes("|") ||
+      lang.includes("/") ||
+      lang.toLowerCase().includes("multi")
+    )
+  ) {
+    cleanLang = "Multi-Audio";
+  } else if (lang && typeof lang === "string") {
+    cleanLang = "English";
+  }
+
+  // Auto detect proper stream format
+  let cleanFormat = "STREAM";
+
+  if (format) {
+    const lower = format.toLowerCase();
+
+    if (lower.includes("mp4")) cleanFormat = "MP4";
+    else if (lower.includes("mkv")) cleanFormat = "MKV";
+    else if (lower.includes("m3u8")) cleanFormat = "HLS";
+    else if (lower.includes("dash") || lower.includes("mpd")) cleanFormat = "DASH";
+  }
+
   let line1 = "🎬 ";
+
   if (season && episode) {
     line1 += `S${season} E${episode} | ${meta.name}`;
   } else {
@@ -314,11 +350,12 @@ function buildTitle(meta, res, lang, format, size, extra, season, episode) {
 
   const columns = [
     `${qIcon} ${res}`,
-    `${lIcon} ${lang}`,
+    `${lIcon} ${cleanLang}`,
     `💾 ${size || "Variable Size"}`
   ];
 
-  const line3 = `🎞️ ${(format || "M3U8").toUpperCase()} | ⏱️ ${meta.duration} | ⚡ ${extra || "Direct"}`;
+  const line3 =
+    `🎞️ ${cleanFormat} | ⏱️ ${meta.duration} | ⚡ ${extra || "Direct"}`;
 
   return `${line1}\n${columns.join(" | ")}\n${line3}`;
 }
@@ -532,42 +569,70 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
         const streamHeaders = getPlaylistHeaders(embedUrl);
         console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
+
+        let streamLanguage = "English";
         
         let detectedQuality = "Auto";
-        try {
-          const playlistResponse = yield fetch(streamUrl, { headers: streamHeaders });
-          if (playlistResponse.ok) {
-            const playlistText = yield playlistResponse.text();
-            
-            // Extract dynamic quality profiles if present inside playlist configurations
-            if (playlistText.includes("RESOLUTION=1920x1080") || playlistText.includes("1080p")) detectedQuality = "1080p";
-            else if (playlistText.includes("RESOLUTION=1280x720") || playlistText.includes("720p")) detectedQuality = "720p";
-            else if (playlistText.includes("RESOLUTION=3840x2160") || playlistText.includes("2160p")) detectedQuality = "4K";
 
-            const hasItalian = /#EXT-X-MEDIA:TYPE=AUDIO.*(?:LANGUAGE="it"|LANGUAGE="ita"|NAME="Italian"|NAME="Ita")/i.test(playlistText);
-            const originalLanguageItalian = metadata && (metadata.original_language === "it" || metadata.original_language === "ita");
-            if (!hasItalian && !originalLanguageItalian) {
-              console.log(`[StreamingCommunity] No Italian audio found. Checking fallback.`);
-              const fallbackOk = yield hasGuardaFallbackResults(id, normalizedType, resolvedSeason, episode, providerContext);
-              if (!fallbackOk) {
-                return [];
-              }
-            }
-          }
-        } catch (e) {
-          console.warn(`[StreamingCommunity] Playlist pre-check failed, continuing:`, e);
-        }
+try {
+  // First attempt: detect from URL
+  detectedQuality =
+    getQualityFromUrl(streamUrl) ||
+    getQualityFromUrl(embedUrl) ||
+    "Auto";
+
+  const playlistResponse = await fetch(streamUrl, {
+    headers: streamHeaders
+  });
+
+  if (playlistResponse.ok) {
+    const playlistText = await playlistResponse.text();
+
+    // Stronger playlist detection
+    detectedQuality =
+      checkQualityFromText(playlistText) ||
+      detectedQuality;
+
+    // Multi-audio detection
+    const audioTracks =
+      playlistText.match(/#EXT-X-MEDIA:TYPE=AUDIO/gi) || [];
+
+    const language =
+      audioTracks.length > 1
+        ? "Multi-Audio"
+        : "English";
+
+    streamLanguage = language;
+
+    console.log(
+      `[StreamingCommunity] Quality: ${detectedQuality} | Lang: ${streamLanguage}`
+    );
+  }
+} catch (e) {
+  console.warn("[StreamingCommunity] Quality detection failed:", e);
+}
 
         // Calculate runtime manifest size boundaries dynamically
         const computedSize = yield getM3U8Size(streamUrl, metadata.duration, streamHeaders);
 
-        const generatedTitle = buildTitle(
-          metadata,
-          detectedQuality,
-          "Italian",
-          "m3u8",
-          computedSize,
-          "VixSrc Stream",
+        const detectedFormat =
+  streamUrl.includes(".mp4")
+    ? "mp4"
+    : streamUrl.includes(".mkv")
+    ? "mkv"
+    : streamUrl.includes(".mpd")
+    ? "dash"
+    : streamUrl.includes(".m3u8")
+    ? "hls"
+    : "stream";
+
+const generatedTitle = buildTitle(
+  metadata,
+  detectedQuality,
+  streamLanguage,
+  detectedFormat,
+  computedSize,
+  "VixSrc",
           normalizedType === "tv" ? resolvedSeason : null,
           normalizedType === "tv" ? episode : null
         );
@@ -577,7 +642,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
           title: generatedTitle,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,
-          quality: `StreamingCommunity | ${detectedQuality} | Italian`,
+          quality: `StreamingCommunity | ${detectedQuality} | ${streamLanguage}`,
           type: "direct",
           headers: streamHeaders,
           behaviorHints: { notWebReady: false }

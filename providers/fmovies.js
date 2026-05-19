@@ -370,29 +370,89 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
   return __async(this, null, function* () {
     try {
       const res = yield fetch(m3u8Url, { headers });
-      if (!res.ok) return "Variable Size";
-      const text = yield res.text();
-      const lines = text.split("\n");
-      const segments = lines.filter(line => line && !line.startsWith("#") && (line.includes(".ts") || line.includes(".m4s") || line.includes("vixsrc.to")));
-      const sampleSegments = segments.slice(0, 3);
-      if (sampleSegments.length > 0) {
-        let totalSampleSize = 0;
-        for (const seg of sampleSegments) {
-          const segUrl = seg.startsWith("http") ? seg : new URL(seg, m3u8Url).href;
-          try {
-  const segRes = yield fetch(segUrl, {
-    method: "GET", headers
-  });
-  const chunk = yield segRes.arrayBuffer();
 
-  totalSampleSize += chunk.byteLength;
-} catch (e) {}
-        }
-        const mins = parseInt(durationText) || 94;
-        const estimatedTotal = (totalSampleSize / sampleSegments.length) * ((mins * 60) / 6);
-        return formatBytes(estimatedTotal);
+      if (!res.ok) return "Variable Size";
+
+      const masterText = yield res.text();
+
+      // Find variant playlist
+      const variantMatch = masterText.match(
+        /^(.+\.m3u8.*)$/m
+      );
+
+      let playlistUrl = m3u8Url;
+
+      if (variantMatch) {
+        playlistUrl = new URL(
+          variantMatch[1],
+          m3u8Url
+        ).href;
       }
-      return "Variable Size";
+
+      const playlistRes = yield fetch(
+        playlistUrl,
+        { headers }
+      );
+
+      if (!playlistRes.ok)
+        return "Variable Size";
+
+      const playlistText =
+        yield playlistRes.text();
+
+      const segments = playlistText
+        .split("\n")
+        .filter(
+          line =>
+            line &&
+            !line.startsWith("#") &&
+            (
+              line.includes(".ts") ||
+              line.includes(".m4s")
+            )
+        );
+
+      if (!segments.length)
+        return "Variable Size";
+
+      const sampleSegments =
+        segments.slice(0, 5);
+
+      let totalSampleSize = 0;
+
+      for (const seg of sampleSegments) {
+        try {
+          const segUrl = seg.startsWith("http")
+            ? seg
+            : new URL(seg, playlistUrl).href;
+
+          const segRes = yield fetch(segUrl, {
+            method: "GET",
+            headers
+          });
+
+          const chunk =
+            yield segRes.arrayBuffer();
+
+          totalSampleSize +=
+            chunk.byteLength;
+        } catch (e) {}
+      }
+
+      if (!totalSampleSize)
+        return "Variable Size";
+
+      const mins =
+        parseInt(durationText) || 94;
+
+      const estimatedTotal =
+        (totalSampleSize /
+          sampleSegments.length) *
+        ((mins * 60) / 6);
+
+      return formatBytes(
+        estimatedTotal
+      );
     } catch (e) {
       return "Variable Size";
     }
@@ -643,7 +703,7 @@ if (uniqueLanguages.length > 1) {
         const computedSize = yield getM3U8Size(streamUrl, metadata.duration, streamHeaders);
 
         const detectedFormat =
-  streamUrl.includes(".mp4")
+    : streamUrl.includes(".mp4")
     ? "mp4"
     : streamUrl.includes(".mkv")
     ? "mkv"

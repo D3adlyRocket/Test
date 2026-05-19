@@ -64,66 +64,6 @@ var require_formatter = __commonJS({
   }
 });
 
-// src/fetch_helper.js
-var require_fetch_helper = __commonJS({
-  "src/fetch_helper.js"(exports2, module2) {
-    var FETCH_TIMEOUT = 3e4;
-    function createTimeoutSignal(timeoutMs) {
-      const parsed = Number.parseInt(String(timeoutMs), 10);
-      if (!Number.isFinite(parsed) || parsed <= 0) {
-        return { signal: void 0, cleanup: null, timed: false };
-      }
-      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
-        return { signal: AbortSignal.timeout(parsed), cleanup: null, timed: true };
-      }
-      if (typeof AbortController !== "undefined" && typeof setTimeout === "function") {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => {
-          controller.abort();
-        }, parsed);
-        return {
-          signal: controller.signal,
-          cleanup: () => clearTimeout(timeoutId),
-          timed: true
-        };
-      }
-      return { signal: void 0, cleanup: null, timed: false };
-    }
-    function fetchWithTimeout(_0) {
-      return __async(this, arguments, function* (url, options = {}) {
-        if (typeof fetch === "undefined") {
-          throw new Error("No fetch implementation found!");
-        }
-        const _a = options, { timeout } = _a, fetchOptions = __objRest(_a, ["timeout"]);
-        const requestTimeout = timeout || FETCH_TIMEOUT;
-        const timeoutConfig = createTimeoutSignal(requestTimeout);
-        const requestOptions = __spreadValues({}, fetchOptions);
-        if (timeoutConfig.signal) {
-          if (requestOptions.signal && typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
-            requestOptions.signal = AbortSignal.any([requestOptions.signal, timeoutConfig.signal]);
-          } else if (!requestOptions.signal) {
-            requestOptions.signal = timeoutConfig.signal;
-          }
-        }
-        try {
-          const response = yield fetch(url, requestOptions);
-          return response;
-        } catch (error) {
-          if (error && error.name === "AbortError" && timeoutConfig.timed) {
-            throw new Error(`Request to ${url} timed out after ${requestTimeout}ms`);
-          }
-          throw error;
-        } finally {
-          if (typeof timeoutConfig.cleanup === "function") {
-            timeoutConfig.cleanup();
-          }
-        }
-      });
-    }
-    module2.exports = { fetchWithTimeout, createTimeoutSignal };
-  }
-});
-
 // src/quality_helper.js
 var require_quality_helper = __commonJS({
   "src/quality_helper.js"(exports2, module2) {
@@ -158,7 +98,7 @@ var { formatStream } = require_formatter();
 var { checkQualityFromText, getQualityFromUrl } = require_quality_helper();
 
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
-var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
+var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
 function getCommonHeaders() {
   return {
@@ -218,24 +158,20 @@ function formatBytes(bytes) {
   return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
-function buildTitle(meta, res, lang, format, size, extra, season, episode) {
+function buildTitle(meta, res, lang, format, size, season, episode) {
   const qIcon = res.includes("4K") || res.includes("2160") ? "🌟" : "💎";
-  let cleanLang = "English";
-  if (typeof lang === "string" && (lang.includes(",") || lang.toLowerCase().includes("multi"))) {
-    cleanLang = "Multi-Audio";
-  } else if (lang) {
-    cleanLang = lang;
-  }
+  let cleanLang = "Multi-Audio";
+  if (lang) cleanLang = lang;
 
   let line1 = "🎬 ";
   if (season && episode) {
-    line1 += `S${season} E${episode} | ${meta.name}`;
+    line1 += `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')} | ${meta.name}`;
   } else {
     line1 += `${meta.name}${meta.year ? " (" + meta.year + ")" : ""}`;
   }
 
-  const line2 = `${qIcon} ${res} | 🌍 ${cleanLang} | 💾 ${size || "Variable Size"}`;
-  const line3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration} | ⚡ ${extra}`;
+  const line2 = `${qIcon} ${res} | 🌍 ${cleanLang} | 💾 ${size}`;
+  const line3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration} | ⚡ VixSrc Connection`;
 
   return `${line1}\n${line2}\n${line3}`;
 }
@@ -246,9 +182,10 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       const res = yield fetch(m3u8Url, { headers });
       if (!res.ok) return "Variable Size";
       const text = yield res.text();
-      const bandwidthMatch = text.match(/BANDWIDTH=(\d+)/i);
-      if (bandwidthMatch) {
-        const bps = parseInt(bandwidthMatch[1]);
+      const matches = [...text.matchAll(/BANDWIDTH=(\d+)/gi)];
+      if (matches.length > 0) {
+        const bandwidths = matches.map(m => parseInt(m[1])).sort((a, b) => b - a);
+        const bps = bandwidths[0]; 
         const mins = parseInt(durationText) || 90;
         const totalBytes = (bps / 8) * (mins * 60);
         return formatBytes(totalBytes);
@@ -256,6 +193,27 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       return "Variable Size";
     } catch (e) {
       return "Variable Size";
+    }
+  });
+}
+
+function getTmdbId(imdbId, type) {
+  return __async(this, null, function* () {
+    const normalizedType = String(type).toLowerCase();
+    const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+    try {
+      const response = yield fetch(findUrl);
+      if (!response.ok) return null;
+      const data = yield response.json();
+      if (!data) return null;
+      if (normalizedType === "movie" && data.movie_results && data.movie_results.length > 0) {
+        return data.movie_results[0].id.toString();
+      } else if (normalizedType === "tv" && data.tv_results && data.tv_results.length > 0) {
+        return data.tv_results[0].id.toString();
+      }
+      return null;
+    } catch (e) {
+      return null;
     }
   });
 }
@@ -270,18 +228,25 @@ async function getMetadata(id, type, season, episode) {
     if (!response.ok) throw new Error("TMDB Fail");
     const data = await response.json();
 
-    let duration = "90 min";
+    let duration = "90 min"; 
     if (normalizedType === "movie" && data.runtime) {
       duration = `${data.runtime} min`;
+    } else if (normalizedType === "tv") {
+      const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
+      const epRes = await fetch(epUrl);
+      if (epRes.ok) {
+        const epData = await epRes.json();
+        if (epData.runtime) duration = `${epData.runtime} min`;
+      }
     }
 
     return {
       name: data.title || data.name,
-      year: (data.release_date || "").split("-")[0],
+      year: (data.release_date || data.first_air_date || "").split("-")[0],
       duration: duration
     };
   } catch (e) {
-    return { name: "Project Hail Mary", year: "2026", duration: "109 min" };
+    return { name: "VixSrc Stream", year: "", duration: "90 min" };
   }
 }
 
@@ -291,17 +256,29 @@ function getStreams(id, type, season, episode, providerContext = null) {
     const normalizedType = requestedType === "series" ? "tv" : requestedType;
     const baseUrl = getStreamingCommunityBaseUrl();
     const commonHeaders = getCommonHeaders();
-    let tmdbId = id.toString().replace("tmdb:", "");
-
-    // --- FORCE INBOUND MATCH ENGINE INTERCEPTOR ---
-    let internalId = tmdbId;
     
-    // Catch either the real ID or your app's incorrect incoming Priscilla database ID
+    // FIX FROM VIDLINK: Standardize and clean input parameters immediately at startup
+    let tmdbId = id.toString().replace("tmdb:", "");
+    let resolvedSeason = season;
+
+    // Validate incoming query context matching tracking variables
+    const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
+    if (contextTmdbId) {
+      tmdbId = contextTmdbId;
+    } else if (tmdbId.startsWith("tt")) {
+      const convertedId = yield getTmdbId(tmdbId, normalizedType);
+      if (convertedId) {
+        tmdbId = convertedId;
+      }
+    }
+
+    // Explicit Mapping Safeguard for Collision IDs (e.g., Project Hail Mary)
+    let internalId = tmdbId;
     if (tmdbId === "687163" || tmdbId === "705669") {
-      console.log(`[StreamingCommunity] Intercepted ID ${tmdbId}. Forcing Project Hail Mary target stream.`);
-      tmdbId = "687163"; // Correct metadata reference
-      internalId = "640875"; // Correct site link target
+      tmdbId = "687163"; 
+      internalId = "640875"; 
     } else {
+      // Dynamic Search Lookup API matching
       try {
         const lookupUrl = `${baseUrl}/api/search?tmdb=${tmdbId}&type=${normalizedType}`;
         const lookupResponse = yield fetch(lookupUrl, { headers: commonHeaders });
@@ -315,15 +292,23 @@ function getStreams(id, type, season, episode, providerContext = null) {
         }
       } catch(e) {}
     }
-    // ----------------------------------------------
 
-    let metadata = { name: "Project Hail Mary", year: "2026", duration: "109 min" };
+    let metadata = { name: "VixSrc Video", year: "", duration: "90 min" };
     try {
-      metadata = yield getMetadata(tmdbId, type, season, episode); 
+      metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode); 
     } catch (e) {}
 
-    let url = `${baseUrl}/movie/${internalId}`;
-    let apiUrl = `${baseUrl}/api/movie/${internalId}`;
+    let url;
+    let apiUrl;
+    if (normalizedType === "movie") {
+      url = `${baseUrl}/movie/${internalId}`;
+      apiUrl = `${baseUrl}/api/movie/${internalId}`;
+    } else if (normalizedType === "tv") {
+      url = `${baseUrl}/tv/${internalId}/${resolvedSeason}/${episode}`;
+      apiUrl = `${baseUrl}/api/tv/${internalId}/${resolvedSeason}/${episode}`;
+    } else {
+      return [];
+    }
 
     try {
       const response = yield fetch(apiUrl, { headers: commonHeaders });
@@ -343,40 +328,49 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
         const streamHeaders = getPlaylistHeaders(embedUrl);
 
-        let streamLanguage = "English";
-        let detectedQuality = "Auto";
+        let streamLanguage = "Multi-Audio"; 
+        let detectedQuality = "1080p";
 
         try {
           const playlistResponse = yield fetch(streamUrl, { headers: streamHeaders });
           if (playlistResponse.ok) {
             const playlistText = yield playlistResponse.text();
             const playlistQuality = checkQualityFromText(playlistText);
-            detectedQuality = playlistQuality || getQualityFromUrl(streamUrl) || getQualityFromUrl(embedUrl) || "Auto";
+            detectedQuality = playlistQuality || getQualityFromUrl(streamUrl) || getQualityFromUrl(embedUrl) || "1080p";
 
             const languageMatches = [...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)];
             const uniqueLanguages = [...new Set(languageMatches.map(x => x[1].toLowerCase()))];
 
-            if (uniqueLanguages.length > 1) {
+            if (uniqueLanguages.length > 1 || playlistText.includes("ita") || streamUrl.includes("lang=it")) {
               streamLanguage = "Multi-Audio";
             } else if (uniqueLanguages.length === 1) {
               const lang = uniqueLanguages[0];
               if (lang.includes("it")) streamLanguage = "Italian";
               else if (lang.includes("en")) streamLanguage = "English";
+              else streamLanguage = lang.toUpperCase();
             }
           }
         } catch (e) {}
 
         const computedSize = yield getM3U8Size(streamUrl, metadata.duration, streamHeaders);
-        let detectedFormat = "HLS"; 
+        let detectedFormat = "M3U8"; 
 
-        const generatedTitle = buildTitle(metadata, detectedQuality, streamLanguage, detectedFormat, computedSize, "VixSrc", null, null);
+        const generatedTitle = buildTitle(
+          metadata,
+          detectedQuality,
+          streamLanguage,
+          detectedFormat,
+          computedSize,
+          normalizedType === "tv" ? resolvedSeason : null,
+          normalizedType === "tv" ? episode : null
+        );
         
         const result = {
-          name: "🎦",
+          name: `🎦 VixSrc | ${detectedQuality} | ${streamLanguage}`,
           title: generatedTitle,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,
-          quality: `VixSrc | ${detectedQuality} | ${streamLanguage}`,
+          quality: detectedQuality.toLowerCase().includes("p") ? detectedQuality : "1080p", 
           type: "direct",
           headers: {
              "User-Agent": USER_AGENT,

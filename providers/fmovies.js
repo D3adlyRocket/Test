@@ -457,7 +457,8 @@ function getStreams(id, type, season, episode, providerContext = null) {
 
     let metadata = { name: "StreamingCommunity", year: "", duration: "94 min" };
     try {
-      metadata = yield getMetadata(tmdbId, type);
+    
+    metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode); 
     } catch (e) {
       console.error("[StreamingCommunity] Error fetching metadata:", e);
     }

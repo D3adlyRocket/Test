@@ -440,10 +440,12 @@ function getStreams(id, type, season, episode, providerContext = null) {
     let tmdbId = id.toString();
     let resolvedSeason = season;
     
-    const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
-    if (contextTmdbId) {
-      tmdbId = contextTmdbId;
-    } else if (tmdbId.startsWith("tmdb:")) {
+    // Prefer explicit tmdb: IDs over providerContext
+if (tmdbId.startsWith("tmdb:")) {
+  tmdbId = tmdbId.replace("tmdb:", "");
+} else if (contextTmdbId) {
+  tmdbId = contextTmdbId;
+} else if (tmdbId.startsWith("tmdb:")) {
       tmdbId = tmdbId.replace("tmdb:", "");
     } else if (tmdbId.startsWith("tt")) {
       const convertedId = yield getTmdbId(tmdbId, normalizedType);

@@ -437,21 +437,30 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
 
       let totalSampleSize = 0;
 
-      for (const seg of sampleSegments) {
-  try {
-    const segUrl = seg.startsWith("http")
-      ? seg
-      : new URL(seg, playlistUrl).href;
+      const segRes = yield fetch(segUrl, {
+  method: "GET",
+  headers: {
+    ...headers,
+    Range: "bytes=0-1"
+  }
+});
 
-    const segRes = yield fetch(segUrl, {
-      method: "HEAD",
-      headers
-    });
+const contentRange =
+  segRes.headers.get("content-range");
 
-    const contentLength =
-      Number(segRes.headers.get("content-length")) || 0;
+const contentLength =
+  Number(segRes.headers.get("content-length")) || 0;
 
-    totalSampleSize += contentLength;
+// Parse total file size from content-range
+// Example: bytes 0-1/5242880
+let estimatedSegmentSize = contentLength;
+
+if (contentRange && contentRange.includes("/")) {
+  estimatedSegmentSize =
+    Number(contentRange.split("/")[1]) || contentLength;
+}
+
+totalSampleSize += estimatedSegmentSize;
 
   } catch (e) {}
 }

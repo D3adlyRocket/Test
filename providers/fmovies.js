@@ -304,15 +304,14 @@ function formatBytes(bytes) {
 function buildTitle(meta, res, lang, format, size, extra, season, episode) {
   const qIcon = res.includes("4K") || res.includes("2160") ? "🌟" : "💎";
   
-  // Clean up language string
-  let cleanLang = "English";
-  if (typeof lang === "string" && (lang.includes(",") || lang.toLowerCase().includes("multi"))) {
+  // Force Multi-Audio detection logic
+  let cleanLang = lang;
+  if (lang.toLowerCase().includes("multi") || lang.toLowerCase().includes("ita,eng")) {
     cleanLang = "Multi-Audio";
-  } else if (lang) {
-    cleanLang = lang;
   }
 
-  let line1 = "🎬 ";
+  // LINE 1: Keep it simple so the mobile header looks clean
+  let line1 = ""; 
   if (season && episode) {
     line1 += `S${season} E${episode} | ${meta.name}`;
   } else {
@@ -320,8 +319,6 @@ function buildTitle(meta, res, lang, format, size, extra, season, episode) {
   }
 
   const line2 = `${qIcon} ${res} | 🌍 ${cleanLang} | 💾 ${size || "Variable Size"}`;
-  
-  // Fixed Line 3: Removed the trailing Auto/English that causes duplicates on mobile
   const line3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration} | ⚡ ${extra}`;
 
   return `${line1}\n${line2}\n${line3}`;
@@ -553,18 +550,12 @@ try {
       "Auto";
 
     // Detect unique audio languages
-const languageMatches = [...playlistText.matchAll(/#EXT-X-MEDIA:TYPE=AUDIO.*?LANGUAGE="([^"]+)"/gi)];
+const languageMatches = [...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)];
 const uniqueLanguages = [...new Set(languageMatches.map(x => x[1].toLowerCase()))];
 
-if (uniqueLanguages.length > 1 || playlistText.toLowerCase().includes("multi-audio")) {
+// If there's more than one language, OR it's a known Italian provider, mark as Multi
+if (uniqueLanguages.length > 1 || playlistText.includes("ita") || playlistText.includes("eng")) {
   streamLanguage = "Multi-Audio";
-} else if (uniqueLanguages.length === 1) {
-  const lang = uniqueLanguages[0];
-  if (lang.includes("it")) streamLanguage = "Italian";
-  else if (lang.includes("en")) streamLanguage = "English";
-  else if (lang.includes("es")) streamLanguage = "Spanish";
-  else if (lang.includes("fr")) streamLanguage = "French";
-  else streamLanguage = lang.toUpperCase();
 } else {
   streamLanguage = "English";
 }
@@ -610,14 +601,15 @@ const generatedTitle = buildTitle(
         );
         
         const result = {
-          name: "🎦",
-          title: generatedTitle,
-          url: streamUrl,
-          easyProxySourceUrl: embedUrl,
-          quality: "VixSrc",
-          type: "direct",
-          headers: streamHeaders,
-          behaviorHints: { notWebReady: false }
+  name: "VixSrc", // This changes the provider name in the list
+  title: generatedTitle,
+  url: streamUrl,
+  easyProxySourceUrl: embedUrl,
+  quality: " ", // Setting this to a single space prevents the app from appending junk
+  type: "direct",
+  headers: streamHeaders,
+  behaviorHints: { notWebReady: false }
+};
         };
         return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
       } else {

@@ -433,35 +433,43 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       if (!segments.length)  
         return "Variable Size";  
   
-      const sampleSegments =  
-        segments.slice(0, 5);  
+      const sampleSegments = segments.slice(0, 5);  
   
-      let totalSampleSize = 0;  
+let totalSampleSize = 0;  
   
-      const segRes = yield fetch(segUrl, {  
-  method: "GET",  
-  headers: {  
-    ...headers,  
-    Range: "bytes=0-1"  
-  }  
-});  
+for (const seg of sampleSegments) {  
+  try {  
   
-const contentRange =  
-  segRes.headers.get("content-range");  
+    const segUrl = seg.startsWith("http")  
+      ? seg  
+      : new URL(seg, playlistUrl).href;  
   
-const contentLength =  
-  Number(segRes.headers.get("content-length")) || 0;  
+    const segRes = yield fetch(segUrl, {  
+      method: "GET",  
+      headers: {  
+        ...headers,  
+        Range: "bytes=0-1"  
+      }  
+    });  
   
-// Parse total file size from content-range  
-// Example: bytes 0-1/5242880  
-let estimatedSegmentSize = contentLength;  
+    const contentRange =  
+      segRes.headers.get("content-range");  
   
-if (contentRange && contentRange.includes("/")) {  
-  estimatedSegmentSize =  
-    Number(contentRange.split("/")[1]) || contentLength;  
-}  
+    const contentLength =  
+      Number(segRes.headers.get("content-length")) || 0;  
   
-totalSampleSize += estimatedSegmentSize;  
+    let estimatedSegmentSize = contentLength;  
+  
+    if (  
+      contentRange &&  
+      contentRange.includes("/")  
+    ) {  
+      estimatedSegmentSize =  
+        Number(contentRange.split("/")[1]) ||  
+        contentLength;  
+    }  
+  
+    totalSampleSize += estimatedSegmentSize;  
   
   } catch (e) {}  
 }  
@@ -772,15 +780,19 @@ const generatedTitle = buildTitle(
         );  
           
         const result = {  
-          name: "🎦",  
-          title: generatedTitle,  
-          url: streamUrl,  
-          easyProxySourceUrl: embedUrl,  
-          quality: `VixSrc | ${detectedQuality} | ${streamLanguage}`,  
-          type: "direct",  
-          headers: streamHeaders,  
-          behaviorHints: { notWebReady: false }  
-        };  
+  name: "🎦",  
+  title: generatedTitle,  
+  url: rawPageUrl,  
+  easyProxySourceUrl: embedUrl,  
+  
+  quality: "",  
+  
+  type: "direct",  
+  headers: commonHeaders,  
+  behaviorHints: {  
+    notWebReady: false  
+  }  
+};  
         return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);  
       } else {  
         console.log("[StreamingCommunity] Could not find playlist info in HTML");  
@@ -793,4 +805,4 @@ const generatedTitle = buildTitle(
   });  
 }  
   
-module.exports = { getStreams };
+module.exports = { getStreams };  

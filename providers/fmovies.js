@@ -466,31 +466,47 @@ function getStreams(id, type, season, episode, providerContext = null) {
       console.error("[StreamingCommunity] Error fetching metadata:", e);
     }
 
-    // --- FIX: Translate TMDB ID to StreamingCommunity Internal ID via Search ---
+        // --- FIX: Translate TMDB ID to StreamingCommunity Internal ID via Search ---
     let internalId = tmdbId; 
     try {
       const searchUrl = `${baseUrl}/api/search?q=${encodeURIComponent(metadata.name)}`;
       const searchResponse = yield fetch(searchUrl, { headers: commonHeaders });
+      
       if (searchResponse.ok) {
         const searchData = yield searchResponse.json().catch(() => null);
-        // Look for a title match and release year match to be precise
-        if (searchData && searchData.data) {
-          const matchedContent = searchData.data.find(item => {
-            const nameMatches = item.name.toLowerCase() === metadata.name.toLowerCase();
-            const yearMatches = metadata.year ? String(item.scadenza || item.last_air_date || "").includes(metadata.year) : true;
-            return nameMatches;
-          }) || searchData.data[0]; // Fallback to first result if strict year matching fails
+        
+        if (searchData && Array.isArray(searchData.data) && searchData.data.length > 0) {
+          const cleanSearchName = metadata.name.toLowerCase().trim();
           
+          // Step 1: Attempt strict title matching first
+          let matchedContent = searchData.data.find(item => {
+            if (!item || !item.name) return false;
+            return item.name.toLowerCase().trim() === cleanSearchName;
+          });
+
+          // Step 2: Fall back to matching the release year if strict name match fails
+          if (!matchedContent && metadata.year) {
+            matchedContent = searchData.data.find(item => {
+              if (!item || !item.name) return false;
+              const dateStr = String(item.scadenza || item.last_air_date || item.release_date || "");
+              return dateStr.includes(metadata.year);
+            });
+          }
+
+          // Step 3: Only reassign internalId if an active verified item was tracked down
           if (matchedContent && matchedContent.id) {
             internalId = matchedContent.id.toString();
-            console.log(`[StreamingCommunity] Translated TMDB ${tmdbId} to Internal ID ${internalId} for: ${metadata.name}`);
+            console.log(`[StreamingCommunity] Successfully translated TMDB ${tmdbId} to Verified Internal ID ${internalId} for: ${metadata.name}`);
+          } else {
+            console.warn(`[StreamingCommunity] Loose search results didn't match cleanly. Defaulting back to source structural ID.`);
           }
         }
       }
     } catch (err) {
-      console.error("[StreamingCommunity] ID Translation failed, trying fallback:", err);
+      console.error("[StreamingCommunity] ID Translation engine crashed, using fallback standard:", err);
     }
     // -------------------------------------------------------------------------
+
 
     let url;
     let apiUrl;

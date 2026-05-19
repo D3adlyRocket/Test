@@ -310,7 +310,7 @@ function buildTitle(meta, res, lang, format, size, extra, season, episode) {
   }
 
   const line2 = `${qIcon} ${res} | 🌍 ${lang} | 💾 ${size}`;
-  const line3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration} | ⚡ ${extra}`;
+  const line3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration} | ⚡ ""`;
 
   return `${line1}\n${line2}\n${line3}`;
 }

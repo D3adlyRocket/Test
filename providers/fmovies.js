@@ -370,10 +370,13 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
   return __async(this, null, function* () {
     try {
       const res = yield fetch(m3u8Url, { headers });
-
+      
       if (!res.ok) return "Variable Size";
 
       const masterText = yield res.text();
+     
+      let playlistUrl = m3u8Url;
+      
       if (masterText.includes("#EXT-X-STREAM-INF")) {
   const variantLines = masterText
     .split("\n")
@@ -395,8 +398,6 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       const variantMatch = masterText.match(
         /^(.+\.m3u8.*)$/m
       );
-
-      let playlistUrl = m3u8Url;
 
       if (variantMatch) {
         playlistUrl = new URL(

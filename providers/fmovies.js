@@ -631,14 +631,18 @@ function getStreams(id, type, season, episode, providerContext = null) {
         );
 
         const result = {
-          name: "🎦",
-          title: generatedTitle,
-          url: rawPageUrl,
-          easyProxySourceUrl: rawPageUrl,
-          quality: "StreamingCommunity | Auto | Italian",
-          type: "direct",
-          behaviorHints: { notWebReady: false }
-        };
+  name: "🎦",
+  title: generatedTitle,
+  url: streamUrl,
+  easyProxySourceUrl: embedUrl,
+
+  // Prevent app from injecting duplicate metadata
+  quality: "",
+
+  type: "direct",
+  headers: streamHeaders,
+  behaviorHints: { notWebReady: false }
+};
         return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
       }
 
@@ -728,7 +732,7 @@ if (uniqueLanguages.length > 1) {
     ? "dash"
     : streamUrl.includes(".m3u8")
     ? "hls"
-    : "stream";
+    : "HLS";
 
 const generatedTitle = buildTitle(
   metadata,

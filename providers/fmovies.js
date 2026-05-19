@@ -302,174 +302,54 @@ function formatBytes(bytes) {
 }
 
 function buildTitle(meta, res, lang, format, size, extra, season, episode) {
-  const qIcon =
-    res.includes("4K") || res.includes("2160")
-      ? "🌟"
-      : res.includes("1080")
-      ? "📺"
-      : "💎";
-
-  const lIcon = "🌍";
-
+  const qIcon = res.includes("4K") || res.includes("2160") ? "🌟" : "💎";
+  
+  // Clean up language string
   let cleanLang = "English";
-
-  // Auto detect multi-audio
-  if (
-    typeof lang === "string" &&
-    (
-      lang.includes(",") ||
-      lang.includes("|") ||
-      lang.includes("/") ||
-      lang.toLowerCase().includes("multi")
-    )
-  ) {
+  if (typeof lang === "string" && (lang.includes(",") || lang.toLowerCase().includes("multi"))) {
     cleanLang = "Multi-Audio";
-  } else if (lang && typeof lang === "string") {
-  cleanLang = lang;
-  }
-
-  // Auto detect proper stream format
-  let cleanFormat = "STREAM";
-
-  if (format) {
-    const lower = format.toLowerCase();
-
-    if (lower.includes("mp4")) cleanFormat = "MP4";
-else if (lower.includes("mkv")) cleanFormat = "MKV";
-else if (
-  lower.includes("m3u8") ||
-  lower.includes("hls")
-) cleanFormat = "HLS";
-else if (
-  lower.includes("dash") ||
-  lower.includes("mpd")
-) cleanFormat = "DASH";
+  } else if (lang) {
+    cleanLang = lang;
   }
 
   let line1 = "🎬 ";
-
   if (season && episode) {
     line1 += `S${season} E${episode} | ${meta.name}`;
   } else {
     line1 += `${meta.name}${meta.year ? " (" + meta.year + ")" : ""}`;
   }
 
-  const columns = [
-    `${qIcon} ${res}`,
-    `${lIcon} ${cleanLang}`,
-    `💾 ${size || "Variable Size"}`
-  ];
+  const line2 = `${qIcon} ${res} | 🌍 ${cleanLang} | 💾 ${size || "Variable Size"}`;
+  
+  // Fixed Line 3: Removed the trailing Auto/English that causes duplicates on mobile
+  const line3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration} | ⚡ ${extra}`;
 
-  const line3 =
-    `🎞️ ${cleanFormat} | ⏱️ ${meta.duration} | ⚡ ${extra || "Direct"}`;
-
-  return `${line1}\n${columns.join(" | ")}\n${line3}`;
+  return `${line1}\n${line2}\n${line3}`;
 }
 
 function getM3U8Size(m3u8Url, durationText, headers = {}) {
   return __async(this, null, function* () {
     try {
       const res = yield fetch(m3u8Url, { headers });
-
       if (!res.ok) return "Variable Size";
-
-      const masterText = yield res.text();
-      if (masterText.includes("#EXT-X-STREAM-INF")) {
-  const variantLines = masterText
-    .split("\n")
-    .filter(line =>
-      line &&
-      !line.startsWith("#") &&
-      line.includes(".m3u8")
-    );
-
-  if (variantLines.length > 0) {
-    playlistUrl = new URL(
-      variantLines[variantLines.length - 1],
-      m3u8Url
-    ).href;
-  }
+      
+      const text = yield res.text();
+      
+      // Look for the BANDWIDTH attribute in the master playlist
+      // This is much faster than downloading video chunks
+      const bandwidthMatch = text.match(/BANDWIDTH=(\d+)/i);
+      
+      if (bandwidthMatch) {
+        const bps = parseInt(bandwidthMatch[1]); // bits per second
+        const mins = parseInt(durationText) || 90;
+        // Calculation: (Bits per second / 8 to get bytes) * total seconds
+        const totalBytes = (bps / 8) * (mins * 60);
+        return formatBytes(totalBytes);
       }
-
-      // Find variant playlist
-      const variantMatch = masterText.match(
-        /^(.+\.m3u8.*)$/m
-      );
-
-      let playlistUrl = m3u8Url;
-
-      if (variantMatch) {
-        playlistUrl = new URL(
-          variantMatch[1],
-          m3u8Url
-        ).href;
-      }
-
-      const playlistRes = yield fetch(
-        playlistUrl,
-        { headers }
-      );
-
-      if (!playlistRes.ok)
-        return "Variable Size";
-
-      const playlistText =
-        yield playlistRes.text();
-
-      const segments = playlistText
-        .split("\n")
-        .filter(
-          line =>
-            line &&
-            !line.startsWith("#") &&
-            (
-              line.includes(".ts") ||
-              line.includes(".m4s")
-            )
-        );
-
-      if (!segments.length)
-        return "Variable Size";
-
-      const sampleSegments =
-        segments.slice(0, 5);
-
-      let totalSampleSize = 0;
-
-      for (const seg of sampleSegments) {
-        try {
-          const segUrl = seg.startsWith("http")
-            ? seg
-            : new URL(seg, playlistUrl).href;
-
-          const segRes = yield fetch(segUrl, {
-            method: "GET",
-            headers
-          });
-
-          const chunk =
-            yield segRes.arrayBuffer();
-
-          totalSampleSize +=
-            chunk.byteLength;
-        } catch (e) {}
-      }
-
-      if (!totalSampleSize)
-        return "Variable Size";
-
-      const mins =
-        parseInt(durationText) || 94;
-
-      const estimatedTotal =
-        (totalSampleSize /
-          sampleSegments.length) *
-        ((mins * 60) / 6);
-
-      return formatBytes(
-        estimatedTotal
-      );
+      
+      return "Variable Size";
     } catch (e) {
+      console.error("[Size Estimation Error]", e);
       return "Variable Size";
     }
   });
@@ -497,48 +377,42 @@ function getTmdbId(imdbId, type) {
   });
 }
 
-function getMetadata(id, type) {
-  return __async(this, null, function* () {
-    try {
-      const normalizedType = String(type).toLowerCase();
-      let url;
-      if (String(id).startsWith("tt")) {
-        url = `https://api.themoviedb.org/3/find/${id}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=en-US`;
-      } else {
-        const endpoint = normalizedType === "movie" ? "movie" : "tv";
-        url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&language=en-US`;
-      }
-      const response = yield fetch(url);
-      if (!response.ok) return null;
-      const data = yield response.json();
-      
-      let rawData = data;
-      if (String(id).startsWith("tt")) {
-        const results = normalizedType === "movie" ? data.movie_results : data.tv_results;
-        if (results && results.length > 0) rawData = results[0];
-      }
+async function getMetadata(id, type, season, episode) {
+  try {
+    const normalizedType = String(type).toLowerCase();
+    const endpoint = normalizedType === "movie" ? "movie" : "tv";
+    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&append_to_response=content_ratings`;
+    
+    const response = await fetch(url);
+    if (!response.ok) throw new Error("TMDB Fail");
+    const data = await response.json();
 
-      const date = (rawData == null ? void 0 : rawData.release_date) || (rawData == null ? void 0 : rawData.first_air_date) || "";
-      let duration = "94 min";
-      if (normalizedType === "movie" && (rawData == null ? void 0 : rawData.runtime)) {
-        duration = rawData.runtime + " min";
-      } else if (normalizedType === "tv" && (rawData == null ? void 0 : rawData.episode_run_time) && rawData.episode_run_time.length > 0) {
-        duration = rawData.episode_run_time[0] + " min";
+    let duration = "90 min"; // Default
+    
+    if (normalizedType === "movie" && data.runtime) {
+      duration = `${data.runtime} min`;
+    } else if (normalizedType === "tv") {
+      // Try to get specific episode duration if available
+      const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
+      const epRes = await fetch(epUrl);
+      if (epRes.ok) {
+        const epData = await epRes.json();
+        if (epData.runtime) duration = `${epData.runtime} min`;
+        else if (data.episode_run_time && data.episode_run_time.length > 0) {
+           duration = `${data.episode_run_time[0]} min`;
+        }
       }
-
-      return {
-        name: (rawData == null ? void 0 : rawData.title) || (rawData == null ? void 0 : rawData.name) || (rawData == null ? void 0 : rawData.original_title) || "StreamingCommunity",
-        year: date ? date.split("-")[0] : "",
-        duration: duration,
-        original_language: rawData == null ? void 0 : rawData.original_language
-      };
-    } catch (e) {
-      console.error("[StreamingCommunity] Metadata error:", e);
-      return { name: "StreamingCommunity", year: "", duration: "94 min" };
     }
-  });
-}
 
+    return {
+      name: data.title || data.name,
+      year: (data.release_date || data.first_air_date || "").split("-")[0],
+      duration: duration
+    };
+  } catch (e) {
+    return { name: "StreamingCommunity", year: "", duration: "90 min" };
+  }
+}
 function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
   return __async(this, null, function* () {
     const normalizedType = String(type).toLowerCase();

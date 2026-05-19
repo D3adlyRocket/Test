@@ -592,22 +592,31 @@ try {
       "Auto";
 
     // Detect unique audio languages
-    const languageMatches = [
-      ...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)
-    ];
+const languageMatches = [
+  ...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)
+];
 
-    const uniqueLanguages = [
-      ...new Set(
-        languageMatches.map(x =>
-          x[1].toLowerCase()
-        )
-      )
-    ];
+const uniqueLanguages = [
+  ...new Set(
+    languageMatches.map(x =>
+      x[1].toLowerCase()
+    )
+  )
+];
 
-    streamLanguage =
-      uniqueLanguages.length > 1
-        ? "Multi-Audio"
-        : "English";
+if (uniqueLanguages.length > 1) {
+  streamLanguage = "Multi-Audio";
+} else if (uniqueLanguages.length === 1) {
+  const lang = uniqueLanguages[0];
+
+  if (lang.includes("it")) streamLanguage = "Italian";
+  else if (lang.includes("en")) streamLanguage = "English";
+  else if (lang.includes("es")) streamLanguage = "Spanish";
+  else if (lang.includes("fr")) streamLanguage = "French";
+  else streamLanguage = lang.toUpperCase();
+} else {
+  streamLanguage = "English";
+}
 
     console.log(
       `[StreamingCommunity] Quality: ${detectedQuality} | Lang: ${streamLanguage}`
@@ -650,7 +659,7 @@ const generatedTitle = buildTitle(
           title: generatedTitle,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,
-          quality: `StreamingCommunity | ${detectedQuality} | ${streamLanguage}`,
+          quality: `VixSrc | ${detectedQuality} | ${streamLanguage}`,
           type: "direct",
           headers: streamHeaders,
           behaviorHints: { notWebReady: false }

@@ -532,9 +532,25 @@ function getMetadata(id, type) {
       let duration = "94 min";
       if (normalizedType === "movie" && (rawData == null ? void 0 : rawData.runtime)) {
         duration = rawData.runtime + " min";
-      } else if (normalizedType === "tv" && (rawData == null ? void 0 : rawData.episode_run_time) && rawData.episode_run_time.length > 0) {
-        duration = rawData.episode_run_time[0] + " min";
-      }
+      } else if (normalizedType === "tv") {
+
+  if (
+    rawData?.episode_run_time &&
+    rawData.episode_run_time.length > 0
+  ) {
+    duration =
+      rawData.episode_run_time[0] + " min";
+
+  } else if (
+    rawData?.last_episode_to_air?.runtime
+  ) {
+    duration =
+      rawData.last_episode_to_air.runtime + " min";
+
+  } else {
+    duration = "45 min";
+  }
+}
 
       return {
         name: (rawData == null ? void 0 : rawData.title) || (rawData == null ? void 0 : rawData.name) || (rawData == null ? void 0 : rawData.original_title) || "StreamingCommunity",

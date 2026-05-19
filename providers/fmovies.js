@@ -440,68 +440,58 @@ function getStreams(id, type, season, episode, providerContext = null) {
     let tmdbId = id.toString();
 let resolvedSeason = season;
 
-// Safely validate providerContext TMDB ID
-const contextTmdbId =
-  providerContext &&
-  /^\d+$/.test(String(providerContext.tmdbId || ""))
-    ? String(providerContext.tmdbId)
-    : null;
-
-// Debug logging
 console.log("[DEBUG] Incoming ID:", id);
 console.log("[DEBUG] Incoming Type:", normalizedType);
-console.log("[DEBUG] providerContext.tmdbId:", providerContext?.tmdbId);
 
-// PRIORITY:
 // 1. Explicit tmdb: IDs
-// 2. Plain numeric TMDB IDs
-// 3. IMDb IDs converted via API
-// 4. providerContext fallback only
-
 if (tmdbId.startsWith("tmdb:")) {
 
   tmdbId = tmdbId.replace("tmdb:", "");
 
   console.log("[DEBUG] Using explicit TMDB ID:", tmdbId);
 
+// 2. Plain numeric TMDB IDs
 } else if (/^\d+$/.test(tmdbId)) {
 
-  // Already a valid TMDB ID
   console.log("[DEBUG] Using numeric TMDB ID:", tmdbId);
 
+// 3. IMDb IDs
 } else if (tmdbId.startsWith("tt")) {
 
-  console.log("[TMDB] Converting IMDb:", tmdbId, "Type:", normalizedType);
+  console.log("[TMDB] Converting IMDb:", tmdbId);
 
-  const convertedId = yield getTmdbId(tmdbId, normalizedType);
-
-  console.log("[TMDB] Result:", convertedId);
+  const convertedId = yield getTmdbId(
+    tmdbId,
+    normalizedType
+  );
 
   if (convertedId) {
 
-    console.log(`[VixSrc] Converted ${id} to TMDB ID: ${convertedId}`);
-
     tmdbId = convertedId;
+
+    console.log(
+      `[VixSrc] Converted ${id} to TMDB ID: ${convertedId}`
+    );
 
   } else {
 
-    console.warn(`[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`);
+    console.warn(
+      `[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`
+    );
 
     return [];
   }
 
-} else if (contextTmdbId) {
-
-  tmdbId = contextTmdbId;
-
-  console.log("[DEBUG] Using providerContext TMDB ID:", tmdbId);
-
+// 4. Invalid IDs
 } else {
 
-  console.warn("[VixSrc] No valid TMDB ID could be resolved.");
+  console.warn(
+    `[VixSrc] Invalid ID format: ${tmdbId}`
+  );
 
   return [];
 }
+
 console.log("[DEBUG] Final TMDB ID:", tmdbId);
     let metadata = { name: "StreamingCommunity", year: "", duration: "94 min" };
     try {

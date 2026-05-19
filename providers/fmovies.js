@@ -374,6 +374,22 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       if (!res.ok) return "Variable Size";
 
       const masterText = yield res.text();
+      if (masterText.includes("#EXT-X-STREAM-INF")) {
+  const variantLines = masterText
+    .split("\n")
+    .filter(line =>
+      line &&
+      !line.startsWith("#") &&
+      line.includes(".m3u8")
+    );
+
+  if (variantLines.length > 0) {
+    playlistUrl = new URL(
+      variantLines[variantLines.length - 1],
+      m3u8Url
+    ).href;
+  }
+      }
 
       // Find variant playlist
       const variantMatch = masterText.match(

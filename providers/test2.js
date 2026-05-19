@@ -289,7 +289,7 @@ function extractMasterPlaylistFromEmbedHtml(html) {
 }
 
 function formatBytes(bytes) {
-  if (!bytes || isNaN(bytes)) return "1.67 GB";
+  if (!bytes || isNaN(bytes)) return "Variable Size";
   const units = ["B", "KB", "MB", "GB"];
   let i = 0;
   while (bytes >= 1024 && i < units.length - 1) {
@@ -299,39 +299,31 @@ function formatBytes(bytes) {
   return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
-// FIXED: Exact layout lines matching screenshots. Custom lightning block removed from the end of Line 3.
+// FIXED: Removed the 'extra' parameter and the trailing brand text completely
 function buildTitle(meta, res, lang, format, size, season, episode) {
-  const line1 = `🎦 VixSrc | ${res} | ${lang}`;
+  const qIcon = res.includes("4K") || res.includes("2160") ? "🌟" : "💎";
   
-  let line2 = "🎬 ";
+  let line1 = "🎬 ";
   if (season && episode) {
-    line2 += `S${season} E${episode} | ${meta.name}`;
+    line1 += `S${season} E${episode} | ${meta.name}`;
   } else {
-    line2 += `${meta.name}${meta.year ? " (" + meta.year + ")" : ""}`;
+    line1 += `${meta.name}${meta.year ? " (" + meta.year + ")" : ""}`;
   }
 
-  const qIcon = res.includes("4K") || res.includes("2160") ? "🌟" : "💎";
-  const line3 = `${qIcon} ${res} | 🌍 ${lang} | 💾 ${size}`;
-  
-  // Notice the explicit trailing space at the very end of line 4 so Mobile attaches neatly
-  const line4 = `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration} | `;
+  const line2 = `${qIcon} ${res} | 🌍 ${lang} | 💾 ${size}`;
+  const line3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration}`;
 
-  return `${line1}\n${line2}\n${line3}\n${line4}`;
+  return `${line1}\n${line2}\n${line3}`;
 }
 
 function getM3U8Size(m3u8Url, durationText, headers = {}) {
   return __async(this, null, function* () {
     try {
-      const enforcedHeaders = __spreadValues({
-        "User-Agent": USER_AGENT,
-        "Accept": "*/*",
-        "Referer": `${getStreamingCommunityBaseUrl()}/`
-      }, headers);
-
-      const res = yield fetch(m3u8Url, { headers: enforcedHeaders });
-      if (!res.ok) return "1.67 GB"; // FIXED: Handled restricted WebView client scrapers gracefully
+      const res = yield fetch(m3u8Url, { headers });
+      if (!res.ok) return "Variable Size";
       
       const text = yield res.text();
+      
       const matches = [...text.matchAll(/BANDWIDTH=(\d+)/gi)];
       if (matches.length > 0) {
         const bandwidths = matches.map(m => parseInt(m[1])).sort((a, b) => b - a);
@@ -340,9 +332,10 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
         const totalBytes = (bps / 8) * (mins * 60);
         return formatBytes(totalBytes);
       }
-      return "1.67 GB";
+      return "Variable Size";
     } catch (e) {
-      return "1.67 GB"; 
+      console.error("[Size Estimation Error]", e);
+      return "Variable Size";
     }
   });
 }
@@ -483,16 +476,17 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
         const generatedTitle = buildTitle(
           metadata, 
-          "1080p", 
+          "Auto", 
           "Multi-Audio", 
           "M3U8", 
-          "1.67 GB", 
+          "Variable Size", 
           normalizedType === "tv" ? resolvedSeason : null, 
           normalizedType === "tv" ? episode : null
         );
 
         const result = {
-          name: "VixSrc", // FIXED
+          // FIXED: Set header layout exactly as requested
+          name: "🎦 VixSrc | Auto | Multi-Audio",
           title: generatedTitle,
           url: rawPageUrl,
           easyProxySourceUrl: rawPageUrl,
@@ -560,6 +554,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
           detectedFormat = "MP4";
         }
 
+        // FIXED: Dropped the extra parameter call here
         const generatedTitle = buildTitle(
           metadata,
           detectedQuality,
@@ -570,9 +565,9 @@ function getStreams(id, type, season, episode, providerContext = null) {
           normalizedType === "tv" ? episode : null
         );
         
-        // FIXED: name must be strictly set to the provider brand so Mobile aligns it correctly natively
         const result = {
-          name: "VixSrc", 
+          // FIXED: Set header layout exactly as requested
+          name: `🎦 VixSrc | ${detectedQuality} | ${streamLanguage}`,
           title: generatedTitle,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,

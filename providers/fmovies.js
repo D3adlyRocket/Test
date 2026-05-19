@@ -335,9 +335,15 @@ function buildTitle(meta, res, lang, format, size, extra, season, episode) {
     const lower = format.toLowerCase();
 
     if (lower.includes("mp4")) cleanFormat = "MP4";
-    else if (lower.includes("mkv")) cleanFormat = "MKV";
-    else if (lower.includes("m3u8")) cleanFormat = "HLS";
-    else if (lower.includes("dash") || lower.includes("mpd")) cleanFormat = "DASH";
+else if (lower.includes("mkv")) cleanFormat = "MKV";
+else if (
+  lower.includes("m3u8") ||
+  lower.includes("hls")
+) cleanFormat = "HLS";
+else if (
+  lower.includes("dash") ||
+  lower.includes("mpd")
+) cleanFormat = "DASH";
   }
 
   let line1 = "🎬 ";
@@ -374,9 +380,13 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
         for (const seg of sampleSegments) {
           const segUrl = seg.startsWith("http") ? seg : new URL(seg, m3u8Url).href;
           try {
-            const head = yield fetch(segUrl, { method: "HEAD", headers });
-            totalSampleSize += Number(head.headers.get("content-length")) || 0;
-          } catch (e) {}
+  const segRes = yield fetch(segUrl, {
+    method: "GET", headers
+  });
+  const chunk = yield segRes.arrayBuffer();
+
+  totalSampleSize += chunk.byteLength;
+} catch (e) {}
         }
         const mins = parseInt(durationText) || 94;
         const estimatedTotal = (totalSampleSize / sampleSegments.length) * ((mins * 60) / 6);
@@ -417,10 +427,10 @@ function getMetadata(id, type) {
       const normalizedType = String(type).toLowerCase();
       let url;
       if (String(id).startsWith("tt")) {
-        url = `https://api.themoviedb.org/3/find/${id}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=it-IT`;
+        url = `https://api.themoviedb.org/3/find/${id}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=en-US`;
       } else {
         const endpoint = normalizedType === "movie" ? "movie" : "tv";
-        url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&language=it-IT`;
+        url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&language=en-US`;
       }
       const response = yield fetch(url);
       if (!response.ok) return null;

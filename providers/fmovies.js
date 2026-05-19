@@ -325,7 +325,7 @@ function buildTitle(meta, res, lang, format, size, extra, season, episode) {
   ) {
     cleanLang = "Multi-Audio";
   } else if (lang && typeof lang === "string") {
-    cleanLang = "English";
+  cleanLang = lang;
   }
 
   // Auto detect proper stream format

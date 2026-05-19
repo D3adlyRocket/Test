@@ -444,7 +444,7 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
             : new URL(seg, playlistUrl).href;
 
           const segRes = yield fetch(segUrl, {
-            method: "GET",
+            method: "HEAD",
             headers
           });
 

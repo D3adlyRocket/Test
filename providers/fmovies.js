@@ -438,25 +438,59 @@ function getStreams(id, type, season, episode, providerContext = null) {
     const baseUrl = getStreamingCommunityBaseUrl();
     const commonHeaders = getCommonHeaders();
     let tmdbId = id.toString();
-    let resolvedSeason = season;
-    
-    // Prefer explicit tmdb: IDs over providerContext
-if (tmdbId.startsWith("tmdb:")) {
-  tmdbId = tmdbId.replace("tmdb:", "");
-} else if (contextTmdbId) {
-  tmdbId = contextTmdbId;
-} else if (tmdbId.startsWith("tmdb:")) {
-      tmdbId = tmdbId.replace("tmdb:", "");
-    } else if (tmdbId.startsWith("tt")) {
-      const convertedId = yield getTmdbId(tmdbId, normalizedType);
-      if (convertedId) {
-        console.log(`[StreamingCommunity] Converted ${id} to TMDB ID: ${convertedId}`);
-        tmdbId = convertedId;
-      } else {
-        console.warn(`[StreamingCommunity] Could not convert IMDb ID ${id} to TMDB ID.`);
-      }
-    }
+let resolvedSeason = season;
 
+// Safely validate providerContext TMDB ID
+const contextTmdbId =
+  providerContext &&
+  /^\d+$/.test(String(providerContext.tmdbId || ""))
+    ? String(providerContext.tmdbId)
+    : null;
+
+// Debug logging
+console.log("[DEBUG] Incoming ID:", id);
+console.log("[DEBUG] Incoming Type:", normalizedType);
+console.log("[DEBUG] providerContext.tmdbId:", providerContext?.tmdbId);
+
+// PRIORITY:
+// 1. Explicit tmdb: IDs
+// 2. IMDb IDs converted via API
+// 3. providerContext fallback only
+
+if (tmdbId.startsWith("tmdb:")) {
+
+  tmdbId = tmdbId.replace("tmdb:", "");
+
+  console.log("[DEBUG] Using explicit TMDB ID:", tmdbId);
+
+} else if (tmdbId.startsWith("tt")) {
+
+  console.log("[TMDB] Converting IMDb:", tmdbId, "Type:", normalizedType);
+
+  const convertedId = yield getTmdbId(tmdbId, normalizedType);
+
+  console.log("[TMDB] Result:", convertedId);
+
+  if (convertedId) {
+
+    console.log(`[VixSrc] Converted ${id} to TMDB ID: ${convertedId}`);
+
+    tmdbId = convertedId;
+
+  } else {
+
+    console.warn(`[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`);
+  }
+
+} else if (contextTmdbId) {
+
+  // Use providerContext only as fallback
+  tmdbId = contextTmdbId;
+
+  console.log("[DEBUG] Using providerContext TMDB ID:", tmdbId);
+}
+
+console.log("[DEBUG] Final TMDB ID:", tmdbId);
     let metadata = { name: "StreamingCommunity", year: "", duration: "94 min" };
     try {
     

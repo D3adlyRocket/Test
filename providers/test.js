@@ -357,7 +357,7 @@ function getTmdbId(imdbId, type) {
       }
       return null;
     } catch (e) {
-      console.error("[StreamingCommunity] Conversion error:", e);
+      console.error("[VixSrc] Conversion error:", e);
       return null;
     }
   });
@@ -395,7 +395,7 @@ async function getMetadata(id, type, season, episode) {
       duration: duration
     };
   } catch (e) {
-    return { name: "StreamingCommunity", year: "", duration: "90 min" };
+    return { name: "VixSrc", year: "", duration: "90 min" };
   }
 }
 function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
@@ -405,7 +405,7 @@ function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
     if (normalizedType === "movie" && guardahd && typeof guardahd.getStreams === "function") {
       checks.push(
         guardahd.getStreams(id, normalizedType, season, episode).then((streams) => Array.isArray(streams) && streams.length > 0).catch((e) => {
-          console.warn("[StreamingCommunity] GuardaHD fallback check failed:", e);
+          console.warn("[VixSrc] VixSrc fallback check failed:", e);
           return false;
         })
       );
@@ -433,18 +433,18 @@ function getStreams(id, type, season, episode, providerContext = null) {
     } else if (tmdbId.startsWith("tt")) {
       const convertedId = yield getTmdbId(tmdbId, normalizedType);
       if (convertedId) {
-        console.log(`[StreamingCommunity] Converted ${id} to TMDB ID: ${convertedId}`);
+        console.log(`[VixSrc] Converted ${id} to TMDB ID: ${convertedId}`);
         tmdbId = convertedId;
       } else {
-        console.warn(`[StreamingCommunity] Could not convert IMDb ID ${id} to TMDB ID.`);
+        console.warn(`[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`);
       }
     }
 
-    let metadata = { name: "StreamingCommunity", year: "", duration: "94 min" };
+    let metadata = { name: "VixSrc", year: "", duration: "94 min" };
     try {
       metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode); 
     } catch (e) {
-      console.error("[StreamingCommunity] Error fetching metadata:", e);
+      console.error("[VixSrc] Error fetching metadata:", e);
     }
 
     let url;
@@ -460,16 +460,16 @@ function getStreams(id, type, season, episode, providerContext = null) {
     }
 
     try {
-      console.log(`[StreamingCommunity] Fetching API: ${apiUrl}`);
+      console.log(`[VixSrc] Fetching API: ${apiUrl}`);
       const response = yield fetch(apiUrl, { headers: commonHeaders });
       if (!response.ok) {
-        console.error(`[StreamingCommunity] Failed to fetch page: ${response.status}`);
+        console.error(`[VixSrc] Failed to fetch page: ${response.status}`);
         return [];
       }
       const apiPayload = yield response.json().catch(() => null);
       const embedUrl = extractEmbedSrcFromApiPayload(apiPayload);
       if (!embedUrl) {
-        console.log("[StreamingCommunity] Could not find embed src in API payload");
+        console.log("[VixSrc] Could not find embed src in API payload");
         return [];
       }
 
@@ -498,10 +498,10 @@ function getStreams(id, type, season, episode, providerContext = null) {
         return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
       }
 
-      console.log(`[StreamingCommunity] Fetching embed: ${embedUrl}`);
+      console.log(`[VixSrc] Fetching embed: ${embedUrl}`);
       const embedResponse = yield fetch(embedUrl, { headers: getEmbedHeaders(embedUrl) });
       if (!embedResponse.ok) {
-        console.error(`[StreamingCommunity] Failed to fetch embed: ${embedResponse.status}`);
+        console.error(`[VixSrc] Failed to fetch embed: ${embedResponse.status}`);
         return [];
       }
       const embedHtml = yield embedResponse.text();
@@ -511,7 +511,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       if (masterPlaylist) {
         const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
         const streamHeaders = getPlaylistHeaders(embedUrl);
-        console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
+        console.log(`[VixSrc] Final stream URL: ${streamUrl}`);
 
         let streamLanguage = "Multi-Audio"; 
         let detectedQuality = "1080p";
@@ -539,7 +539,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
             }
           }
         } catch (e) {
-          console.warn("[StreamingCommunity] Quality detection failed:", e);
+          console.warn("[VixSrc] Quality detection failed:", e);
         }
 
         const computedSize = yield getM3U8Size(streamUrl, metadata.duration, streamHeaders);
@@ -563,13 +563,12 @@ function getStreams(id, type, season, episode, providerContext = null) {
           streamLanguage,
           detectedFormat,
           computedSize,
-          "VixSrc",
           normalizedType === "tv" ? resolvedSeason : null,
           normalizedType === "tv" ? episode : null
         );
         
         const result = {
-          name: "🎦 VixSrc",
+          name: `🎦 VixSrc | ${detectedQuality} | ${streamLanguage}`,
           title: generatedTitle,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,
@@ -580,11 +579,11 @@ function getStreams(id, type, season, episode, providerContext = null) {
         };
         return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
       } else {
-        console.log("[StreamingCommunity] Could not find playlist info in HTML");
+        console.log("[VixSrc] Could not find playlist info in HTML");
         return [];
       }
     } catch (error) {
-      console.error("[StreamingCommunity] Error:", error);
+      console.error("[VixSrc] Error:", error);
       return [];
     }
   });

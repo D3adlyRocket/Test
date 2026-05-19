@@ -703,7 +703,7 @@ if (uniqueLanguages.length > 1) {
         const computedSize = yield getM3U8Size(streamUrl, metadata.duration, streamHeaders);
 
         const detectedFormat =
-    : streamUrl.includes(".mp4")
+  streamUrl.includes(".mp4")
     ? "mp4"
     : streamUrl.includes(".mkv")
     ? "mkv"

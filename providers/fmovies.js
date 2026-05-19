@@ -18,7 +18,8 @@ var __async = (__this, __arguments, generator) => {
 const TMDB_KEY = '3644dd4950b67cd8067b8772de576d6b';  
 const TMDB_BASE_URL = "https://api.themoviedb.org/3";  
 const API_POMFY = "https://api.pomfy.stream";  
-const COOKIE = "SITE_TOTAL_ID=aTYqe6GU65PNmeCXpelwJwAAAMi; __dtsu=104017651574995957BEB724C6373F9E; __cc_id=a44d1e52993b9c2Oaaf40eba24989a06";  
+const COOKIE = cf_clearance=FY8zyQybVu2kflZRPEY.MK6_U4tb6fhgsHFcqL8ADrw-1778869729-1.2.1.1-QEpMO3YW7Bw5towDJ0vt.qryy45W8_ZNcfiIwZVFH8VxGfccA92JLE.AijYDUhFSQvlcvBCYFOIQBfR7AiAU62Z2oi.LcbauCXoBKFn7PZgFIctmHdbwAw1PEX6Cd3KSIE4iYDAek732vCD0AKZpj356_o087ffIzRotI1NaRK8w99XVw.9feR25y8bUDv3zRKAwmZOmWCc4EJ2Gl.t9G4av0mgASGgZCiBrikohLj0kWfe8ZZVyx2cimdouLH1CBth.AiPugowBvs4Ta0omNyc8qCD09QTfKAiOF7EGrY8J7XXyRC9M_ejoQplmjOoDFUo7d5qFqqWG.OsRZWzPVg";
+  
 const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36";  
   
 const HEADERS = {  

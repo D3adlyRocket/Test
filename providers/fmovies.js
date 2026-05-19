@@ -89,7 +89,6 @@ var require_formatter = __commonJS({
       return false;
     }
     function formatStream2(stream, providerName) {
-      // Intentionally bypassed to respect our newly constructed multi-line UI layouts
       return stream;
     }
     module2.exports = { formatStream: formatStream2 };
@@ -289,7 +288,6 @@ function extractMasterPlaylistFromEmbedHtml(html) {
   };
 }
 
-// --- NEW STRUCTURAL METADATA ENGINE & MULTI-LINE UI BUILDERS ---
 function formatBytes(bytes) {
   if (!bytes || isNaN(bytes)) return "Variable Size";
   const units = ["B", "KB", "MB", "GB"];
@@ -304,13 +302,11 @@ function formatBytes(bytes) {
 function buildTitle(meta, res, lang, format, size, extra, season, episode) {
   const qIcon = res.includes("4K") || res.includes("2160") ? "🌟" : "💎";
   
-  // Force Multi-Audio detection logic
   let cleanLang = lang;
   if (lang.toLowerCase().includes("multi") || lang.toLowerCase().includes("ita,eng")) {
     cleanLang = "Multi-Audio";
   }
 
-  // LINE 1: Keep it simple so the mobile header looks clean
   let line1 = ""; 
   if (season && episode) {
     line1 += `S${season} E${episode} | ${meta.name}`;
@@ -331,15 +327,11 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       if (!res.ok) return "Variable Size";
       
       const text = yield res.text();
-      
-      // Look for the BANDWIDTH attribute in the master playlist
-      // This is much faster than downloading video chunks
       const bandwidthMatch = text.match(/BANDWIDTH=(\d+)/i);
       
       if (bandwidthMatch) {
-        const bps = parseInt(bandwidthMatch[1]); // bits per second
+        const bps = parseInt(bandwidthMatch[1]);
         const mins = parseInt(durationText) || 90;
-        // Calculation: (Bits per second / 8 to get bytes) * total seconds
         const totalBytes = (bps / 8) * (mins * 60);
         return formatBytes(totalBytes);
       }
@@ -384,12 +376,11 @@ async function getMetadata(id, type, season, episode) {
     if (!response.ok) throw new Error("TMDB Fail");
     const data = await response.json();
 
-    let duration = "90 min"; // Default
+    let duration = "90 min";
     
     if (normalizedType === "movie" && data.runtime) {
       duration = `${data.runtime} min`;
     } else if (normalizedType === "tv") {
-      // Try to get specific episode duration if available
       const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
       const epRes = await fetch(epUrl);
       if (epRes.ok) {
@@ -410,6 +401,7 @@ async function getMetadata(id, type, season, episode) {
     return { name: "StreamingCommunity", year: "", duration: "90 min" };
   }
 }
+
 function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
   return __async(this, null, function* () {
     const normalizedType = String(type).toLowerCase();
@@ -454,8 +446,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
 
     let metadata = { name: "StreamingCommunity", year: "", duration: "94 min" };
     try {
-    
-    metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode); 
+      metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode); 
     } catch (e) {
       console.error("[StreamingCommunity] Error fetching metadata:", e);
     }
@@ -529,88 +520,71 @@ function getStreams(id, type, season, episode, providerContext = null) {
         console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
 
         let streamLanguage = "English";
-let detectedQuality = "Auto";
+        let detectedQuality = "Auto";
 
-try {
-  const playlistResponse = yield fetch(streamUrl, {
-    headers: streamHeaders
-  });
+        try {
+          const playlistResponse = yield fetch(streamUrl, {
+            headers: streamHeaders
+          });
 
-  if (playlistResponse.ok) {
-    const playlistText = yield playlistResponse.text();
+          if (playlistResponse.ok) {
+            const playlistText = yield playlistResponse.text();
 
-    // Detect quality
-    const playlistQuality =
-      checkQualityFromText(playlistText);
+            const playlistQuality = checkQualityFromText(playlistText);
+            detectedQuality = playlistQuality || getQualityFromUrl(streamUrl) || getQualityFromUrl(embedUrl) || "Auto";
 
-    detectedQuality =
-      playlistQuality ||
-      getQualityFromUrl(streamUrl) ||
-      getQualityFromUrl(embedUrl) ||
-      "Auto";
+            const languageMatches = [...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)];
+            const uniqueLanguages = [...new Set(languageMatches.map(x => x[1].toLowerCase()))];
 
-    // Detect unique audio languages
-const languageMatches = [...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)];
-const uniqueLanguages = [...new Set(languageMatches.map(x => x[1].toLowerCase()))];
+            if (uniqueLanguages.length > 1 || playlistText.includes("ita") || playlistText.includes("eng")) {
+              streamLanguage = "Multi-Audio";
+            } else {
+              streamLanguage = "English";
+            }
 
-// If there's more than one language, OR it's a known Italian provider, mark as Multi
-if (uniqueLanguages.length > 1 || playlistText.includes("ita") || playlistText.includes("eng")) {
-  streamLanguage = "Multi-Audio";
-} else {
-  streamLanguage = "English";
-}
+            console.log(`[StreamingCommunity] Quality: ${detectedQuality} | Lang: ${streamLanguage}`);
+          }
+        } catch (e) {
+          console.warn("[StreamingCommunity] Quality detection failed:", e);
+        }
 
-    console.log(
-      `[StreamingCommunity] Quality: ${detectedQuality} | Lang: ${streamLanguage}`
-    );
-  }
-} catch (e) {
-  console.warn(
-    "[StreamingCommunity] Quality detection failed:",
-    e
-  );
-}
-
-        // Calculate runtime manifest size boundaries dynamically
         const computedSize = yield getM3U8Size(streamUrl, metadata.duration, streamHeaders);
 
-        // Improved Format Detection
-let detectedFormat = "STREAM"; 
-const urlToCheck = streamUrl.toLowerCase();
+        let detectedFormat = "STREAM"; 
+        const urlToCheck = streamUrl.toLowerCase();
 
-if (urlToCheck.includes(".m3u8") || urlToCheck.includes("hls")) {
-  detectedFormat = "HLS";
-} else if (urlToCheck.includes(".mpd") || urlToCheck.includes("dash")) {
-  detectedFormat = "DASH";
-} else if (urlToCheck.includes(".mp4")) {
-  detectedFormat = "MP4";
-} else if (urlToCheck.includes(".mkv")) {
-  detectedFormat = "MKV";
-}
+        if (urlToCheck.includes(".m3u8") || urlToCheck.includes("hls")) {
+          detectedFormat = "HLS";
+        } else if (urlToCheck.includes(".mpd") || urlToCheck.includes("dash")) {
+          detectedFormat = "DASH";
+        } else if (urlToCheck.includes(".mp4")) {
+          detectedFormat = "MP4";
+        } else if (urlToCheck.includes(".mkv")) {
+          detectedFormat = "MKV";
+        }
 
-
-const generatedTitle = buildTitle(
-  metadata,
-  detectedQuality,
-  streamLanguage,
-  detectedFormat,
-  computedSize,
-  "VixSrc",
+        const generatedTitle = buildTitle(
+          metadata,
+          detectedQuality,
+          streamLanguage,
+          detectedFormat,
+          computedSize,
+          "VixSrc",
           normalizedType === "tv" ? resolvedSeason : null,
           normalizedType === "tv" ? episode : null
         );
         
         const result = {
-  name: "VixSrc", // This changes the provider name in the list
-  title: generatedTitle,
-  url: streamUrl,
-  easyProxySourceUrl: embedUrl,
-  quality: " ", // Setting this to a single space prevents the app from appending junk
-  type: "direct",
-  headers: streamHeaders,
-  behaviorHints: { notWebReady: false }
-};
+          name: "VixSrc", 
+          title: generatedTitle,
+          url: streamUrl,
+          easyProxySourceUrl: embedUrl,
+          quality: " ", 
+          type: "direct",
+          headers: streamHeaders,
+          behaviorHints: { notWebReady: false }
         };
+        
         return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
       } else {
         console.log("[StreamingCommunity] Could not find playlist info in HTML");

@@ -593,16 +593,20 @@ if (uniqueLanguages.length > 1) {
         // Calculate runtime manifest size boundaries dynamically
         const computedSize = yield getM3U8Size(streamUrl, metadata.duration, streamHeaders);
 
-        const detectedFormat =
-  streamUrl.includes(".mp4")
-    ? "mp4"
-    : streamUrl.includes(".mkv")
-    ? "mkv"
-    : streamUrl.includes(".mpd")
-    ? "dash"
-    : streamUrl.includes(".m3u8")
-    ? "hls"
-    : "stream";
+        // Improved Format Detection
+let detectedFormat = "STREAM"; 
+const urlToCheck = streamUrl.toLowerCase();
+
+if (urlToCheck.includes(".m3u8") || urlToCheck.includes("hls")) {
+  detectedFormat = "HLS";
+} else if (urlToCheck.includes(".mpd") || urlToCheck.includes("dash")) {
+  detectedFormat = "DASH";
+} else if (urlToCheck.includes(".mp4")) {
+  detectedFormat = "MP4";
+} else if (urlToCheck.includes(".mkv")) {
+  detectedFormat = "MKV";
+}
+
 
 const generatedTitle = buildTitle(
   metadata,

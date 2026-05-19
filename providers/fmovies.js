@@ -553,23 +553,13 @@ try {
       "Auto";
 
     // Detect unique audio languages
-const languageMatches = [
-  ...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)
-];
+const languageMatches = [...playlistText.matchAll(/#EXT-X-MEDIA:TYPE=AUDIO.*?LANGUAGE="([^"]+)"/gi)];
+const uniqueLanguages = [...new Set(languageMatches.map(x => x[1].toLowerCase()))];
 
-const uniqueLanguages = [
-  ...new Set(
-    languageMatches.map(x =>
-      x[1].toLowerCase()
-    )
-  )
-];
-
-if (uniqueLanguages.length > 1) {
+if (uniqueLanguages.length > 1 || playlistText.toLowerCase().includes("multi-audio")) {
   streamLanguage = "Multi-Audio";
 } else if (uniqueLanguages.length === 1) {
   const lang = uniqueLanguages[0];
-
   if (lang.includes("it")) streamLanguage = "Italian";
   else if (lang.includes("en")) streamLanguage = "English";
   else if (lang.includes("es")) streamLanguage = "Spanish";
@@ -624,7 +614,7 @@ const generatedTitle = buildTitle(
           title: generatedTitle,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,
-          quality: `VixSrc | ${detectedQuality} | ${streamLanguage}`,
+          quality: "VixSrc",
           type: "direct",
           headers: streamHeaders,
           behaviorHints: { notWebReady: false }

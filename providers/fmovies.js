@@ -466,47 +466,44 @@ function getStreams(id, type, season, episode, providerContext = null) {
       console.error("[StreamingCommunity] Error fetching metadata:", e);
     }
 
-        // --- FIX: Translate TMDB ID to StreamingCommunity Internal ID via Search ---
+            // --- FIX: Translate TMDB ID to StreamingCommunity Internal ID via Direct API Mapping ---
     let internalId = tmdbId; 
     try {
-      const searchUrl = `${baseUrl}/api/search?q=${encodeURIComponent(metadata.name)}`;
-      const searchResponse = yield fetch(searchUrl, { headers: commonHeaders });
+      // Query the API using tmdb parameter instead of loose fuzzy name search
+      const lookupUrl = `${baseUrl}/api/search?tmdb=${tmdbId}&type=${normalizedType}`;
+      const lookupResponse = yield fetch(lookupUrl, { headers: commonHeaders });
       
-      if (searchResponse.ok) {
-        const searchData = yield searchResponse.json().catch(() => null);
+      if (lookupResponse.ok) {
+        const lookupData = yield lookupResponse.json().catch(() => null);
         
-        if (searchData && Array.isArray(searchData.data) && searchData.data.length > 0) {
-          const cleanSearchName = metadata.name.toLowerCase().trim();
-          
-          // Step 1: Attempt strict title matching first
-          let matchedContent = searchData.data.find(item => {
-            if (!item || !item.name) return false;
-            return item.name.toLowerCase().trim() === cleanSearchName;
-          });
-
-          // Step 2: Fall back to matching the release year if strict name match fails
-          if (!matchedContent && metadata.year) {
-            matchedContent = searchData.data.find(item => {
-              if (!item || !item.name) return false;
-              const dateStr = String(item.scadenza || item.last_air_date || item.release_date || "");
-              return dateStr.includes(metadata.year);
-            });
+        // Target explicit strict match data returned from the mapping parameter
+        if (lookupData && Array.isArray(lookupData.data) && lookupData.data.length > 0) {
+          const matchedItem = lookupData.data[0];
+          if (matchedItem && matchedItem.id) {
+            internalId = matchedItem.id.toString();
+            console.log(`[StreamingCommunity] Direct Map Success: TMDB ${tmdbId} -> Site ID ${internalId}`);
           }
-
-          // Step 3: Only reassign internalId if an active verified item was tracked down
-          if (matchedContent && matchedContent.id) {
-            internalId = matchedContent.id.toString();
-            console.log(`[StreamingCommunity] Successfully translated TMDB ${tmdbId} to Verified Internal ID ${internalId} for: ${metadata.name}`);
-          } else {
-            console.warn(`[StreamingCommunity] Loose search results didn't match cleanly. Defaulting back to source structural ID.`);
+        } else {
+          // Fallback to title string mapping ONLY if the site's direct parameter yields nothing
+          const searchUrl = `${baseUrl}/api/search?q=${encodeURIComponent(metadata.name)}`;
+          const searchResponse = yield fetch(searchUrl, { headers: commonHeaders });
+          if (searchResponse.ok) {
+            const searchData = yield searchResponse.json().catch(() => null);
+            if (searchData && Array.isArray(searchData.data)) {
+              const matchedContent = searchData.data.find(item => 
+                item && item.name && item.name.toLowerCase().trim() === metadata.name.toLowerCase().trim()
+              );
+              if (matchedContent && matchedContent.id) {
+                internalId = matchedContent.id.toString();
+              }
+            }
           }
         }
       }
     } catch (err) {
-      console.error("[StreamingCommunity] ID Translation engine crashed, using fallback standard:", err);
+      console.error("[StreamingCommunity] ID Translation layer error:", err);
     }
-    // -------------------------------------------------------------------------
-
+    // ---------------------------------------------------------------------------------------
 
     let url;
     let apiUrl;

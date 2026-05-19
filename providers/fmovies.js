@@ -571,45 +571,53 @@ function getStreams(id, type, season, episode, providerContext = null) {
         console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
 
         let streamLanguage = "English";
-        
-        let detectedQuality = "Auto";
+let detectedQuality = "Auto";
 
 try {
-  // First attempt: detect from URL
-  detectedQuality =
-    getQualityFromUrl(streamUrl) ||
-    getQualityFromUrl(embedUrl) ||
-    "Auto";
-
-  const playlistResponse = await fetch(streamUrl, {
+  const playlistResponse = yield fetch(streamUrl, {
     headers: streamHeaders
   });
 
   if (playlistResponse.ok) {
-    const playlistText = await playlistResponse.text();
+    const playlistText = yield playlistResponse.text();
 
-    // Stronger playlist detection
+    // Detect quality
+    const playlistQuality =
+      checkQualityFromText(playlistText);
+
     detectedQuality =
-      checkQualityFromText(playlistText) ||
-      detectedQuality;
+      playlistQuality ||
+      getQualityFromUrl(streamUrl) ||
+      getQualityFromUrl(embedUrl) ||
+      "Auto";
 
-    // Multi-audio detection
-    const audioTracks =
-      playlistText.match(/#EXT-X-MEDIA:TYPE=AUDIO/gi) || [];
+    // Detect unique audio languages
+    const languageMatches = [
+      ...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)
+    ];
 
-    const language =
-      audioTracks.length > 1
+    const uniqueLanguages = [
+      ...new Set(
+        languageMatches.map(x =>
+          x[1].toLowerCase()
+        )
+      )
+    ];
+
+    streamLanguage =
+      uniqueLanguages.length > 1
         ? "Multi-Audio"
         : "English";
-
-    streamLanguage = language;
 
     console.log(
       `[StreamingCommunity] Quality: ${detectedQuality} | Lang: ${streamLanguage}`
     );
   }
 } catch (e) {
-  console.warn("[StreamingCommunity] Quality detection failed:", e);
+  console.warn(
+    "[StreamingCommunity] Quality detection failed:",
+    e
+  );
 }
 
         // Calculate runtime manifest size boundaries dynamically

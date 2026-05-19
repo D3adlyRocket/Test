@@ -438,23 +438,23 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       let totalSampleSize = 0;
 
       for (const seg of sampleSegments) {
-        try {
-          const segUrl = seg.startsWith("http")
-            ? seg
-            : new URL(seg, playlistUrl).href;
+  try {
+    const segUrl = seg.startsWith("http")
+      ? seg
+      : new URL(seg, playlistUrl).href;
 
-          const segRes = yield fetch(segUrl, {
-            method: "HEAD",
-            headers
-          });
+    const segRes = yield fetch(segUrl, {
+      method: "HEAD",
+      headers
+    });
 
-          const chunk =
-            yield segRes.arrayBuffer();
+    const contentLength =
+      Number(segRes.headers.get("content-length")) || 0;
 
-          totalSampleSize +=
-            chunk.byteLength;
-        } catch (e) {}
-      }
+    totalSampleSize += contentLength;
+
+  } catch (e) {}
+}
 
       if (!totalSampleSize)
         return "Variable Size";
@@ -636,7 +636,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
   url: streamUrl,
   easyProxySourceUrl: embedUrl,
 
-  // Prevent app from injecting duplicate metadata
+  // Prevent duplicate injected metadata
   quality: "",
 
   type: "direct",

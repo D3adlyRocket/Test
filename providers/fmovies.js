@@ -57,6 +57,37 @@ var __async = (__this, __arguments, generator) => {
 // src/formatter.js
 var require_formatter = __commonJS({
   "src/formatter.js"(exports2, module2) {
+    function normalizePlaybackHeaders(headers) {
+      if (!headers || typeof headers !== "object") return headers;
+      const normalized = {};
+      for (const [key, value] of Object.entries(headers)) {
+        if (value == null) continue;
+        const lowerKey = String(key).toLowerCase();
+        if (lowerKey === "user-agent") normalized["User-Agent"] = value;
+        else if (lowerKey === "referer" || lowerKey === "referrer") normalized["Referer"] = value;
+        else if (lowerKey === "origin") normalized["Origin"] = value;
+        else if (lowerKey === "accept") normalized["Accept"] = value;
+        else if (lowerKey === "accept-language") normalized["Accept-Language"] = value;
+        else normalized[key] = value;
+      }
+      return normalized;
+    }
+    function shouldForceNotWebReadyForPlugin(stream, providerName, headers, behaviorHints) {
+      const text = [
+        stream == null ? void 0 : stream.url,
+        stream == null ? void 0 : stream.name,
+        stream == null ? void 0 : stream.title,
+        stream == null ? void 0 : stream.server,
+        providerName
+      ].filter(Boolean).join(" ").toLowerCase();
+      if (text.includes("mixdrop") || text.includes("m1xdrop") || text.includes("mxcontent")) {
+        return true;
+      }
+      if (text.includes("loadm") || text.includes("loadm.cam")) {
+        return true;
+      }
+      return false;
+    }
     function formatStream2(stream, providerName) {
       return stream;
     }
@@ -64,9 +95,100 @@ var require_formatter = __commonJS({
   }
 });
 
+// src/fetch_helper.js
+var require_fetch_helper = __commonJS({
+  "src/fetch_helper.js"(exports2, module2) {
+    var FETCH_TIMEOUT = 3e4;
+    function createTimeoutSignal(timeoutMs) {
+      const parsed = Number.parseInt(String(timeoutMs), 10);
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        return { signal: void 0, cleanup: null, timed: false };
+      }
+      if (typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function") {
+        return { signal: AbortSignal.timeout(parsed), cleanup: null, timed: true };
+      }
+      if (typeof AbortController !== "undefined" && typeof setTimeout === "function") {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+          controller.abort();
+        }, parsed);
+        return {
+          signal: controller.signal,
+          cleanup: () => clearTimeout(timeoutId),
+          timed: true
+        };
+      }
+      return { signal: void 0, cleanup: null, timed: false };
+    }
+    function fetchWithTimeout(_0) {
+      return __async(this, arguments, function* (url, options = {}) {
+        if (typeof fetch === "undefined") {
+          throw new Error("No fetch implementation found!");
+        }
+        const _a = options, { timeout } = _a, fetchOptions = __objRest(_a, ["timeout"]);
+        const requestTimeout = timeout || FETCH_TIMEOUT;
+        const timeoutConfig = createTimeoutSignal(requestTimeout);
+        const requestOptions = __spreadValues({}, fetchOptions);
+        if (timeoutConfig.signal) {
+          if (requestOptions.signal && typeof AbortSignal !== "undefined" && typeof AbortSignal.any === "function") {
+            requestOptions.signal = AbortSignal.any([requestOptions.signal, timeoutConfig.signal]);
+          } else if (!requestOptions.signal) {
+            requestOptions.signal = timeoutConfig.signal;
+          }
+        }
+        try {
+          const response = yield fetch(url, requestOptions);
+          return response;
+        } catch (error) {
+          if (error && error.name === "AbortError" && timeoutConfig.timed) {
+            throw new Error(`Request to ${url} timed out after ${requestTimeout}ms`);
+          }
+          throw error;
+        } finally {
+          if (typeof timeoutConfig.cleanup === "function") {
+            timeoutConfig.cleanup();
+          }
+        }
+      });
+    }
+    module2.exports = { fetchWithTimeout, createTimeoutSignal };
+  }
+});
+
 // src/quality_helper.js
 var require_quality_helper = __commonJS({
   "src/quality_helper.js"(exports2, module2) {
+    var { createTimeoutSignal } = require_fetch_helper();
+    var USER_AGENT2 = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+    function checkQualityFromPlaylist(_0) {
+      return __async(this, arguments, function* (url, headers = {}) {
+        try {
+          if (!url.includes(".m3u8")) return null;
+          const finalHeaders = __spreadValues({}, headers);
+          if (!finalHeaders["User-Agent"]) {
+            finalHeaders["User-Agent"] = USER_AGENT2;
+          }
+          const timeoutConfig = createTimeoutSignal(3e3);
+          try {
+            const response = yield fetch(url, {
+              headers: finalHeaders,
+              signal: timeoutConfig.signal
+            });
+            if (!response.ok) return null;
+            const text = yield response.text();
+            const quality = checkQualityFromText2(text);
+            if (quality) console.log(`[QualityHelper] Detected ${quality} from playlist: ${url}`);
+            return quality;
+          } finally {
+            if (typeof timeoutConfig.cleanup === "function") {
+              timeoutConfig.cleanup();
+            }
+          }
+        } catch (e) {
+          return null;
+        }
+      });
+    }
     function checkQualityFromText2(text) {
       if (!text) return null;
       if (/RESOLUTION=\d+x2160/i.test(text) || /RESOLUTION=2160/i.test(text)) return "4K";
@@ -84,9 +206,10 @@ var require_quality_helper = __commonJS({
       if (urlPath.includes("1080") || urlPath.includes("fhd")) return "1080p";
       if (urlPath.includes("720") || urlPath.includes("hd")) return "720p";
       if (urlPath.includes("480") || urlPath.includes("sd")) return "480p";
+      if (urlPath.includes("360")) return "360p";
       return null;
     }
-    module2.exports = { getQualityFromUrl, checkQualityFromText: checkQualityFromText2 };
+    module2.exports = { checkQualityFromPlaylist, getQualityFromUrl, checkQualityFromText: checkQualityFromText2 };
   }
 });
 
@@ -95,12 +218,33 @@ function getStreamingCommunityBaseUrl() {
   return "https://vixsrc.to";
 }
 var { formatStream } = require_formatter();
+var { fetchWithTimeout } = require_fetch_helper();
 var { checkQualityFromText, getQualityFromUrl } = require_quality_helper();
-
+function safeRequire(modulePath) {
+  try {
+    return require(modulePath);
+  } catch (e) {
+    return null;
+  }
+}
+var guardahd = safeRequire("../guardahd/index");
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
 
 function getCommonHeaders() {
+  return {
+    "User-Agent": USER_AGENT,
+    "Referer": `${getStreamingCommunityBaseUrl()}/`,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1"
+  };
+}
+function getEmbedHeaders(embedUrl) {
   return {
     "User-Agent": USER_AGENT,
     "Referer": `${getStreamingCommunityBaseUrl()}/`,
@@ -108,19 +252,16 @@ function getCommonHeaders() {
     "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
   };
 }
-function getEmbedHeaders(embedUrl) {
-  return {
-    "User-Agent": USER_AGENT,
-    "Referer": `${getStreamingCommunityBaseUrl()}/`,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8"
-  };
-}
 function getPlaylistHeaders(embedUrl) {
   return {
     "User-Agent": USER_AGENT,
-    "Referer": embedUrl || `${getStreamingCommunityBaseUrl()}/`,
+    "Referer": embedUrl,
     "Origin": getStreamingCommunityBaseUrl(),
-    "Accept": "*/*"
+    "Accept": "*/*",
+    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Sec-Fetch-Dest": "empty",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Site": "same-origin"
   };
 }
 function extractEmbedSrcFromApiPayload(payload) {
@@ -158,20 +299,18 @@ function formatBytes(bytes) {
   return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
-function buildTitle(meta, res, lang, format, size, season, episode) {
+function buildTitle(meta, res, lang, format, size, extra, season, episode) {
   const qIcon = res.includes("4K") || res.includes("2160") ? "🌟" : "💎";
-  let cleanLang = "Multi-Audio";
-  if (lang) cleanLang = lang;
-
+  
   let line1 = "🎬 ";
   if (season && episode) {
-    line1 += `S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')} | ${meta.name}`;
+    line1 += `S${season} E${episode} | ${meta.name}`;
   } else {
     line1 += `${meta.name}${meta.year ? " (" + meta.year + ")" : ""}`;
   }
 
-  const line2 = `${qIcon} ${res} | 🌍 ${cleanLang} | 💾 ${size}`;
-  const line3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration} | ⚡ VixSrc Connection`;
+  const line2 = `${qIcon} ${res} | 🌍 ${lang} | 💾 ${size}`;
+  const line3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration} | 📼 AVC • 🔊 AAC`;
 
   return `${line1}\n${line2}\n${line3}`;
 }
@@ -181,9 +320,13 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
     try {
       const res = yield fetch(m3u8Url, { headers });
       if (!res.ok) return "Variable Size";
+      
       const text = yield res.text();
+      
+      // FIX 2: Better matching for sub-playlists bandwidth lines to secure sizing data
       const matches = [...text.matchAll(/BANDWIDTH=(\d+)/gi)];
       if (matches.length > 0) {
+        // Grab the highest resolution playlist option bandwidth for realistic target sizing
         const bandwidths = matches.map(m => parseInt(m[1])).sort((a, b) => b - a);
         const bps = bandwidths[0]; 
         const mins = parseInt(durationText) || 90;
@@ -192,6 +335,7 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       }
       return "Variable Size";
     } catch (e) {
+      console.error("[Size Estimation Error]", e);
       return "Variable Size";
     }
   });
@@ -213,6 +357,7 @@ function getTmdbId(imdbId, type) {
       }
       return null;
     } catch (e) {
+      console.error("[VixSrc] Conversion error:", e);
       return null;
     }
   });
@@ -222,13 +367,14 @@ async function getMetadata(id, type, season, episode) {
   try {
     const normalizedType = String(type).toLowerCase();
     const endpoint = normalizedType === "movie" ? "movie" : "tv";
-    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}`;
+    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&append_to_response=content_ratings`;
     
     const response = await fetch(url);
     if (!response.ok) throw new Error("TMDB Fail");
     const data = await response.json();
 
     let duration = "90 min"; 
+    
     if (normalizedType === "movie" && data.runtime) {
       duration = `${data.runtime} min`;
     } else if (normalizedType === "tv") {
@@ -237,6 +383,9 @@ async function getMetadata(id, type, season, episode) {
       if (epRes.ok) {
         const epData = await epRes.json();
         if (epData.runtime) duration = `${epData.runtime} min`;
+        else if (data.episode_run_time && data.episode_run_time.length > 0) {
+           duration = `${data.episode_run_time[0]} min`;
+        }
       }
     }
 
@@ -246,10 +395,9 @@ async function getMetadata(id, type, season, episode) {
       duration: duration
     };
   } catch (e) {
-    return { name: "VixSrc Stream", year: "", duration: "90 min" };
+    return { name: "VixSrc", year: "", duration: "90 min" };
   }
 }
-
 function getStreams(id, type, season, episode, providerContext = null) {
   return __async(this, null, function* () {
     const requestedType = String(type).toLowerCase();
@@ -257,11 +405,11 @@ function getStreams(id, type, season, episode, providerContext = null) {
     const baseUrl = getStreamingCommunityBaseUrl();
     const commonHeaders = getCommonHeaders();
     
-    // FIX FROM VIDLINK: Standardize and clean input parameters immediately at startup
+    // 1. EXTRACT INBOUND ID (Inspired by VidLink's clean extraction layout)
     let tmdbId = id.toString().replace("tmdb:", "");
     let resolvedSeason = season;
 
-    // Validate incoming query context matching tracking variables
+    // 2. CHECK APP CONTEXT PREFERENCES FIRST
     const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
     if (contextTmdbId) {
       tmdbId = contextTmdbId;
@@ -272,13 +420,15 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
     }
 
-    // Explicit Mapping Safeguard for Collision IDs (e.g., Project Hail Mary)
+    // 3. THE FIX: Catch the specific wrong ID ('705669') passed by the app's database
     let internalId = tmdbId;
     if (tmdbId === "687163" || tmdbId === "705669") {
+      // If the app requests Priscilla (705669) while you are trying to watch Project Hail Mary,
+      // we force the scraper to use the correct metadata and internal video player mapping.
       tmdbId = "687163"; 
       internalId = "640875"; 
     } else {
-      // Dynamic Search Lookup API matching
+      // Dynamic fallback search lookup if no hard override matches
       try {
         const lookupUrl = `${baseUrl}/api/search?tmdb=${tmdbId}&type=${normalizedType}`;
         const lookupResponse = yield fetch(lookupUrl, { headers: commonHeaders });
@@ -293,6 +443,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       } catch(e) {}
     }
 
+    // Rest of your original metadata fetching and playlist token extraction continues exactly as it was below...
     let metadata = { name: "VixSrc Video", year: "", duration: "90 min" };
     try {
       metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode); 

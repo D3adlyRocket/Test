@@ -80,16 +80,62 @@ var require_formatter = __commonJS({
         stream == null ? void 0 : stream.server,
         providerName
       ].filter(Boolean).join(" ").toLowerCase();
-      if (text.includes("mixdrop") || text.includes("m1xdrop") || text.includes("mxcontent")) {
-        return true;
-      }
-      if (text.includes("loadm") || text.includes("loadm.cam")) {
+      if (text.includes("loadm") || text.includes("loadm.cam") || text.includes("mixdrop") || text.includes("mxcontent")) {
         return true;
       }
       return false;
     }
+    function normalizeProviderId(providerName) {
+      const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+      return normalized || void 0;
+    }
     function formatStream2(stream, providerName) {
-      return stream;
+      let quality = stream.quality || "";
+      if (quality === "2160p" || quality === "4K") quality = "\u{1F525}4K UHD";
+      else if (quality === "1440p") quality = "\u2728 QHD";
+      else if (quality === "1080p") quality = "\u{1F680} FHD";
+      else if (quality === "720p") quality = "\u{1F4BF} HD";
+      else if (quality === "576p" || quality === "480p" || quality === "360p" || quality === "240p") quality = "\u{1F4A9} Low Quality";
+      else if (!quality || ["auto", "unknown", "unknow"].includes(String(quality).toLowerCase())) quality = "\u{1F4BF} HD";
+      
+      const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
+      let finalHeaders = stream.headers;
+      if (behaviorHints.proxyHeaders && behaviorHints.proxyHeaders.request) {
+        finalHeaders = behaviorHints.proxyHeaders.request;
+      } else if (behaviorHints.headers) {
+        finalHeaders = behaviorHints.headers;
+      }
+      finalHeaders = normalizePlaybackHeaders(finalHeaders);
+      const isStreamingCommunityProvider = String(providerName || "").toLowerCase() === "streamingcommunity" || String((stream == null ? void 0 : stream.name) || "").toLowerCase().includes("streamingcommunity");
+      if (isStreamingCommunityProvider && !finalHeaders) {
+        delete behaviorHints.proxyHeaders;
+        delete behaviorHints.headers;
+        delete behaviorHints.notWebReady;
+      }
+      if (finalHeaders) {
+        behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
+        behaviorHints.proxyHeaders.request = finalHeaders;
+        behaviorHints.headers = finalHeaders;
+      }
+      const shouldForceNotWebReady = shouldForceNotWebReadyForPlugin(stream, providerName, finalHeaders, behaviorHints);
+      if (!isStreamingCommunityProvider && shouldForceNotWebReady) {
+        behaviorHints.notWebReady = true;
+      } else {
+        delete behaviorHints.notWebReady;
+      }
+
+      const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
+      const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
+      return __spreadProps(__spreadValues({}, stream), {
+        providerName: stream.providerName || providerName,
+        qualityTag: quality,
+        _nuvio_formatted: true,
+        behaviorHints,
+        provider: stream.provider || normalizeProviderId(providerName),
+        referer: playbackReferer,
+        userAgent: playbackUserAgent,
+        headers: finalHeaders
+      });
     }
     module2.exports = { formatStream: formatStream2 };
   }
@@ -299,8 +345,8 @@ function formatBytes(bytes) {
   return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
-function buildTitle(meta, res, lang, format, size, extra, season, episode) {
-  const qIcon = res.includes("4K") || res.includes("2160") ? "🌟" : "💎";
+function buildTitle(meta, res, lang, format, size, season, episode) {
+  const qIcon = res.toUpperCase().includes("4K") || res.includes("2160") ? "🌟" : "💎";
   
   let line1 = "🎬 ";
   if (season && episode) {
@@ -322,7 +368,6 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       if (!res.ok) return "Variable Size";
       
       const text = yield res.text();
-      
       const matches = [...text.matchAll(/BANDWIDTH=(\d+)/gi)];
       if (matches.length > 0) {
         const bandwidths = matches.map(m => parseInt(m[1])).sort((a, b) => b - a);
@@ -337,6 +382,31 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       return "Variable Size";
     }
   });
+}
+
+function getQualityFromName(qualityStr) {
+  if (!qualityStr) return "Unknown";
+  const quality = qualityStr.toUpperCase();
+  if (quality === "ORG" || quality === "ORIGINAL") return "Original";
+  if (quality === "4K" || quality === "2160P") return "4K";
+  if (quality === "1440P" || quality === "2K") return "1440p";
+  if (quality === "1080P" || quality === "FHD") return "1080p";
+  if (quality === "720P" || quality === "HD") return "720p";
+  if (quality === "480P" || quality === "SD") return "480p";
+  if (quality === "360P") return "360p";
+  if (quality === "240P") return "240p";
+  const match = qualityStr.match(/(\d{3,4})[pP]?/);
+  if (match) {
+    const resolution = parseInt(match[1]);
+    if (resolution >= 2160) return "4K";
+    if (resolution >= 1440) return "1440p";
+    if (resolution >= 1080) return "1080p";
+    if (resolution >= 720) return "720p";
+    if (resolution >= 480) return "480p";
+    if (resolution >= 360) return "360p";
+    return "240p";
+  }
+  return "Unknown";
 }
 
 function getTmdbId(imdbId, type) {
@@ -355,47 +425,62 @@ function getTmdbId(imdbId, type) {
       }
       return null;
     } catch (e) {
-      console.error("[VixSrc] Conversion error:", e);
+      console.error("[StreamingCommunity] Conversion error:", e);
       return null;
     }
   });
 }
 
-async function getMetadata(id, type, season, episode) {
-  try {
-    const normalizedType = String(type).toLowerCase();
-    const endpoint = normalizedType === "movie" ? "movie" : "tv";
-    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&append_to_response=content_ratings`;
-    
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("TMDB Fail");
-    const data = await response.json();
+function getMetadata(id, type, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      const normalizedType = String(type).toLowerCase();
+      let url;
+      if (String(id).startsWith("tt")) {
+        url = `https://api.themoviedb.org/3/find/${id}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=it-IT`;
+      } else {
+        const endpoint = normalizedType === "movie" ? "movie" : "tv";
+        url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&language=it-IT`;
+      }
+      const response = yield fetch(url);
+      if (!response.ok) throw new Error("TMDB Fail");
+      const data = yield response.json();
 
-    let duration = "90 min"; 
-    
-    if (normalizedType === "movie" && data.runtime) {
-      duration = `${data.runtime} min`;
-    } else if (normalizedType === "tv") {
-      const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
-      const epRes = await fetch(epUrl);
-      if (epRes.ok) {
-        const epData = await epRes.json();
-        if (epData.runtime) duration = `${epData.runtime} min`;
-        else if (data.episode_run_time && data.episode_run_time.length > 0) {
-           duration = `${data.episode_run_time[0]} min`;
+      let duration = "90 min";
+      let baseData = data;
+
+      if (String(id).startsWith("tt")) {
+        const results = normalizedType === "movie" ? data.movie_results : data.tv_results;
+        if (results && results.length > 0) baseData = results[0];
+      }
+
+      if (normalizedType === "movie" && baseData.runtime) {
+        duration = `${baseData.runtime} min`;
+      } else if (normalizedType === "tv") {
+        const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
+        const epRes = yield fetch(epUrl);
+        if (epRes.ok) {
+          const epData = yield epRes.json();
+          if (epData.runtime) duration = `${epData.runtime} min`;
+          else if (baseData.episode_run_time && baseData.episode_run_time.length > 0) {
+            duration = `${baseData.episode_run_time[0]} min`;
+          }
         }
       }
-    }
 
-    return {
-      name: data.title || data.name,
-      year: (data.release_date || data.first_air_date || "").split("-")[0],
-      duration: duration
-    };
-  } catch (e) {
-    return { name: "VixSrc", year: "", duration: "90 min" };
-  }
+      return {
+        name: baseData.title || baseData.name || baseData.original_title || baseData.original_name,
+        year: (baseData.release_date || baseData.first_air_date || "").split("-")[0],
+        duration: duration,
+        original_language: baseData.original_language
+      };
+    } catch (e) {
+      console.error("[StreamingCommunity] Metadata error:", e);
+      return { name: "VixSrc", year: "", duration: "90 min" };
+    }
+  });
 }
+
 function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
   return __async(this, null, function* () {
     const normalizedType = String(type).toLowerCase();
@@ -403,7 +488,7 @@ function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
     if (normalizedType === "movie" && guardahd && typeof guardahd.getStreams === "function") {
       checks.push(
         guardahd.getStreams(id, normalizedType, season, episode).then((streams) => Array.isArray(streams) && streams.length > 0).catch((e) => {
-          console.warn("[VixSrc] VixSrc fallback check failed:", e);
+          console.warn("[StreamingCommunity] GuardaHD fallback check failed:", e);
           return false;
         })
       );
@@ -422,8 +507,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
     const commonHeaders = getCommonHeaders();
     let tmdbId = id.toString();
     let resolvedSeason = season;
-    
-    // EXTRACT INITIAL VALUES FROM CONTEXT HOOKS
     const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
     if (contextTmdbId) {
       tmdbId = contextTmdbId;
@@ -432,37 +515,17 @@ function getStreams(id, type, season, episode, providerContext = null) {
     } else if (tmdbId.startsWith("tt")) {
       const convertedId = yield getTmdbId(tmdbId, normalizedType);
       if (convertedId) {
-        console.log(`[VixSrc] Converted ${id} to TMDB ID: ${convertedId}`);
+        console.log(`[StreamingCommunity] Converted ${id} to TMDB ID: ${convertedId}`);
         tmdbId = convertedId;
       } else {
-        console.warn(`[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`);
+        console.warn(`[StreamingCommunity] Could not convert IMDb ID ${id} to TMDB ID.`);
       }
     }
-
-    // THE INTERCEPTION MATRIX: Correct wrong source IDs explicitly here
-    if (tmdbId === "687163" || tmdbId === "705669") {
-      tmdbId = "687163"; // Project Hail Mary
-    } else if (tmdbId === "709770") {
-      tmdbId = "13640";  // The Punisher (1989)
-    } else if (tmdbId === "718930") {
-      const titleContext = String(providerContext && providerContext.title || "").toLowerCase();
-      if (titleContext.includes("mario") || titleContext.includes("galaxy")) {
-        tmdbId = "1151534"; // Super Mario Galaxy
-      } else {
-        tmdbId = "718930";  // Bullet Train
-      }
-    }
-
-    // Explicitly update parent hook data frames to completely eliminate bad routing states
-    if (providerContext && typeof providerContext === "object") {
-      providerContext.tmdbId = tmdbId;
-    }
-
     let metadata = { name: "VixSrc", year: "", duration: "94 min" };
     try {
-      metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode); 
+      metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode);
     } catch (e) {
-      console.error("[VixSrc] Error fetching metadata:", e);
+      console.error("[StreamingCommunity] Error fetching metadata:", e);
     }
 
     let url;
@@ -476,62 +539,84 @@ function getStreams(id, type, season, episode, providerContext = null) {
     } else {
       return [];
     }
-
     try {
-      console.log(`[VixSrc] Fetching API: ${apiUrl}`);
-      const response = yield fetch(apiUrl, { headers: commonHeaders });
+      console.log(`[StreamingCommunity] Fetching API: ${apiUrl}`);
+      const response = yield fetch(apiUrl, {
+        headers: commonHeaders
+      });
       if (!response.ok) {
-        console.error(`[VixSrc] Failed to fetch page: ${response.status}`);
+        console.error(`[StreamingCommunity] Failed to fetch page: ${response.status}`);
         return [];
       }
       const apiPayload = yield response.json().catch(() => null);
       const embedUrl = extractEmbedSrcFromApiPayload(apiPayload);
       if (!embedUrl) {
-        console.log("[VixSrc] Could not find embed src in API payload");
+        console.log("[StreamingCommunity] Could not find embed src in API payload");
         return [];
       }
+      if (providerContext == null ? void 0 : providerContext.proxyUrl) {
+        const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
+        console.log(`[StreamingCommunity] Proxy enabled, returning raw page URL: ${rawPageUrl}`);
+        
+        const generatedTitle = buildTitle(
+          metadata, 
+          "Auto", 
+          "Multi-Audio", 
+          "M3U8", 
+          "Variable Size", 
+          normalizedType === "tv" ? resolvedSeason : null, 
+          normalizedType === "tv" ? episode : null
+        );
 
-      // NOTE: Removed early exit proxy checking block to guarantee stream tokens 
-      // are generated through the scraper and size metric lookups aren't bypassed.
-
-      console.log(`[VixSrc] Fetching embed: ${embedUrl}`);
-      const embedResponse = yield fetch(embedUrl, { headers: getEmbedHeaders(embedUrl) });
+        const result = {
+          name: `🎦 VixSrc | Auto | Multi-Audio`,
+          title: generatedTitle,
+          url: rawPageUrl,
+          easyProxySourceUrl: rawPageUrl,
+          quality: "1080p",
+          type: "direct",
+          behaviorHints: {
+            notWebReady: false
+          }
+        };
+        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
+      }
+      console.log(`[StreamingCommunity] Fetching embed: ${embedUrl}`);
+      const embedResponse = yield fetch(embedUrl, {
+        headers: getEmbedHeaders(embedUrl)
+      });
       if (!embedResponse.ok) {
-        console.error(`[VixSrc] Failed to fetch embed: ${embedResponse.status}`);
+        console.error(`[StreamingCommunity] Failed to fetch embed: ${embedResponse.status}`);
         return [];
       }
       const embedHtml = yield embedResponse.text();
       if (!embedHtml) return [];
-      
       const masterPlaylist = extractMasterPlaylistFromEmbedHtml(embedHtml);
       if (masterPlaylist) {
-        // Construct final stream URL using standard parsing formatting safely 
-        const playlistUrlObj = new URL(masterPlaylist.url);
-        playlistUrlObj.searchParams.set("b", "1");
-        playlistUrlObj.searchParams.set("token", masterPlaylist.token);
-        playlistUrlObj.searchParams.set("expires", masterPlaylist.expires);
-        playlistUrlObj.searchParams.set("h", "1");
-        playlistUrlObj.searchParams.set("lang", "it");
-
-        const streamUrl = playlistUrlObj.toString();
+        const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
         const streamHeaders = getPlaylistHeaders(embedUrl);
-        console.log(`[VixSrc] Final stream URL: ${streamUrl}`);
-
-        let streamLanguage = "Multi-Audio"; 
-        let detectedQuality = "1080p";
-
+        console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
+        
+        let streamLanguage = "Multi-Audio";
+        let quality = "1080p";
         try {
-          const playlistResponse = yield fetch(streamUrl, { headers: streamHeaders });
-
+          const playlistResponse = yield fetch(streamUrl, {
+            headers: streamHeaders
+          });
           if (playlistResponse.ok) {
             const playlistText = yield playlistResponse.text();
-
-            const playlistQuality = checkQualityFromText(playlistText);
-            detectedQuality = playlistQuality || getQualityFromUrl(streamUrl) || getQualityFromUrl(embedUrl) || "1080p";
+            const hasItalian = /#EXT-X-MEDIA:TYPE=AUDIO.*(?:LANGUAGE="it"|LANGUAGE="ita"|NAME="Italian"|NAME="Ita")/i.test(playlistText);
+            const detected = checkQualityFromText(playlistText) || getQualityFromUrl(streamUrl) || getQualityFromUrl(embedUrl);
+            if (detected) quality = detected;
+            const originalLanguageItalian = metadata && (metadata.original_language === "it" || metadata.original_language === "ita");
+            if (!hasItalian && !originalLanguageItalian) {
+              console.log(`[StreamingCommunity] No Italian audio found. Checking fallback.`);
+              const fallbackOk = yield hasGuardaFallbackResults(id, normalizedType, resolvedSeason, episode, providerContext);
+              if (!fallbackOk) return [];
+            }
 
             const languageMatches = [...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)];
             const uniqueLanguages = [...new Set(languageMatches.map(x => x[1].toLowerCase()))];
-
             if (uniqueLanguages.length > 1 || playlistText.includes("ita") || streamUrl.includes("lang=it")) {
               streamLanguage = "Multi-Audio";
             } else if (uniqueLanguages.length === 1) {
@@ -542,10 +627,11 @@ function getStreams(id, type, season, episode, providerContext = null) {
             }
           }
         } catch (e) {
-          console.warn("[VixSrc] Quality detection failed:", e);
+          console.warn(`[StreamingCommunity] Playlist pre-check failed, continuing:`, e);
         }
-
+        
         const computedSize = yield getM3U8Size(streamUrl, metadata.duration, streamHeaders);
+        const normalizedQuality = getQualityFromName(quality);
 
         let detectedFormat = "M3U8"; 
         const urlToCheck = streamUrl.split('?')[0].toLowerCase();
@@ -561,35 +647,35 @@ function getStreams(id, type, season, episode, providerContext = null) {
 
         const generatedTitle = buildTitle(
           metadata,
-          detectedQuality,
+          normalizedQuality,
           streamLanguage,
           detectedFormat,
           computedSize,
-          null, // matching exact parameter placement requirements
           normalizedType === "tv" ? resolvedSeason : null,
           normalizedType === "tv" ? episode : null
         );
-        
+
         const result = {
-          name: `🎦 VixSrc | ${detectedQuality} | ${streamLanguage}`,
+          name: `🎦 VixSrc | ${normalizedQuality} | ${streamLanguage}`,
           title: generatedTitle,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,
-          quality: detectedQuality.toLowerCase().includes("p") ? detectedQuality : "1080p", 
+          quality: normalizedQuality.toLowerCase().includes("p") || normalizedQuality.includes("4K") ? normalizedQuality : "1080p",
           type: "direct",
           headers: streamHeaders,
-          behaviorHints: { notWebReady: false }
+          behaviorHints: {
+            notWebReady: false
+          }
         };
         return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
       } else {
-        console.log("[VixSrc] Could not find playlist info in HTML");
+        console.log("[StreamingCommunity] Could not find playlist info in HTML");
         return [];
       }
     } catch (error) {
-      console.error("[VixSrc] Error:", error);
+      console.error("[StreamingCommunity] Error:", error);
       return [];
     }
   });
 }
-
 module.exports = { getStreams };

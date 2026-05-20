@@ -438,14 +438,27 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
     }
 
-    // THE ID OVERRIDE MATRIX (Maps wrong app IDs to correct provider paths)
+    // ADVANCED CONTEXT MATRIX
+    // Safely checks context clues to keep Bullet Train (718930) completely separate from Mario
     let internalId = tmdbId;
+    
     if (tmdbId === "687163" || tmdbId === "705669") {
-      tmdbId = "687163";    // Meta Title: Project Hail Mary
-      internalId = "640875"; // Video Source Path
+      tmdbId = "687163";    
+      internalId = "640875"; 
     } else if (tmdbId === "709770") {
-      tmdbId = "13640";     // TMDB Target ID: The Punisher
-      internalId = "90612";  // Video Source Path
+      tmdbId = "13640";     
+      internalId = "90612";  
+    } else if (tmdbId === "718930") {
+      // Check if context text explicitly requests a Mario video resource, else keep Bullet Train standard
+      const extraContextStr = String(providerContext && providerContext.title || "").toLowerCase();
+      if (extraContextStr.includes("mario") || extraContextStr.includes("galaxy")) {
+        tmdbId = "1151534"; 
+        internalId = "4513"; 
+      } else {
+        // Bullet Train is fine, it leaves internalId equal to tmdbId (718930)
+        tmdbId = "718930";
+        internalId = "718930";
+      }
     }
 
     let metadata = { name: "VixSrc", year: "", duration: "94 min" };
@@ -517,7 +530,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
       
       const masterPlaylist = extractMasterPlaylistFromEmbedHtml(embedHtml);
       if (masterPlaylist) {
-        // FIXED STREAM PARAMS: Keeps both mandatory token layout variations intact
         const streamUrl = `${masterPlaylist.url}?b=1&token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
         const streamHeaders = getPlaylistHeaders(embedUrl);
         console.log(`[VixSrc] Final stream URL: ${streamUrl}`);

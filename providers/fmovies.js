@@ -1,4 +1,4 @@
-// Metadata config matched to your VixSrc setup
+// Metadata config matched to your UI setup
 var TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
 
 function normalizeCodecLabel(codec) {
@@ -81,31 +81,71 @@ function extractSourceName(stream) {
   return 'Direct';
 }
 
-// Visual Multi-line Title Builder (Renders the 3 info lines)
-function buildTitle(meta, res, lang, format, size, season, episode, filename) {
-  var qIcon = (res.includes('4K') || res.includes('2160')) ? '🌟' : '💎';
+// Advanced properties analyzer parser parsing from raw filename context
+function parseFileInfo(filename) {
+  var text = String(filename || '').toUpperCase();
   
-  // Line 1: Show context title info OR actual file name if it fits nicely
-  var line1 = '🎬 ';
-  if (season && episode) {
-    line1 += 'S' + season + ' E' + episode + ' | ' + meta.name;
-    if (meta.episodeTitle) {
-      line1 += ' | ' + meta.episodeTitle;
-    }
-  } else {
-    line1 += (filename && filename !== 'stream.mkv') ? filename : meta.name + (meta.year ? ' (' + meta.year + ')' : '');
+  // 1. Source type identification
+  var source = 'Unknown Source';
+  if (/\bBLURAY\b|\bBLU-RAY\b|\bBDREMUX\b/i.test(text)) source = 'BluRay';
+  else if (/\bWEB-DL\b|\bWEBDL\b|\bWEB\b/i.test(text)) source = 'WEB-DL';
+  else if (/\bHDTV\b/i.test(text)) source = 'HDTV';
+  else if (/\bCAM\b|\bCAMRIP\b/i.test(text)) source = 'CAM';
+
+  // 2. Video Encoding parameters
+  var videoCodec = 'Unknown Video';
+  if (/\bH\.?265\b|\bX265\b|\bHEVC\b/i.test(text)) {
+    videoCodec = 'H265';
+    if (/\bDV\b|\bDOLBY\s*VISION\b/i.test(text)) videoCodec += ' DV';
+    if (/\bHDR10P\b|\bHDR10\+\b/i.test(text)) videoCodec += ' HDR10+';
+    else if (/\bHDR\b|\bHDR10\b/i.test(text)) videoCodec += ' HDR10';
+  } else if (/\bH\.?264\b|\bX264\b|\bAVC\b/i.test(text)) {
+    videoCodec = 'AVC';
+  } else if (/\bAV1\b/i.test(text)) {
+    videoCodec = 'AV1';
   }
 
-  // Line 2: Quality, Audio Lang, and exact Size string
-  var line2 = qIcon + ' ' + res + ' | 🌍 ' + lang + ' | 💾 ' + (size || 'Variable Size');
-  
-  // Line 3: Container format, runtime clock, and profile parameters
-  var line3 = '🎞️ ' + format.toUpperCase() + ' | ⏱️ ' + meta.duration + ' | 📼 AVC • 🔊 AAC';
+  // 3. Audio format profile attributes
+  var audioCodec = 'AAC'; // Baseline standard container profile fallback
+  if (/\bTRUEHD\b/i.test(text)) audioCodec = 'TrueHD';
+  else if (/\bATMOS\b/i.test(text)) audioCodec = 'Atmos';
+  else if (/\bDDP\b|\bEAC3\b/i.test(text)) audioCodec = 'DDP';
+  else if (/\bDD\b|\bAC3\b/i.test(text)) audioCodec = 'DD';
+  else if (/\bDTS\b/i.test(text)) audioCodec = 'DTS';
 
-  return line1 + '\n' + line2 + '\n' + line3;
+  // 4. Surround audio layout configurations
+  var audioChannels = '';
+  if (/\b7\.1\b/.test(text)) audioChannels = '7.1';
+  else if (/\b5\.1\b/.test(text)) audioChannels = '5.1';
+  else if (/\b2\.0\b|\bSTEREO\b/.test(text)) audioChannels = '2.0';
+
+  return {
+    source: source,
+    videoCodec: videoCodec,
+    audioProfile: audioCodec + (audioChannels ? ' ' + audioChannels : '')
+  };
 }
 
-// Convert IMDb IDs to TMDB IDs if necessary
+// Fixed multi-line UI compositor running up to 4 sequential rows
+function buildTitle(meta, res, lang, format, size, filename) {
+  var qIcon = (res.includes('4K') || res.includes('2160')) ? '🌟' : '💎';
+  var parsed = parseFileInfo(filename);
+  
+  // Line 1: Movie context metadata details
+  var line1 = '🎬 ' + meta.name + (meta.year ? ' (' + meta.year + ')' : '');
+
+  // Line 2: Spatial properties identifiers
+  var line2 = qIcon + ' ' + res + ' | 🌍 ' + lang + ' | 💾 ' + (size || 'Variable Size');
+  
+  // Line 3: System containers and hardware encodings indicators
+  var line3 = '🎞️ ' + format.toUpperCase() + ' | ⏱️ ' + meta.duration + ' | 📼 ' + parsed.videoCodec;
+
+  // Line 4: Specific release tags and sound formats
+  var line4 = '🏷️ ' + parsed.source + ' | 🔊 ' + parsed.audioProfile;
+
+  return line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
+}
+
 function getTmdbId(imdbId, type) {
   var normalizedType = String(type).toLowerCase();
   var findUrl = 'https://api.themoviedb.org/3/find/' + imdbId + '?api_key=' + TMDB_API_KEY + '&external_source=imdb_id';
@@ -126,15 +166,12 @@ function getTmdbId(imdbId, type) {
     });
 }
 
-// Fetch metadata automatically from TMDB
 function getMetadata(id, type, season, episode, fallbackContext) {
   var localFallbackName = 'Unknown Title';
   var localFallbackDuration = type === 'tv' ? '45 min' : '90 min';
-  var localFallbackEpisodeTitle = '';
 
   if (fallbackContext && typeof fallbackContext === 'object') {
     localFallbackName = fallbackContext.name || fallbackContext.title || localFallbackName;
-    localFallbackEpisodeTitle = fallbackContext.episodeName || fallbackContext.episodeTitle || localFallbackEpisodeTitle;
     localFallbackDuration = fallbackContext.duration || localFallbackDuration;
   }
 
@@ -150,26 +187,24 @@ function getMetadata(id, type, season, episode, fallbackContext) {
 
       if (normalizedType === 'movie' && data.runtime) {
         duration = data.runtime + ' min';
-        return { name: data.title || data.name || localFallbackName, year: year, duration: duration, episodeTitle: '' };
+        return { name: data.title || data.name || localFallbackName, year: year, duration: duration };
       } else if (normalizedType === 'tv') {
         var epUrl = 'https://api.themoviedb.org/3/tv/' + id + '/season/' + season + '/episode/' + episode + '?api_key=' + TMDB_API_KEY;
         return fetch(epUrl)
           .then(function(epRes) { return epRes.ok ? epRes.json() : null; })
           .then(function(epData) {
-            var epTitle = localFallbackEpisodeTitle;
-            if (epData) {
-              if (epData.name) epTitle = epData.name;
-              if (epData.runtime) duration = epData.runtime + ' min';
+            if (epData && epData.runtime) {
+              duration = epData.runtime + ' min';
             } else if (data.episode_run_time && data.episode_run_time.length > 0) {
               duration = data.episode_run_time[0] + ' min';
             }
-            return { name: data.name || data.title || localFallbackName, year: year, duration: duration, episodeTitle: epTitle };
+            return { name: data.name || data.title || localFallbackName, year: year, duration: duration };
           });
       }
-      return { name: data.title || data.name || localFallbackName, year: year, duration: duration, episodeTitle: '' };
+      return { name: data.title || data.name || localFallbackName, year: year, duration: duration };
     })
     .catch(function() {
-      return { name: localFallbackName, year: '', duration: localFallbackDuration, episodeTitle: localFallbackEpisodeTitle };
+      return { name: localFallbackName, year: '', duration: localFallbackDuration };
     });
 }
 
@@ -218,15 +253,12 @@ function getStreams(id, mediaType, season, episode, providerContext) {
                   stream.format,  stream.codec,  filename, stream.url
                 ]);
 
-                // The multi-line system runs completely within title string context
                 var generatedTitle = buildTitle(
                   metadata,
                   quality,
                   'English',
                   'MKV',
                   size,
-                  null,
-                  null,
                   filename
                 );
 
@@ -253,8 +285,6 @@ function getStreams(id, mediaType, season, episode, providerContext) {
                     'English',
                     'MKV',
                     size,
-                    null,
-                    null,
                     filename
                   );
 

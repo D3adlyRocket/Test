@@ -304,10 +304,10 @@ function buildTitle(meta, res, lang, format, size, season, episode) {
   
   let line1 = "🎬 ";
   if (season && episode) {
-    // Standard layout check: S1 E1 | Series Title
+    // Layout Format: S1 E1 | Series Title
     line1 += `S${season} E${episode} | ${meta.name}`;
-    // Inject the specific episode title variant if populated cleanly
-    if (meta.episodeTitle && meta.episodeTitle !== "") {
+    // Safely append episode title if present and it's not a replication of fallback names
+    if (meta.episodeTitle && meta.episodeTitle !== "" && meta.episodeTitle !== "Unknown Episode") {
       line1 += ` | ${meta.episodeTitle}`;
     }
   } else {
@@ -381,19 +381,50 @@ function getTmdbId(imdbId, type) {
 }
 
 async function getMetadata(id, type, season, episode, fallbackContext = null) {
-  // Enforce scraping context structures so we never fallback on 'VixSrc' text strings
-  let localFallbackName = "Unknown Title";
+  let localFallbackName = "";
   let localFallbackDuration = type === "tv" ? "45 min" : "90 min";
   let localFallbackEpisodeTitle = "";
 
+  // Exhaustive discovery scan across all potential variable paths exposed by your app setup
   if (fallbackContext && typeof fallbackContext === "object") {
-    if (fallbackContext.name) localFallbackName = fallbackContext.name;
-    else if (fallbackContext.title) localFallbackName = fallbackContext.title;
+    const searchKeys = ['name', 'title', 'showName', 'showTitle', 'seriesName', 'seriesTitle', 'originalName', 'originalTitle'];
+    for (const key of searchKeys) {
+      if (fallbackContext[key] && typeof fallbackContext[key] === 'string' && fallbackContext[key].toLowerCase() !== 'vixsrc' && fallbackContext[key].toLowerCase() !== 'vixsrc source') {
+        localFallbackName = fallbackContext[key];
+        break;
+      }
+    }
     
+    // Deeper reflection scan if wrapped inside meta/extra children trees
+    if (!localFallbackName && fallbackContext.meta && typeof fallbackContext.meta === "object") {
+      for (const key of searchKeys) {
+        if (fallbackContext.meta[key] && typeof fallbackContext.meta[key] === 'string' && fallbackContext.meta[key].toLowerCase() !== 'vixsrc') {
+          localFallbackName = fallbackContext.meta[key];
+          break;
+        }
+      }
+    }
+
     if (fallbackContext.episodeName) localFallbackEpisodeTitle = fallbackContext.episodeName;
     else if (fallbackContext.episodeTitle) localFallbackEpisodeTitle = fallbackContext.episodeTitle;
     
     if (fallbackContext.duration) localFallbackDuration = fallbackContext.duration;
+  }
+
+  // Final emergency regex scrape from the current runtime engine stack lines if context objects are missing fields
+  if (!localFallbackName) {
+    try {
+      const err = new Error();
+      const match = err.stack ? err.stack.match(/(?:getStreams|fetch)[^\n]*[\s(]([a-zA-Z0-9\s:''-]+)\s*(?:S\d+E\d+|\d{4})/i) : null;
+      if (match && match[1]) {
+        localFallbackName = match[1].trim();
+      }
+    } catch(e){}
+  }
+
+  // Safety fallback if absolutely no title text can be recovered
+  if (!localFallbackName) {
+    localFallbackName = type === "tv" ? "Series" : "Movie";
   }
 
   try {
@@ -423,8 +454,14 @@ async function getMetadata(id, type, season, episode, fallbackContext = null) {
       }
     }
 
+    // Filter out generic scraper module identifiers leaking into output fields
+    let finalName = data.title || data.name || localFallbackName;
+    if (typeof finalName === 'string' && (finalName.toLowerCase() === 'vixsrc' || finalName.toLowerCase() === 'vixsrc source')) {
+      finalName = localFallbackName;
+    }
+
     return {
-      name: data.title || data.name || localFallbackName,
+      name: finalName,
       year: (data.release_date || data.first_air_date || "").split("-")[0],
       duration: duration,
       episodeTitle: episodeTitle
@@ -476,7 +513,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
     }
 
-    let metadata = { name: "Unknown Title", year: "", duration: "90 min", episodeTitle: "" };
+    let metadata = { name: "Series", year: "", duration: "90 min", episodeTitle: "" };
     try {
       metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode, providerContext); 
     } catch (e) {

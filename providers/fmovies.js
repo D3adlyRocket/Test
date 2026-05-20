@@ -299,27 +299,30 @@ function formatBytes(bytes) {
   return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
+// Fixed title builder utilizing the unified Nakios string structure format
 function buildTitle(meta, res, lang, format, size, season, episode, epInfo) {
   const qIcon = res.includes("4K") || res.includes("2160") ? "🌟" : "💎";
   
   let line1 = "🎬 ";
   if (season && episode) {
-    // Implements exact layout architecture: S1 E1 | Series Title
-    line1 += `S${season} E${episode}`;
-    if (epInfo && epInfo.name) {
-      line1 += ` - ${epInfo.name}`;
-    }
-    line1 += ` | ${meta.name}`;
+    var epTitle = epInfo && epInfo.name ? ' - ' + epInfo.name : '';
+    line1 += 'S' + season + ' E' + episode + epTitle + ' | ' + meta.name;
   } else {
-    line1 += `${meta.name}${meta.year ? " (" + meta.year + ")" : ""}`;
+    line1 += meta.name + (meta.year ? ' - ' + meta.year : '');
   }
 
-  const finalDuration = (epInfo && epInfo.duration) ? epInfo.duration : meta.duration;
+  var specs = [
+      qIcon + ' ' + res,
+      '🌍 ' + lang,
+      '🎞️ ' + format.toUpperCase()
+  ];
+  if (size) specs.push('💾 ' + size);
+  
+  var finalDuration = (epInfo && epInfo.duration) ? epInfo.duration : meta.duration;
+  if (finalDuration) specs.push('⏱️ ' + finalDuration);
+  specs.push('📼 AVC • 🔊 AAC');
 
-  const line2 = `${qIcon} ${res} | 🌍 ${lang} | 💾 ${size}`;
-  const line3 = `🎞️ ${format.toUpperCase()}${finalDuration ? " | ⏱️ " + finalDuration : ""} | 📼 AVC • 🔊 AAC`;
-
-  return `${line1}\n${line2}\n${line3}`;
+  return line1 + '\n' + specs.join(' | ');
 }
 
 function calculateCalculatedFallbackSize(quality, durationText) {
@@ -382,38 +385,31 @@ function getTmdbId(imdbId, type) {
   });
 }
 
-// Transplanted from working Nakios implementation 
-function getTmdbMetadata(tmdbId, type, fallbackContext = null) {
-  var url = 'https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_API_KEY + '&language=en-US';
-  
-  let localFallbackName = "Series";
-  if (fallbackContext && typeof fallbackContext === "object") {
-    const searchKeys = ['name', 'title', 'showName', 'showTitle', 'seriesName', 'seriesTitle'];
-    for (const key of searchKeys) {
-      if (fallbackContext[key] && typeof fallbackContext[key] === 'string' && fallbackContext[key].toLowerCase() !== 'vixsrc') {
-        localFallbackName = fallbackContext[key];
-        break;
-      }
-    }
-    if (localFallbackName === "Series" && fallbackContext.meta && typeof fallbackContext.meta === "object") {
+// Unified Async implementation of Nakios getTmdbMetadata logic
+function getTmdbMetadataAsync(tmdbId, type, fallbackContext) {
+  return __async(this, null, function* () {
+    var url = 'https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_API_KEY + '&language=en-US';
+    
+    let localFallbackName = "Nakios";
+    if (fallbackContext && typeof fallbackContext === "object") {
+      const searchKeys = ['name', 'title', 'showName', 'showTitle', 'seriesName', 'seriesTitle'];
       for (const key of searchKeys) {
-        if (fallbackContext.meta[key] && typeof fallbackContext.meta[key] === 'string') {
-          localFallbackName = fallbackContext.meta[key];
+        if (fallbackContext[key] && typeof fallbackContext[key] === 'string' && fallbackContext[key].toLowerCase() !== 'vixsrc') {
+          localFallbackName = fallbackContext[key];
           break;
         }
       }
     }
-  }
 
-  return fetch(url)
-    .then(function(res) { return res.json(); })
-    .then(function(data) {
+    try {
+      var res = yield fetch(url);
+      var data = yield res.json();
       var name = data.title || data.name || localFallbackName;
       if (name.toLowerCase() === 'vixsrc') name = localFallbackName;
       var date = data.release_date || data.first_air_date || "";
       var year = date ? date.split('-')[0] : "";
       
-      var duration = type === 'tv' ? "45 min" : "90 min";
+      var duration = "";
       if (type === 'movie' && data.runtime) {
           duration = data.runtime + ' min';
       } else if (type === 'tv' && data.episode_run_time && data.episode_run_time.length > 0) {
@@ -421,8 +417,220 @@ function getTmdbMetadata(tmdbId, type, fallbackContext = null) {
       }
       
       return { name: name, year: year, duration: duration };
-    })
-    .catch(function() { return { name: localFallbackName, year: "", duration: type === 'tv' ? "45 min" : "90 min" }; });
+    } catch(e) { 
+      return { name: localFallbackName, year: "", duration: "" }; 
+    }
+  });
 }
 
-// Transplanted from working Nakios implementation
+// Unified Async implementation of Nakios getEpisodeInfo logic
+function getEpisodeInfoAsync(tmdbId, season, episode) {
+  return __async(this, null, function* () {
+    if (!tmdbId || !season || !episode) return null;
+    var url = 'https://api.themoviedb.org/3/tv/' + tmdbId + '/season/' + season + '/episode/' + episode + '?api_key=' + TMDB_API_KEY + '&language=en-US';
+    try {
+      var res = yield fetch(url);
+      var data = yield res.json();
+      return {
+          name: data.name || null,
+          duration: data.runtime ? data.runtime + ' min' : null
+      };
+    } catch(e) { 
+      return null; 
+    }
+  });
+}
+
+function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
+  return __async(this, null, function* () {
+    const normalizedType = String(type).toLowerCase();
+    const checks = [];
+    if (normalizedType === "movie" && guardahd && typeof guardahd.getStreams === "function") {
+      checks.push(
+        guardahd.getStreams(id, normalizedType, season, episode).then((streams) => Array.isArray(streams) && streams.length > 0).catch((e) => {
+          console.warn("[VixSrc] VixSrc fallback check failed:", e);
+          return false;
+        })
+      );
+    }
+    if (checks.length === 0) return false;
+    const results = yield Promise.all(checks);
+    return results.some(Boolean);
+  });
+}
+
+function getStreams(id, type, season, episode, providerContext = null) {
+  return __async(this, __arguments, function* () {
+    const requestedType = String(type).toLowerCase();
+    const normalizedType = requestedType === "series" ? "tv" : requestedType;
+    const baseUrl = getStreamingCommunityBaseUrl();
+    const commonHeaders = getCommonHeaders();
+    let tmdbId = id.toString();
+    let resolvedSeason = season;
+    
+    const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
+    if (contextTmdbId) {
+      tmdbId = contextTmdbId;
+    } else if (tmdbId.startsWith("tmdb:")) {
+      tmdbId = tmdbId.replace("tmdb:", "");
+    } else if (tmdbId.startsWith("tt")) {
+      const convertedId = yield getTmdbId(tmdbId, normalizedType);
+      if (convertedId) {
+        console.log(`[VixSrc] Converted ${id} to TMDB ID: ${convertedId}`);
+        tmdbId = convertedId;
+      } else {
+        console.warn(`[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`);
+      }
+    }
+
+    // Modern async generation of parallel requests synchronized directly to Nakios logic structures
+    const metadata = yield getTmdbMetadataAsync(tmdbId, normalizedType, providerContext);
+    const epInfo = normalizedType === 'tv' ? yield getEpisodeInfoAsync(tmdbId, resolvedSeason, episode) : null;
+
+    let url;
+    let apiUrl;
+    if (normalizedType === "movie") {
+      url = `${baseUrl}/movie/${tmdbId}`;
+      apiUrl = `${baseUrl}/api/movie/${tmdbId}`;
+    } else if (normalizedType === "tv") {
+      url = `${baseUrl}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
+      apiUrl = `${baseUrl}/api/tv/${tmdbId}/${resolvedSeason}/${episode}`;
+    } else {
+      return [];
+    }
+
+    try {
+      console.log(`[VixSrc] Fetching API: ${apiUrl}`);
+      const response = yield fetch(apiUrl, { headers: commonHeaders });
+      if (!response.ok) {
+        console.error(`[VixSrc] Failed to fetch page: ${response.status}`);
+        return [];
+      }
+      const apiPayload = yield response.json().catch(() => null);
+      const embedUrl = extractEmbedSrcFromApiPayload(apiPayload);
+      if (!embedUrl) {
+        console.log("[VixSrc] Could not find embed src in API payload");
+        return [];
+      }
+
+      if (providerContext == null ? void 0 : providerContext.proxyUrl) {
+        const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
+        const calculatedSize = calculateCalculatedFallbackSize("1080p", metadata.duration);
+        const generatedTitle = buildTitle(
+          metadata, 
+          "Auto", 
+          "Multi-Audio", 
+          "M3U8", 
+          calculatedSize, 
+          normalizedType === "tv" ? resolvedSeason : null, 
+          normalizedType === "tv" ? episode : null,
+          epInfo
+        );
+
+        const finalHeaderName = "🎦 VixSrc | Auto | Multi-Audio";
+
+        const result = {
+          name: finalHeaderName,
+          title: generatedTitle,
+          url: rawPageUrl,
+          easyProxySourceUrl: rawPageUrl,
+          quality: "1080p",
+          type: "direct",
+          behaviorHints: { notWebReady: false }
+        };
+        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
+      }
+
+      console.log(`[VixSrc] Fetching embed: ${embedUrl}`);
+      const embedResponse = yield fetch(embedUrl, { headers: getEmbedHeaders(embedUrl) });
+      if (!embedResponse.ok) {
+        console.error(`[VixSrc] Failed to fetch embed: ${embedResponse.status}`);
+        return [];
+      }
+      const embedHtml = yield embedResponse.text();
+      if (!embedHtml) return [];
+      
+      const masterPlaylist = extractMasterPlaylistFromEmbedHtml(embedHtml);
+      if (masterPlaylist) {
+        const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
+        const streamHeaders = getPlaylistHeaders(embedUrl);
+        console.log(`[VixSrc] Final stream URL: ${streamUrl}`);
+
+        let streamLanguage = "Multi-Audio"; 
+        let detectedQuality = "1080p";
+
+        try {
+          const playlistResponse = yield fetch(streamUrl, { headers: streamHeaders });
+
+          if (playlistResponse.ok) {
+            const playlistText = yield playlistResponse.text();
+
+            const playlistQuality = checkQualityFromText(playlistText);
+            detectedQuality = playlistQuality || getQualityFromUrl(streamUrl) || getQualityFromUrl(embedUrl) || "1080p";
+
+            const languageMatches = [...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)];
+            const uniqueLanguages = [...new Set(languageMatches.map(x => x[1].toLowerCase()))];
+
+            if (uniqueLanguages.length > 1 || playlistText.includes("ita") || streamUrl.includes("lang=it")) {
+              streamLanguage = "Multi-Audio";
+            } else if (uniqueLanguages.length === 1) {
+              const lang = uniqueLanguages[0];
+              if (lang.includes("it")) streamLanguage = "Italian";
+              else if (lang.includes("en")) streamLanguage = "English";
+              else streamLanguage = lang.toUpperCase();
+            }
+          }
+        } catch (e) {
+          console.warn("[VixSrc] Quality detection failed:", e);
+        }
+
+        const computedSize = yield getM3U8Size(streamUrl, metadata.duration, detectedQuality, streamHeaders);
+
+        let detectedFormat = "M3U8"; 
+        const urlToCheck = streamUrl.split('?')[0].toLowerCase();
+        if (urlToCheck.includes(".m3u8")) {
+          detectedFormat = "M3U8";
+        } else if (urlToCheck.includes("/hls/")) {
+          detectedFormat = "HLS";
+        } else if (urlToCheck.includes(".mpd")) {
+          detectedFormat = "DASH";
+        } else if (urlToCheck.includes(".mp4")) {
+          detectedFormat = "MP4";
+        }
+
+        const generatedTitle = buildTitle(
+          metadata,
+          detectedQuality,
+          streamLanguage,
+          detectedFormat,
+          computedSize,
+          normalizedType === "tv" ? resolvedSeason : null,
+          normalizedType === "tv" ? episode : null,
+          epInfo
+        );
+        
+        const finalHeaderName = `🎦 VixSrc | ${detectedQuality} | ${streamLanguage}`;
+
+        const result = {
+          name: finalHeaderName,
+          title: generatedTitle,
+          url: streamUrl,
+          easyProxySourceUrl: embedUrl,
+          quality: detectedQuality.toLowerCase().includes("p") ? detectedQuality : "1080p", 
+          type: "direct",
+          headers: streamHeaders,
+          behaviorHints: { notWebReady: false }
+        };
+        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
+      } else {
+        console.log("[VixSrc] Could not find playlist info in HTML");
+        return [];
+      }
+    } catch (error) {
+      console.error("[VixSrc] Error:", error);
+      return [];
+    }
+  });
+}
+
+module.exports = { getStreams };

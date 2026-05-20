@@ -361,25 +361,39 @@ function buildTitle(meta, res, lang, format, size, season, episode) {
   return `${line1}\n${line2}\n${line3}`;
 }
 
-function getM3U8Size(m3u8Url, durationText, headers = {}) {
+function estimateBitrateSize(quality, durationMins) {
+  const norm = String(quality || "").toLowerCase();
+  let bitrateKbps = 4500; // Default fallback to 1080p bitrate
+  
+  if (norm.includes("4k") || norm.includes("2160")) bitrateKbps = 16000;
+  else if (norm.includes("1440") || norm.includes("2k")) bitrateKbps = 9000;
+  else if (norm.includes("1080") || norm.includes("fhd")) bitrateKbps = 5000;
+  else if (norm.includes("720") || norm.includes("hd")) bitrateKbps = 2500;
+  else if (norm.includes("480") || norm.includes("sd")) bitrateKbps = 1200;
+  else if (norm.includes("360")) bitrateKbps = 700;
+
+  const totalBytes = (bitrateKbps * 1000 / 8) * (durationMins * 60);
+  return formatBytes(totalBytes);
+}
+
+function getM3U8Size(m3u8Url, durationText, quality, headers = {}) {
   return __async(this, null, function* () {
+    const mins = parseInt(durationText) || 90;
     try {
       const res = yield fetch(m3u8Url, { headers });
-      if (!res.ok) return "Variable Size";
+      if (!res.ok) return estimateBitrateSize(quality, mins);
       
       const text = yield res.text();
       const matches = [...text.matchAll(/BANDWIDTH=(\d+)/gi)];
       if (matches.length > 0) {
         const bandwidths = matches.map(m => parseInt(m[1])).sort((a, b) => b - a);
         const bps = bandwidths[0]; 
-        const mins = parseInt(durationText) || 90;
         const totalBytes = (bps / 8) * (mins * 60);
         return formatBytes(totalBytes);
       }
-      return "Variable Size";
+      return estimateBitrateSize(quality, mins);
     } catch (e) {
-      console.error("[Size Estimation Error]", e);
-      return "Variable Size";
+      return estimateBitrateSize(quality, mins);
     }
   });
 }
@@ -456,7 +470,7 @@ function getMetadata(id, type, season, episode) {
 
       if (normalizedType === "movie" && baseData.runtime) {
         duration = `${baseData.runtime} min`;
-      } else if (normalizedType === "tv") {
+      } else if (normalizedType === "tv" || normalizedType === "series") {
         const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
         const epRes = yield fetch(epUrl);
         if (epRes.ok) {
@@ -469,14 +483,14 @@ function getMetadata(id, type, season, episode) {
       }
 
       return {
-        name: baseData.title || baseData.name || baseData.original_title || baseData.original_name,
+        name: baseData.title || baseData.name || baseData.original_title || baseData.original_name || "VixSrc Source",
         year: (baseData.release_date || baseData.first_air_date || "").split("-")[0],
         duration: duration,
         original_language: baseData.original_language
       };
     } catch (e) {
-      console.error("[StreamingCommunity] Metadata error:", e);
-      return { name: "VixSrc", year: "", duration: "90 min" };
+      console.error("[StreamingCommunity] Metadata parsing failure:", e);
+      return { name: "VixSrc Source", year: "", duration: "90 min" };
     }
   });
 }
@@ -521,9 +535,9 @@ function getStreams(id, type, season, episode, providerContext = null) {
         console.warn(`[StreamingCommunity] Could not convert IMDb ID ${id} to TMDB ID.`);
       }
     }
-    let metadata = { name: "VixSrc", year: "", duration: "94 min" };
+    let metadata = { name: "VixSrc Source", year: "", duration: "90 min" };
     try {
-      metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode);
+      metadata = yield getMetadata(tmdbId, normalizedType, resolvedSeason, episode);
     } catch (e) {
       console.error("[StreamingCommunity] Error fetching metadata:", e);
     }
@@ -563,7 +577,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
           "Auto", 
           "Multi-Audio", 
           "M3U8", 
-          "Variable Size", 
+          estimateBitrateSize("1080p", parseInt(metadata.duration) || 90), 
           normalizedType === "tv" ? resolvedSeason : null, 
           normalizedType === "tv" ? episode : null
         );
@@ -630,8 +644,8 @@ function getStreams(id, type, season, episode, providerContext = null) {
           console.warn(`[StreamingCommunity] Playlist pre-check failed, continuing:`, e);
         }
         
-        const computedSize = yield getM3U8Size(streamUrl, metadata.duration, streamHeaders);
         const normalizedQuality = getQualityFromName(quality);
+        const computedSize = yield getM3U8Size(streamUrl, metadata.duration, normalizedQuality, streamHeaders);
 
         let detectedFormat = "M3U8"; 
         const urlToCheck = streamUrl.split('?')[0].toLowerCase();

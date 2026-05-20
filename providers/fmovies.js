@@ -323,10 +323,8 @@ function getM3U8Size(m3u8Url, durationText, headers = {}) {
       
       const text = yield res.text();
       
-      // FIX 2: Better matching for sub-playlists bandwidth lines to secure sizing data
       const matches = [...text.matchAll(/BANDWIDTH=(\d+)/gi)];
       if (matches.length > 0) {
-        // Grab the highest resolution playlist option bandwidth for realistic target sizing
         const bandwidths = matches.map(m => parseInt(m[1])).sort((a, b) => b - a);
         const bps = bandwidths[0]; 
         const mins = parseInt(durationText) || 90;
@@ -440,11 +438,14 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
     }
 
-    // INTERCEPT WRONG ID INTERNALLY BEFORE FETCHES BEGIN
+    // THE ID OVERRIDE MATRIX (Maps wrong app IDs to correct provider paths)
     let internalId = tmdbId;
     if (tmdbId === "687163" || tmdbId === "705669") {
-       tmdbId = "687163";    // Meta Title Fetch target: Project Hail Mary
-       internalId = "640875"; // Provider endpoint target: Project Hail Mary stream endpoint
+      tmdbId = "687163";    // Meta Title: Project Hail Mary
+      internalId = "640875"; // Video Source Path
+    } else if (tmdbId === "709770") {
+      tmdbId = "13640";     // TMDB Target ID: The Punisher
+      internalId = "90612";  // Video Source Path
     }
 
     let metadata = { name: "VixSrc", year: "", duration: "94 min" };
@@ -516,7 +517,8 @@ function getStreams(id, type, season, episode, providerContext = null) {
       
       const masterPlaylist = extractMasterPlaylistFromEmbedHtml(embedHtml);
       if (masterPlaylist) {
-        const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
+        // FIXED STREAM PARAMS: Keeps both mandatory token layout variations intact
+        const streamUrl = `${masterPlaylist.url}?b=1&token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
         const streamHeaders = getPlaylistHeaders(embedUrl);
         console.log(`[VixSrc] Final stream URL: ${streamUrl}`);
 

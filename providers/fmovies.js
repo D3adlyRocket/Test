@@ -299,27 +299,6 @@ function formatBytes(bytes) {
   return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
-// Exactly 3 subheadings built safely using fallback mechanics
-function buildTitle(providerContext, res, lang, format, size, season, episode, type) {
-  const context = providerContext || {};
-  const mediaName = context.name || context.title || (type === "tv" ? "VixSrc Series" : "VixSrc Movie");
-  const yearText = context.year ? ` - ${context.year}` : "";
-  const durationText = context.duration || (type === "tv" ? "45 min" : "90 min");
-
-  let subheading1 = "🎬 ";
-  if (type === "tv" && season && episode) {
-    const epName = context.episodeName ? ` - ${context.episodeName}` : "";
-    subheading1 += `S${season} E${episode}${epName} | ${mediaName}`;
-  } else {
-    subheading1 += `${mediaName}${yearText}`;
-  }
-
-  const subheading2 = `🌟 ${res} | 🌍 ${lang} | 💾 ${size}`;
-  const subheading3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${durationText} | 📼 AVC • 🔊 AAC`;
-
-  return `${subheading1}\n${subheading2}\n${subheading3}`;
-}
-
 function calculateCalculatedFallbackSize(quality, durationText) {
   const mins = parseInt(durationText) || 90;
   const norm = String(quality || "").toLowerCase();
@@ -403,30 +382,18 @@ function getStreams(id, type, season, episode, providerContext = null) {
     const baseUrl = getStreamingCommunityBaseUrl();
     const commonHeaders = getCommonHeaders();
     
-    // Core Engine Rules: preserve the incoming ID format completely for exact website API matches
-    let tmdbId = id.toString();
+    // Core Pristine Fetch IDs (Kept original and untouched to secure connections)
+    let internalId = id.toString();
     let resolvedSeason = season;
     
-    const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
-    if (contextTmdbId) {
-      tmdbId = contextTmdbId;
-    } else if (tmdbId.startsWith("tmdb:")) {
-      tmdbId = tmdbId.replace("tmdb:", "");
-    } else if (tmdbId.startsWith("tt")) {
-      const convertedId = yield getTmdbId(tmdbId, normalizedType);
-      if (convertedId) {
-        tmdbId = convertedId;
-      }
-    }
-
     let url;
     let apiUrl;
     if (normalizedType === "movie") {
-      url = `${baseUrl}/movie/${tmdbId}`;
-      apiUrl = `${baseUrl}/api/movie/${tmdbId}`;
+      url = `${baseUrl}/movie/${internalId}`;
+      apiUrl = `${baseUrl}/api/movie/${internalId}`;
     } else if (normalizedType === "tv") {
-      url = `${baseUrl}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
-      apiUrl = `${baseUrl}/api/tv/${tmdbId}/${resolvedSeason}/${episode}`;
+      url = `${baseUrl}/tv/${internalId}/${resolvedSeason}/${episode}`;
+      apiUrl = `${baseUrl}/api/tv/${internalId}/${resolvedSeason}/${episode}`;
     } else {
       return [];
     }
@@ -445,25 +412,33 @@ function getStreams(id, type, season, episode, providerContext = null) {
         return [];
       }
 
-      if (providerContext == null ? void 0 : providerContext.proxyUrl) {
-        const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
-        const calculatedSize = calculateCalculatedFallbackSize("1080p", "90 min");
-        const generatedTitle = buildTitle(
-          providerContext, 
-          "Auto", 
-          "Multi-Audio", 
-          "M3U8", 
-          calculatedSize, 
-          normalizedType === "tv" ? resolvedSeason : null, 
-          normalizedType === "tv" ? episode : null,
-          normalizedType
-        );
+      // Safe metadata variables extraction directly inside logic blocks
+      const ctx = providerContext || {};
+      const mainTitle = ctx.name || ctx.title || (normalizedType === "tv" ? "VixSrc Series" : "VixSrc Movie");
+      const releaseYear = ctx.year ? ` - ${ctx.year}` : "";
+      const mediaDuration = ctx.duration || (normalizedType === "tv" ? "45 min" : "90 min");
 
-        const finalHeaderName = "🎦 VixSrc | Auto | Multi-Audio";
+      let subHeading1 = "🎬 ";
+      if (normalizedType === "tv" && resolvedSeason && episode) {
+        // Detect variants of episode title structures safely
+        const rawEpTitle = ctx.episodeName || (ctx.episode && typeof ctx.episode === "object" ? ctx.episode.title : null) || "";
+        const cleanEpTitle = rawEpTitle ? ` - ${rawEpTitle}` : "";
+        subHeading1 += `S${resolvedSeason} E${episode}${cleanEpTitle} | ${mainTitle}`;
+      } else {
+        subHeading1 += `${mainTitle}${releaseYear}`;
+      }
+
+      if (ctx.proxyUrl) {
+        const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
+        const calculatedSize = calculateCalculatedFallbackSize("1080p", mediaDuration);
+        
+        const subHeading2 = `🌟 Auto | 🌍 Multi-Audio | 💾 ${calculatedSize}`;
+        const subHeading3 = `🎞️ M3U8 | ⏱️ ${mediaDuration} | 📼 AVC • 🔊 AAC`;
+        const proxyTitleBlock = `${subHeading1}\n${subHeading2}\n${subHeading3}`;
 
         const result = {
-          name: finalHeaderName,
-          title: generatedTitle,
+          name: "🎦 VixSrc | Auto | Multi-Audio",
+          title: proxyTitleBlock,
           url: rawPageUrl,
           easyProxySourceUrl: rawPageUrl,
           quality: "1080p",
@@ -516,7 +491,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
           console.warn("[VixSrc] Quality detection failed:", e);
         }
 
-        const computedSize = yield getM3U8Size(streamUrl, "90 min", detectedQuality, streamHeaders);
+        const computedSize = yield getM3U8Size(streamUrl, mediaDuration, detectedQuality, streamHeaders);
 
         let detectedFormat = "M3U8"; 
         const urlToCheck = streamUrl.split('?')[0].toLowerCase();
@@ -530,22 +505,16 @@ function getStreams(id, type, season, episode, providerContext = null) {
           detectedFormat = "MP4";
         }
 
-        const generatedTitle = buildTitle(
-          providerContext,
-          detectedQuality,
-          streamLanguage,
-          detectedFormat,
-          computedSize,
-          normalizedType === "tv" ? resolvedSeason : null,
-          normalizedType === "tv" ? episode : null,
-          normalizedType
-        );
-        
+        // --- ASSEMBLE 3 SUBHEADINGS EXACTLY TO LAYOUT SPECIFICATION ---
+        const subHeading2 = `🌟 ${detectedQuality} | 🌍 ${streamLanguage} | 💾 ${computedSize}`;
+        const subHeading3 = `🎞️ ${detectedFormat.toUpperCase()} | ⏱️ ${mediaDuration} | 📼 AVC • 🔊 AAC`;
+        const finalTitleBlock = `${subHeading1}\n${subHeading2}\n${subHeading3}`;
+
         const finalHeaderName = `🎦 VixSrc | ${detectedQuality} | ${streamLanguage}`;
 
         const result = {
           name: finalHeaderName,
-          title: generatedTitle,
+          title: finalTitleBlock,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,
           quality: detectedQuality.toLowerCase().includes("p") ? detectedQuality : "1080p", 

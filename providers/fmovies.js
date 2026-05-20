@@ -304,9 +304,10 @@ function buildTitle(meta, res, lang, format, size, season, episode) {
   
   let line1 = "🎬 ";
   if (season && episode) {
-    // FIXED SERIES SUBHEADING: S1 E1 | Series Title | Episode Title (if available)
+    // Standard layout check: S1 E1 | Series Title
     line1 += `S${season} E${episode} | ${meta.name}`;
-    if (meta.episodeTitle) {
+    // Inject the specific episode title variant if populated cleanly
+    if (meta.episodeTitle && meta.episodeTitle !== "") {
       line1 += ` | ${meta.episodeTitle}`;
     }
   } else {
@@ -380,12 +381,18 @@ function getTmdbId(imdbId, type) {
 }
 
 async function getMetadata(id, type, season, episode, fallbackContext = null) {
-  let localFallbackName = "VixSrc";
+  // Enforce scraping context structures so we never fallback on 'VixSrc' text strings
+  let localFallbackName = "Unknown Title";
   let localFallbackDuration = type === "tv" ? "45 min" : "90 min";
+  let localFallbackEpisodeTitle = "";
 
   if (fallbackContext && typeof fallbackContext === "object") {
     if (fallbackContext.name) localFallbackName = fallbackContext.name;
     else if (fallbackContext.title) localFallbackName = fallbackContext.title;
+    
+    if (fallbackContext.episodeName) localFallbackEpisodeTitle = fallbackContext.episodeName;
+    else if (fallbackContext.episodeTitle) localFallbackEpisodeTitle = fallbackContext.episodeTitle;
+    
     if (fallbackContext.duration) localFallbackDuration = fallbackContext.duration;
   }
 
@@ -399,7 +406,7 @@ async function getMetadata(id, type, season, episode, fallbackContext = null) {
     const data = await response.json();
 
     let duration = localFallbackDuration; 
-    let episodeTitle = "";
+    let episodeTitle = localFallbackEpisodeTitle;
     
     if (normalizedType === "movie" && data.runtime) {
       duration = `${data.runtime} min`;
@@ -423,7 +430,7 @@ async function getMetadata(id, type, season, episode, fallbackContext = null) {
       episodeTitle: episodeTitle
     };
   } catch (e) {
-    return { name: localFallbackName, year: "", duration: localFallbackDuration, episodeTitle: "" };
+    return { name: localFallbackName, year: "", duration: localFallbackDuration, episodeTitle: localFallbackEpisodeTitle };
   }
 }
 
@@ -469,7 +476,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
     }
 
-    let metadata = { name: "VixSrc", year: "", duration: "94 min", episodeTitle: "" };
+    let metadata = { name: "Unknown Title", year: "", duration: "90 min", episodeTitle: "" };
     try {
       metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode, providerContext); 
     } catch (e) {
@@ -515,7 +522,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
           normalizedType === "tv" ? episode : null
         );
 
-        // ALWAYS UNIFORM HEADERS FOR PROXY VARIANT TOO
         const finalHeaderName = "🎦 VixSrc | Auto | Multi-Audio";
 
         const result = {
@@ -597,7 +603,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
           normalizedType === "tv" ? episode : null
         );
         
-        // FIXED ISSUE 1 & 2: Main header card name is now identical across movies and series.
         const finalHeaderName = `🎦 VixSrc | ${detectedQuality} | ${streamLanguage}`;
 
         const result = {

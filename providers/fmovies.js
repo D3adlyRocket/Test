@@ -299,31 +299,24 @@ function formatBytes(bytes) {
   return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
-// Added safety checks (|| {} and optional chaining) to prevent UI building exceptions from dropping fetches
-function buildTitle(meta, res, lang, format, size, season, episode, epInfo) {
+// 3-Line Subheading Builder
+function buildTitle(meta, res, lang, format, size, season, episode) {
   const safeMeta = meta || {};
-  const safeEpInfo = epInfo || {};
   
-  let line1 = "🎬 ";
+  let subheading1 = "🎬 ";
   if (season && episode) {
-    var epTitle = safeEpInfo.name ? ' - ' + safeEpInfo.name : '';
-    line1 += 'S' + season + ' E' + episode + epTitle + ' | ' + (safeMeta.name || "VixSrc Source");
+    const epTitle = safeMeta.episodeName ? ' - ' + safeMeta.episodeName : '';
+    subheading1 += 'S' + season + ' E' + episode + epTitle + ' | ' + (safeMeta.name || "VixSrc Series");
   } else {
-    line1 += (safeMeta.name || "VixSrc Source") + (safeMeta.year ? ' - ' + safeMeta.year : '');
+    subheading1 += (safeMeta.name || "VixSrc Movie") + (safeMeta.year ? ' - ' + safeMeta.year : '');
   }
 
-  var specs = [
-      '📺 ' + res,
-      '🌍 ' + lang,
-      '🎞️ ' + format.toUpperCase()
-  ];
-  if (size) specs.push('💾 ' + size);
+  const subheading2 = `🌟 ${res} | 🌍 ${lang} | 💾 ${size}`;
   
-  var finalDuration = safeEpInfo.duration ? safeEpInfo.duration : safeMeta.duration;
-  if (finalDuration) specs.push('⏱️ ' + finalDuration);
-  specs.push('📼 AVC • 🔊 AAC');
+  const finalDuration = safeMeta.duration || "90 min";
+  const subheading3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${finalDuration} | 📼 AVC • 🔊 AAC`;
 
-  return line1 + '\n' + specs.join(' | ');
+  return `${subheading1}\n${subheading2}\n${subheading3}`;
 }
 
 function calculateCalculatedFallbackSize(quality, durationText) {
@@ -380,9 +373,52 @@ function getTmdbId(imdbId, type) {
       }
       return null;
     } catch (e) {
-      console.error("[VixSrc] Conversion error:", e);
       return null;
     }
+  });
+}
+
+function fetchTMDBMetadata(tmdbId, type, season, episode, fallbackContext) {
+  return __async(this, null, function* () {
+    const normalizedType = type === 'series' ? 'tv' : type;
+    let meta = { name: "VixSrc Source", year: "", duration: "90 min", episodeName: "" };
+    
+    if (fallbackContext && typeof fallbackContext === "object") {
+      meta.name = fallbackContext.name || fallbackContext.title || meta.name;
+      meta.year = fallbackContext.year || meta.year;
+    }
+
+    if (!tmdbId) return meta;
+
+    try {
+      const mainUrl = `https://api.themoviedb.org/3/${normalizedType}/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US`;
+      const mainRes = yield fetch(mainUrl);
+      if (mainRes.ok) {
+        const data = yield mainRes.json();
+        meta.name = data.title || data.name || meta.name;
+        const date = data.release_date || data.first_air_date || "";
+        if (date) meta.year = date.split('-')[0];
+        
+        if (normalizedType === 'movie' && data.runtime) {
+          meta.duration = data.runtime + ' min';
+        } else if (normalizedType === 'tv' && data.episode_run_time?.length > 0) {
+          meta.duration = data.episode_run_time[0] + ' min';
+        }
+      }
+
+      if (normalizedType === 'tv' && season && episode) {
+        const epUrl = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}&language=en-US`;
+        const epRes = yield fetch(epUrl);
+        if (epRes.ok) {
+          const epData = yield epRes.json();
+          meta.episodeName = epData.name || "";
+          if (epData.runtime) meta.duration = epData.runtime + ' min';
+        }
+      }
+    } catch (e) {
+      console.warn("[VixSrc] Metadata fetch error:", e);
+    }
+    return meta;
   });
 }
 
@@ -393,7 +429,6 @@ function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
     if (normalizedType === "movie" && guardahd && typeof guardahd.getStreams === "function") {
       checks.push(
         guardahd.getStreams(id, normalizedType, season, episode).then((streams) => Array.isArray(streams) && streams.length > 0).catch((e) => {
-          console.warn("[VixSrc] VixSrc fallback check failed:", e);
           return false;
         })
       );
@@ -410,32 +445,34 @@ function getStreams(id, type, season, episode, providerContext = null) {
     const normalizedType = requestedType === "series" ? "tv" : requestedType;
     const baseUrl = getStreamingCommunityBaseUrl();
     const commonHeaders = getCommonHeaders();
-    let tmdbId = id.toString();
+    
+    let internalId = id.toString();
+    let tmdbLookupId = null;
     let resolvedSeason = season;
     
     const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
     if (contextTmdbId) {
-      tmdbId = contextTmdbId;
-    } else if (tmdbId.startsWith("tmdb:")) {
-      tmdbId = tmdbId.replace("tmdb:", "");
-    } else if (tmdbId.startsWith("tt")) {
-      const convertedId = yield getTmdbId(tmdbId, normalizedType);
-      if (convertedId) {
-        console.log(`[VixSrc] Converted ${id} to TMDB ID: ${convertedId}`);
-        tmdbId = convertedId;
-      } else {
-        console.warn(`[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`);
+      tmdbLookupId = contextTmdbId;
+    } else if (internalId.startsWith("tmdb:")) {
+      tmdbLookupId = internalId.replace("tmdb:", "");
+    } else if (internalId.startsWith("tt")) {
+      tmdbLookupId = yield getTmdbId(internalId, normalizedType);
+    } else {
+      if (providerContext && providerContext.imdbId) {
+         tmdbLookupId = yield getTmdbId(providerContext.imdbId, normalizedType);
       }
     }
+
+    const metadata = yield fetchTMDBMetadata(tmdbLookupId, normalizedType, resolvedSeason, episode, providerContext);
 
     let url;
     let apiUrl;
     if (normalizedType === "movie") {
-      url = `${baseUrl}/movie/${tmdbId}`;
-      apiUrl = `${baseUrl}/api/movie/${tmdbId}`;
+      url = `${baseUrl}/movie/${internalId}`;
+      apiUrl = `${baseUrl}/api/movie/${internalId}`;
     } else if (normalizedType === "tv") {
-      url = `${baseUrl}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
-      apiUrl = `${baseUrl}/api/tv/${tmdbId}/${resolvedSeason}/${episode}`;
+      url = `${baseUrl}/tv/${internalId}/${resolvedSeason}/${episode}`;
+      apiUrl = `${baseUrl}/api/tv/${internalId}/${resolvedSeason}/${episode}`;
     } else {
       return [];
     }
@@ -456,16 +493,15 @@ function getStreams(id, type, season, episode, providerContext = null) {
 
       if (providerContext == null ? void 0 : providerContext.proxyUrl) {
         const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
-        const calculatedSize = calculateCalculatedFallbackSize("1080p", "90 min");
+        const calculatedSize = calculateCalculatedFallbackSize("1080p", metadata.duration);
         const generatedTitle = buildTitle(
-          providerContext, 
+          metadata, 
           "Auto", 
           "Multi-Audio", 
           "M3U8", 
           calculatedSize, 
           normalizedType === "tv" ? resolvedSeason : null, 
-          normalizedType === "tv" ? episode : null,
-          null
+          normalizedType === "tv" ? episode : null
         );
 
         const finalHeaderName = "🎦 VixSrc | Auto | Multi-Audio";
@@ -525,7 +561,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
           console.warn("[VixSrc] Quality detection failed:", e);
         }
 
-        const computedSize = yield getM3U8Size(streamUrl, "90 min", detectedQuality, streamHeaders);
+        const computedSize = yield getM3U8Size(streamUrl, metadata.duration, detectedQuality, streamHeaders);
 
         let detectedFormat = "M3U8"; 
         const urlToCheck = streamUrl.split('?')[0].toLowerCase();
@@ -540,14 +576,13 @@ function getStreams(id, type, season, episode, providerContext = null) {
         }
 
         const generatedTitle = buildTitle(
-          providerContext,
+          metadata,
           detectedQuality,
           streamLanguage,
           detectedFormat,
           computedSize,
           normalizedType === "tv" ? resolvedSeason : null,
-          normalizedType === "tv" ? episode : null,
-          null
+          normalizedType === "tv" ? episode : null
         );
         
         const finalHeaderName = `🎦 VixSrc | ${detectedQuality} | ${streamLanguage}`;

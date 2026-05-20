@@ -299,23 +299,25 @@ function formatBytes(bytes) {
   return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
-function buildTitle(meta, res, lang, format, size, season, episode) {
+function buildTitle(meta, res, lang, format, size, season, episode, epInfo) {
   const qIcon = res.includes("4K") || res.includes("2160") ? "🌟" : "💎";
   
   let line1 = "🎬 ";
   if (season && episode) {
-    // Layout Format: S1 E1 | Series Title
-    line1 += `S${season} E${episode} | ${meta.name}`;
-    // Safely append episode title if present and it's not a replication of fallback names
-    if (meta.episodeTitle && meta.episodeTitle !== "" && meta.episodeTitle !== "Unknown Episode") {
-      line1 += ` | ${meta.episodeTitle}`;
+    // Implements exact layout architecture: S1 E1 | Series Title
+    line1 += `S${season} E${episode}`;
+    if (epInfo && epInfo.name) {
+      line1 += ` - ${epInfo.name}`;
     }
+    line1 += ` | ${meta.name}`;
   } else {
     line1 += `${meta.name}${meta.year ? " (" + meta.year + ")" : ""}`;
   }
 
+  const finalDuration = (epInfo && epInfo.duration) ? epInfo.duration : meta.duration;
+
   const line2 = `${qIcon} ${res} | 🌍 ${lang} | 💾 ${size}`;
-  const line3 = `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration} | 📼 AVC • 🔊 AAC`;
+  const line3 = `🎞️ ${format.toUpperCase()}${finalDuration ? " | ⏱️ " + finalDuration : ""} | 📼 AVC • 🔊 AAC`;
 
   return `${line1}\n${line2}\n${line3}`;
 }
@@ -380,288 +382,47 @@ function getTmdbId(imdbId, type) {
   });
 }
 
-async function getMetadata(id, type, season, episode, fallbackContext = null) {
-  let localFallbackName = "";
-  let localFallbackDuration = type === "tv" ? "45 min" : "90 min";
-  let localFallbackEpisodeTitle = "";
-
-  // Exhaustive discovery scan across all potential variable paths exposed by your app setup
+// Transplanted from working Nakios implementation 
+function getTmdbMetadata(tmdbId, type, fallbackContext = null) {
+  var url = 'https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_API_KEY + '&language=en-US';
+  
+  let localFallbackName = "Series";
   if (fallbackContext && typeof fallbackContext === "object") {
-    const searchKeys = ['name', 'title', 'showName', 'showTitle', 'seriesName', 'seriesTitle', 'originalName', 'originalTitle'];
+    const searchKeys = ['name', 'title', 'showName', 'showTitle', 'seriesName', 'seriesTitle'];
     for (const key of searchKeys) {
-      if (fallbackContext[key] && typeof fallbackContext[key] === 'string' && fallbackContext[key].toLowerCase() !== 'vixsrc' && fallbackContext[key].toLowerCase() !== 'vixsrc source') {
+      if (fallbackContext[key] && typeof fallbackContext[key] === 'string' && fallbackContext[key].toLowerCase() !== 'vixsrc') {
         localFallbackName = fallbackContext[key];
         break;
       }
     }
-    
-    // Deeper reflection scan if wrapped inside meta/extra children trees
-    if (!localFallbackName && fallbackContext.meta && typeof fallbackContext.meta === "object") {
+    if (localFallbackName === "Series" && fallbackContext.meta && typeof fallbackContext.meta === "object") {
       for (const key of searchKeys) {
-        if (fallbackContext.meta[key] && typeof fallbackContext.meta[key] === 'string' && fallbackContext.meta[key].toLowerCase() !== 'vixsrc') {
+        if (fallbackContext.meta[key] && typeof fallbackContext.meta[key] === 'string') {
           localFallbackName = fallbackContext.meta[key];
           break;
         }
       }
     }
-
-    if (fallbackContext.episodeName) localFallbackEpisodeTitle = fallbackContext.episodeName;
-    else if (fallbackContext.episodeTitle) localFallbackEpisodeTitle = fallbackContext.episodeTitle;
-    
-    if (fallbackContext.duration) localFallbackDuration = fallbackContext.duration;
   }
 
-  // Final emergency regex scrape from the current runtime engine stack lines if context objects are missing fields
-  if (!localFallbackName) {
-    try {
-      const err = new Error();
-      const match = err.stack ? err.stack.match(/(?:getStreams|fetch)[^\n]*[\s(]([a-zA-Z0-9\s:''-]+)\s*(?:S\d+E\d+|\d{4})/i) : null;
-      if (match && match[1]) {
-        localFallbackName = match[1].trim();
-      }
-    } catch(e){}
-  }
-
-  // Safety fallback if absolutely no title text can be recovered
-  if (!localFallbackName) {
-    localFallbackName = type === "tv" ? "Series" : "Movie";
-  }
-
-  try {
-    const normalizedType = String(type).toLowerCase();
-    const endpoint = normalizedType === "movie" ? "movie" : "tv";
-    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&append_to_response=content_ratings`;
-    
-    const response = await fetch(url);
-    if (!response.ok) throw new Error("TMDB Fail");
-    const data = await response.json();
-
-    let duration = localFallbackDuration; 
-    let episodeTitle = localFallbackEpisodeTitle;
-    
-    if (normalizedType === "movie" && data.runtime) {
-      duration = `${data.runtime} min`;
-    } else if (normalizedType === "tv") {
-      const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
-      const epRes = await fetch(epUrl);
-      if (epRes.ok) {
-        const epData = await epRes.json();
-        if (epData.name) episodeTitle = epData.name;
-        if (epData.runtime) duration = `${epData.runtime} min`;
-        else if (data.episode_run_time && data.episode_run_time.length > 0) {
-           duration = `${data.episode_run_time[0]} min`;
-        }
-      }
-    }
-
-    // Filter out generic scraper module identifiers leaking into output fields
-    let finalName = data.title || data.name || localFallbackName;
-    if (typeof finalName === 'string' && (finalName.toLowerCase() === 'vixsrc' || finalName.toLowerCase() === 'vixsrc source')) {
-      finalName = localFallbackName;
-    }
-
-    return {
-      name: finalName,
-      year: (data.release_date || data.first_air_date || "").split("-")[0],
-      duration: duration,
-      episodeTitle: episodeTitle
-    };
-  } catch (e) {
-    return { name: localFallbackName, year: "", duration: localFallbackDuration, episodeTitle: localFallbackEpisodeTitle };
-  }
-}
-
-function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
-  return __async(this, null, function* () {
-    const normalizedType = String(type).toLowerCase();
-    const checks = [];
-    if (normalizedType === "movie" && guardahd && typeof guardahd.getStreams === "function") {
-      checks.push(
-        guardahd.getStreams(id, normalizedType, season, episode).then((streams) => Array.isArray(streams) && streams.length > 0).catch((e) => {
-          console.warn("[VixSrc] VixSrc fallback check failed:", e);
-          return false;
-        })
-      );
-    }
-    if (checks.length === 0) return false;
-    const results = yield Promise.all(checks);
-    return results.some(Boolean);
-  });
-}
-
-function getStreams(id, type, season, episode, providerContext = null) {
-  return __async(this, null, function* () {
-    const requestedType = String(type).toLowerCase();
-    const normalizedType = requestedType === "series" ? "tv" : requestedType;
-    const baseUrl = getStreamingCommunityBaseUrl();
-    const commonHeaders = getCommonHeaders();
-    let tmdbId = id.toString();
-    let resolvedSeason = season;
-    
-    const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
-    if (contextTmdbId) {
-      tmdbId = contextTmdbId;
-    } else if (tmdbId.startsWith("tmdb:")) {
-      tmdbId = tmdbId.replace("tmdb:", "");
-    } else if (tmdbId.startsWith("tt")) {
-      const convertedId = yield getTmdbId(tmdbId, normalizedType);
-      if (convertedId) {
-        console.log(`[VixSrc] Converted ${id} to TMDB ID: ${convertedId}`);
-        tmdbId = convertedId;
-      } else {
-        console.warn(`[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`);
-      }
-    }
-
-    let metadata = { name: "Series", year: "", duration: "90 min", episodeTitle: "" };
-    try {
-      metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode, providerContext); 
-    } catch (e) {
-      console.error("[VixSrc] Error fetching metadata:", e);
-    }
-
-    let url;
-    let apiUrl;
-    if (normalizedType === "movie") {
-      url = `${baseUrl}/movie/${tmdbId}`;
-      apiUrl = `${baseUrl}/api/movie/${tmdbId}`;
-    } else if (normalizedType === "tv") {
-      url = `${baseUrl}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
-      apiUrl = `${baseUrl}/api/tv/${tmdbId}/${resolvedSeason}/${episode}`;
-    } else {
-      return [];
-    }
-
-    try {
-      console.log(`[VixSrc] Fetching API: ${apiUrl}`);
-      const response = yield fetch(apiUrl, { headers: commonHeaders });
-      if (!response.ok) {
-        console.error(`[VixSrc] Failed to fetch page: ${response.status}`);
-        return [];
-      }
-      const apiPayload = yield response.json().catch(() => null);
-      const embedUrl = extractEmbedSrcFromApiPayload(apiPayload);
-      if (!embedUrl) {
-        console.log("[VixSrc] Could not find embed src in API payload");
-        return [];
-      }
-
-      if (providerContext == null ? void 0 : providerContext.proxyUrl) {
-        const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
-        const calculatedSize = calculateCalculatedFallbackSize("1080p", metadata.duration);
-        const generatedTitle = buildTitle(
-          metadata, 
-          "Auto", 
-          "Multi-Audio", 
-          "M3U8", 
-          calculatedSize, 
-          normalizedType === "tv" ? resolvedSeason : null, 
-          normalizedType === "tv" ? episode : null
-        );
-
-        const finalHeaderName = "🎦 VixSrc | Auto | Multi-Audio";
-
-        const result = {
-          name: finalHeaderName,
-          title: generatedTitle,
-          url: rawPageUrl,
-          easyProxySourceUrl: rawPageUrl,
-          quality: "1080p",
-          type: "direct",
-          behaviorHints: { notWebReady: false }
-        };
-        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
-      }
-
-      console.log(`[VixSrc] Fetching embed: ${embedUrl}`);
-      const embedResponse = yield fetch(embedUrl, { headers: getEmbedHeaders(embedUrl) });
-      if (!embedResponse.ok) {
-        console.error(`[VixSrc] Failed to fetch embed: ${embedResponse.status}`);
-        return [];
-      }
-      const embedHtml = yield embedResponse.text();
-      if (!embedHtml) return [];
+  return fetch(url)
+    .then(function(res) { return res.json(); })
+    .then(function(data) {
+      var name = data.title || data.name || localFallbackName;
+      if (name.toLowerCase() === 'vixsrc') name = localFallbackName;
+      var date = data.release_date || data.first_air_date || "";
+      var year = date ? date.split('-')[0] : "";
       
-      const masterPlaylist = extractMasterPlaylistFromEmbedHtml(embedHtml);
-      if (masterPlaylist) {
-        const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
-        const streamHeaders = getPlaylistHeaders(embedUrl);
-        console.log(`[VixSrc] Final stream URL: ${streamUrl}`);
-
-        let streamLanguage = "Multi-Audio"; 
-        let detectedQuality = "1080p";
-
-        try {
-          const playlistResponse = yield fetch(streamUrl, { headers: streamHeaders });
-
-          if (playlistResponse.ok) {
-            const playlistText = yield playlistResponse.text();
-
-            const playlistQuality = checkQualityFromText(playlistText);
-            detectedQuality = playlistQuality || getQualityFromUrl(streamUrl) || getQualityFromUrl(embedUrl) || "1080p";
-
-            const languageMatches = [...playlistText.matchAll(/LANGUAGE="([^"]+)"/gi)];
-            const uniqueLanguages = [...new Set(languageMatches.map(x => x[1].toLowerCase()))];
-
-            if (uniqueLanguages.length > 1 || playlistText.includes("ita") || streamUrl.includes("lang=it")) {
-              streamLanguage = "Multi-Audio";
-            } else if (uniqueLanguages.length === 1) {
-              const lang = uniqueLanguages[0];
-              if (lang.includes("it")) streamLanguage = "Italian";
-              else if (lang.includes("en")) streamLanguage = "English";
-              else streamLanguage = lang.toUpperCase();
-            }
-          }
-        } catch (e) {
-          console.warn("[VixSrc] Quality detection failed:", e);
-        }
-
-        const computedSize = yield getM3U8Size(streamUrl, metadata.duration, detectedQuality, streamHeaders);
-
-        let detectedFormat = "M3U8"; 
-        const urlToCheck = streamUrl.split('?')[0].toLowerCase();
-        if (urlToCheck.includes(".m3u8")) {
-          detectedFormat = "M3U8";
-        } else if (urlToCheck.includes("/hls/")) {
-          detectedFormat = "HLS";
-        } else if (urlToCheck.includes(".mpd")) {
-          detectedFormat = "DASH";
-        } else if (urlToCheck.includes(".mp4")) {
-          detectedFormat = "MP4";
-        }
-
-        const generatedTitle = buildTitle(
-          metadata,
-          detectedQuality,
-          streamLanguage,
-          detectedFormat,
-          computedSize,
-          normalizedType === "tv" ? resolvedSeason : null,
-          normalizedType === "tv" ? episode : null
-        );
-        
-        const finalHeaderName = `🎦 VixSrc | ${detectedQuality} | ${streamLanguage}`;
-
-        const result = {
-          name: finalHeaderName,
-          title: generatedTitle,
-          url: streamUrl,
-          easyProxySourceUrl: embedUrl,
-          quality: detectedQuality.toLowerCase().includes("p") ? detectedQuality : "1080p", 
-          type: "direct",
-          headers: streamHeaders,
-          behaviorHints: { notWebReady: false }
-        };
-        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
-      } else {
-        console.log("[VixSrc] Could not find playlist info in HTML");
-        return [];
+      var duration = type === 'tv' ? "45 min" : "90 min";
+      if (type === 'movie' && data.runtime) {
+          duration = data.runtime + ' min';
+      } else if (type === 'tv' && data.episode_run_time && data.episode_run_time.length > 0) {
+          duration = data.episode_run_time[0] + ' min';
       }
-    } catch (error) {
-      console.error("[VixSrc] Error:", error);
-      return [];
-    }
-  });
+      
+      return { name: name, year: year, duration: duration };
+    })
+    .catch(function() { return { name: localFallbackName, year: "", duration: type === 'tv' ? "45 min" : "90 min" }; });
 }
 
-module.exports = { getStreams };
+// Transplanted from working Nakios implementation

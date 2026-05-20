@@ -423,6 +423,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
     let tmdbId = id.toString();
     let resolvedSeason = season;
     
+    // 1. EXTRACT INITIAL RAW ID
     const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
     if (contextTmdbId) {
       tmdbId = contextTmdbId;
@@ -431,21 +432,17 @@ function getStreams(id, type, season, episode, providerContext = null) {
     } else if (tmdbId.startsWith("tt")) {
       const convertedId = yield getTmdbId(tmdbId, normalizedType);
       if (convertedId) {
-        console.log(`[VixSrc] Converted ${id} to TMDB ID: ${convertedId}`);
         tmdbId = convertedId;
-      } else {
-        console.warn(`[VixSrc] Could not convert IMDb ID ${id} to TMDB ID.`);
       }
     }
 
-    // STRICT TMDB TRANSLATION MATRIX
-    // Maps messy app lookup IDs directly to target TMDB endpoints vixsrc.to expects
+    // 2. STRICT OVERRIDE INTERCEPTION MATRIX
+    // Completely sanitizes both context fields and parent inputs down to real TMDB values
     if (tmdbId === "687163" || tmdbId === "705669") {
       tmdbId = "687163"; // Project Hail Mary
     } else if (tmdbId === "709770") {
       tmdbId = "13640";  // The Punisher (1989)
     } else if (tmdbId === "718930") {
-      // Isolate Mario content contexts away from Bullet Train completely
       const titleContext = String(providerContext && providerContext.title || "").toLowerCase();
       if (titleContext.includes("mario") || titleContext.includes("galaxy")) {
         tmdbId = "1151534"; // Super Mario Entry
@@ -523,7 +520,16 @@ function getStreams(id, type, season, episode, providerContext = null) {
       
       const masterPlaylist = extractMasterPlaylistFromEmbedHtml(embedHtml);
       if (masterPlaylist) {
-        const streamUrl = `${masterPlaylist.url}?b=1&token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
+        // 3. SAFE PLAYLIST URL CONSTRUCTION
+        // Uses native URLSearchParams to prevent duplicate ? parameters entirely
+        const playlistUrlObj = new URL(masterPlaylist.url);
+        playlistUrlObj.searchParams.set("b", "1");
+        playlistUrlObj.searchParams.set("token", masterPlaylist.token);
+        playlistUrlObj.searchParams.set("expires", masterPlaylist.expires);
+        playlistUrlObj.searchParams.set("h", "1");
+        playlistUrlObj.searchParams.set("lang", "it");
+
+        const streamUrl = playlistUrlObj.toString();
         const streamHeaders = getPlaylistHeaders(embedUrl);
         console.log(`[VixSrc] Final stream URL: ${streamUrl}`);
 

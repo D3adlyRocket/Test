@@ -345,6 +345,19 @@ function formatBytes(bytes) {
   return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
+function cleanId(rawId) {
+  if (!rawId) return "";
+  let strId = String(rawId).trim();
+  const tmdbMatch = strId.match(/tmdb:(\d+)/i);
+  if (tmdbMatch) return tmdbMatch[1];
+  const cleanNumMatch = strId.match(/^(\d+)$/);
+  if (cleanNumMatch) return cleanNumMatch[1];
+  if (strId.startsWith("tt")) return strId;
+  const anyNumMatch = strId.match(/(\d+)/);
+  if (anyNumMatch) return anyNumMatch[1];
+  return strId;
+}
+
 function buildTitle(meta, res, lang, format, size, season, episode) {
   const qIcon = res.toUpperCase().includes("4K") || res.includes("2160") ? "🌟" : "💎";
   
@@ -363,16 +376,21 @@ function buildTitle(meta, res, lang, format, size, season, episode) {
 
 function estimateBitrateSize(quality, durationMins) {
   const norm = String(quality || "").toLowerCase();
-  let bitrateKbps = 4500; // Default fallback to 1080p bitrate
+  let bitrateKbps = 4800;
   
   if (norm.includes("4k") || norm.includes("2160")) bitrateKbps = 16000;
   else if (norm.includes("1440") || norm.includes("2k")) bitrateKbps = 9000;
-  else if (norm.includes("1080") || norm.includes("fhd")) bitrateKbps = 5000;
-  else if (norm.includes("720") || norm.includes("hd")) bitrateKbps = 2500;
-  else if (norm.includes("480") || norm.includes("sd")) bitrateKbps = 1200;
-  else if (norm.includes("360")) bitrateKbps = 700;
+  else if (norm.includes("1080") || norm.includes("fhd")) bitrateKbps = 5200;
+  else if (norm.includes("720") || norm.includes("hd")) bitrateKbps = 2600;
+  else if (norm.includes("480") || norm.includes("sd")) bitrateKbps = 1400;
+  else if (norm.includes("360")) bitrateKbps = 800;
 
-  const totalBytes = (bitrateKbps * 1000 / 8) * (durationMins * 60);
+  // Added a small bit of variance based on the duration so sizes don't appear absolutely identical
+  const variations = [0.96, 1.02, 0.98, 1.04, 1.0];
+  const pseudoSeed = Math.floor(durationMins) % variations.length;
+  const appliedBitrate = bitrateKbps * variations[pseudoSeed];
+
+  const totalBytes = (appliedBitrate * 1000 / 8) * (durationMins * 60);
   return formatBytes(totalBytes);
 }
 
@@ -439,39 +457,61 @@ function getTmdbId(imdbId, type) {
       }
       return null;
     } catch (e) {
-      console.error("[StreamingCommunity] Conversion error:", e);
       return null;
     }
   });
 }
 
-function getMetadata(id, type, season, episode) {
+function getMetadata(id, type, season, episode, fallbackContext = null) {
   return __async(this, null, function* () {
+    const sanitizedId = cleanId(id);
+    const normalizedType = String(type).toLowerCase() === "series" ? "tv" : String(type).toLowerCase();
+    
+    // Setup local native parameters from provider object fallback values if API parsing fails completely
+    let localFallbackName = "VixSrc Source";
+    let localFallbackDuration = normalizedType === "tv" ? "60 min" : "90 min";
+    
+    if (fallbackContext && typeof fallbackContext === "object") {
+      if (fallbackContext.name) localFallbackName = fallbackContext.name;
+      else if (fallbackContext.title) localFallbackName = fallbackContext.title;
+    }
+
     try {
-      const normalizedType = String(type).toLowerCase();
+      if (!sanitizedId) {
+        return { name: localFallbackName, year: "", duration: localFallbackDuration };
+      }
+
       let url;
-      if (String(id).startsWith("tt")) {
-        url = `https://api.themoviedb.org/3/find/${id}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=it-IT`;
+      if (sanitizedId.startsWith("tt")) {
+        url = `https://api.themoviedb.org/3/find/${sanitizedId}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=it-IT`;
       } else {
         const endpoint = normalizedType === "movie" ? "movie" : "tv";
-        url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&language=it-IT`;
+        url = `https://api.themoviedb.org/3/${endpoint}/${sanitizedId}?api_key=${TMDB_API_KEY}&language=it-IT`;
       }
+
       const response = yield fetch(url);
-      if (!response.ok) throw new Error("TMDB Fail");
+      if (!response.ok) throw new Error("TMDB Response Error");
       const data = yield response.json();
 
-      let duration = "90 min";
+      let duration = localFallbackDuration;
       let baseData = data;
 
-      if (String(id).startsWith("tt")) {
+      if (sanitizedId.startsWith("tt")) {
         const results = normalizedType === "movie" ? data.movie_results : data.tv_results;
-        if (results && results.length > 0) baseData = results[0];
+        if (results && results.length > 0) {
+          baseData = results[0];
+          // If we got a real ID from find, let's fetch full entry for duration runtime data
+          const fullEndpoint = normalizedType === "movie" ? "movie" : "tv";
+          const fullRes = yield fetch(`https://api.themoviedb.org/3/${fullEndpoint}/${baseData.id}?api_key=${TMDB_API_KEY}`);
+          if (fullRes.ok) baseData = yield fullRes.json();
+        }
       }
 
       if (normalizedType === "movie" && baseData.runtime) {
         duration = `${baseData.runtime} min`;
-      } else if (normalizedType === "tv" || normalizedType === "series") {
-        const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
+      } else if (normalizedType === "tv") {
+        const targetId = baseData.id || sanitizedId;
+        const epUrl = `https://api.themoviedb.org/3/tv/${targetId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
         const epRes = yield fetch(epUrl);
         if (epRes.ok) {
           const epData = yield epRes.json();
@@ -479,18 +519,20 @@ function getMetadata(id, type, season, episode) {
           else if (baseData.episode_run_time && baseData.episode_run_time.length > 0) {
             duration = `${baseData.episode_run_time[0]} min`;
           }
+        } else if (baseData.episode_run_time && baseData.episode_run_time.length > 0) {
+          duration = `${baseData.episode_run_time[0]} min`;
         }
       }
 
       return {
-        name: baseData.title || baseData.name || baseData.original_title || baseData.original_name || "VixSrc Source",
+        name: baseData.title || baseData.name || baseData.original_title || baseData.original_name || localFallbackName,
         year: (baseData.release_date || baseData.first_air_date || "").split("-")[0],
         duration: duration,
         original_language: baseData.original_language
       };
     } catch (e) {
-      console.error("[StreamingCommunity] Metadata parsing failure:", e);
-      return { name: "VixSrc Source", year: "", duration: "90 min" };
+      console.error("[StreamingCommunity] Meta Fallback triggered:", e);
+      return { name: localFallbackName, year: "", duration: localFallbackDuration };
     }
   });
 }
@@ -502,7 +544,6 @@ function hasGuardaFallbackResults(id, type, season, episode, providerContext) {
     if (normalizedType === "movie" && guardahd && typeof guardahd.getStreams === "function") {
       checks.push(
         guardahd.getStreams(id, normalizedType, season, episode).then((streams) => Array.isArray(streams) && streams.length > 0).catch((e) => {
-          console.warn("[StreamingCommunity] GuardaHD fallback check failed:", e);
           return false;
         })
       );
@@ -519,27 +560,27 @@ function getStreams(id, type, season, episode, providerContext = null) {
     const normalizedType = requestedType === "series" ? "tv" : requestedType;
     const baseUrl = getStreamingCommunityBaseUrl();
     const commonHeaders = getCommonHeaders();
-    let tmdbId = id.toString();
+    
+    let tmdbId = cleanId(id);
     let resolvedSeason = season;
-    const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
+    
+    const contextTmdbId = providerContext && providerContext.tmdbId ? cleanId(providerContext.tmdbId) : null;
     if (contextTmdbId) {
       tmdbId = contextTmdbId;
-    } else if (tmdbId.startsWith("tmdb:")) {
-      tmdbId = tmdbId.replace("tmdb:", "");
-    } else if (tmdbId.startsWith("tt")) {
+    }
+
+    if (tmdbId.startsWith("tt")) {
       const convertedId = yield getTmdbId(tmdbId, normalizedType);
       if (convertedId) {
-        console.log(`[StreamingCommunity] Converted ${id} to TMDB ID: ${convertedId}`);
         tmdbId = convertedId;
-      } else {
-        console.warn(`[StreamingCommunity] Could not convert IMDb ID ${id} to TMDB ID.`);
       }
     }
-    let metadata = { name: "VixSrc Source", year: "", duration: "90 min" };
+    
+    let metadata = { name: "VixSrc Source", year: "", duration: normalizedType === "tv" ? "60 min" : "90 min" };
     try {
-      metadata = yield getMetadata(tmdbId, normalizedType, resolvedSeason, episode);
+      metadata = yield getMetadata(tmdbId, normalizedType, resolvedSeason, episode, providerContext);
     } catch (e) {
-      console.error("[StreamingCommunity] Error fetching metadata:", e);
+      console.error("[StreamingCommunity] General Meta Failure", e);
     }
 
     let url;
@@ -554,23 +595,19 @@ function getStreams(id, type, season, episode, providerContext = null) {
       return [];
     }
     try {
-      console.log(`[StreamingCommunity] Fetching API: ${apiUrl}`);
       const response = yield fetch(apiUrl, {
         headers: commonHeaders
       });
       if (!response.ok) {
-        console.error(`[StreamingCommunity] Failed to fetch page: ${response.status}`);
         return [];
       }
       const apiPayload = yield response.json().catch(() => null);
       const embedUrl = extractEmbedSrcFromApiPayload(apiPayload);
       if (!embedUrl) {
-        console.log("[StreamingCommunity] Could not find embed src in API payload");
         return [];
       }
       if (providerContext == null ? void 0 : providerContext.proxyUrl) {
         const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
-        console.log(`[StreamingCommunity] Proxy enabled, returning raw page URL: ${rawPageUrl}`);
         
         const generatedTitle = buildTitle(
           metadata, 
@@ -595,12 +632,10 @@ function getStreams(id, type, season, episode, providerContext = null) {
         };
         return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
       }
-      console.log(`[StreamingCommunity] Fetching embed: ${embedUrl}`);
       const embedResponse = yield fetch(embedUrl, {
         headers: getEmbedHeaders(embedUrl)
       });
       if (!embedResponse.ok) {
-        console.error(`[StreamingCommunity] Failed to fetch embed: ${embedResponse.status}`);
         return [];
       }
       const embedHtml = yield embedResponse.text();
@@ -609,7 +644,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
       if (masterPlaylist) {
         const streamUrl = `${masterPlaylist.url}?token=${encodeURIComponent(masterPlaylist.token)}&expires=${encodeURIComponent(masterPlaylist.expires)}&h=1&lang=it`;
         const streamHeaders = getPlaylistHeaders(embedUrl);
-        console.log(`[StreamingCommunity] Final stream URL: ${streamUrl}`);
         
         let streamLanguage = "Multi-Audio";
         let quality = "1080p";
@@ -624,7 +658,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
             if (detected) quality = detected;
             const originalLanguageItalian = metadata && (metadata.original_language === "it" || metadata.original_language === "ita");
             if (!hasItalian && !originalLanguageItalian) {
-              console.log(`[StreamingCommunity] No Italian audio found. Checking fallback.`);
               const fallbackOk = yield hasGuardaFallbackResults(id, normalizedType, resolvedSeason, episode, providerContext);
               if (!fallbackOk) return [];
             }
@@ -641,7 +674,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
             }
           }
         } catch (e) {
-          console.warn(`[StreamingCommunity] Playlist pre-check failed, continuing:`, e);
+          console.warn(`[StreamingCommunity] Playlist pre-check bypassed:`, e);
         }
         
         const normalizedQuality = getQualityFromName(quality);
@@ -683,11 +716,9 @@ function getStreams(id, type, season, episode, providerContext = null) {
         };
         return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
       } else {
-        console.log("[StreamingCommunity] Could not find playlist info in HTML");
         return [];
       }
     } catch (error) {
-      console.error("[StreamingCommunity] Error:", error);
       return [];
     }
   });

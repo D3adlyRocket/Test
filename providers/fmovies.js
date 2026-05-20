@@ -423,7 +423,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
     let tmdbId = id.toString();
     let resolvedSeason = season;
     
-    // 1. EXTRACT INITIAL RAW ID
+    // 1. HARNESS BOTH INCOMING VARIANT FIELDS IMMEDIATELY
     const contextTmdbId = providerContext && /^\d+$/.test(String(providerContext.tmdbId || "")) ? String(providerContext.tmdbId) : null;
     if (contextTmdbId) {
       tmdbId = contextTmdbId;
@@ -436,8 +436,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
     }
 
-    // 2. STRICT OVERRIDE INTERCEPTION MATRIX
-    // Completely sanitizes both context fields and parent inputs down to real TMDB values
+    // 2. UNIFIED ID CORRECTION MATRIX
     if (tmdbId === "687163" || tmdbId === "705669") {
       tmdbId = "687163"; // Project Hail Mary
     } else if (tmdbId === "709770") {
@@ -445,10 +444,15 @@ function getStreams(id, type, season, episode, providerContext = null) {
     } else if (tmdbId === "718930") {
       const titleContext = String(providerContext && providerContext.title || "").toLowerCase();
       if (titleContext.includes("mario") || titleContext.includes("galaxy")) {
-        tmdbId = "1151534"; // Super Mario Entry
+        tmdbId = "1151534"; // Super Mario Galaxy Entry
       } else {
-        tmdbId = "718930";  // Bullet Train standard endpoint
+        tmdbId = "718930";  // Bullet Train Standard
       }
+    }
+
+    // Force internal matching context to align perfectly with our clean tracking ID
+    if (providerContext && typeof providerContext === "object") {
+      providerContext.tmdbId = tmdbId;
     }
 
     let metadata = { name: "VixSrc", year: "", duration: "94 min" };
@@ -484,31 +488,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
         return [];
       }
 
-      if (providerContext == null ? void 0 : providerContext.proxyUrl) {
-        const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
-        const generatedTitle = buildTitle(
-          metadata, 
-          "Auto", 
-          "Multi-Audio", 
-          "M3U8", 
-          "Variable Size", 
-          "Proxy Redirect", 
-          normalizedType === "tv" ? resolvedSeason : null, 
-          normalizedType === "tv" ? episode : null
-        );
-
-        const result = {
-          name: "🎦 VixSrc",
-          title: generatedTitle,
-          url: rawPageUrl,
-          easyProxySourceUrl: rawPageUrl,
-          quality: "1080p",
-          type: "direct",
-          behaviorHints: { notWebReady: false }
-        };
-        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
-      }
-
       console.log(`[VixSrc] Fetching embed: ${embedUrl}`);
       const embedResponse = yield fetch(embedUrl, { headers: getEmbedHeaders(embedUrl) });
       if (!embedResponse.ok) {
@@ -520,8 +499,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       
       const masterPlaylist = extractMasterPlaylistFromEmbedHtml(embedHtml);
       if (masterPlaylist) {
-        // 3. SAFE PLAYLIST URL CONSTRUCTION
-        // Uses native URLSearchParams to prevent duplicate ? parameters entirely
+        // 3. PARSE USING NATIVE ENGINE URL API (Eliminates malformed queries completely)
         const playlistUrlObj = new URL(masterPlaylist.url);
         playlistUrlObj.searchParams.set("b", "1");
         playlistUrlObj.searchParams.set("token", masterPlaylist.token);

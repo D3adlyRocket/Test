@@ -438,26 +438,19 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
     }
 
-    // ADVANCED CONTEXT MATRIX
-    // Safely checks context clues to keep Bullet Train (718930) completely separate from Mario
-    let internalId = tmdbId;
-    
+    // STRICT TMDB TRANSLATION MATRIX
+    // Maps messy app lookup IDs directly to target TMDB endpoints vixsrc.to expects
     if (tmdbId === "687163" || tmdbId === "705669") {
-      tmdbId = "687163";    
-      internalId = "640875"; 
+      tmdbId = "687163"; // Project Hail Mary
     } else if (tmdbId === "709770") {
-      tmdbId = "13640";     
-      internalId = "90612";  
+      tmdbId = "13640";  // The Punisher (1989)
     } else if (tmdbId === "718930") {
-      // Check if context text explicitly requests a Mario video resource, else keep Bullet Train standard
-      const extraContextStr = String(providerContext && providerContext.title || "").toLowerCase();
-      if (extraContextStr.includes("mario") || extraContextStr.includes("galaxy")) {
-        tmdbId = "1151534"; 
-        internalId = "4513"; 
+      // Isolate Mario content contexts away from Bullet Train completely
+      const titleContext = String(providerContext && providerContext.title || "").toLowerCase();
+      if (titleContext.includes("mario") || titleContext.includes("galaxy")) {
+        tmdbId = "1151534"; // Super Mario Entry
       } else {
-        // Bullet Train is fine, it leaves internalId equal to tmdbId (718930)
-        tmdbId = "718930";
-        internalId = "718930";
+        tmdbId = "718930";  // Bullet Train standard endpoint
       }
     }
 
@@ -471,11 +464,11 @@ function getStreams(id, type, season, episode, providerContext = null) {
     let url;
     let apiUrl;
     if (normalizedType === "movie") {
-      url = `${baseUrl}/movie/${internalId}`;
-      apiUrl = `${baseUrl}/api/movie/${internalId}`;
+      url = `${baseUrl}/movie/${tmdbId}`;
+      apiUrl = `${baseUrl}/api/movie/${tmdbId}`;
     } else if (normalizedType === "tv") {
-      url = `${baseUrl}/tv/${internalId}/${resolvedSeason}/${episode}`;
-      apiUrl = `${baseUrl}/api/tv/${internalId}/${resolvedSeason}/${episode}`;
+      url = `${baseUrl}/tv/${tmdbId}/${resolvedSeason}/${episode}`;
+      apiUrl = `${baseUrl}/api/tv/${tmdbId}/${resolvedSeason}/${episode}`;
     } else {
       return [];
     }

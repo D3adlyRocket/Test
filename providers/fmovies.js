@@ -22,7 +22,7 @@ function detectQuality(texts) {
     if (/\b480p\b/.test(t))  return '480p';
     if (/\b360p\b/.test(t))  return '360p';
   }
-  return '1080p'; // Default fallback matching your expected structure
+  return '1080p'; 
 }
 
 function extractFilename(stream) {
@@ -81,10 +81,11 @@ function extractSourceName(stream) {
   return 'Direct';
 }
 
-// Visual Title Builder replicating your UI style layout
-function buildTitle(meta, res, lang, format, size, season, episode) {
+// Visual Multi-line Title Builder (Renders the 3 info lines)
+function buildTitle(meta, res, lang, format, size, season, episode, filename) {
   var qIcon = (res.includes('4K') || res.includes('2160')) ? '🌟' : '💎';
   
+  // Line 1: Show context title info OR actual file name if it fits nicely
   var line1 = '🎬 ';
   if (season && episode) {
     line1 += 'S' + season + ' E' + episode + ' | ' + meta.name;
@@ -92,10 +93,13 @@ function buildTitle(meta, res, lang, format, size, season, episode) {
       line1 += ' | ' + meta.episodeTitle;
     }
   } else {
-    line1 += meta.name + (meta.year ? ' (' + meta.year + ')' : '');
+    line1 += (filename && filename !== 'stream.mkv') ? filename : meta.name + (meta.year ? ' (' + meta.year + ')' : '');
   }
 
+  // Line 2: Quality, Audio Lang, and exact Size string
   var line2 = qIcon + ' ' + res + ' | 🌍 ' + lang + ' | 💾 ' + (size || 'Variable Size');
+  
+  // Line 3: Container format, runtime clock, and profile parameters
   var line3 = '🎞️ ' + format.toUpperCase() + ' | ⏱️ ' + meta.duration + ' | 📼 AVC • 🔊 AAC';
 
   return line1 + '\n' + line2 + '\n' + line3;
@@ -122,7 +126,7 @@ function getTmdbId(imdbId, type) {
     });
 }
 
-// Fetch visual metadata structures automatically
+// Fetch metadata automatically from TMDB
 function getMetadata(id, type, season, episode, fallbackContext) {
   var localFallbackName = 'Unknown Title';
   var localFallbackDuration = type === 'tv' ? '45 min' : '90 min';
@@ -214,21 +218,22 @@ function getStreams(id, mediaType, season, episode, providerContext) {
                   stream.format,  stream.codec,  filename, stream.url
                 ]);
 
+                // The multi-line system runs completely within title string context
                 var generatedTitle = buildTitle(
                   metadata,
                   quality,
-                  'English', // Default audio language attribute mapping for GoatAPI targets
+                  'English',
                   'MKV',
                   size,
                   null,
-                  null
+                  null,
+                  filename
                 );
 
                 streams.push({
                   name:    'GoatAPI | ' + quality + ' | ' + sourceName,
                   title:   generatedTitle,
-                  quality: filename,
-                  size:    size,
+                  quality: quality.toLowerCase(),
                   url:     stream.url,
                 });
               });
@@ -249,14 +254,14 @@ function getStreams(id, mediaType, season, episode, providerContext) {
                     'MKV',
                     size,
                     null,
-                    null
+                    null,
+                    filename
                   );
 
                   streams.push({
                     name:    'GoatAPI | ' + quality + ' | ' + host,
                     title:   generatedTitle,
-                    quality: filename,
-                    size:    size,
+                    quality: quality.toLowerCase(),
                     url:     src.url,
                   });
                 });

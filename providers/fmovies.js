@@ -299,12 +299,16 @@ function formatBytes(bytes) {
   return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
-function buildTitle(meta, res, lang, format, size, extra, season, episode) {
+function buildTitle(meta, res, lang, format, size, season, episode) {
   const qIcon = res.includes("4K") || res.includes("2160") ? "🌟" : "💎";
   
   let line1 = "🎬 ";
   if (season && episode) {
+    // FIXED SERIES SUBHEADING: S1 E1 | Series Title | Episode Title (if available)
     line1 += `S${season} E${episode} | ${meta.name}`;
+    if (meta.episodeTitle) {
+      line1 += ` | ${meta.episodeTitle}`;
+    }
   } else {
     line1 += `${meta.name}${meta.year ? " (" + meta.year + ")" : ""}`;
   }
@@ -395,6 +399,7 @@ async function getMetadata(id, type, season, episode, fallbackContext = null) {
     const data = await response.json();
 
     let duration = localFallbackDuration; 
+    let episodeTitle = "";
     
     if (normalizedType === "movie" && data.runtime) {
       duration = `${data.runtime} min`;
@@ -403,6 +408,7 @@ async function getMetadata(id, type, season, episode, fallbackContext = null) {
       const epRes = await fetch(epUrl);
       if (epRes.ok) {
         const epData = await epRes.json();
+        if (epData.name) episodeTitle = epData.name;
         if (epData.runtime) duration = `${epData.runtime} min`;
         else if (data.episode_run_time && data.episode_run_time.length > 0) {
            duration = `${data.episode_run_time[0]} min`;
@@ -413,10 +419,11 @@ async function getMetadata(id, type, season, episode, fallbackContext = null) {
     return {
       name: data.title || data.name || localFallbackName,
       year: (data.release_date || data.first_air_date || "").split("-")[0],
-      duration: duration
+      duration: duration,
+      episodeTitle: episodeTitle
     };
   } catch (e) {
-    return { name: localFallbackName, year: "", duration: localFallbackDuration };
+    return { name: localFallbackName, year: "", duration: localFallbackDuration, episodeTitle: "" };
   }
 }
 
@@ -462,7 +469,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
     }
 
-    let metadata = { name: "VixSrc", year: "", duration: "94 min" };
+    let metadata = { name: "VixSrc", year: "", duration: "94 min", episodeTitle: "" };
     try {
       metadata = yield getMetadata(tmdbId, type, resolvedSeason, episode, providerContext); 
     } catch (e) {
@@ -504,15 +511,12 @@ function getStreams(id, type, season, episode, providerContext = null) {
           "Multi-Audio", 
           "M3U8", 
           calculatedSize, 
-          "Proxy Redirect", 
           normalizedType === "tv" ? resolvedSeason : null, 
           normalizedType === "tv" ? episode : null
         );
 
-        let finalHeaderName = `🎦 VixSrc | Auto | Multi-Audio | ${calculatedSize}`;
-        if (normalizedType === "tv") {
-          finalHeaderName = `S${resolvedSeason} E${episode} | VixSrc`;
-        }
+        // ALWAYS UNIFORM HEADERS FOR PROXY VARIANT TOO
+        const finalHeaderName = "🎦 VixSrc | Auto | Multi-Audio";
 
         const result = {
           name: finalHeaderName,
@@ -589,20 +593,12 @@ function getStreams(id, type, season, episode, providerContext = null) {
           streamLanguage,
           detectedFormat,
           computedSize,
-          null,
           normalizedType === "tv" ? resolvedSeason : null,
           normalizedType === "tv" ? episode : null
         );
         
-        // TARGETED FIX FOR ISSUES 1 & 2: แยกรูปแบบ string ตามประเภทคอนเทนต์ให้ตรงกับภาพ UI
-        let finalHeaderName = "";
-        if (normalizedType === "tv") {
-          // Series mode: must be exactly "S[X] E[Y] | [Series Name]" to match 1000121421.jpg layout
-          finalHeaderName = `S${resolvedSeason} E${episode} | ${metadata.name}`;
-        } else {
-          // Movie mode: stays generic "VixSrc | [Resolution] | [Language] | [Size]" to match 1000121420.jpg layout
-          finalHeaderName = `🎦 VixSrc | ${detectedQuality} | ${streamLanguage} | ${computedSize}`;
-        }
+        // FIXED ISSUE 1 & 2: Main header card name is now identical across movies and series.
+        const finalHeaderName = `🎦 VixSrc | ${detectedQuality} | ${streamLanguage}`;
 
         const result = {
           name: finalHeaderName,

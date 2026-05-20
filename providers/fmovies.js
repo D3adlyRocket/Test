@@ -315,7 +315,6 @@ function buildTitle(meta, res, lang, format, size, extra, season, episode) {
   return `${line1}\n${line2}\n${line3}`;
 }
 
-// Fallback runtime calculation using your customized adaptive variance math engine
 function calculateCalculatedFallbackSize(quality, durationText) {
   const mins = parseInt(durationText) || 90;
   const norm = String(quality || "").toLowerCase();
@@ -510,8 +509,13 @@ function getStreams(id, type, season, episode, providerContext = null) {
           normalizedType === "tv" ? episode : null
         );
 
+        let finalHeaderName = `🎦 VixSrc | Auto | Multi-Audio | ${calculatedSize}`;
+        if (normalizedType === "tv") {
+          finalHeaderName = `S${resolvedSeason} E${episode} | VixSrc`;
+        }
+
         const result = {
-          name: `🎦 ${metadata.name} | Auto | Multi-Audio | ${calculatedSize}`,
+          name: finalHeaderName,
           title: generatedTitle,
           url: rawPageUrl,
           easyProxySourceUrl: rawPageUrl,
@@ -590,8 +594,18 @@ function getStreams(id, type, season, episode, providerContext = null) {
           normalizedType === "tv" ? episode : null
         );
         
+        // TARGETED FIX FOR ISSUES 1 & 2: แยกรูปแบบ string ตามประเภทคอนเทนต์ให้ตรงกับภาพ UI
+        let finalHeaderName = "";
+        if (normalizedType === "tv") {
+          // Series mode: must be exactly "S[X] E[Y] | [Series Name]" to match 1000121421.jpg layout
+          finalHeaderName = `S${resolvedSeason} E${episode} | ${metadata.name}`;
+        } else {
+          // Movie mode: stays generic "VixSrc | [Resolution] | [Language] | [Size]" to match 1000121420.jpg layout
+          finalHeaderName = `🎦 VixSrc | ${detectedQuality} | ${streamLanguage} | ${computedSize}`;
+        }
+
         const result = {
-          name: `🎦 ${metadata.name} | ${detectedQuality} | ${streamLanguage} | ${computedSize}`,
+          name: finalHeaderName,
           title: generatedTitle,
           url: streamUrl,
           easyProxySourceUrl: embedUrl,

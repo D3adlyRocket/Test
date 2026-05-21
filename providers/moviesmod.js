@@ -1,239 +1,454 @@
-/** * Pomfy - Handshake Edition (2026)
+/**
+ * FilmyFly Provider v1.2
+ * Uses FilmyFly FastAPI: https://badboysxs-ff.hf.space
+ * Provides direct download links with part support for series.
+ * Now with optimized streaming proxy for smooth playback.
+ * By Murph Streams ⚡
  */
 
-const TMDB_KEY = '3644dd4950b67cd8067b8772de576d6b';
-const TMDB_BASE_URL = "https://api.themoviedb.org/3";
-const API_POMFY = "https://api.pomfy.stream";
+'use strict';
 
-// Browser Data from your 15:11/15:12 screenshots
-const TARGET_DOMAIN = "398fitus.com";
-const TARGET_ORIGIN = `https://${TARGET_DOMAIN}`;
-const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
+const API_BASE = 'https://badboysxs-ff.hf.space';
+const STREAM_PROXY = 'https://badboysxs-mm.hf.space/fi-stream'; // Optimized streaming proxy
+const TAG = '[FilmyFly]';
 
-const HEADERS = {
-    "User-Agent": USER_AGENT,
-    "Accept": "*/*",
-    "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
-    "Origin": TARGET_ORIGIN,
-    "Referer": "https://api.pomfy.stream/",
-    "Sec-Ch-Ua": '"Chromium";v="137", "Not)A;Brand";v="24"',
-    "Sec-Ch-Ua-Mobile": "?1",
-    "Sec-Ch-Ua-Platform": '"Android"',
-    "Sec-Fetch-Dest": "empty",
-    "Sec-Fetch-Mode": "cors",
-    "Sec-Fetch-Site": "same-origin"
-};
+const cache = new Map();
+const CACHE_TTL = 20 * 60 * 1000;
 
-// --- CRYPTO ---
-const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-function base64ToBytes(base64) {
-    let b64 = base64.replace(/-/g, '+').replace(/_/g, '/');
-    while (b64.length % 4 !== 0) b64 += '=';
-    const lookup = new Uint8Array(256).fill(255);
-    for (let i = 0; i < 64; i++) lookup[BASE64_CHARS.charCodeAt(i)] = i;
-    const len = b64.length;
-    let outputLen = (len * 3) >> 2;
-    if (b64[len - 1] === '=') outputLen--;
-    if (b64[len - 2] === '=') outputLen--;
-    const bytes = new Uint8Array(outputLen);
-    let byteIdx = 0;
-    for (let i = 0; i < len; i += 4) {
-        const a = lookup[b64.charCodeAt(i)];
-        const b = lookup[b64.charCodeAt(i + 1)];
-        const c = lookup[b64.charCodeAt(i + 2)];
-        const d = lookup[b64.charCodeAt(i + 3)];
-        if (byteIdx < outputLen) bytes[byteIdx++] = (a << 2) | (b >> 4);
-        if (byteIdx < outputLen) bytes[byteIdx++] = ((b & 0x0f) << 4) | (c >> 2);
-        if (byteIdx < outputLen) bytes[byteIdx++] = ((c & 0x03) << 6) | d;
+function getCached(key) {
+    const entry = cache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() - entry.ts > CACHE_TTL) { cache.delete(key); return undefined; }
+    return entry.val;
+}
+function setCached(key, val) {
+    if (cache.size > 200) {
+        const oldest = cache.keys().next().value;
+        cache.delete(oldest);
     }
-    return bytes;
+    cache.set(key, { val, ts: Date.now() });
 }
 
-const SBOX = [0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76, 0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0, 0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15, 0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75, 0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84, 0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf, 0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8, 0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2, 0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73, 0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb, 0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79, 0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08, 0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a, 0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e, 0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf, 0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16];
-const RCON = [0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
-
-class AES256GCM_Manual {
-    constructor(key) { this.roundKeys = this._expandKey(key); }
-    _expandKey(key) {
-        let w = new Uint32Array(60);
-        for (let i = 0; i < 8; i++) { w[i] = (key[i * 4] << 24) | (key[i * 4 + 1] << 16) | (key[i * 4 + 2] << 8) | key[i * 4 + 3]; }
-        for (let i = 8; i < 60; i++) {
-            let temp = w[i - 1];
-            if (i % 8 === 0) {
-                temp = ((temp << 8) | (temp >>> 24)) >>> 0;
-                temp = (SBOX[temp >>> 24] << 24) | (SBOX[(temp >>> 16) & 0xff] << 16) | (SBOX[(temp >>> 8) & 0xff] << 8) | SBOX[temp & 0xff];
-                temp ^= (RCON[i / 8] << 24) >>> 0;
-            } else if (i % 8 === 4) {
-                temp = (SBOX[temp >>> 24] << 24) | (SBOX[(temp >>> 16) & 0xff] << 16) | (SBOX[(temp >>> 8) & 0xff] << 8) | SBOX[temp & 0xff];
-            }
-            w[i] = (w[i - 8] ^ temp) >>> 0;
+async function apiFetch(path, params) {
+    const url = new URL(path, API_BASE);
+    if (params) {
+        for (const [k, v] of Object.entries(params)) {
+            if (v !== undefined && v !== null && v !== 0) url.searchParams.set(k, v);
         }
-        return w;
     }
-    _galoisMult(a, b) {
-        let p = 0;
-        for (let i = 0; i < 8; i++) {
-            if (b & 1) p ^= a;
-            let hiBitSet = a & 0x80;
-            a = (a << 1) & 0xff;
-            if (hiBitSet) a ^= 0x1b;
-            b >>= 1;
-        }
-        return p;
-    }
-    _encryptBlock(block) {
-        let state = Array.from({ length: 4 }, (_, r) => Array.from({ length: 4 }, (_, c) => block[r + c * 4]));
-        const addRoundKey = (s, rkIdx) => {
-            for (let c = 0; c < 4; c++) {
-                let rk = this.roundKeys[rkIdx * 4 + c];
-                for (let r = 0; r < 4; r++) { s[r][c] ^= (rk >>> (24 - 8 * r)) & 0xff; }
-            }
-        };
-        addRoundKey(state, 0);
-        for (let round = 1; round < 14; round++) {
-            for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) state[r][c] = SBOX[state[r][c]];
-            let row1 = state[1], row2 = state[2], row3 = state[3];
-            state[1] = [row1[1], row1[2], row1[3], row1[0]];
-            state[2] = [row2[2], row2[3], row2[0], row2[1]];
-            state[3] = [row3[3], row3[0], row3[1], row3[2]];
-            for (let c = 0; c < 4; c++) {
-                let s0 = state[0][c], s1 = state[1][c], s2 = state[2][c], s3 = state[3][c];
-                state[0][c] = this._galoisMult(0x02, s0) ^ this._galoisMult(0x03, s1) ^ s2 ^ s3;
-                state[1][c] = s0 ^ this._galoisMult(0x02, s1) ^ this._galoisMult(0x03, s2) ^ s3;
-                state[2][c] = s0 ^ s1 ^ this._galoisMult(0x02, s2) ^ this._galoisMult(0x03, s3);
-                state[3][c] = this._galoisMult(0x03, s0) ^ s1 ^ s2 ^ this._galoisMult(0x02, s3);
-            }
-            addRoundKey(state, round);
-        }
-        for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) state[r][c] = SBOX[state[r][c]];
-        let row1 = state[1], row2 = state[2], row3 = state[3];
-        state[1] = [row1[1], row1[2], row1[3], row1[0]];
-        state[2] = [row2[2], row2[3], row2[0], row2[1]];
-        state[3] = [row3[3], row3[0], row3[1], row3[2]];
-        addRoundKey(state, 14);
-        let res = new Uint8Array(16);
-        for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) res[c * 4 + r] = state[r][c];
-        return res;
-    }
-    decrypt(iv, ciphertext) {
-        let counter = new Uint8Array(16);
-        counter.set(iv);
-        counter[15] = 2;
-        let plaintext = new Uint8Array(ciphertext.length);
-        for (let i = 0; i < ciphertext.length; i += 16) {
-            let keystream = this._encryptBlock(counter);
-            for (let j = 0; j < 16 && (i + j) < ciphertext.length; j++) { plaintext[i + j] = ciphertext[i + j] ^ keystream[j]; }
-            for (let j = 15; j >= 12; j--) {
-                counter[j]++;
-                if (counter[j] !== 0) break;
-            }
-        }
-        return new TextDecoder().decode(plaintext);
-    }
-}
-
-// --- SCRAPER ---
-
-function generateFingerprint() {
-    const ts = Math.floor(Date.now() / 1000);
-    const payload = JSON.stringify({
-        viewer_id: Math.random().toString(36).substring(2, 12),
-        device_id: Math.random().toString(36).substring(2, 12),
-        confidence: 0.99, iat: ts, exp: ts + 3600
+    const res = await fetch(url.toString(), {
+        signal: AbortSignal.timeout(90000),
+        headers: { Accept: 'application/json', 'User-Agent': 'Mozilla/5.0' }
     });
-    const bytes = new TextEncoder().encode(payload);
-    let b64 = "";
-    for (let i = 0; i < bytes.length; i += 3) {
-        const b0 = bytes[i], b1 = i + 1 < bytes.length ? bytes[i + 1] : 0, b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
-        b64 += BASE64_CHARS[b0 >> 2] + BASE64_CHARS[((b0 & 0x03) << 4) | (b1 >> 4)];
-        b64 += i + 1 < bytes.length ? BASE64_CHARS[((b1 & 0x0f) << 2) | (b2 >> 6)] : '=';
-        b64 += i + 2 < bytes.length ? BASE64_CHARS[b2 & 0x3f] : '=';
-    }
-    return { token: b64 };
+    if (!res.ok) throw new Error(`${TAG} HTTP ${res.status} for ${url}`);
+    return res.json();
 }
 
-async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
-    const streams = [];
-    try {
-        const s = season || 1;
-        const e = episode || 1;
-        const pageUrl = mediaType === "movie" ? `${API_POMFY}/filme/${tmdbId}` : `${API_POMFY}/serie/${tmdbId}/${s}/${e}`;
+async function tmdbMeta(tmdbId, mediaType) {
+    const type = mediaType === 'tv' ? 'tv' : 'movie';
+    const res = await fetch(
+        `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=439c478a771f35c05022f9feabcca01c`,
+        { signal: AbortSignal.timeout(10000) }
+    );
+    if (!res.ok) return null;
+    const d = await res.json();
+    return {
+        title: mediaType === 'tv' ? d.name : d.title,
+        year: (mediaType === 'tv' ? d.first_air_date : d.release_date || '').slice(0, 4)
+    };
+}
 
-        // 1. Fetch initial HTML to find play-token
-        const htmlRes = await fetch(pageUrl, { headers: HEADERS });
-        const html = await htmlRes.text();
+function getBestLink(links) {
+    if (!links) return null;
+    // Priority: cloud_direct > fast_direct > direct_download > fast_cloud (skip pixeldrain)
+    return links.cloud_direct || links.fast_direct || links.direct_download || links.fast_cloud || null;
+}
 
-        const tokenMatch = html.match(/play-token\?t=([^"']+)/);
-        if (!tokenMatch) {
-            console.error("Token not found in HTML");
-            return [];
+// Wrap URL with optimized streaming proxy for smooth playback
+function wrapWithStreamProxy(url) {
+    if (!url) return null;
+    // Use the streaming proxy for direct download URLs
+    return `${STREAM_PROXY}?url=${encodeURIComponent(url)}`;
+}
+
+// Extract codec from file title (HEVC, H.265, AVC, etc.)
+function extractCodec(fileTitle) {
+    if (!fileTitle) return null;
+    const title = fileTitle.toUpperCase();
+    if (title.includes('HEVC') || title.includes('H.265')) return 'HEVC';
+    if (title.includes('AVC') || title.includes('H.264')) return 'AVC';
+    return null;
+}
+
+// Extract audio language from audio_lang field or file title
+function extractAudioLang(audioLang, fileTitle) {
+    if (audioLang) return audioLang;
+    if (!fileTitle) return 'Hindi';
+    const title = fileTitle.toUpperCase();
+    if (title.includes('DUAL AUDIO') || title.includes('HINDI + ENGLISH')) return 'Hindi + English';
+    if (title.includes('HINDI DUBBED')) return 'Hindi Dubbed';
+    if (title.includes('ENGLISH')) return 'English';
+    return 'Hindi';
+}
+
+// Build stream name with quality and audio
+function buildStreamName(quality, audioLang) {
+    return `📽️ FilmyFly | ${quality} | ${audioLang}`;
+}
+
+// Build stream title with all info
+function buildStreamTitle(options) {
+    const {
+        season, episode, quality, codec, audioLang, size,
+        isPartLink, partLabel, fileTitle
+    } = options;
+
+    const lines = [];
+
+    // Episode/Part info
+    if (season !== null && episode !== null) {
+        if (isPartLink && partLabel) {
+            lines.push(`S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')} - ${partLabel}`);
+        } else {
+            lines.push(`S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`);
         }
-        const t = tokenMatch[1];
+    }
 
-        // 2. Perform Handshake (NEW STEP)
-        const handshakeRes = await fetch(`${API_POMFY}/api/play-token?t=${t}`, {
-            headers: {
-                ...HEADERS,
-                "Referer": pageUrl,
-                "X-Requested-With": "XMLHttpRequest"
+    // Quality and codec line
+    const qualityParts = [];
+    if (quality) qualityParts.push(quality);
+    if (codec) qualityParts.push(codec);
+    if (audioLang) qualityParts.push(`🔊 ${audioLang}`);
+    if (qualityParts.length > 0) {
+        lines.push(`🎥 ${qualityParts.join(' · ')}`);
+    }
+
+    // Size
+    if (size && size !== 'N/A') {
+        lines.push(`💾 ${size}`);
+    }
+
+    // Part link warning
+    if (isPartLink && partLabel) {
+        lines.push(`⚠️ Part Link - Contains Episodes ${partLabel}`);
+    }
+
+    // Download type
+    lines.push('⚡ Direct Download');
+
+    // Tagline
+    lines.push('By Murph Streams ⚡');
+
+    return lines.join('\n');
+}
+
+function extractMovieStreams(data) {
+    const streams = [];
+    if (!data || !data.results || !Array.isArray(data.results)) return streams;
+
+    for (const row of data.results) {
+        if (!row.links) continue;
+        const url = getBestLink(row.links);
+        if (!url) continue;
+
+        const quality = row.quality || 'HD';
+        const size = row.file_size || '';
+        const fileTitle = row.file_title || '';
+        const audioLang = extractAudioLang(row.audio_lang, fileTitle);
+        const codec = extractCodec(fileTitle);
+
+        const streamName = buildStreamName(quality, audioLang);
+        const title = buildStreamTitle({
+            season: null, episode: null, quality, codec, audioLang, size,
+            isPartLink: false, partLabel: null, fileTitle
+        });
+
+        streams.push({
+            name: streamName,
+            title: title,
+            url: url,
+            behaviorHints: {
+                notWebReady: true,
+                bingeGroup: `filmyfly-${quality.toLowerCase()}`
             }
         });
-        const handshake = await handshakeRes.json();
-        const byseUrl = handshake.link; 
-        if (!byseUrl) return [];
+    }
 
-        const byseId = byseUrl.split("/").pop();
+    streams.sort((a, b) => {
+        // Quality: high-to-low
+        const pa = parseInt((a.name || '').match(/\d+p/)?.[0] || 0);
+        const pb = parseInt((b.name || '').match(/\d+p/)?.[0] || 0);
+        return pb - pa;
+    });
 
-        // 3. Details
-        const detailsRes = await fetch(`https://pomfy-cdn.shop/api/videos/${byseId}/embed/details`, {
-            headers: { ...HEADERS, "Referer": byseUrl }
-        });
-        const details = await detailsRes.json();
+    console.log(`${TAG} Extracted ${streams.length} movie streams`);
+    return streams;
+}
 
-        // 4. Playback
-        const embedDomain = new URL(details.embed_frame_url).origin;
-        const playbackRes = await fetch(`${embedDomain}/api/videos/${byseId}/embed/playback`, {
-            method: "POST",
-            headers: {
-                ...HEADERS,
-                "Content-Type": "application/json",
-                "Origin": embedDomain,
-                "Referer": details.embed_frame_url
-            },
-            body: JSON.stringify({ fingerprint: generateFingerprint() })
-        });
-        const playData = await playbackRes.json();
+// Find which part contains the requested episode
+function findPartForEpisode(episodeData, targetEpisode) {
+    if (!episodeData || !Array.isArray(episodeData)) return null;
 
-        // 5. Decrypt
-        const iv = base64ToBytes(playData.playback.iv);
-        const k1 = base64ToBytes(playData.playback.key_parts[0]);
-        const k2 = base64ToBytes(playData.playback.key_parts[1]);
-        const key = new Uint8Array([...k1, ...k2]);
-        const encrypted = base64ToBytes(playData.playback.payload);
-        const ciphertext = encrypted.slice(0, -16);
+    for (const ep of episodeData) {
+        const fileTitle = ep.file_title || '';
+        const partMatch = fileTitle.match(/Part[-\s]?(\d+)\(Ep\.(\d+)(?:-(\d+))?\)/i);
+        if (partMatch) {
+            const partNum = parseInt(partMatch[1]);
+            const startEp = parseInt(partMatch[2]);
+            const endEp = partMatch[3] ? parseInt(partMatch[3]) : startEp;
 
-        const cipher = new AES256GCM_Manual(key);
-        const videoData = JSON.parse(cipher.decrypt(iv, ciphertext));
+            if (targetEpisode >= startEp && targetEpisode <= endEp) {
+                return {
+                    data: ep,
+                    partNum: partNum,
+                    startEp: startEp,
+                    endEp: endEp,
+                    partLabel: `${startEp}${endEp > startEp ? '-' + endEp : ''}`
+                };
+            }
+        }
+    }
+    return null;
+}
 
-        const m3u8 = videoData.url || (videoData.sources && videoData.sources[0].url);
+function extractSeriesStreams(data, season, episode) {
+    const streams = [];
+    if (!data || data.type !== 'series') return streams;
 
-        if (m3u8) {
+    const seriesTitle = data.series_title || '';
+    const episodes = data.episodes || {};
+
+    // Check if episode is in Episode 0 (parts)
+    const partInfo = episode !== undefined && episode !== null
+        ? findPartForEpisode(episodes['Episode 0'], episode)
+        : null;
+
+    // Get all quality options for the requested episode
+    // If episode is in a part, use the part data; otherwise use direct episode
+    let episodeQualities = [];
+    let episodeLabel = '';
+
+    if (partInfo) {
+        // Episode is in a part - use part data
+        episodeQualities = episodes['Episode 0'] || [];
+        episodeLabel = `Part ${partInfo.partNum}`;
+    } else if (episode !== undefined && episode !== null) {
+        // Direct episode
+        const directKey = `Episode ${episode}`;
+        episodeQualities = episodes[directKey] || [];
+        if (episodeQualities.length === 0) {
+            // Fallback to first available episode
+            const availableKeys = Object.keys(episodes).filter(k => k !== 'Episode 0');
+            if (availableKeys.length > 0) {
+                episodeQualities = episodes[availableKeys[0]] || [];
+                const match = availableKeys[0].match(/Episode\s*(\d+)/i);
+                episodeLabel = match ? `Episode ${match[1]}` : availableKeys[0];
+            }
+        } else {
+            episodeLabel = `Episode ${episode}`;
+        }
+    } else {
+        // No specific episode - list all episodes
+        episodeQualities = [];
+    }
+
+    // Add streams for the specific episode (or part)
+    if (episode !== undefined && episode !== null) {
+        for (const qual of episodeQualities) {
+            // For parts, only add the one matching our episode range
+            if (partInfo && qual.file_title) {
+                const qualPartMatch = qual.file_title.match(/Part[-\s]?(\d+)\(Ep\.(\d+)(?:-(\d+))?\)/i);
+                if (qualPartMatch && parseInt(qualPartMatch[1]) !== partInfo.partNum) {
+                    continue; // Skip other parts
+                }
+            }
+
+            if (!qual.links) continue;
+            const url = getBestLink(qual.links);
+            if (!url) continue;
+
+            const quality = qual.quality || 'HD';
+            const size = qual.file_size || '';
+            const fileTitle = qual.file_title || '';
+            const audioLang = extractAudioLang(qual.audio_lang, fileTitle);
+            const codec = extractCodec(fileTitle);
+
+            const streamName = buildStreamName(quality, audioLang);
+            const title = buildStreamTitle({
+                season, episode, quality, codec, audioLang, size,
+                isPartLink: !!partInfo, partLabel: partInfo ? partInfo.partLabel : null, fileTitle
+            });
+
             streams.push({
-                name: "🎦 Pomfy",
-                quality: `Auto | ${details.language || 'English'}`,
-                url: m3u8.replace(/\\u0026/g, '&'),
-                headers: {
-                    "User-Agent": USER_AGENT,
-                    "Referer": TARGET_ORIGIN + "/",
-                    "Origin": TARGET_ORIGIN
+                name: streamName,
+                title: title,
+                url: url,
+                isPartLink: !!partInfo,
+                partNum: partInfo ? partInfo.partNum : null,
+                behaviorHints: {
+                    notWebReady: true,
+                    bingeGroup: `filmyfly-s${season}`
                 }
             });
         }
-    } catch (err) {
-        console.error("Pomfy Error:", err);
     }
+
+    // Also add all other episodes (not in parts) for browsing
+    for (const [epKey, epArray] of Object.entries(episodes)) {
+        if (epKey === 'Episode 0') continue; // Skip parts - add individually
+
+        const epMatch = epKey.match(/Episode\s*(\d+)/i);
+        if (!epMatch) continue;
+        const epNum = parseInt(epMatch[1]);
+
+        // Skip the episode we already added
+        if (episode !== undefined && episode !== null && epNum === episode && !partInfo) continue;
+
+        for (const qual of epArray) {
+            if (!qual.links) continue;
+            const url = getBestLink(qual.links);
+            if (!url) continue;
+
+            const quality = qual.quality || 'HD';
+            const size = qual.file_size || '';
+            const fileTitle = qual.file_title || '';
+            const audioLang = extractAudioLang(qual.audio_lang, fileTitle);
+            const codec = extractCodec(fileTitle);
+
+            const streamName = buildStreamName(quality, audioLang);
+            const title = buildStreamTitle({
+                season, episode: epNum, quality, codec, audioLang, size,
+                isPartLink: false, partLabel: null, fileTitle
+            });
+
+            // Avoid duplicates
+            const exists = streams.some(s => s.url === url);
+            if (!exists) {
+                streams.push({
+                    name: streamName,
+                    title: title,
+                    url: url,
+                    isPartLink: false,
+                    partNum: null,
+                    behaviorHints: {
+                        notWebReady: true,
+                        bingeGroup: `filmyfly-s${season}`
+                    }
+                });
+            }
+        }
+    }
+
+    // Also add individual parts as separate entries for browsing
+    if (episodes['Episode 0'] && episodes['Episode 0'].length > 0) {
+        for (const partEp of episodes['Episode 0']) {
+            if (!partEp.links) continue;
+            const url = getBestLink(partEp.links);
+            if (!url) continue;
+
+            const fileTitle = partEp.file_title || '';
+            const partMatch = fileTitle.match(/Part[-\s]?(\d+)\(Ep\.(\d+)(?:-(\d+))?\)/i);
+            if (!partMatch) continue;
+
+            const partNum = parseInt(partMatch[1]);
+            const startEp = parseInt(partMatch[2]);
+            const endEp = partMatch[3] ? parseInt(partMatch[3]) : startEp;
+            const partLabel = `${startEp}${endEp > startEp ? '-' + endEp : ''}`;
+
+            const quality = partEp.quality || 'HD';
+            const size = partEp.file_size || '';
+            const audioLang = extractAudioLang(partEp.audio_lang, fileTitle);
+            const codec = extractCodec(fileTitle);
+
+            // Show as part for the first episode in range
+            const showEp = startEp;
+
+            const streamName = buildStreamName(quality, audioLang);
+            const title = buildStreamTitle({
+                season, episode: showEp, quality, codec, audioLang, size,
+                isPartLink: true, partLabel: partLabel, fileTitle
+            });
+
+            // Avoid duplicates
+            const exists = streams.some(s => s.url === url);
+            if (!exists) {
+                streams.push({
+                    name: streamName,
+                    title: title,
+                    url: url,
+                    isPartLink: true,
+                    partNum: partNum,
+                    behaviorHints: {
+                        notWebReady: true,
+                        bingeGroup: `filmyfly-s${season}`
+                    }
+                });
+            }
+        }
+    }
+
+    streams.sort((a, b) => {
+        // 1. Quality: high-to-low
+        const pa = parseInt((a.name || '').match(/\d+p/)?.[0] || 0);
+        const pb = parseInt((b.name || '').match(/\d+p/)?.[0] || 0);
+        if (pa !== pb) return pb - pa;
+
+        // 2. Type: direct episodes (non-parts) before parts
+        if (a.isPartLink !== b.isPartLink) {
+            return a.isPartLink ? 1 : -1;  // false (direct) comes first
+        }
+
+        // 3. Part number: ascending for parts (Part 1 before Part 2)
+        if (a.isPartLink && b.isPartLink) {
+            return (a.partNum || 0) - (b.partNum || 0);
+        }
+
+        return 0;
+    });
+
+    console.log(`${TAG} Extracted ${streams.length} series streams for S${season}`);
     return streams;
+}
+
+async function getStreams(tmdbId, mediaType, season, episode) {
+    const isTv = mediaType === 'tv' || mediaType === 'series';
+    const se = isTv ? season || 1 : null;
+    const ep = isTv ? episode || 1 : null;
+
+    const cacheKey = `ff::${tmdbId}::${mediaType}::${se}::${ep}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+        console.log(`${TAG} Cache HIT → ${cached.length} streams`);
+        return cached;
+    }
+
+    const meta = await tmdbMeta(tmdbId, mediaType);
+    if (!meta) {
+        console.log(`${TAG} No TMDB meta for ${tmdbId}`);
+        return [];
+    }
+
+    const { title, year } = meta;
+    const searchTitle = year ? `${title} ${year}` : title;
+    console.log(`${TAG} ▶ ${title} ${mediaType}${isTv ? ` S${se}E${ep}` : ''}`);
+
+    try {
+        let streams = [];
+        if (isTv) {
+            const data = await apiFetch('/search', { q: title, season: se });
+            streams = extractSeriesStreams(data, se, ep);
+        } else {
+            const data = await apiFetch('/search', { q: searchTitle });
+            streams = extractMovieStreams(data);
+        }
+
+        console.log(`${TAG} ✓ ${streams.length} streams for "${title}"`);
+        if (streams.length) setCached(cacheKey, streams);
+        return streams;
+    } catch (err) {
+        console.error(`${TAG} ✗ ${err.message}`);
+        return [];
+    }
 }
 
 module.exports = { getStreams };

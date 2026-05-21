@@ -397,8 +397,31 @@ function processVidlinkResponse(data, mediaInfo) {
                             : mediaInfo.title;
                     
                     streams.push({
-                        name: `Vidlink - ${quality}`,
-                        title: streamTitle,
+                        const size =
+    calculateCalculatedFallbackSize(
+        quality,
+        mediaInfo.duration
+    );
+
+const formattedTitle = buildTitle(
+    {
+        name: mediaInfo.title,
+        year: mediaInfo.year,
+        duration: mediaInfo.duration,
+        episodeTitle: mediaInfo.episodeTitle
+    },
+    quality,
+    "Multi-Audio",
+    stream.url && stream.url.includes(".m3u8")
+        ? "M3U8"
+        : "MP4",
+    size,
+    mediaInfo.season,
+    mediaInfo.episode
+);
+
+name: `🎦 Vidlink | ${quality} | Multi-Audio`,
+title: formattedTitle,
                         url: qualityData.url,
                         quality: quality,
                         size: 'Unknown',
@@ -587,12 +610,14 @@ function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = 
                 
                 // Process the response
                 const mediaInfo = {
-                    title: title,
-                    year: year,
-                    mediaType: mediaType,
-                    season: seasonNum,
-                    episode: episodeNum
-                };
+                title: title,
+                year: year,
+                duration: tmdbInfo.duration,
+                episodeTitle: tmdbInfo.episodeTitle,
+                mediaType: mediaType,
+                season: seasonNum,
+                episode: episodeNum
+};
                 
                 const streams = processVidlinkResponse(data, mediaInfo);
                 

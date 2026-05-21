@@ -650,8 +650,19 @@ function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = 
             })
             .then(response => response.json())
             .then(data => {
-                console.log(`[Vidlink] Received response from Vidlink API`);
-                
+    if (String(tmdbId).startsWith("tt")) {
+
+    return getTmdbId(tmdbId, mediaType)
+        .then(convertedId => {
+            return getStreams(
+                convertedId,
+                mediaType,
+                seasonNum,
+                episodeNum
+            );
+        });
+}            console.log(`[Vidlink] Received response from Vidlink API`);
+
                 // Process the response
                 const mediaInfo = {
                 title: title,

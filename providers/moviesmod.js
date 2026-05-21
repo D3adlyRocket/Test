@@ -316,6 +316,38 @@ function getTmdbInfo(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
             };
         });
 }
+function getTmdbId(imdbId, type) {
+
+    const normalizedType =
+        String(type).toLowerCase();
+
+    const findUrl =
+        `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+
+    return fetch(findUrl)
+        .then(r => r.json())
+        .then(data => {
+
+            if (
+                normalizedType === "movie" &&
+                data.movie_results &&
+                data.movie_results.length > 0
+            ) {
+                return data.movie_results[0].id.toString();
+            }
+
+            if (
+                normalizedType === "tv" &&
+                data.tv_results &&
+                data.tv_results.length > 0
+            ) {
+                return data.tv_results[0].id.toString();
+            }
+
+            return imdbId;
+        })
+        .catch(() => imdbId);
+}
 
 // Encrypt TMDB ID using enc-dec.app API
 function encryptTmdbId(tmdbId) {
@@ -580,6 +612,18 @@ title: formattedTitle,
 }
 
 // Main function to get streams - adapted for Nuvio provider format
+if (String(tmdbId).startsWith("tt")) {
+
+    return getTmdbId(tmdbId, mediaType)
+        .then(convertedId => {
+            return getStreams(
+                convertedId,
+                mediaType,
+                seasonNum,
+                episodeNum
+            );
+        });
+}
 function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
     console.log(`[Vidlink] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}${mediaType === 'tv' ? `, S:${seasonNum}E:${episodeNum}` : ''}`);
     

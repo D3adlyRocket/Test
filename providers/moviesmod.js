@@ -1,217 +1,650 @@
-/**
- * DahmerMovies Provider v1.0
- * Uses 111477.xyz Scraper API
- * By Murph Streams ⚡
- */
+// Vidlink Scraper for Nuvio Local Scrapers
+// React Native compatible version - Standalone (no external dependencies)
+// Converted to Promise-based syntax for sandbox compatibility
 
-'use strict';
+// Constants
+const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
+const ENC_DEC_API = "https://enc-dec.app/api";
+const VIDLINK_API = "https://vidlink.pro/api/b";
 
-const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
-const SCRAPER_API = 'https://dahmer.s4nch1ttt.workers.dev';
-const PROVIDER_NAME = 'DahmerMovies';
+// ===============================
+// UI / Metadata Helpers
+// ===============================
 
-const titleCache = new Map();
-const streamCache = new Map();
-const CACHE_TTL = 30 * 60 * 1000;
+function formatBytes(bytes) {
+    if (!bytes || isNaN(bytes)) return "Variable Size";
 
-function getCached(cache, key) {
-    const entry = cache.get(key);
-    if (!entry) return undefined;
-    if (Date.now() - entry.ts > CACHE_TTL) {
-        cache.delete(key);
-        return undefined;
+    const units = ["B", "KB", "MB", "GB"];
+    let i = 0;
+
+    while (bytes >= 1024 && i < units.length - 1) {
+        bytes /= 1024;
+        i++;
     }
-    return entry.data;
+
+    return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
-function setCache(cache, key, data) {
-    cache.set(key, { data, ts: Date.now() });
+function calculateCalculatedFallbackSize(quality, durationText) {
+    const mins = parseInt(durationText) || 90;
+
+    const norm = String(quality || "").toLowerCase();
+
+    let bitrateKbps = 5200;
+
+    if (norm.includes("4k") || norm.includes("2160")) bitrateKbps = 16000;
+    else if (norm.includes("1440")) bitrateKbps = 9000;
+    else if (norm.includes("1080")) bitrateKbps = 5200;
+    else if (norm.includes("720")) bitrateKbps = 2500;
+    else if (norm.includes("480")) bitrateKbps = 1200;
+
+    const calculatedBytes =
+        ((bitrateKbps * 1000) / 8) * (mins * 60);
+
+    return formatBytes(calculatedBytes);
 }
 
-async function getTitleFromTmdb(tmdbId, mediaType) {
-    const cacheKey = `${tmdbId}_${mediaType}`;
-    const cached = getCached(titleCache, cacheKey);
-    if (cached) return cached;
+function buildTitle(meta, res, lang, format, size, season, episode) {
+    const qIcon =
+        res.includes("4K") || res.includes("2160")
+            ? "🌟"
+            : "💎";
 
-    const url = `https://api.themoviedb.org/3/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    console.log(`[DahmerMovies] Fetching title: TMDB ${tmdbId} (${mediaType})`);
-    try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-        if (!res.ok) throw new Error(`TMDB HTTP ${res.status}`);
-        const data = await res.json();
-        const title = mediaType === 'tv' ? data.name : data.title;
-        if (title) {
-            setCache(titleCache, cacheKey, title);
-            return title;
+    let line1 = "🎬 ";
+
+    if (season && episode) {
+        line1 += `S${season} E${episode} | ${meta.name}`;
+
+        if (meta.episodeTitle) {
+            line1 += ` | ${meta.episodeTitle}`;
         }
-    } catch (err) {
-        console.error(`[DahmerMovies] Title fetch error: ${err.message}`);
+    } else {
+        line1 += `${meta.name}${meta.year ? ` (${meta.year})` : ""}`;
     }
-    return null;
+
+    const line2 =
+        `${qIcon} ${res} | 🌍 ${lang} | 💾 ${size}`;
+
+    const line3 =
+        `🎞️ ${format.toUpperCase()} | ⏱️ ${meta.duration} | 📼 AVC • 🔊 AAC`;
+
+    return `${line1}\n${line2}\n${line3}`;
 }
 
-function buildStreamTitle(season, episode, quality, size, codec, audio, source) {
-    const lines = [];
+// Required headers for Vidlink requests
+const VIDLINK_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+    "Connection": "keep-alive",
+    "Referer": "https://vidlink.pro/",
+    "Origin": "https://vidlink.pro"
+};
 
-    if (season != null && episode != null) {
-        lines.push(`S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`);
-    }
+// Helper function to make HTTP requests with default headers
+function makeRequest(url, options = {}) {
+    const defaultHeaders = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+        'Accept': 'application/json,*/*',
+        'Accept-Language': 'en-US,en;q=0.5',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+        ...options.headers
+    };
 
-    lines.push(`🎥 ${quality} · 🔊 ${audio}`);
-
-    if (size && size !== '-') {
-        lines.push(`💾 ${size}`);
-    }
-
-    if (codec && codec !== 'Unknown') {
-        lines.push(`🔧 ${codec}`);
-    }
-
-    if (source && source !== 'Unknown') {
-        lines.push(`📀 ${source}`);
-    }
-
-    lines.push("By Murph Streams ⚡");
-
-    return lines.join('\n');
+    return fetch(url, {
+        method: options.method || 'GET',
+        headers: defaultHeaders,
+        ...options
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        return response;
+    })
+    .catch(error => {
+        console.error(`[Vidlink] Request failed for ${url}: ${error.message}`);
+        throw error;
+    });
 }
 
-function extractEpisodeNumber(epName) {
-    if (!epName) return null;
-    const match = epName.match(/S(\d+)E(\d+)/i) || epName.match(/E(\d+)/i) || epName.match(/Episode[\s._-]*(\d+)/i);
-    return match ? parseInt(match[match.length - 1]) : null;
-}
+// M3U8 Parsing Functions
 
-function extractSeasonNumber(seasonName) {
-    if (!seasonName) return null;
-    const match = seasonName.match(/Season\s*(\d+)/i) || seasonName.match(/S(\d+)/i);
-    return match ? parseInt(match[1]) : null;
-}
-
-async function fetchDahmerStreams(title, season, episode) {
-    const cacheKey = `${title}_${season || 0}_${episode || 0}`;
-    const cached = getCached(streamCache, cacheKey);
-    if (cached) {
-        console.log(`[DahmerMovies] Cache HIT for ${title}`);
-        return cached;
-    }
-
+// Parse M3U8 content and extract quality streams
+function parseM3U8(content, baseUrl) {
+    const lines = content.split('\n').map(line => line.trim()).filter(line => line);
     const streams = [];
-    const isTv = season != null;
+    let currentStream = null;
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        
+        if (line.startsWith('#EXT-X-STREAM-INF:')) {
+            currentStream = { bandwidth: null, resolution: null, url: null };
+            
+            const bandwidthMatch = line.match(/BANDWIDTH=(\d+)/);
+            if (bandwidthMatch) {
+                currentStream.bandwidth = parseInt(bandwidthMatch[1]);
+            }
+            
+            const resolutionMatch = line.match(/RESOLUTION=(\d+x\d+)/);
+            if (resolutionMatch) {
+                currentStream.resolution = resolutionMatch[1];
+            }
+        } else if (currentStream && !line.startsWith('#')) {
+            currentStream.url = resolveUrl(line, baseUrl);
+            streams.push(currentStream);
+            currentStream = null;
+        }
+    }
+    return streams;
+}
 
+// Resolve relative URLs against base URL
+function resolveUrl(url, baseUrl) {
+    if (url.startsWith('http')) {
+        return url;
+    }
     try {
-        let apiUrl = `${SCRAPER_API}/search?q=${encodeURIComponent(title)}`;
-        
-        if (isTv) {
-            apiUrl += `&type=series`;
-            if (season != null) {
-                apiUrl += `&season=Season%20${season}`;
+        return new URL(url, baseUrl).toString();
+    } catch (error) {
+        console.error(`[Vidlink] Could not resolve URL: ${url} against ${baseUrl}`);
+        return url;
+    }
+}
+
+// Determine quality from resolution
+function getQualityFromResolution(resolution) {
+    if (!resolution) return 'Auto';
+    
+    const [width, height] = resolution.split('x').map(Number);
+    
+    if (height >= 2160) return '4K';
+    if (height >= 1440) return '1440p';
+    if (height >= 1080) return '1080p';
+    if (height >= 720) return '720p';
+    if (height >= 480) return '480p';
+    if (height >= 360) return '360p';
+    return '240p';
+}
+
+// Fetch and parse M3U8 playlist to extract quality variants
+function fetchAndParseM3U8(playlistUrl, mediaInfo) {
+    console.log(`[Vidlink] Fetching M3U8 playlist: ${playlistUrl.substring(0, 80)}...`);
+    
+    return makeRequest(playlistUrl, { headers: VIDLINK_HEADERS })
+        .then(response => response.text())
+        .then(m3u8Content => {
+            console.log(`[Vidlink] Parsing M3U8 content`);
+            const parsedStreams = parseM3U8(m3u8Content, playlistUrl);
+            
+            if (parsedStreams.length === 0) {
+                console.log('[Vidlink] No quality variants found, returning master playlist');
+                // Fallback: return the master playlist as Auto quality
+                return [{
+                    name: 'Vidlink - Auto',
+                    title: mediaInfo.title,
+                    url: playlistUrl,
+                    quality: 'Auto',
+                    size: 'Unknown',
+                    headers: VIDLINK_HEADERS,
+                    provider: 'vidlink'
+                }];
             }
-        } else {
-            apiUrl += `&type=movie`;
-        }
+            
+            console.log(`[Vidlink] Found ${parsedStreams.length} quality variants`);
+            
+            // Convert parsed streams to Nuvio format
+            const streams = parsedStreams.map(stream => {
+                const quality = getQualityFromResolution(stream.resolution);
+                const size =
+    calculateCalculatedFallbackSize(
+        quality,
+        mediaInfo.duration
+    );
 
-        console.log(`[DahmerMovies] API URL: ${apiUrl}`);
-        
-        const res = await fetch(apiUrl, { signal: AbortSignal.timeout(60000) });
-        if (!res.ok) {
-            console.log(`[DahmerMovies] API error: ${res.status}`);
-            return [];
-        }
-        
-        const data = await res.json();
-        
-        if (!data || (data.message && data.message.includes('No'))) {
-            console.log(`[DahmerMovies] No results found`);
-            return [];
-        }
+const formattedTitle = buildTitle(
+    {
+        name: mediaInfo.title,
+        year: mediaInfo.year,
+        duration: mediaInfo.duration,
+        episodeTitle: mediaInfo.episodeTitle
+    },
+    quality,
+    "Multi-Audio",
+    "M3U8",
+    size,
+    mediaInfo.season,
+    mediaInfo.episode
+);
 
-        console.log(`[DahmerMovies] Raw API response:`, JSON.stringify(data).substring(0, 500));
-
-        if (isTv) {
-            const episodes = data.episodes || [];
-            console.log(`[DahmerMovies] Found ${episodes.length} episodes, requested episode=${episode}`);
-
-            for (const ep of episodes) {
-                const epName = ep.name || '';
-                const epNum = extractEpisodeNumber(epName);
-                
-                if (episode != null && epNum !== null && epNum !== episode) continue;
-
-                const currentEpisode = epNum || episode || 1;
-                const seasonNum = season;
-                
-                const quality = ep.quality || 'HD';
-                const size = ep.size || '';
-                const codec = ep.codec || '';
-                const audio = ep.audio || 'Unknown';
-                const source = ep.source || '';
-                const url = ep.url;
-
-                if (!url || !url.startsWith('http')) {
-                    console.log(`[DahmerMovies] Skipping invalid URL: ${url}`);
-                    continue;
-                }
-
-                const name = `📥 ${PROVIDER_NAME} | ${quality} | ${audio}`;
-                const streamTitle = buildStreamTitle(seasonNum, currentEpisode, quality, size, codec, audio, source);
-
-                console.log(`[DahmerMovies] Adding: S${seasonNum}E${currentEpisode} ${quality}`);
-                streams.push({
-                    name,
-                    title: streamTitle,
-                    url
-                });
-            }
-            console.log(`[DahmerMovies] Total streams after filtering: ${streams.length}`);
-        } else {
-            const files = data.files || [];
-            console.log(`[DahmerMovies] Found ${files.length} movie files`);
-
-            for (const file of files) {
-                const quality = file.quality || 'HD';
-                const size = file.size || '';
-                const codec = file.codec || '';
-                const audio = file.audio || 'Unknown';
-                const source = file.source || '';
-                const url = file.url;
-
-                if (!url || !url.startsWith('http')) continue;
-
-                const name = `📥 ${PROVIDER_NAME} | ${quality} | ${audio}`;
-                const streamTitle = buildStreamTitle(null, null, quality, size, codec, audio, source);
-
-                console.log(`[DahmerMovies] Adding movie: ${quality}, url=${url.substring(0, 80)}`);
-                streams.push({
-                    name,
-                    title: streamTitle,
-                    url
-                });
-            }
-        }
-
-        streams.sort((a, b) => {
-            const pa = parseInt((a.name || '').match(/\d+p/)?.[0] || 0);
-            const pb = parseInt((b.name || '').match(/\d+p/)?.[0] || 0);
-            return pb - pa;
+return {
+    name: `🎦 Vidlink | ${quality} | Multi-Audio`,
+    title: formattedTitle,
+                    url: stream.url,
+                    quality: quality,
+                    size: 'Unknown',
+                    headers: VIDLINK_HEADERS,
+                    provider: 'vidlink'
+                };
+            });
+            
+            return streams;
+        })
+        .catch(error => {
+            console.error(`[Vidlink] Error fetching/parsing M3U8: ${error.message}`);
+            // Fallback: return the master playlist URL
+            return [{
+                name: 'Vidlink - Auto',
+                title: mediaInfo.title,
+                url: playlistUrl,
+                quality: 'Auto',
+                size: 'Unknown',
+                headers: VIDLINK_HEADERS,
+                provider: 'vidlink'
+            }];
         });
-
-        console.log(`[DahmerMovies] Resolved ${streams.length} streams`);
-        setCache(streamCache, cacheKey, streams);
-        return streams;
-    } catch (err) {
-        console.error(`[DahmerMovies] Error: ${err.message}`);
-        return [];
-    }
 }
 
-async function getStreams(tmdbId, mediaType, season, episode) {
-    const title = await getTitleFromTmdb(tmdbId, mediaType);
-    if (!title) {
-        console.log('[DahmerMovies] Could not fetch title, skipping.');
-        return [];
-    }
-    return await fetchDahmerStreams(title, season, episode);
+// Helper function to get TMDB info
+function getTmdbInfo(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
+
+    const endpoint = mediaType === 'tv' ? 'tv' : 'movie';
+
+    const url =
+        `https://api.themoviedb.org/3/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+
+    return makeRequest(url)
+        .then(response => response.json())
+        .then(data => {
+
+            const title =
+                mediaType === 'tv'
+                    ? data.name
+                    : data.title;
+
+            const year =
+                mediaType === 'tv'
+                    ? data.first_air_date?.substring(0, 4)
+                    : data.release_date?.substring(0, 4);
+
+            let duration =
+                mediaType === 'tv'
+                    ? `${data.episode_run_time?.[0] || 45} min`
+                    : `${data.runtime || 90} min`;
+
+            if (!title) {
+                throw new Error('Could not extract title from TMDB response');
+            }
+
+            // Fetch episode metadata for TV
+            if (mediaType === 'tv' && seasonNum && episodeNum) {
+
+                const epUrl =
+                    `https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNum}/episode/${episodeNum}?api_key=${TMDB_API_KEY}`;
+
+                return makeRequest(epUrl)
+                    .then(r => r.json())
+                    .then(epData => {
+
+                        if (epData.runtime) {
+                            duration = `${epData.runtime} min`;
+                        }
+
+                        return {
+                            title,
+                            year,
+                            duration,
+                            episodeTitle: epData.name || "",
+                            data
+                        };
+                    })
+                    .catch(() => ({
+                        title,
+                        year,
+                        duration,
+                        episodeTitle: "",
+                        data
+                    }));
+            }
+
+            return {
+                title,
+                year,
+                duration,
+                episodeTitle: "",
+                data
+            };
+        });
 }
 
-module.exports = { getStreams };
+// Encrypt TMDB ID using enc-dec.app API
+function encryptTmdbId(tmdbId) {
+    console.log(`[Vidlink] Encrypting TMDB ID: ${tmdbId}`);
+    
+    return makeRequest(`${ENC_DEC_API}/enc-vidlink?text=${tmdbId}`)
+    .then(response => response.json())
+    .then(data => {
+        if (data && data.result) {
+            console.log(`[Vidlink] Successfully encrypted TMDB ID`);
+            return data.result;
+        } else {
+            throw new Error('Invalid encryption response format');
+        }
+    })
+    .catch(error => {
+        console.error(`[Vidlink] Encryption failed: ${error.message}`);
+        throw error;
+    });
+}
+
+// Extract quality from stream data
+function extractQuality(streamData) {
+    if (!streamData) return 'Unknown';
+    
+    // Try to extract quality from various possible fields
+    const qualityFields = ['quality', 'resolution', 'label', 'name'];
+    
+    for (const field of qualityFields) {
+        if (streamData[field]) {
+            const quality = streamData[field].toString().toLowerCase();
+            
+            // Map common quality indicators
+            if (quality.includes('2160') || quality.includes('4k')) return '4K';
+            if (quality.includes('1440') || quality.includes('2k')) return '1440p';
+            if (quality.includes('1080') || quality.includes('fhd')) return '1080p';
+            if (quality.includes('720') || quality.includes('hd')) return '720p';
+            if (quality.includes('480') || quality.includes('sd')) return '480p';
+            if (quality.includes('360')) return '360p';
+            if (quality.includes('240')) return '240p';
+            
+            // Try to extract number from string
+            const match = quality.match(/(\d{3,4})[pP]?/);
+            if (match) {
+                const resolution = parseInt(match[1]);
+                if (resolution >= 2160) return '4K';
+                if (resolution >= 1440) return '1440p';
+                if (resolution >= 1080) return '1080p';
+                if (resolution >= 720) return '720p';
+                if (resolution >= 480) return '480p';
+                if (resolution >= 360) return '360p';
+                return '240p';
+            }
+        }
+    }
+    
+    return 'Unknown';
+}
+
+// Process Vidlink API response
+function processVidlinkResponse(data, mediaInfo) {
+    const streams = [];
+    
+    try {
+        console.log(`[Vidlink] Processing response data:`, JSON.stringify(data, null, 2));
+        
+        // Handle Vidlink's specific response format with stream.qualities
+        if (data.stream && data.stream.qualities) {
+            console.log(`[Vidlink] Processing qualities from stream object`);
+            
+            // Process each quality level
+            Object.entries(data.stream.qualities).forEach(([qualityKey, qualityData]) => {
+                if (qualityData.url) {
+                    const quality = extractQuality({ quality: qualityKey });
+                    const streamTitle = mediaInfo.mediaType === 'tv' && mediaInfo.season && mediaInfo.episode 
+                        ? `${mediaInfo.title} S${String(mediaInfo.season).padStart(2, '0')}E${String(mediaInfo.episode).padStart(2, '0')}`
+                        : mediaInfo.year 
+                            ? `${mediaInfo.title} (${mediaInfo.year})`
+                            : mediaInfo.title;
+                    
+                    streams.push({
+                        name: `Vidlink - ${quality}`,
+                        title: streamTitle,
+                        url: qualityData.url,
+                        quality: quality,
+                        size: 'Unknown',
+                        headers: VIDLINK_HEADERS,
+                        provider: 'vidlink'
+                    });
+                }
+            });
+            
+            // Handle playlist URL (HLS streams) - will be processed later
+            if (data.stream.playlist) {
+                const streamTitle = mediaInfo.mediaType === 'tv' && mediaInfo.season && mediaInfo.episode 
+                    ? `${mediaInfo.title} S${String(mediaInfo.season).padStart(2, '0')}E${String(mediaInfo.episode).padStart(2, '0')}`
+                    : mediaInfo.year 
+                        ? `${mediaInfo.title} (${mediaInfo.year})`
+                        : mediaInfo.title;
+                
+                // Mark for M3U8 processing
+                streams.push({
+                    _isPlaylist: true,
+                    url: data.stream.playlist,
+                    mediaInfo: { ...mediaInfo, title: streamTitle }
+                });
+            }
+        }
+        // Handle playlist-only responses (HLS streams without qualities)
+        else if (data.stream && data.stream.playlist && !data.stream.qualities) {
+            console.log(`[Vidlink] Processing playlist-only response`);
+            
+            const streamTitle = mediaInfo.mediaType === 'tv' && mediaInfo.season && mediaInfo.episode 
+                ? `${mediaInfo.title} S${String(mediaInfo.season).padStart(2, '0')}E${String(mediaInfo.episode).padStart(2, '0')}`
+                : mediaInfo.year 
+                    ? `${mediaInfo.title} (${mediaInfo.year})`
+                    : mediaInfo.title;
+            
+            // Mark for M3U8 processing
+            streams.push({
+                _isPlaylist: true,
+                url: data.stream.playlist,
+                mediaInfo: { ...mediaInfo, title: streamTitle }
+            });
+        }
+        // Handle single stream URL
+        else if (data.url) {
+            const quality = extractQuality(data);
+            const streamTitle = mediaInfo.mediaType === 'tv' && mediaInfo.season && mediaInfo.episode 
+                ? `${mediaInfo.title} S${String(mediaInfo.season).padStart(2, '0')}E${String(mediaInfo.episode).padStart(2, '0')}`
+                : mediaInfo.year 
+                    ? `${mediaInfo.title} (${mediaInfo.year})`
+                    : mediaInfo.title;
+            
+            streams.push({
+                name: `Vidlink - ${quality}`,
+                title: streamTitle,
+                url: data.url,
+                quality: quality,
+                size: 'Unknown',
+                headers: VIDLINK_HEADERS,
+                provider: 'vidlink'
+            });
+        }
+        // Handle multiple streams array
+        else if (data.streams && Array.isArray(data.streams)) {
+            data.streams.forEach((stream, index) => {
+                if (stream.url) {
+                    const quality = extractQuality(stream);
+                    const streamTitle = mediaInfo.mediaType === 'tv' && mediaInfo.season && mediaInfo.episode 
+                        ? `${mediaInfo.title} S${String(mediaInfo.season).padStart(2, '0')}E${String(mediaInfo.episode).padStart(2, '0')}`
+                        : mediaInfo.year 
+                            ? `${mediaInfo.title} (${mediaInfo.year})`
+                            : mediaInfo.title;
+                    
+                    streams.push({
+                        name: `Vidlink Stream ${index + 1} - ${quality}`,
+                        title: streamTitle,
+                        url: stream.url,
+                        quality: quality,
+                        size: stream.size || 'Unknown',
+                        headers: VIDLINK_HEADERS,
+                        provider: 'vidlink'
+                    });
+                }
+            });
+        }
+        // Handle links array format
+        else if (data.links && Array.isArray(data.links)) {
+            data.links.forEach((link, index) => {
+                if (link.url) {
+                    const quality = extractQuality(link);
+                    const streamTitle = mediaInfo.mediaType === 'tv' && mediaInfo.season && mediaInfo.episode 
+                        ? `${mediaInfo.title} S${String(mediaInfo.season).padStart(2, '0')}E${String(mediaInfo.episode).padStart(2, '0')}`
+                        : mediaInfo.year 
+                            ? `${mediaInfo.title} (${mediaInfo.year})`
+                            : mediaInfo.title;
+                    
+                    streams.push({
+                        name: `Vidlink Link ${index + 1} - ${quality}`,
+                        title: streamTitle,
+                        url: link.url,
+                        quality: quality,
+                        size: link.size || 'Unknown',
+                        headers: VIDLINK_HEADERS,
+                        provider: 'vidlink'
+                    });
+                }
+            });
+        }
+        // Fallback: Try to find any URL property in the object (excluding subtitles)
+        else if (typeof data === 'object') {
+            const findUrls = (obj, path = '') => {
+                for (const [key, value] of Object.entries(obj)) {
+                    if (typeof value === 'string' && (value.startsWith('http') || value.includes('.m3u8'))) {
+                        // Skip subtitle files (.srt, .vtt, subtitle-related URLs)
+                        if (value.includes('.srt') || value.includes('.vtt') || 
+                            value.includes('subtitle') || value.includes('captions') ||
+                            key.toLowerCase().includes('subtitle') || key.toLowerCase().includes('caption')) {
+                            continue;
+                        }
+                        
+                        const quality = extractQuality({ [key]: value });
+                        const streamTitle = mediaInfo.mediaType === 'tv' && mediaInfo.season && mediaInfo.episode 
+                            ? `${mediaInfo.title} S${String(mediaInfo.season).padStart(2, '0')}E${String(mediaInfo.episode).padStart(2, '0')}`
+                            : mediaInfo.year 
+                                ? `${mediaInfo.title} (${mediaInfo.year})`
+                                : mediaInfo.title;
+                        
+                        streams.push({
+                            name: `Vidlink ${key} - ${quality}`,
+                            title: streamTitle,
+                            url: value,
+                            quality: quality,
+                            size: 'Unknown',
+                            headers: VIDLINK_HEADERS,
+                            provider: 'vidlink'
+                        });
+                    } else if (typeof value === 'object' && value !== null) {
+                        // Skip captions/subtitles objects
+                        if (key.toLowerCase().includes('caption') || key.toLowerCase().includes('subtitle')) {
+                            continue;
+                        }
+                        findUrls(value, path ? `${path}.${key}` : key);
+                    }
+                }
+            };
+            
+            findUrls(data);
+        }
+        
+        console.log(`[Vidlink] Extracted ${streams.length} streams from response`);
+        
+    } catch (error) {
+        console.error(`[Vidlink] Error processing response: ${error.message}`);
+    }
+    
+    return streams;
+}
+
+// Main function to get streams - adapted for Nuvio provider format
+function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
+    console.log(`[Vidlink] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}${mediaType === 'tv' ? `, S:${seasonNum}E:${episodeNum}` : ''}`);
+    
+    return getTmdbInfo(tmdbId, mediaType)
+    .then(tmdbInfo => {
+        const { title, year } = tmdbInfo;
+        
+        // Encrypt TMDB ID
+        return encryptTmdbId(tmdbId)
+        .then(encryptedId => {
+            // Build Vidlink API URL
+            let vidlinkUrl;
+            if (mediaType === 'tv' && seasonNum && episodeNum) {
+                vidlinkUrl = `${VIDLINK_API}/tv/${encryptedId}/${seasonNum}/${episodeNum}`;
+            } else {
+                vidlinkUrl = `${VIDLINK_API}/movie/${encryptedId}`;
+            }
+            
+            console.log(`[Vidlink] Requesting: ${vidlinkUrl}`);
+            
+            // Fetch stream data from Vidlink
+            return makeRequest(vidlinkUrl, {
+                headers: VIDLINK_HEADERS
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log(`[Vidlink] Received response from Vidlink API`);
+                
+                // Process the response
+                const mediaInfo = {
+                    title: title,
+                    year: year,
+                    mediaType: mediaType,
+                    season: seasonNum,
+                    episode: episodeNum
+                };
+                
+                const streams = processVidlinkResponse(data, mediaInfo);
+                
+                if (streams.length === 0) {
+                    console.log('[Vidlink] No streams found in response');
+                    return [];
+                }
+                
+                // Check if we have any playlist streams to process
+                const playlistStreams = streams.filter(s => s._isPlaylist);
+                const directStreams = streams.filter(s => !s._isPlaylist);
+                
+                if (playlistStreams.length > 0) {
+                    console.log(`[Vidlink] Processing ${playlistStreams.length} M3U8 playlists`);
+                    
+                    // Fetch and parse each M3U8 playlist
+                    const playlistPromises = playlistStreams.map(ps => 
+                        fetchAndParseM3U8(ps.url, ps.mediaInfo)
+                    );
+                    
+                    return Promise.all(playlistPromises)
+                        .then(parsedStreamArrays => {
+                            // Flatten the arrays and combine with direct streams
+                            const allStreams = directStreams.concat(...parsedStreamArrays);
+                            
+                            // Sort streams by quality (highest first)
+                            const qualityOrder = { '4K': 5, '1440p': 4, '1080p': 3, '720p': 2, '480p': 1, '360p': 0, '240p': -1, 'Auto': -2, 'Unknown': -3 };
+                            allStreams.sort((a, b) => (qualityOrder[b.quality] || -3) - (qualityOrder[a.quality] || -3));
+                            
+                            console.log(`[Vidlink] Successfully processed ${allStreams.length} total streams`);
+                            return allStreams;
+                        });
+                } else {
+                    // No playlists, just sort and return direct streams
+                    const qualityOrder = { '4K': 5, '1440p': 4, '1080p': 3, '720p': 2, '480p': 1, '360p': 0, '240p': -1, 'Auto': -2, 'Unknown': -3 };
+                    directStreams.sort((a, b) => (qualityOrder[b.quality] || -3) - (qualityOrder[a.quality] || -3));
+                    
+                    console.log(`[Vidlink] Successfully processed ${directStreams.length} streams`);
+                    return directStreams;
+                }
+            });
+        });
+    })
+    .catch(error => {
+        console.error(`[Vidlink] Error in getStreams: ${error.message}`);
+        return [];
+    });
+}
+
+// Export for React Native
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { getStreams };
+} else {
+    global.VidlinkScraperModule = { getStreams };
+}

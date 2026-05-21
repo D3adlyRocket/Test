@@ -627,7 +627,12 @@ if (String(tmdbId).startsWith("tt")) {
 function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
     console.log(`[Vidlink] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}${mediaType === 'tv' ? `, S:${seasonNum}E:${episodeNum}` : ''}`);
     
-    return getTmdbInfo(tmdbId, mediaType)
+    return getTmdbInfo(
+    tmdbId,
+    mediaType,
+    seasonNum,
+    episodeNum
+)
     .then(tmdbInfo => {
         const { title, year } = tmdbInfo;
         

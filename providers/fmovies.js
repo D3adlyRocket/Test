@@ -202,7 +202,7 @@ function wrapInProxy(targetUrl) {
   var targetReferer = 'https://vidnest.fun/';
   var cleanUrl = targetUrl;
 
-  // 1. Strip away any existing proxy layers to grab ONLY the raw video link
+  // 1. Instantly parse out existing proxy wrappers if present
   if (targetUrl.indexOf('workers.dev/api/proxy') !== -1) {
     try {
       var urlParam = targetUrl.split('url=')[1];
@@ -214,15 +214,9 @@ function wrapInProxy(targetUrl) {
     }
   }
 
-  // 2. DOUBLE ENCODE the parameter separator so the media player UI 
-  // absolutely cannot decode it back to a literal "&" on its presentation layer.
-  var encodedUrl = encodeURIComponent(cleanUrl);
-  var encodedReferer = encodeURIComponent(targetReferer);
-  
-  // %2526 is the double-encoded representation of &
-  var queryString = '?url=' + encodedUrl + '%2526referer%3D' + encodedReferer;
-                    
-  return proxyBase + queryString;
+  // 2. Use clean, classic URL formation to avoid parameter truncation completely
+  var finalUrl = proxyBase + '?url=' + encodeURIComponent(cleanUrl) + '&referer=' + encodeURIComponent(targetReferer);
+  return finalUrl;
 }
 
 function getStreams(id, mediaType, season, episode, providerContext) {
@@ -242,7 +236,6 @@ function getStreams(id, mediaType, season, episode, providerContext) {
     return getMetadata(resolvedTmdbId, normalizedType, season, episode, providerContext)
       .then(function(metadata) {
         
-        // Dynamically adjust endpoint route based on content profile type
         var apiUrl = 'https://goatapi.imreallydagoatt.workers.dev/api/downloader/' + normalizedType + '/' + resolvedTmdbId;
         if (normalizedType === 'tv') {
           apiUrl += '/' + season + '/' + episode;

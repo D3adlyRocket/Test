@@ -210,11 +210,17 @@ function getMetadata(id, type, season, episode, fallbackContext) {
 
 function wrapInProxy(targetUrl) {
   if (!targetUrl) return targetUrl;
-  var proxyBase = 'https://goatapi.imreallydagoatt.workers.dev/api/proxy';
-  var referer = 'https://vidnest.fun/';
   
-  return proxyBase + '?url=' + encodeURIComponent(targetUrl) + '&referer=' + encodeURIComponent(referer);
+  var proxyBase = 'https://goatapi.imreallydagoatt.workers.dev/api/proxy';
+  var targetReferer = 'https://vidnest.fun/';
+  
+  // Safely encode the entire inner target query payload
+  var queryString = '?url=' + encodeURIComponent(targetUrl) + 
+                    '&referer=' + encodeURIComponent(targetReferer);
+                    
+  return proxyBase + queryString;
 }
+
 
 function getStreams(id, mediaType, season, episode, providerContext) {
   console.log('[GoatAPI] getStreams → id=' + id + ' type=' + mediaType);

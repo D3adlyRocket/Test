@@ -116,7 +116,23 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     }
 
     if (!html) return [];
-    const paths = parseLinks(html);
+    let paths = parseLinks(html);
+
+// Filter exact episode for TV shows
+if (mediaType === 'tv' && season !== null && episode !== null) {
+    const seasonStr = String(season).padStart(2, '0');
+    const episodeStr = String(episode).padStart(2, '0');
+
+    paths = paths.filter(path => {
+        const file = path.text.toUpperCase();
+
+        return (
+            file.includes(`S${seasonStr}E${episodeStr}`) ||
+            file.includes(`${seasonStr}X${episodeStr}`) ||
+            file.includes(`SEASON ${season} EPISODE ${episode}`)
+        );
+    });
+}
 
     const sortedPaths = paths.sort((a, b) => {
         const a4k = /2160p|4k/i.test(a.text);

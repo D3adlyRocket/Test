@@ -95,7 +95,7 @@ function buildTitle(meta, res, lang, format, size, filename) {
 
   return line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 }
-async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie') {
+async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie', tmdbData = {}) {
     const cleanTitle = title.replace(/:/g, '');
     const folderVariants = season !== null ? [
         `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season < 10 ? '0' + season : season}/`,
@@ -165,12 +165,20 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
             .trim();
 
         // Creates the layout metadata details
-        const displayTitle = mediaType === 'tv' ? title + ` S${season < 10 ? '0' + season : season}E${episode < 10 ? '0' + episode : episode}` : title;
-        const metaPayload = {
-            name: displayTitle,
-            year: year,
-            duration: season !== null ? '45 min' : '90 min'
-        };
+const displayTitle = mediaType === 'tv'
+    ? title + ` S${season < 10 ? '0' + season : season}E${episode < 10 ? '0' + episode : episode}`
+    : title;
+
+const runtime =
+    mediaType === 'tv'
+        ? (tmdbData?.episode_run_time?.[0] || 45)
+        : (tmdbData?.runtime || 90);
+
+const metaPayload = {
+    name: displayTitle,
+    year: year,
+    duration: runtime + ' min'
+};
 
         const generatedTitle = buildTitle(
             metaPayload,

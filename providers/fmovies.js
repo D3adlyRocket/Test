@@ -171,7 +171,12 @@ const displayTitle = mediaType === 'tv'
 
 const runtime =
     mediaType === 'tv'
-        ? (tmdbData?.episode_run_time?.[0] || 45)
+        ? (
+            tmdbData?.episode_run_time?.find(v => v > 0) ||
+            tmdbData?.last_episode_to_air?.runtime ||
+            tmdbData?.next_episode_to_air?.runtime ||
+            45
+        )
         : (tmdbData?.runtime || 90);
 
 const metaPayload = {

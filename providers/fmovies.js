@@ -1,6 +1,11 @@
 // Metadata config matched to your UI setup
 var TMDB_API_KEY = '68e094699525b18a70bab2f86b1fa706';
 
+var HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Accept": "application/json, text/plain, */*"
+};
+
 function normalizeCodecLabel(codec) {
   switch ((codec || '').trim().toLowerCase()) {
     case 'h264': case 'avc': case 'mpeg-4 avc': case 'mpeg4-avc': return 'H264';
@@ -73,26 +78,26 @@ function extractSourceName(stream) {
 
   if (stream.url) {
     try {
-      var host = new URL(stream.url).hostname.replace(/^www\./, '');
-      var seg = host.split('.')[0];
-      return seg.charAt(0).toUpperCase() + seg.slice(1);
+      // Use regex instead of `new URL()` because some mobile QuickJS environments lack the URL Web API!
+      var match = stream.url.match(/^https?:\/\/(?:www\.)?([^\/:]+)/i);
+      if (match && match[1]) {
+        var seg = match[1].split('.')[0];
+        return seg.charAt(0).toUpperCase() + seg.slice(1);
+      }
     } catch (e) {}
   }
   return 'Direct';
 }
 
-// Advanced properties analyzer parser parsing from raw filename context
 function parseFileInfo(filename) {
   var text = String(filename || '').toUpperCase();
   
-  // 1. Source type identification
   var source = 'Unknown Source';
   if (/\bBLURAY\b|\bBLU-RAY\b|\bBDREMUX\b/i.test(text)) source = 'BluRay';
   else if (/\bWEB-DL\b|\bWEBDL\b|\bWEB\b/i.test(text)) source = 'WEB-DL';
   else if (/\bHDTV\b/i.test(text)) source = 'HDTV';
   else if (/\bCAM\b|\bCAMRIP\b/i.test(text)) source = 'CAM';
 
-  // 2. Video Encoding parameters
   var videoCodec = 'Unknown Video';
   if (/\bH\.?265\b|\bX265\b|\bHEVC\b/i.test(text)) {
     videoCodec = 'H265';
@@ -105,15 +110,13 @@ function parseFileInfo(filename) {
     videoCodec = 'AV1';
   }
 
-  // 3. Audio format profile attributes
-  var audioCodec = 'AAC'; // Baseline standard container profile fallback
+  var audioCodec = 'AAC';
   if (/\bTRUEHD\b/i.test(text)) audioCodec = 'TrueHD';
   else if (/\bATMOS\b/i.test(text)) audioCodec = 'Atmos';
   else if (/\bDDP\b|\bEAC3\b/i.test(text)) audioCodec = 'DDP';
   else if (/\bDD\b|\bAC3\b/i.test(text)) audioCodec = 'DD';
   else if (/\bDTS\b/i.test(text)) audioCodec = 'DTS';
 
-  // 4. Surround audio layout configurations
   var audioChannels = '';
   if (/\b7\.1\b/.test(text)) audioChannels = '7.1';
   else if (/\b5\.1\b/.test(text)) audioChannels = '5.1';
@@ -126,21 +129,13 @@ function parseFileInfo(filename) {
   };
 }
 
-// Fixed multi-line UI compositor running up to 4 sequential rows
 function buildTitle(meta, res, lang, format, size, filename) {
   var qIcon = (res.includes('4K') || res.includes('2160')) ? '🌟' : '💎';
   var parsed = parseFileInfo(filename);
   
-  // Line 1: Movie context metadata details
   var line1 = '🎬 ' + meta.name + (meta.year ? ' (' + meta.year + ')' : '');
-
-  // Line 2: Spatial properties identifiers
   var line2 = qIcon + ' ' + res + ' | 🌍 ' + lang + ' | 💾 ' + (size || 'Variable Size');
-  
-  // Line 3: System containers and hardware encodings indicators
   var line3 = '🎞️ ' + format.toUpperCase() + ' | ⏱️ ' + meta.duration + ' | 📼 ' + parsed.videoCodec;
-
-  // Line 4: Specific release tags and sound formats
   var line4 = '🏷️ ' + parsed.source + ' | 🔊 ' + parsed.audioProfile;
 
   return line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
@@ -150,7 +145,7 @@ function getTmdbId(imdbId, type) {
   var normalizedType = String(type).toLowerCase();
   var findUrl = 'https://api.themoviedb.org/3/find/' + imdbId + '?api_key=' + TMDB_API_KEY + '&external_source=imdb_id';
   
-  return fetch(findUrl)
+  return fetch(findUrl, { headers: HEADERS })
     .then(function(res) { return res.ok ? res.json() : null; })
     .then(function(data) {
       if (!data) return null;
@@ -161,9 +156,7 @@ function getTmdbId(imdbId, type) {
       }
       return null;
     })
-    .catch(function() {
-      return null;
-    });
+    .catch(function() { return null; });
 }
 
 function getMetadata(id, type, season, episode, fallbackContext) {
@@ -179,7 +172,7 @@ function getMetadata(id, type, season, episode, fallbackContext) {
   var endpoint = normalizedType === 'movie' ? 'movie' : 'tv';
   var url = 'https://api.themoviedb.org/3/' + endpoint + '/' + id + '?api_key=' + TMDB_API_KEY;
 
-  return fetch(url)
+  return fetch(url, { headers: HEADERS })
     .then(function(res) { return res.ok ? res.json() : Promise.reject(); })
     .then(function(data) {
       var duration = localFallbackDuration;
@@ -190,7 +183,7 @@ function getMetadata(id, type, season, episode, fallbackContext) {
         return { name: data.title || data.name || localFallbackName, year: year, duration: duration };
       } else if (normalizedType === 'tv') {
         var epUrl = 'https://api.themoviedb.org/3/tv/' + id + '/season/' + season + '/episode/' + episode + '?api_key=' + TMDB_API_KEY;
-        return fetch(epUrl)
+        return fetch(epUrl, { headers: HEADERS })
           .then(function(epRes) { return epRes.ok ? epRes.json() : null; })
           .then(function(epData) {
             if (epData && epData.runtime) {
@@ -214,7 +207,9 @@ function getStreams(id, mediaType, season, episode, providerContext) {
   var requestedType = String(mediaType).toLowerCase();
   var normalizedType = requestedType === 'series' ? 'tv' : requestedType;
 
+  // IMPORTANT: The GoatAPI code currently explicitly blocks TV Shows!
   if (normalizedType !== 'movie') {
+    console.log('[GoatAPI] Skipping because only movies are supported by this endpoint.');
     return Promise.resolve([]);
   }
 
@@ -230,11 +225,18 @@ function getStreams(id, mediaType, season, episode, providerContext) {
       .then(function(metadata) {
         var apiUrl = 'https://goatapi.imreallydagoatt.workers.dev/api/downloader/movie/' + resolvedTmdbId;
 
-        return fetch(apiUrl)
-          .then(function(res) { return res.json(); })
+        // CRITICAL FIX: Android Phones get blocked by Cloudflare if you fetch without a User-Agent!
+        return fetch(apiUrl, { headers: HEADERS })
+          .then(function(res) { 
+            if (!res.ok) {
+              console.error('[GoatAPI] API returned status: ' + res.status);
+              return null;
+            }
+            return res.json(); 
+          })
           .then(function(data) {
             if (!data || data.success !== true) {
-              console.log('[GoatAPI] GoatAPI success=false');
+              console.log('[GoatAPI] GoatAPI success=false or invalid response');
               return [];
             }
 
@@ -267,6 +269,16 @@ function getStreams(id, mediaType, season, episode, providerContext) {
                   title:   generatedTitle,
                   quality: quality.toLowerCase(),
                   url:     stream.url,
+                  behaviorHints: {
+                    proxyHeaders: {
+                      request: {
+                        "User-Agent": HEADERS["User-Agent"]
+                      },
+                      response: {
+                        "Content-Type": "video/mp4"
+                      }
+                    }
+                  }
                 });
               });
             } else if (data.downloads) {
@@ -293,6 +305,16 @@ function getStreams(id, mediaType, season, episode, providerContext) {
                     title:   generatedTitle,
                     quality: quality.toLowerCase(),
                     url:     src.url,
+                    behaviorHints: {
+                      proxyHeaders: {
+                        request: {
+                          "User-Agent": HEADERS["User-Agent"]
+                        },
+                        response: {
+                          "Content-Type": "video/mp4"
+                        }
+                      }
+                    }
                   });
                 });
               });

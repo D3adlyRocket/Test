@@ -81,15 +81,18 @@ function extractSourceName(stream) {
   return 'Direct';
 }
 
+// Advanced properties analyzer parser parsing from raw filename context
 function parseFileInfo(filename) {
   var text = String(filename || '').toUpperCase();
   
+  // 1. Source type identification
   var source = 'Unknown Source';
   if (/\bBLURAY\b|\bBLU-RAY\b|\bBDREMUX\b/i.test(text)) source = 'BluRay';
   else if (/\bWEB-DL\b|\bWEBDL\b|\bWEB\b/i.test(text)) source = 'WEB-DL';
   else if (/\bHDTV\b/i.test(text)) source = 'HDTV';
   else if (/\bCAM\b|\bCAMRIP\b/i.test(text)) source = 'CAM';
 
+  // 2. Video Encoding parameters
   var videoCodec = 'Unknown Video';
   if (/\bH\.?265\b|\bX265\b|\bHEVC\b/i.test(text)) {
     videoCodec = 'H265';
@@ -102,13 +105,15 @@ function parseFileInfo(filename) {
     videoCodec = 'AV1';
   }
 
-  var audioCodec = 'AAC'; 
+  // 3. Audio format profile attributes
+  var audioCodec = 'AAC'; // Baseline standard container profile fallback
   if (/\bTRUEHD\b/i.test(text)) audioCodec = 'TrueHD';
   else if (/\bATMOS\b/i.test(text)) audioCodec = 'Atmos';
   else if (/\bDDP\b|\bEAC3\b/i.test(text)) audioCodec = 'DDP';
   else if (/\bDD\b|\bAC3\b/i.test(text)) audioCodec = 'DD';
   else if (/\bDTS\b/i.test(text)) audioCodec = 'DTS';
 
+  // 4. Surround audio layout configurations
   var audioChannels = '';
   if (/\b7\.1\b/.test(text)) audioChannels = '7.1';
   else if (/\b5\.1\b/.test(text)) audioChannels = '5.1';
@@ -121,13 +126,21 @@ function parseFileInfo(filename) {
   };
 }
 
+// Fixed multi-line UI compositor running up to 4 sequential rows
 function buildTitle(meta, res, lang, format, size, filename) {
   var qIcon = (res.includes('4K') || res.includes('2160')) ? '🌟' : '💎';
   var parsed = parseFileInfo(filename);
   
+  // Line 1: Movie context metadata details
   var line1 = '🎬 ' + meta.name + (meta.year ? ' (' + meta.year + ')' : '');
+
+  // Line 2: Spatial properties identifiers
   var line2 = qIcon + ' ' + res + ' | 🌍 ' + lang + ' | 💾 ' + (size || 'Variable Size');
+  
+  // Line 3: System containers and hardware encodings indicators
   var line3 = '🎞️ ' + format.toUpperCase() + ' | ⏱️ ' + meta.duration + ' | 📼 ' + parsed.videoCodec;
+
+  // Line 4: Specific release tags and sound formats
   var line4 = '🏷️ ' + parsed.source + ' | 🔊 ' + parsed.audioProfile;
 
   return line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
@@ -195,41 +208,15 @@ function getMetadata(id, type, season, episode, fallbackContext) {
     });
 }
 
-function wrapInProxy(targetUrl) {
-  if (!targetUrl) return targetUrl;
-  
-  var proxyBase = 'https://goatapi.imreallydagoatt.workers.dev/api/proxy';
-  var targetReferer = 'https://vidnest.fun/';
-  var cleanUrl = targetUrl;
-
-  // 1. Strip away any existing proxy layers to grab ONLY the raw video link
-  if (targetUrl.indexOf('workers.dev/api/proxy') !== -1) {
-    try {
-      var urlParam = targetUrl.split('url=')[1];
-      if (urlParam) {
-        cleanUrl = decodeURIComponent(urlParam.split('&')[0]);
-      }
-    } catch (e) {
-      console.log('[GoatAPI] Fallback split parsing failed');
-    }
-  }
-
-  // 2. DOUBLE ENCODE the parameter separator so the media player UI 
-  // absolutely cannot decode it back to a literal "&" on its presentation layer.
-  var encodedUrl = encodeURIComponent(cleanUrl);
-  var encodedReferer = encodeURIComponent(targetReferer);
-  
-  // %2526 is the double-encoded representation of &
-  var queryString = '?url=' + encodedUrl + '%2526referer%3D' + encodedReferer;
-                    
-  return proxyBase + queryString;
-}
-
 function getStreams(id, mediaType, season, episode, providerContext) {
   console.log('[GoatAPI] getStreams → id=' + id + ' type=' + mediaType);
 
   var requestedType = String(mediaType).toLowerCase();
-  var normalizedType = (requestedType === 'series' || requestedType === 'tv') ? 'tv' : 'movie';
+  var normalizedType = requestedType === 'series' ? 'tv' : requestedType;
+
+  if (normalizedType !== 'movie') {
+    return Promise.resolve([]);
+  }
 
   var tmdbIdPromise = Promise.resolve(id.toString().replace('tmdb:', ''));
   if (id.toString().startsWith('tt')) {
@@ -241,18 +228,13 @@ function getStreams(id, mediaType, season, episode, providerContext) {
   return tmdbIdPromise.then(function(resolvedTmdbId) {
     return getMetadata(resolvedTmdbId, normalizedType, season, episode, providerContext)
       .then(function(metadata) {
-        
-        // Dynamically adjust endpoint route based on content profile type
-        var apiUrl = 'https://goatapi.imreallydagoatt.workers.dev/api/downloader/' + normalizedType + '/' + resolvedTmdbId;
-        if (normalizedType === 'tv') {
-          apiUrl += '/' + season + '/' + episode;
-        }
+        var apiUrl = 'https://goatapi.imreallydagoatt.workers.dev/api/downloader/movie/' + resolvedTmdbId;
 
         return fetch(apiUrl)
           .then(function(res) { return res.json(); })
           .then(function(data) {
             if (!data || data.success !== true) {
-              console.log('[GoatAPI] GoatAPI success=false or missing data payload');
+              console.log('[GoatAPI] GoatAPI success=false');
               return [];
             }
 
@@ -284,7 +266,7 @@ function getStreams(id, mediaType, season, episode, providerContext) {
                   name:    'GoatAPI | ' + quality + ' | ' + sourceName,
                   title:   generatedTitle,
                   quality: quality.toLowerCase(),
-                  url:     wrapInProxy(stream.url),
+                  url:     stream.url,
                 });
               });
             } else if (data.downloads) {
@@ -310,7 +292,7 @@ function getStreams(id, mediaType, season, episode, providerContext) {
                     name:    'GoatAPI | ' + quality + ' | ' + host,
                     title:   generatedTitle,
                     quality: quality.toLowerCase(),
-                    url:     wrapInProxy(src.url),
+                    url:     src.url,
                   });
                 });
               });
@@ -322,7 +304,7 @@ function getStreams(id, mediaType, season, episode, providerContext) {
       });
   })
   .catch(function(err) {
-    console.error('[GoatAPI] Error inside scraper context: ' + err.message);
+    console.error('[GoatAPI] Error: ' + err.message);
     return [];
   });
 }

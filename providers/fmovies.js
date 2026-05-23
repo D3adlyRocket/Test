@@ -208,6 +208,14 @@ function getMetadata(id, type, season, episode, fallbackContext) {
     });
 }
 
+function wrapInProxy(targetUrl) {
+  if (!targetUrl) return targetUrl;
+  var proxyBase = 'https://goatapi.imreallydagoatt.workers.dev/api/proxy';
+  var referer = 'https://vidnest.fun/';
+  
+  return proxyBase + '?url=' + encodeURIComponent(targetUrl) + '&referer=' + encodeURIComponent(referer);
+}
+
 function getStreams(id, mediaType, season, episode, providerContext) {
   console.log('[GoatAPI] getStreams → id=' + id + ' type=' + mediaType);
 
@@ -266,7 +274,6 @@ function getStreams(id, mediaType, season, episode, providerContext) {
                   name:    'GoatAPI | ' + quality + ' | ' + sourceName,
                   title:   generatedTitle,
                   quality: quality.toLowerCase(),
-                  // Wrapped with the proxy helper
                   url:     wrapInProxy(stream.url),
                 });
               });
@@ -293,7 +300,6 @@ function getStreams(id, mediaType, season, episode, providerContext) {
                     name:    'GoatAPI | ' + quality + ' | ' + host,
                     title:   generatedTitle,
                     quality: quality.toLowerCase(),
-                    // Wrapped with the proxy helper
                     url:     wrapInProxy(src.url),
                   });
                 });
@@ -309,97 +315,6 @@ function getStreams(id, mediaType, season, episode, providerContext) {
     console.error('[GoatAPI] Error: ' + err.message);
     return [];
   });
-}
-
-  return tmdbIdPromise.then(function(resolvedTmdbId) {
-    return getMetadata(resolvedTmdbId, normalizedType, season, episode, providerContext)
-      .then(function(metadata) {
-        var apiUrl = 'https://goatapi.imreallydagoatt.workers.dev/api/downloader/movie/' + resolvedTmdbId;
-
-        return fetch(apiUrl)
-          .then(function(res) { return res.json(); })
-          .then(function(data) {
-            if (!data || data.success !== true) {
-              console.log('[GoatAPI] GoatAPI success=false');
-              return [];
-            }
-
-            var streams = [];
-
-            if (data.streams && data.streams.length > 0) {
-              data.streams.forEach(function(stream) {
-                if (!stream.url) return;
-
-                var filename   = extractFilename(stream);
-                var size       = (stream.size || '').trim() || 'Variable Size';
-                var sourceName = extractSourceName(stream);
-                var quality    = detectQuality([
-                  stream.quality, stream.label, stream.title,
-                  stream.release, stream.source, stream.encode,
-                  stream.format,  stream.codec,  filename, stream.url
-                ]);
-
-                var generatedTitle = buildTitle(
-                  metadata,
-                  quality,
-                  'English',
-                  'MKV',
-                  size,
-                  filename
-                );
-
-                streams.push({
-                  name:    'GoatAPI | ' + quality + ' | ' + sourceName,
-                  title:   generatedTitle,
-                  quality: quality.toLowerCase(),
-                  url:     stream.url,
-                });
-              });
-            } else if (data.downloads) {
-              data.downloads.forEach(function(download) {
-                (download.sources || []).forEach(function(src) {
-                  if (!src.url) return;
-
-                  var filename   = extractDownloadFilename(download, src);
-                  var size       = (download.size || '').trim() || 'Variable Size';
-                  var host       = (src.name || '').trim().replace(/\s+\d+$/, '').trim() || 'Mirror';
-                  var quality    = detectQuality([download.title, filename]);
-
-                  var generatedTitle = buildTitle(
-                    metadata,
-                    quality,
-                    'English',
-                    'MKV',
-                    size,
-                    filename
-                  );
-
-                  streams.push({
-                    name:    'GoatAPI | ' + quality + ' | ' + host,
-                    title:   generatedTitle,
-                    quality: quality.toLowerCase(),
-                    url:     src.url,
-                  });
-                });
-              });
-            }
-
-            console.log('[GoatAPI] Returning ' + streams.length + ' stream(s)');
-            return streams;
-          });
-      });
-  })
-  .catch(function(err) {
-    console.error('[GoatAPI] Error: ' + err.message);
-    return [];
-  });
-}
-function wrapInProxy(targetUrl) {
-  if (!targetUrl) return targetUrl;
-  var proxyBase = 'https://goatapi.imreallydagoatt.workers.dev/api/proxy';
-  var referer = 'https://vidnest.fun/';
-  
-  return proxyBase + '?url=' + encodeURIComponent(targetUrl) + '&referer=' + encodeURIComponent(referer);
 }
 
 module.exports = { getStreams };

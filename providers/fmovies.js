@@ -213,14 +213,27 @@ function wrapInProxy(targetUrl) {
   
   var proxyBase = 'https://goatapi.imreallydagoatt.workers.dev/api/proxy';
   var targetReferer = 'https://vidnest.fun/';
+  var cleanUrl = targetUrl;
+
+  // CATCH DOUBLE PROXYING: If the URL already contains the proxy prefix, strip it down to the raw video link
+  if (targetUrl.indexOf(proxyBase) !== -1) {
+    try {
+      // Extract whatever is after "?url=" or "&url="
+      var match = targetUrl.match(/[?&]url=([^&]+)/);
+      if (match && match[1]) {
+        cleanUrl = decodeURIComponent(match[1]);
+      }
+    } catch (e) {
+      console.log('[GoatAPI] Failed decoding nested proxy URL');
+    }
+  }
   
-  // Safely encode the entire inner target query payload
-  var queryString = '?url=' + encodeURIComponent(targetUrl) + 
+  // Now build it with strict character encoding (%26 instead of &)
+  var queryString = '?url=' + encodeURIComponent(cleanUrl) + 
                     '&referer=' + encodeURIComponent(targetReferer);
                     
   return proxyBase + queryString;
 }
-
 
 function getStreams(id, mediaType, season, episode, providerContext) {
   console.log('[GoatAPI] getStreams → id=' + id + ' type=' + mediaType);

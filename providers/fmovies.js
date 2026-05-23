@@ -216,7 +216,14 @@ async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episode
         const title = mediaType === 'tv' ? data.name : data.title;
         const year = (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4);
         if (!title) return [];
-        return await invokeDahmerMovies(title, year, seasonNum, episodeNum, type);
+        return await invokeDahmerMovies(
+    title,
+    year,
+    seasonNum,
+    episodeNum,
+    type,
+    data
+);
     } catch (e) { return []; }
 }
 

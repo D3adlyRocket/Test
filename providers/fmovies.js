@@ -202,7 +202,7 @@ function wrapInProxy(targetUrl) {
   var targetReferer = 'https://vidnest.fun/';
   var cleanUrl = targetUrl;
 
-  // 1. Instantly parse out existing proxy wrappers if present
+  // 1. Strip out existing old proxy structures if they are wrapped by the source
   if (targetUrl.indexOf('workers.dev/api/proxy') !== -1) {
     try {
       var urlParam = targetUrl.split('url=')[1];
@@ -214,15 +214,22 @@ function wrapInProxy(targetUrl) {
     }
   }
 
-  // 2. Use clean, classic URL formation to avoid parameter truncation completely
-  var finalUrl = proxyBase + '?url=' + encodeURIComponent(cleanUrl) + '&referer=' + encodeURIComponent(targetReferer);
-  return finalUrl;
+  // 2. Build parameter with a double-encoded ampersand separator (%2526)
+  // This satisfies your player interface while passing cleanly to Cloudflare
+  var encodedUrl = encodeURIComponent(cleanUrl);
+  var encodedReferer = encodeURIComponent(targetReferer);
+  
+  var queryString = '?url=' + encodedUrl + '%2526referer%3D' + encodedReferer;
+                    
+  return proxyBase + queryString;
 }
 
 function getStreams(id, mediaType, season, episode, providerContext) {
   console.log('[GoatAPI] getStreams → id=' + id + ' type=' + mediaType);
 
   var requestedType = String(mediaType).toLowerCase();
+  
+  // FIX 1: Allow both 'series' and 'tv' categories to pass instead of dropping
   var normalizedType = (requestedType === 'series' || requestedType === 'tv') ? 'tv' : 'movie';
 
   var tmdbIdPromise = Promise.resolve(id.toString().replace('tmdb:', ''));
@@ -236,6 +243,7 @@ function getStreams(id, mediaType, season, episode, providerContext) {
     return getMetadata(resolvedTmdbId, normalizedType, season, episode, providerContext)
       .then(function(metadata) {
         
+        // FIX 2: Dynamically adjust api endpoints based on active media categories
         var apiUrl = 'https://goatapi.imreallydagoatt.workers.dev/api/downloader/' + normalizedType + '/' + resolvedTmdbId;
         if (normalizedType === 'tv') {
           apiUrl += '/' + season + '/' + episode;

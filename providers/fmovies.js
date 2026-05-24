@@ -164,22 +164,18 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     
     let paths = parseLinks(html);
 
-// Filter exact episode for TV shows
-if (mediaType === 'tv' && season !== null && episode !== null) {
-    const seasonSlug = String(season).padStart(2, '0');
-    const episodeSlug = String(episode).padStart(2, '0');
+paths = paths.filter(path => {
+    const file = path.text.toUpperCase();
 
-    paths = paths.filter(path => {
-        const file = path.text;
+    const patterns = [
+        new RegExp(`S0?${season}E0?${episode}`, 'i'),
+        new RegExp(`${season}X0?${episode}`, 'i'),
+        new RegExp(`SEASON\\s*${season}.*EPISODE\\s*${episode}`, 'i'),
+        new RegExp(`S0?${season}\\.E0?${episode}`, 'i')
+    ];
 
-        return (
-            new RegExp(`S${seasonSlug}E${episodeSlug}`, 'i').test(file) ||
-
-            // Also allow S1E1 style
-            new RegExp(`S${season}E${episode}`, 'i').test(file)
-        );
-    });
-}
+    return patterns.some(p => p.test(file));
+});
     const sortedPaths = paths.sort((a, b) => {
         const a4k = /2160p|4k/i.test(a.text);
         const b4k = /2160p|4k/i.test(b.text);

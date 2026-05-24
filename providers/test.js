@@ -334,8 +334,18 @@ function extractFromM4UPlay(embedUrl) {
             }
             const qualities = resolutionResult.variants.map((v) => v.quality);
             const bestQuality = qualities.includes("4K") ? "4K" : qualities.includes("1080p") ? "1080p" : qualities.includes("720p") ? "720p" : qualities.includes("480p") ? "480p" : qualities[0] || "Unknown";
-            return [{
-              url: resolutionResult.masterUrl,
+            const bestVariant =
+  resolutionResult.variants.find(v => v.quality === "1080p") ||
+  resolutionResult.variants.find(v => v.quality === "720p") ||
+  resolutionResult.variants[0];
+
+return [{
+  url: bestVariant?.url || resolutionResult.masterUrl,
+  audios: resolutionResult.audios,
+  audioInfo,
+  quality: bestVariant?.quality || bestQuality,
+  isMaster: false
+}];
               audios: resolutionResult.audios,
               audioInfo,
               quality: bestQuality,
@@ -468,10 +478,9 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
             url: result.url,
             quality: streamObj.quality,
             headers: {
-              "Referer": "https://m4uplay.store/",
-              "User-Agent": HEADERS["User-Agent"],
-              "Origin": "https://m4uplay.store"
-            },
+           "User-Agent": HEADERS["User-Agent"],
+           "Referer": "https://m4uplay.store/"
+}
             provider: "Movies4u"
           });
         }

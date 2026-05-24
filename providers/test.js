@@ -1,468 +1,202 @@
-const cheerio = require("cheerio");
+/**
+ * @name Movierulzhd
+ * @description Hindi movies/series provider with WordPress admin-ajax embed extraction
+ * @version 1.0.0
+ */
 
-const BASE_URL =
-  "https://piratexplay.cc";
-
-const TMDB_API_KEY =
-  "1865f43a0549ca50d341dd9ab8b29f49";
+const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
+const FALLBACK_URL = "https://123moviesfree9.cloud";
+const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
 const HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0",
-  "Referer":
-    `${BASE_URL}/`
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 };
 
-// =====================================
-// QUALITY
-// =====================================
-function extractQuality(str = "") {
+let cachedBaseUrl = null;
 
-  const s =
-    str.toLowerCase();
+async function getBaseUrl() {
+  if (cachedBaseUrl) return cachedBaseUrl;
+  try {
+    const resp = await fetch(DOMAINS_URL);
+    const data = await resp.json();
+    cachedBaseUrl = data.movierulzhd || FALLBACK_URL;
+  } catch (e) {
+    cachedBaseUrl = FALLBACK_URL;
+  }
+  return cachedBaseUrl;
+}
 
-  if (
-    s.includes("2160") ||
-    s.includes("4k")
-  ) return "4K";
+async function fetchEmbedUrl(baseUrl, post, nume, type) {
+  try {
+    const resp = await fetch(`${baseUrl}/wp-admin/admin-ajax.php`, {
+      method: "POST",
+      headers: {
+        ...HEADERS,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": baseUrl
+      },
+      body: `action=doo_player_ajax&post=${post}&nume=${nume}&type=${type}`
+    });
+    const data = await resp.json();
+    const embedUrl = data.embed_url || "";
 
-  if (s.includes("1080"))
-    return "1080p";
+    const srcMatch = embedUrl.match(/SRC="(https?:[^"]+)"/i);
+    if (srcMatch) return srcMatch[1].trim();
 
-  if (s.includes("720"))
-    return "720p";
+    const urlMatch = embedUrl.match(/"(https?[^"]+)"/);
+    if (urlMatch) return urlMatch[1].trim();
 
-  if (s.includes("480"))
-    return "480p";
+    return embedUrl.replace(/^"|"$/g, "").trim();
+  } catch (e) {
+    return null;
+  }
+}
 
-  if (s.includes("360"))
-    return "360p";
-
+function extractQuality(url) {
+  const u = (url || "").toLowerCase();
+  if (u.includes("2160p") || u.includes("4k")) return "4K";
+  if (u.includes("1080p")) return "1080p";
+  if (u.includes("720p")) return "720p";
+  if (u.includes("480p")) return "480p";
+  if (u.includes("360p")) return "360p";
   return "Unknown";
 }
 
-// =====================================
-// PROXY FETCH
-// =====================================
-function proxy(url) {
+// Nuvio Specification Object Export
+export default {
+  /**
+   * Main entry point for Nuvio stream extraction
+   * @param {Object} ctx - The Nuvio context object containing metadata
+   * @param {string} ctx.tmdbId - TMDB ID of the item
+   * @param {string} ctx.type - "movie" or "tv"
+   * @param {number} [ctx.season] - Season number if type is tv
+   * @param {number} [ctx.episode] - Episode number if type is tv
+   */
+  async getStreams(ctx) {
+    try {
+      const { tmdbId, type: mediaType, season, episode } = ctx;
+      const BASE_URL = await getBaseUrl();
 
-  return `https://r.jina.ai/http://${url.replace(/^https?:\/\//, "")}`;
+      // Step 1: Get title from TMDB
+      const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+      const mediaInfo = await (await fetch(tmdbUrl)).json();
+      const title = mediaInfo.title || mediaInfo.name;
+      if (!title) return [];
 
-}
+      // Step 2: Search Movierulzhd
+      const searchResp = await fetch(`${BASE_URL}/search/${encodeURIComponent(title.replace(/ /g, "-"))}`, {
+        headers: HEADERS
+      });
+      const searchHtml = await searchResp.text();
+      const $ = cheerio.load(searchHtml);
 
-async function fetchText(url) {
-
-  try {
-
-    const res =
-      await fetch(
-        proxy(url),
-        {
-          headers: HEADERS,
-          skipSizeCheck: true
-        }
-      );
-
-    return await res.text();
-
-  } catch (e) {
-
-    return "";
-
-  }
-
-}
-
-// =====================================
-// EXTRACT REAL VIDEO LINKS
-// =====================================
-async function extractVideoLinks(
-  url,
-  label
-) {
-
-  try {
-
-    const html =
-      await fetchText(url);
-
-    if (!html)
-      return [];
-
-    const streams = [];
-
-    // =================================
-    // direct m3u8/mp4 regex
-    // =================================
-    const matches =
-      html.match(
-        /https?:\/\/[^\s"'<>]+?\.(m3u8|mp4)[^\s"'<>]*/gi
-      ) || [];
-
-    for (const link of matches) {
-
-      streams.push({
-        url: link,
-        quality:
-          extractQuality(link),
-        title:
-          `${label} [direct]`,
-        subtitles: []
+      const results = [];
+      $("div.result-item").each((i, el) => {
+        const a = $(el).find("div.title > a");
+        const href = a.attr("href");
+        const name = a.text().replace(/\(\d{4}\)/, "").trim();
+        if (href && name) results.push({ href, name });
       });
 
-    }
+      if (results.length === 0) return [];
 
-    // =================================
-    // source tags
-    // =================================
-    const $ =
-      cheerio.load(html);
+      const match = results.find(r =>
+        r.name.toLowerCase().includes(title.toLowerCase())
+      ) || results[0];
 
-    $("source").each((_, el) => {
+      let contentUrl = match.href;
+      if (contentUrl.includes("/episodes/")) {
+        const t = contentUrl.split("/episodes/")[1];
+        const slug = t.match(/(.+?)-season/)?.[1] || t;
+        contentUrl = `${BASE_URL}/tvshows/${slug}`;
+      } else if (contentUrl.includes("/seasons/")) {
+        const t = contentUrl.split("/seasons/")[1];
+        const slug = t.match(/(.+?)-season/)?.[1] || t;
+        contentUrl = `${BASE_URL}/tvshows/${slug}`;
+      }
 
-      const src =
-        $(el).attr("src");
+      // Step 3: Load content page
+      const pageResp = await fetch(contentUrl, { headers: HEADERS });
+      const pageHtml = await pageResp.text();
+      const $p = cheerio.load(pageHtml);
+      const directUrl = new URL(pageResp.url || contentUrl).origin;
 
-      if (
-        src &&
-        src.startsWith("http")
-      ) {
+      const isMovie = mediaType === "movie";
+      const streams = [];
 
-        streams.push({
-          url: src,
-          quality:
-            extractQuality(src),
-          title:
-            `${label} [source]`,
-          subtitles: []
+      if (!isMovie && mediaType === "tv") {
+        const epLinks = [];
+        $p("ul.episodios > li").each((i, el) => {
+          const href = $p(el).find("a").attr("href");
+          const numText = $p(el).find("div.numerando").text().replace(/ /g, "");
+          const parts = numText.split("-");
+          const sNum = parseInt(parts[0] || "0");
+          const eNum = parseInt(parts[1] || "0");
+          if (href) epLinks.push({ href, season: sNum, episode: eNum });
         });
 
-      }
+        if (epLinks.length > 0) {
+          let targetEp = epLinks.find(ep =>
+            ep.season === parseInt(season || 1) && ep.episode === parseInt(episode || 1)
+          ) || epLinks[0];
 
-    });
+          const epResp = await fetch(targetEp.href, { headers: HEADERS });
+          const epHtml = await epResp.text();
+          const $ep = cheerio.load(epHtml);
+          const epDirectUrl = new URL(epResp.url || targetEp.href).origin;
 
-    // =================================
-    // jwplayer sources
-    // =================================
-    const scriptText =
-      $("script")
-      .map((_, el) =>
-        $(el).html()
-      )
-      .get()
-      .join("\n");
+          const epItems = [];
+          $ep("ul#playeroptionsul > li").each((i, el) => {
+            epItems.push({
+              post: $ep(el).attr("data-post"),
+              nume: $ep(el).attr("data-nume"),
+              type: $ep(el).attr("data-type")
+            });
+          });
 
-    const jwMatches =
-      scriptText.match(
-        /file\s*:\s*["'](https?:\/\/[^"']+)["']/gi
-      ) || [];
-
-    for (const m of jwMatches) {
-
-      const urlMatch =
-        m.match(
-          /https?:\/\/[^"']+/
-        );
-
-      if (!urlMatch)
-        continue;
-
-      streams.push({
-        url: urlMatch[0],
-        quality:
-          extractQuality(
-            urlMatch[0]
-          ),
-        title:
-          `${label} [jwplayer]`,
-        subtitles: []
-      });
-
-    }
-
-    // dedupe
-    const seen =
-      new Set();
-
-    return streams.filter(s => {
-
-      if (
-        seen.has(s.url)
-      ) return false;
-
-      seen.add(s.url);
-
-      return true;
-
-    });
-
-  } catch (e) {
-
-    return [];
-
-  }
-
-}
-
-// =====================================
-// MAIN
-// =====================================
-async function getStreams(
-  tmdbId,
-  mediaType,
-  season,
-  episode
-) {
-
-  try {
-
-    // =================================
-    // TMDB
-    // =================================
-    const tmdbUrl =
-      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-
-    const media =
-      await (
-        await fetch(
-          tmdbUrl,
-          {
-            skipSizeCheck: true
+          for (const item of epItems.slice(0, 5)) {
+            if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
+            const embedUrl = await fetchEmbedUrl(epDirectUrl, item.post, item.nume, item.type);
+            if (embedUrl && !embedUrl.includes("youtube")) {
+              streams.push({
+                url: embedUrl,
+                quality: extractQuality(embedUrl),
+                title: "Movierulzhd",
+                subtitles: []
+              });
+            }
           }
-        )
-      ).json();
-
-    const title =
-      media.title ||
-      media.name;
-
-    if (!title)
-      return [];
-
-    console.log(
-      "[PIRATEX TITLE]",
-      title
-    );
-
-    // =================================
-    // SEARCH
-    // =================================
-    const searchUrl =
-      `${BASE_URL}/?s=${encodeURIComponent(title)}`;
-
-    const searchHtml =
-      await fetchText(
-        searchUrl
-      );
-
-    if (!searchHtml)
-      return [];
-
-    const $s =
-      cheerio.load(searchHtml);
-
-    let pageUrl =
-      null;
-
-    $s("a").each((_, el) => {
-
-      if (pageUrl)
-        return;
-
-      const href =
-        $s(el).attr("href");
-
-      const txt =
-        (
-          $s(el).text() || ""
-        ).toLowerCase();
-
-      if (
-        href &&
-        href.startsWith("http") &&
-        txt.includes(
-          title.toLowerCase()
-        )
-      ) {
-
-        pageUrl = href;
-
+          return streams;
+        }
       }
 
-    });
-
-    // fallback
-    if (!pageUrl) {
-
-      const first =
-        $s("a[href*='piratexplay']")
-        .first()
-        .attr("href");
-
-      if (first)
-        pageUrl = first;
-
-    }
-
-    if (!pageUrl)
-      return [];
-
-    console.log(
-      "[PIRATEX PAGE]",
-      pageUrl
-    );
-
-    // =================================
-    // TV HANDLING
-    // =================================
-    if (
-      mediaType === "tv"
-    ) {
-
-      const showHtml =
-        await fetchText(
-          pageUrl
-        );
-
-      const $show =
-        cheerio.load(
-          showHtml
-        );
-
-      let epUrl =
-        null;
-
-      $show("a").each((_, el) => {
-
-        if (epUrl)
-          return;
-
-        const href =
-          $show(el)
-          .attr("href");
-
-        const txt =
-          $show(el)
-          .text();
-
-        const s =
-          txt.match(
-            /S(\d+)/i
-          );
-
-        const e =
-          txt.match(
-            /E(\d+)/i
-          );
-
-        if (
-          s &&
-          e &&
-          parseInt(s[1]) === parseInt(season || 1) &&
-          parseInt(e[1]) === parseInt(episode || 1)
-        ) {
-
-          epUrl = href;
-
-        }
-
+      const playerItems = [];
+      $p("ul#playeroptionsul > li").each((i, el) => {
+        playerItems.push({
+          post: $p(el).attr("data-post"),
+          nume: $p(el).attr("data-nume"),
+          type: $p(el).attr("data-type")
+        });
       });
 
-      if (epUrl)
-        pageUrl = epUrl;
+      for (const item of playerItems.slice(0, 5)) {
+        if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
+        const embedUrl = await fetchEmbedUrl(directUrl, item.post, item.nume, item.type);
+        if (embedUrl && !embedUrl.includes("youtube")) {
+          streams.push({
+            url: embedUrl,
+            quality: extractQuality(embedUrl),
+            title: "Movierulzhd",
+            subtitles: []
+          });
+        }
+      }
 
-    }
-
-    // =================================
-    // FINAL PAGE
-    // =================================
-    const finalHtml =
-      await fetchText(
-        pageUrl
-      );
-
-    if (!finalHtml)
+      return streams;
+    } catch (e) {
+      console.error("[Movierulzhd]", e);
       return [];
-
-    const $ =
-      cheerio.load(
-        finalHtml
-      );
-
-    const streams =
-      [];
-
-    // =================================
-    // iframe extraction
-    // =================================
-    $("iframe").each((_, el) => {
-
-      const src =
-        $(el).attr("src") ||
-        $(el).attr("data-src");
-
-      if (
-        !src ||
-        !src.startsWith("http")
-      ) return;
-
-      streams.push(src);
-
-    });
-
-    const finalStreams =
-      [];
-
-    // =================================
-    // DEEP EXTRACTION
-    // =================================
-    for (const iframe of streams) {
-
-      try {
-
-        const extracted =
-          await extractVideoLinks(
-            iframe,
-            "Piratexplay"
-          );
-
-        finalStreams.push(
-          ...extracted
-        );
-
-      } catch (e) {}
-
     }
-
-    // dedupe
-    const seen =
-      new Set();
-
-    return finalStreams.filter(s => {
-
-      if (
-        seen.has(s.url)
-      ) return false;
-
-      seen.add(s.url);
-
-      return true;
-
-    });
-
-  } catch (e) {
-
-    console.log(
-      "[PIRATEX ERROR]",
-      e
-    );
-
-    return [];
-
   }
-
-}
-
-module.exports = {
-  getStreams
 };

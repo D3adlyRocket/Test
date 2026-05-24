@@ -1,3 +1,4 @@
+// Dahmer Movies Scraper - Format Column Added (MKV/MP4/M3U8)
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -7,8 +8,8 @@ const DAHMER_WORKER_API = 'https://p.111477.xyz/bulk?u=';
 async function makeRequest(url) {
     try {
         return await fetch(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
                 'Referer': DAHMER_MOVIES_API + '/'
             }
         });
@@ -44,36 +45,56 @@ function parseLinks(html) {
     return links;
 }
 
+// Advanced properties analyzer parser parsing from raw filename context
 function parseFileInfo(filename) {
   var text = String(filename || '').toUpperCase();
-
+  
+  // 1. Source type identification
   var source = 'Unknown Source';
-  if (/\bBLURAY\b|\bBDREMUX\b/i.test(text)) source = 'BluRay';
-  else if (/\bWEB-DL\b|\bWEB\b/i.test(text)) source = 'WEB-DL';
+  if (/\bBLURAY\b|\bBLU-RAY\b|\bBDREMUX\b/i.test(text)) source = 'BluRay';
+  else if (/\bWEB-DL\b|\bWEBDL\b|\bWEB\b/i.test(text)) source = 'WEB-DL';
   else if (/\bHDTV\b/i.test(text)) source = 'HDTV';
-  else if (/\bCAM\b/i.test(text)) source = 'CAM';
+  else if (/\bCAM\b|\bCAMRIP\b/i.test(text)) source = 'CAM';
 
+  // 2. Video Encoding parameters
   var videoCodec = 'Unknown Video';
-  if (/\bH\.?265\b|\bHEVC\b/i.test(text)) videoCodec = 'H265';
-  else if (/\bH\.?264\b|\bAVC\b/i.test(text)) videoCodec = 'AVC';
-  else if (/\bAV1\b/i.test(text)) videoCodec = 'AV1';
+  if (/\bH\.?265\b|\bX265\b|\bHEVC\b/i.test(text)) {
+    videoCodec = 'H265';
+    if (/\bDV\b|\bDOLBY\s*VISION\b/i.test(text)) videoCodec += ' DV';
+    if (/\bHDR10P\b|\bHDR10\+\b/i.test(text)) videoCodec += ' HDR10+';
+    else if (/\bHDR\b|\bHDR10\b/i.test(text)) videoCodec += ' HDR10';
+  } else if (/\bH\.?264\b|\bX264\b|\bAVC\b/i.test(text)) {
+    videoCodec = 'AVC';
+  } else if (/\bAV1\b/i.test(text)) {
+    videoCodec = 'AV1';
+  }
 
-  var audioCodec = 'AAC';
+  // 3. Audio format profile attributes
+  var audioCodec = 'AAC'; 
   if (/\bTRUEHD\b/i.test(text)) audioCodec = 'TrueHD';
-  else if (/\bEAC3\b|\bDDP\b/i.test(text)) audioCodec = 'DDP';
+  else if (/\bATMOS\b/i.test(text)) audioCodec = 'Atmos';
+  else if (/\bDDP\b|\bEAC3\b/i.test(text)) audioCodec = 'DDP';
+  else if (/\bDD\b|\bAC3\b/i.test(text)) audioCodec = 'DD';
   else if (/\bDTS\b/i.test(text)) audioCodec = 'DTS';
 
+  // 4. Surround audio layout configurations
+  var audioChannels = '';
+  if (/\b7\.1\b/.test(text)) audioChannels = '7.1';
+  else if (/\b5\.1\b/.test(text)) audioChannels = '5.1';
+  else if (/\b2\.0\b|\bSTEREO\b/.test(text)) audioChannels = '2.0';
+
   return {
-    source,
-    videoCodec,
-    audioProfile: audioCodec
+    source: source,
+    videoCodec: videoCodec,
+    audioProfile: audioCodec + (audioChannels ? ' ' + audioChannels : '')
   };
 }
 
+// Fixed multi-line UI compositor running up to 4 sequential rows
 function buildTitle(meta, res, lang, format, size, filename) {
   var qIcon = (res.includes('4K') || res.includes('2160')) ? '🌟' : '💎';
   var parsed = parseFileInfo(filename);
-
+  
   var line1 = '🎬 ' + meta.name + (meta.year ? ' (' + meta.year + ')' : '');
   var line2 = qIcon + ' ' + res + ' | 🌍 ' + lang + ' | 💾 ' + (size || 'Variable Size');
   var line3 = '🎞️ ' + format.toUpperCase() + ' | ⏱️ ' + meta.duration + ' | 📼 ' + parsed.videoCodec;
@@ -81,25 +102,48 @@ function buildTitle(meta, res, lang, format, size, filename) {
 
   return line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 }
-
 async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie', tmdbData = {}) {
-
-    const cleanTitle = title.replace(/[:']/g, '');
+    
+    // Generates a clean baseline text without punctuation blockers like colons or apostrophes
+    const cleanTitle = title.replace(/[:']/g, ''); 
     const encodedTitle = encodeURIComponent(cleanTitle);
+    const encodedRawTitle = encodeURIComponent(title);
 
     let folderVariants = [];
 
     if (mediaType === 'tv' && season !== null) {
-        const padSeason = season < 10 ? '0' + season : season;
+    const padSeason = season < 10 ? '0' + season : season;
 
+    // Different title styles used by DahmerMovies folders
+    const colonDashTitle = title.replace(/:/g, ' -');
+    const noColonTitle = title.replace(/:/g, '');
+    const noApostropheTitle = title.replace(/'/g, '');
+
+    folderVariants = [
+        // Original title
+        `/tvs/${encodeURIComponent(title)}/Season%20${padSeason}/`,
+        `/tvs/${encodeURIComponent(title)}/Season%20${season}/`,
+
+        // Colon replaced with dash
+        `/tvs/${encodeURIComponent(colonDashTitle)}/Season%20${padSeason}/`,
+        `/tvs/${encodeURIComponent(colonDashTitle)}/Season%20${season}/`,
+
+        // Colon removed
+        `/tvs/${encodeURIComponent(noColonTitle)}/Season%20${padSeason}/`,
+        `/tvs/${encodeURIComponent(noColonTitle)}/Season%20${season}/`,
+
+        // Apostrophes removed
+        `/tvs/${encodeURIComponent(noApostropheTitle)}/Season%20${padSeason}/`,
+        `/tvs/${encodeURIComponent(noApostropheTitle)}/Season%20${season}/`
+    ];
+}
+    else {
+        // Fallbacks for movies that omit or include years in the directory name
         folderVariants = [
-            `/tvs/${encodedTitle}/Season%20${padSeason}/`,
-            `/tvs/${encodedTitle}/Season%20${season}/`
-        ];
-    } else {
-        folderVariants = [
+            `/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`,
+            `/movies/${encodeURIComponent(title + ' (' + year + ')')}/`,
             `/movies/${encodedTitle}/`,
-            `/movies/${encodedTitle} (${year})/`
+            `/movies/${encodedRawTitle}/`
         ];
     }
 
@@ -107,136 +151,152 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     let activeDirUrl = '';
 
     for (const path of folderVariants) {
-        const full = DAHMER_MOVIES_API + path;
-        const res = await makeRequest(full);
-        if (res.ok) {
-            html = await res.text();
-            activeDirUrl = full;
-            break;
+        const fullDirUrl = DAHMER_MOVIES_API + path;
+        const response = await makeRequest(fullDirUrl);
+        if (response.ok) {
+            html = await response.text();
+            activeDirUrl = fullDirUrl;
+            break; 
         }
     }
 
     if (!html) return [];
-
     let paths = parseLinks(html);
 
-    // =========================
-    // FIXED EPISODE FILTER
-    // =========================
-    if (mediaType === 'tv' && season != null && episode != null) {
+// Filter exact episode for TV shows
+if (mediaType === 'tv' && season !== null && episode !== null) {
+    const seasonSlug = String(season).padStart(2, '0');
+    const episodeSlug = String(episode).padStart(2, '0');
 
-        const se = Number(season);
-        const ep = Number(episode);
+    paths = paths.filter(path => {
+        const file = path.text;
 
-        const filteredPaths = paths.filter(p => {
-            const file = p.text.toUpperCase();
+        return (
+            new RegExp(`S${seasonSlug}E${episodeSlug}`, 'i').test(file) ||
 
-            return (
-                new RegExp(`S0?${se}E0?${ep}`, 'i').test(file) ||
-                new RegExp(`${se}X0?${ep}`, 'i').test(file) ||
-                new RegExp(`EP\\s*0?${ep}`, 'i').test(file) ||
-                new RegExp(`EPISODE\\s*0?${ep}`, 'i').test(file)
-            );
-        });
-
-        if (filteredPaths.length > 0) {
-            paths = filteredPaths;
-        }
-    }
-
+            // Also allow S1E1 style
+            new RegExp(`S${season}E${episode}`, 'i').test(file)
+        );
+    });
+}
     const sortedPaths = paths.sort((a, b) => {
-        const a4k = /2160|4k/i.test(a.text);
-        const b4k = /2160|4k/i.test(b.text);
+        const a4k = /2160p|4k/i.test(a.text);
+        const b4k = /2160p|4k/i.test(b.text);
         return b4k - a4k;
     });
 
     const results = [];
-
     for (const path of sortedPaths.slice(0, 5)) {
-
         let directUrl;
-
         if (path.href.startsWith('http')) {
             directUrl = path.href;
+        } else if (path.href.includes('/movies/') || path.href.includes('/tvs/')) {
+            directUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
         } else {
             directUrl = activeDirUrl + path.href;
         }
 
         directUrl = directUrl.replace(/([^:]\/)\/+/g, "$1");
         directUrl = decodeURI(directUrl);
-
-        const streamUrl = DAHMER_WORKER_API + encodeURIComponent(directUrl);
+        let streamUrl = DAHMER_WORKER_API + encodeURI(directUrl);
 
         const fileName = path.text;
+        
+        // 1. Language Logic
+        let language = "Original"; 
+        const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio|MULTI)\b/i.test(fileName);
+        const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
+        const isEnglishTitle = /^[a-zA-Z0-9\s?!\-:]+$/.test(title);
 
+        if (isMulti) language = "Multi Audio";
+        else if (isEnglishTitle && hasEngTag) language = "English";
+
+        // 2. Format Logic (New Column)
+        const formatMatch = fileName.match(/\.(mkv|mp4|m3u8|avi|webm)$/i);
+        const fileFormat = formatMatch ? formatMatch[1].toUpperCase() : 'LINK';
+
+        // 3. Technical Info
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
+        const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
+        
+        let info = fileName
+            .replace(/\.(mkv|mp4|avi|webm|m3u8)$/i, '')
+            .replace(/[\[\]()._-]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
 
-        // 🔥 FIXED: size restored properly
-        const fileSize = path.size || 'N/A';
+        // Creates the layout metadata details
+const displayTitle = mediaType === 'tv'
+    ? title + ` S${season < 10 ? '0' + season : season}E${episode < 10 ? '0' + episode : episode}`
+    : title;
 
-        const format = fileName.match(/\.(mkv|mp4|m3u8|avi|webm)$/i)?.[1] || 'LINK';
+const runtime = mediaType === 'tv'
+    ? (
+        tmdbData?.episode_run_time?.find(v => v > 0) || 
+        tmdbData?.runtime || 
+        tmdbData?.last_episode_to_air?.runtime ||
+        tmdbData?.next_episode_to_air?.runtime ||
+        45
+    )
+    : (tmdbData?.runtime || 90);
 
-        const displayTitle = mediaType === 'tv'
-            ? `${title} S${season}E${episode}`
-            : title;
+const metaPayload = {
+    name: displayTitle,
+    year: year,
+    duration: runtime + ' min'
+};
 
-        const runtime =
-            tmdbData?.episode_run_time?.[0] ||
-            tmdbData?.runtime ||
-            45;
-
-        const meta = {
-            name: displayTitle,
-            year,
-            duration: runtime + ' min'
-        };
+        const generatedTitle = buildTitle(
+            metaPayload,
+            resolution,
+            language,
+            fileFormat,
+            fileSize,
+            fileName
+        );
 
         results.push({
             name: "DahmerMovies",
-            title: buildTitle(meta, resolution, "Auto", format, fileSize, fileName),
+            title: generatedTitle,
             url: streamUrl,
             quality: resolution.toLowerCase(),
-            provider: "dahmermovies",
             headers: {
-                'User-Agent': 'Mozilla/5.0',
-                'Referer': DAHMER_MOVIES_API + '/'
-            }
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                'Referer': DAHMER_MOVIES_API + '/',
+                'Connection': 'keep-alive',
+                'Accept': '*/*',
+                'Range': 'bytes=0-'
+            },
+            provider: "dahmermovies"
         });
     }
-
     return results;
 }
 
-async function getStreams(tmdbId, mediaType = 'movie', season = null, episode = null) {
+async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
     try {
         const type = mediaType === 'tv' ? 'tv' : 'movie';
-
-        const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-        const res = await makeRequest(url);
+        const tmdbUrl = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+        const res = await makeRequest(tmdbUrl);
         const data = await res.json();
-
-        const title =
-            data.name ||
-            data.original_name ||
-            data.title ||
-            data.original_title;
-
-        const year = (data.first_air_date || data.release_date || '').slice(0, 4);
-
+        const possibleTitles = [
+    data.name,
+    data.original_name,
+    data.title,
+    data.original_title
+].filter(Boolean);
+        const title = possibleTitles[0];
+        const year = (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4);
         if (!title) return [];
-
         return await invokeDahmerMovies(
-            title,
-            year,
-            season,
-            episode,
-            type,
-            data
-        );
-
-    } catch (e) {
-        return [];
-    }
+    title,
+    year,
+    seasonNum,
+    episodeNum,
+    type,
+    data
+);
+    } catch (e) { return []; }
 }
 
 if (typeof module !== 'undefined') module.exports = { getStreams };

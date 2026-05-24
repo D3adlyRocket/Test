@@ -1,7 +1,7 @@
 const cheerio = require("cheerio");
 
 const BASE_URL =
-  "https://onepace.co";
+  "https://piratexplay.cc";
 
 const TMDB_API_KEY =
   "1865f43a0549ca50d341dd9ab8b29f49";
@@ -35,11 +35,14 @@ function extractQuality(str = "") {
   if (s.includes("480"))
     return "480p";
 
+  if (s.includes("360"))
+    return "360p";
+
   return "Unknown";
 }
 
 // =====================================
-// PROXY
+// PROXY FETCH
 // =====================================
 function proxy(url) {
 
@@ -47,9 +50,6 @@ function proxy(url) {
 
 }
 
-// =====================================
-// FETCH TEXT
-// =====================================
 async function fetchText(url) {
 
   try {
@@ -74,7 +74,7 @@ async function fetchText(url) {
 }
 
 // =====================================
-// EXTRACT VIDEO URLS
+// EXTRACT REAL VIDEO LINKS
 // =====================================
 async function extractVideoLinks(
   url,
@@ -92,42 +92,21 @@ async function extractVideoLinks(
     const streams = [];
 
     // =================================
-    // m3u8 direct
+    // direct m3u8/mp4 regex
     // =================================
-    const m3u8 =
+    const matches =
       html.match(
-        /https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/gi
+        /https?:\/\/[^\s"'<>]+?\.(m3u8|mp4)[^\s"'<>]*/gi
       ) || [];
 
-    for (const link of m3u8) {
+    for (const link of matches) {
 
       streams.push({
         url: link,
         quality:
           extractQuality(link),
         title:
-          `${label} [m3u8]`,
-        subtitles: []
-      });
-
-    }
-
-    // =================================
-    // mp4 direct
-    // =================================
-    const mp4 =
-      html.match(
-        /https?:\/\/[^\s"'<>]+\.mp4[^\s"'<>]*/gi
-      ) || [];
-
-    for (const link of mp4) {
-
-      streams.push({
-        url: link,
-        quality:
-          extractQuality(link),
-        title:
-          `${label} [mp4]`,
+          `${label} [direct]`,
         subtitles: []
       });
 
@@ -163,29 +142,43 @@ async function extractVideoLinks(
     });
 
     // =================================
-    // iframe fallback
+    // jwplayer sources
     // =================================
-    $("iframe").each((_, el) => {
+    const scriptText =
+      $("script")
+      .map((_, el) =>
+        $(el).html()
+      )
+      .get()
+      .join("\n");
 
-      const src =
-        $(el).attr("src");
+    const jwMatches =
+      scriptText.match(
+        /file\s*:\s*["'](https?:\/\/[^"']+)["']/gi
+      ) || [];
 
-      if (
-        src &&
-        src.startsWith("http")
-      ) {
+    for (const m of jwMatches) {
 
-        streams.push({
-          url: src,
-          quality: "Unknown",
-          title:
-            `${label} [iframe]`,
-          subtitles: []
-        });
+      const urlMatch =
+        m.match(
+          /https?:\/\/[^"']+/
+        );
 
-      }
+      if (!urlMatch)
+        continue;
 
-    });
+      streams.push({
+        url: urlMatch[0],
+        quality:
+          extractQuality(
+            urlMatch[0]
+          ),
+        title:
+          `${label} [jwplayer]`,
+        subtitles: []
+      });
+
+    }
 
     // dedupe
     const seen =
@@ -246,170 +239,194 @@ async function getStreams(
     if (!title)
       return [];
 
-    // =================================
-    // SERIES PAGE
-    // =================================
-    const seriesUrl =
-      `${BASE_URL}/series/one-pace-english-sub/`;
+    console.log(
+      "[PIRATEX TITLE]",
+      title
+    );
 
-    const html =
+    // =================================
+    // SEARCH
+    // =================================
+    const searchUrl =
+      `${BASE_URL}/?s=${encodeURIComponent(title)}`;
+
+    const searchHtml =
       await fetchText(
-        seriesUrl
+        searchUrl
       );
 
-    if (!html)
+    if (!searchHtml)
       return [];
 
-    const $ =
-      cheerio.load(html);
+    const $s =
+      cheerio.load(searchHtml);
 
-    const streams = [];
-
-    // =================================
-    // FIND EPISODE
-    // =================================
-    let episodeUrl =
+    let pageUrl =
       null;
 
-    $("li").each((_, el) => {
+    $s("a").each((_, el) => {
 
-      if (episodeUrl)
+      if (pageUrl)
         return;
 
+      const href =
+        $s(el).attr("href");
+
       const txt =
-        $(el).text();
-
-      const s =
-        txt.match(/S(\d+)/i);
-
-      const e =
-        txt.match(/E(\d+)/i);
+        (
+          $s(el).text() || ""
+        ).toLowerCase();
 
       if (
-        !s ||
-        !e
-      ) return;
-
-      if (
-        parseInt(s[1]) === parseInt(season || 1) &&
-        parseInt(e[1]) === parseInt(episode || 1)
+        href &&
+        href.startsWith("http") &&
+        txt.includes(
+          title.toLowerCase()
+        )
       ) {
 
-        const href =
-          $(el)
-          .find("a")
-          .attr("href");
-
-        if (href)
-          episodeUrl =
-            href.startsWith("http")
-              ? href
-              : BASE_URL + href;
+        pageUrl = href;
 
       }
 
     });
 
     // fallback
-    if (!episodeUrl) {
+    if (!pageUrl) {
 
       const first =
-        $("li a")
+        $s("a[href*='piratexplay']")
         .first()
         .attr("href");
 
-      if (first) {
-
-        episodeUrl =
-          first.startsWith("http")
-            ? first
-            : BASE_URL + first;
-
-      }
+      if (first)
+        pageUrl = first;
 
     }
 
-    if (!episodeUrl)
+    if (!pageUrl)
       return [];
 
     console.log(
-      "[ONEPACE EP]",
-      episodeUrl
+      "[PIRATEX PAGE]",
+      pageUrl
     );
 
     // =================================
-    // EP PAGE
+    // TV HANDLING
     // =================================
-    const epHtml =
-      await fetchText(
-        episodeUrl
-      );
-
-    if (!epHtml)
-      return [];
-
-    const epDoc =
-      cheerio.load(epHtml);
-
-    const bodyClass =
-      epDoc("body")
-      .attr("class") || "";
-
-    const match =
-      bodyClass.match(
-        /(?:term|postid)-(\d+)/
-      );
-
-    if (!match)
-      return [];
-
-    const term =
-      match[1];
-
-    // =================================
-    // SERVERS
-    // =================================
-    for (
-      let i = 0;
-      i <= 7;
-      i++
+    if (
+      mediaType === "tv"
     ) {
+
+      const showHtml =
+        await fetchText(
+          pageUrl
+        );
+
+      const $show =
+        cheerio.load(
+          showHtml
+        );
+
+      let epUrl =
+        null;
+
+      $show("a").each((_, el) => {
+
+        if (epUrl)
+          return;
+
+        const href =
+          $show(el)
+          .attr("href");
+
+        const txt =
+          $show(el)
+          .text();
+
+        const s =
+          txt.match(
+            /S(\d+)/i
+          );
+
+        const e =
+          txt.match(
+            /E(\d+)/i
+          );
+
+        if (
+          s &&
+          e &&
+          parseInt(s[1]) === parseInt(season || 1) &&
+          parseInt(e[1]) === parseInt(episode || 1)
+        ) {
+
+          epUrl = href;
+
+        }
+
+      });
+
+      if (epUrl)
+        pageUrl = epUrl;
+
+    }
+
+    // =================================
+    // FINAL PAGE
+    // =================================
+    const finalHtml =
+      await fetchText(
+        pageUrl
+      );
+
+    if (!finalHtml)
+      return [];
+
+    const $ =
+      cheerio.load(
+        finalHtml
+      );
+
+    const streams =
+      [];
+
+    // =================================
+    // iframe extraction
+    // =================================
+    $("iframe").each((_, el) => {
+
+      const src =
+        $(el).attr("src") ||
+        $(el).attr("data-src");
+
+      if (
+        !src ||
+        !src.startsWith("http")
+      ) return;
+
+      streams.push(src);
+
+    });
+
+    const finalStreams =
+      [];
+
+    // =================================
+    // DEEP EXTRACTION
+    // =================================
+    for (const iframe of streams) {
 
       try {
 
-        const iframePage =
-          `${BASE_URL}/?trdekho=${i}&trid=${term}&trtype=2`;
-
-        const iframeHtml =
-          await fetchText(
-            iframePage
-          );
-
-        if (!iframeHtml)
-          continue;
-
-        const iframeDoc =
-          cheerio.load(
-            iframeHtml
-          );
-
-        const iframeSrc =
-          iframeDoc("iframe")
-          .attr("src");
-
-        if (!iframeSrc)
-          continue;
-
-        // =================================
-        // EXTRACT REAL VIDEO
-        // =================================
         const extracted =
           await extractVideoLinks(
-            iframeSrc,
-            `OnePace Server ${i + 1}`
+            iframe,
+            "Piratexplay"
           );
 
-        streams.push(
+        finalStreams.push(
           ...extracted
         );
 
@@ -421,7 +438,7 @@ async function getStreams(
     const seen =
       new Set();
 
-    return streams.filter(s => {
+    return finalStreams.filter(s => {
 
       if (
         seen.has(s.url)
@@ -436,7 +453,7 @@ async function getStreams(
   } catch (e) {
 
     console.log(
-      "[ONEPACE ERROR]",
+      "[PIRATEX ERROR]",
       e
     );
 

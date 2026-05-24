@@ -105,15 +105,32 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     let folderVariants = [];
 
     if (mediaType === 'tv' && season !== null) {
-        const padSeason = season < 10 ? '0' + season : season;
-        folderVariants = [
-            // Matches titles with or without apostrophes (e.g., Marvels Daredevil vs Marvel's Daredevil)
-            `/tvs/${encodedTitle}/Season%20${padSeason}/`,
-            `/tvs/${encodedTitle}/Season%20${season}/`,
-            `/tvs/${encodedRawTitle}/Season%20${padSeason}/`,
-            `/tvs/${encodedRawTitle}/Season%20${season}/`
-        ];
-    } else {
+    const padSeason = season < 10 ? '0' + season : season;
+
+    // Different title styles used by DahmerMovies folders
+    const colonDashTitle = title.replace(/:/g, ' -');
+    const noColonTitle = title.replace(/:/g, '');
+    const noApostropheTitle = title.replace(/'/g, '');
+
+    folderVariants = [
+        // Original title
+        `/tvs/${encodeURIComponent(title)}/Season%20${padSeason}/`,
+        `/tvs/${encodeURIComponent(title)}/Season%20${season}/`,
+
+        // Colon replaced with dash
+        `/tvs/${encodeURIComponent(colonDashTitle)}/Season%20${padSeason}/`,
+        `/tvs/${encodeURIComponent(colonDashTitle)}/Season%20${season}/`,
+
+        // Colon removed
+        `/tvs/${encodeURIComponent(noColonTitle)}/Season%20${padSeason}/`,
+        `/tvs/${encodeURIComponent(noColonTitle)}/Season%20${season}/`,
+
+        // Apostrophes removed
+        `/tvs/${encodeURIComponent(noApostropheTitle)}/Season%20${padSeason}/`,
+        `/tvs/${encodeURIComponent(noApostropheTitle)}/Season%20${season}/`
+    ];
+}
+    else {
         // Fallbacks for movies that omit or include years in the directory name
         folderVariants = [
             `/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`,

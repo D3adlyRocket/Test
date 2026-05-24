@@ -8,26 +8,36 @@ async function makeRequest(url) {
     try {
         return await fetch(url, {
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': DAHMER_MOVIES_API + '/'
             }
         });
-    } catch (e) {
-        return { ok: false };
-    }
+    } catch (e) { return { ok: false }; }
 }
 
 function parseLinks(html) {
     const links = [];
-    const regex = /<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+    const anchorRegex = /<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
     let match;
 
-    while ((match = regex.exec(html)) !== null) {
+    while ((match = anchorRegex.exec(html)) !== null) {
         const href = match[1];
-        const text = match[2].replace(/<[^>]*>/g, '').trim();
+        const text = match[2]
+            .replace(/<[^>]*>/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
 
-        if (text && href !== '../') {
-            links.push({ text, href, size: 'N/A' });
+        if (
+            text &&
+            href !== '../' &&
+            /\.(mkv|mp4|avi|webm|m3u8)$/i.test(text)
+        ) {
+            links.push({
+                text,
+                href,
+                size: 'N/A'
+            });
         }
     }
 
@@ -35,72 +45,73 @@ function parseLinks(html) {
 }
 
 function parseFileInfo(filename) {
-    const text = (filename || '').toUpperCase();
+  var text = String(filename || '').toUpperCase();
 
-    let source = 'Unknown';
-    if (text.includes('BLURAY') || text.includes('BDREMUX')) source = 'BluRay';
-    else if (text.includes('WEB-DL') || text.includes('WEB')) source = 'WEB';
-    else if (text.includes('HDTV')) source = 'HDTV';
+  var source = 'Unknown Source';
+  if (/\bBLURAY\b|\bBDREMUX\b/i.test(text)) source = 'BluRay';
+  else if (/\bWEB-DL\b|\bWEB\b/i.test(text)) source = 'WEB-DL';
+  else if (/\bHDTV\b/i.test(text)) source = 'HDTV';
+  else if (/\bCAM\b/i.test(text)) source = 'CAM';
 
-    let videoCodec = 'Unknown';
-    if (text.includes('H265') || text.includes('HEVC')) videoCodec = 'H265';
-    else if (text.includes('H264') || text.includes('AVC')) videoCodec = 'H264';
+  var videoCodec = 'Unknown Video';
+  if (/\bH\.?265\b|\bHEVC\b/i.test(text)) videoCodec = 'H265';
+  else if (/\bH\.?264\b|\bAVC\b/i.test(text)) videoCodec = 'AVC';
+  else if (/\bAV1\b/i.test(text)) videoCodec = 'AV1';
 
-    let audio = 'AAC';
-    if (text.includes('TRUEHD')) audio = 'TrueHD';
-    else if (text.includes('EAC3') || text.includes('DDP')) audio = 'DDP';
-    else if (text.includes('DTS')) audio = 'DTS';
+  var audioCodec = 'AAC';
+  if (/\bTRUEHD\b/i.test(text)) audioCodec = 'TrueHD';
+  else if (/\bEAC3\b|\bDDP\b/i.test(text)) audioCodec = 'DDP';
+  else if (/\bDTS\b/i.test(text)) audioCodec = 'DTS';
 
-    return {
-        source,
-        videoCodec,
-        audioProfile: audio
-    };
+  return {
+    source,
+    videoCodec,
+    audioProfile: audioCodec
+  };
 }
 
 function buildTitle(meta, res, lang, format, size, filename) {
-    const qIcon = /2160|4k/i.test(res) ? '🌟' : '💎';
-    const parsed = parseFileInfo(filename);
+  var qIcon = (res.includes('4K') || res.includes('2160')) ? '🌟' : '💎';
+  var parsed = parseFileInfo(filename);
 
-    return (
-        `🎬 ${meta.name} (${meta.year || ''})\n` +
-        `${qIcon} ${res} | 🌍 ${lang} | 💾 ${size}\n` +
-        `🎞️ ${format} | ⏱️ ${meta.duration}\n` +
-        `🏷️ ${parsed.source} | 📼 ${parsed.videoCodec} | 🔊 ${parsed.audioProfile}`
-    );
+  var line1 = '🎬 ' + meta.name + (meta.year ? ' (' + meta.year + ')' : '');
+  var line2 = qIcon + ' ' + res + ' | 🌍 ' + lang + ' | 💾 ' + (size || 'Variable Size');
+  var line3 = '🎞️ ' + format.toUpperCase() + ' | ⏱️ ' + meta.duration + ' | 📼 ' + parsed.videoCodec;
+  var line4 = '🏷️ ' + parsed.source + ' | 🔊 ' + parsed.audioProfile;
+
+  return line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 }
 
-async function invokeDahmerMovies(title, year, season, episode, mediaType, tmdbData) {
+async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie', tmdbData = {}) {
 
-    const clean = title.replace(/[:']/g, '');
-    const encoded = encodeURIComponent(clean);
+    const cleanTitle = title.replace(/[:']/g, '');
+    const encodedTitle = encodeURIComponent(cleanTitle);
 
-    let folders = [];
+    let folderVariants = [];
 
-    if (mediaType === 'tv') {
-        const padS = String(season).padStart(2, '0');
+    if (mediaType === 'tv' && season !== null) {
+        const padSeason = season < 10 ? '0' + season : season;
 
-        folders = [
-            `/tvs/${encoded}/Season ${padS}/`,
-            `/tvs/${encoded}/Season ${season}/`,
-            `/tvs/${encodeURIComponent(title)}/Season ${padS}/`
+        folderVariants = [
+            `/tvs/${encodedTitle}/Season%20${padSeason}/`,
+            `/tvs/${encodedTitle}/Season%20${season}/`
         ];
     } else {
-        folders = [
-            `/movies/${encoded} (${year})/`,
-            `/movies/${encoded}/`
+        folderVariants = [
+            `/movies/${encodedTitle}/`,
+            `/movies/${encodedTitle} (${year})/`
         ];
     }
 
     let html = '';
-    let base = '';
+    let activeDirUrl = '';
 
-    for (const f of folders) {
-        const url = DAHMER_MOVIES_API + f;
-        const res = await makeRequest(url);
+    for (const path of folderVariants) {
+        const full = DAHMER_MOVIES_API + path;
+        const res = await makeRequest(full);
         if (res.ok) {
             html = await res.text();
-            base = url;
+            activeDirUrl = full;
             break;
         }
     }
@@ -109,37 +120,31 @@ async function invokeDahmerMovies(title, year, season, episode, mediaType, tmdbD
 
     let paths = parseLinks(html);
 
-    // ==============================
-    // EPISODE FILTER (FIXED)
-    // ==============================
-    let filtered = paths;
-
+    // =========================
+    // FIXED EPISODE FILTER
+    // =========================
     if (mediaType === 'tv' && season != null && episode != null) {
 
-        const s = Number(season);
-        const e = Number(episode);
+        const se = Number(season);
+        const ep = Number(episode);
 
-        filtered = paths.filter(p => {
-            const file = (p.text || '').toUpperCase();
+        const filteredPaths = paths.filter(p => {
+            const file = p.text.toUpperCase();
 
-            const patterns = [
-                new RegExp(`S0?${s}E0?${e}`, 'i'),
-                new RegExp(`${s}X0?${e}`, 'i'),
-                new RegExp(`EP\\s*0?${e}`, 'i'),
-                new RegExp(`EPISODE\\s*0?${e}`, 'i'),
-                new RegExp(`\\b${e}\\b`)
-            ];
-
-            return patterns.some(r => r.test(file));
+            return (
+                new RegExp(`S0?${se}E0?${ep}`, 'i').test(file) ||
+                new RegExp(`${se}X0?${ep}`, 'i').test(file) ||
+                new RegExp(`EP\\s*0?${ep}`, 'i').test(file) ||
+                new RegExp(`EPISODE\\s*0?${ep}`, 'i').test(file)
+            );
         });
 
-        // fallback if nothing matched
-        if (filtered.length === 0) {
-            filtered = paths;
+        if (filteredPaths.length > 0) {
+            paths = filteredPaths;
         }
     }
 
-    const sorted = filtered.sort((a, b) => {
+    const sortedPaths = paths.sort((a, b) => {
         const a4k = /2160|4k/i.test(a.text);
         const b4k = /2160|4k/i.test(b.text);
         return b4k - a4k;
@@ -147,33 +152,49 @@ async function invokeDahmerMovies(title, year, season, episode, mediaType, tmdbD
 
     const results = [];
 
-    for (const p of sorted.slice(0, 5)) {
+    for (const path of sortedPaths.slice(0, 5)) {
 
-        let direct = p.href;
+        let directUrl;
 
-        if (!direct.startsWith('http')) {
-            direct = base + direct;
+        if (path.href.startsWith('http')) {
+            directUrl = path.href;
+        } else {
+            directUrl = activeDirUrl + path.href;
         }
 
-        const stream = DAHMER_WORKER_API + encodeURIComponent(direct);
+        directUrl = directUrl.replace(/([^:]\/)\/+/g, "$1");
+        directUrl = decodeURI(directUrl);
 
-        const file = p.text;
+        const streamUrl = DAHMER_WORKER_API + encodeURIComponent(directUrl);
 
-        const resolution = file.match(/(2160p|1080p|720p|4k)/i)?.[0] || '1080p';
-        const format = file.match(/\.(mkv|mp4|m3u8|avi|webm)/i)?.[1] || 'LINK';
+        const fileName = path.text;
+
+        const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
+
+        // 🔥 FIXED: size restored properly
+        const fileSize = path.size || 'N/A';
+
+        const format = fileName.match(/\.(mkv|mp4|m3u8|avi|webm)$/i)?.[1] || 'LINK';
+
+        const displayTitle = mediaType === 'tv'
+            ? `${title} S${season}E${episode}`
+            : title;
+
+        const runtime =
+            tmdbData?.episode_run_time?.[0] ||
+            tmdbData?.runtime ||
+            45;
 
         const meta = {
-            name: mediaType === 'tv'
-                ? `${title} S${season}E${episode}`
-                : title,
+            name: displayTitle,
             year,
-            duration: tmdbData?.runtime || 45
+            duration: runtime + ' min'
         };
 
         results.push({
             name: "DahmerMovies",
-            title: buildTitle(meta, resolution, "Auto", format.toUpperCase(), "N/A", file),
-            url: stream,
+            title: buildTitle(meta, resolution, "Auto", format, fileSize, fileName),
+            url: streamUrl,
             quality: resolution.toLowerCase(),
             provider: "dahmermovies",
             headers: {

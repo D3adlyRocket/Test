@@ -279,13 +279,7 @@ async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episode
         const tmdbUrl = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
         const res = await makeRequest(tmdbUrl);
         const data = await res.json();
-        const possibleTitles = [
-    data.name,
-    data.original_name,
-    data.title,
-    data.original_title
-].filter(Boolean);
-        const title = possibleTitles[0];
+        const title = mediaType === 'tv' ? data.name : data.title;
         const year = (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4);
         if (!title) return [];
         return await invokeDahmerMovies(

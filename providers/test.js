@@ -262,7 +262,16 @@ function extractWatchLinks(movieUrl) {
         links.push({
           url: href,
           label: text,
-          quality: text.includes("1080") ? "1080p" : "Unknown"
+          quality:
+  text.includes("2160") || text.includes("4K")
+    ? "4K"
+    : text.includes("1080")
+    ? "1080p"
+    : text.includes("720")
+    ? "720p"
+    : text.includes("480")
+    ? "480p"
+    : "Unknown"
         });
       }
     });

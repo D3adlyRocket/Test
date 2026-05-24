@@ -118,7 +118,7 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     if (!html) return [];
     let paths = parseLinks(html);
 
-// Filter exact episode for TV shows
+// Filter exact episode for TV shows with complete season pack safety fallbacks
 if (mediaType === 'tv' && season !== null && episode !== null) {
     const seasonStr = String(season).padStart(2, '0');
     const episodeStr = String(episode).padStart(2, '0');
@@ -126,14 +126,24 @@ if (mediaType === 'tv' && season !== null && episode !== null) {
     paths = paths.filter(path => {
         const file = path.text.toUpperCase();
 
-        return (
+        // 1. Direct episode match patterns
+        const hasDirectEpisode = (
             file.includes(`S${seasonStr}E${episodeStr}`) ||
             file.includes(`${seasonStr}X${episodeStr}`) ||
-            file.includes(`SEASON ${season} EPISODE ${episode}`)
+            file.includes(`SEASON ${season} EPISODE ${episode}`) ||
+            file.includes(`EPISODE ${episode}`) ||
+            file.includes(`EP${episodeStr}`)
         );
+
+        // 2. Season Pack safety fallback (prevents missing complete season batch files)
+        const isCompleteSeasonPack = (
+            file.includes(`S${seasonStr}.COMPLETE`) ||
+            file.includes(`SEASON ${season}`) && (file.includes("COMPLETE") || file.includes("PACK"))
+        );
+
+        return hasDirectEpisode || isCompleteSeasonPack;
     });
 }
-
     const sortedPaths = paths.sort((a, b) => {
         const a4k = /2160p|4k/i.test(a.text);
         const b4k = /2160p|4k/i.test(b.text);
@@ -185,15 +195,15 @@ const displayTitle = mediaType === 'tv'
     ? title + ` S${season < 10 ? '0' + season : season}E${episode < 10 ? '0' + episode : episode}`
     : title;
 
-const runtime =
-    mediaType === 'tv'
-        ? (
-            tmdbData?.episode_run_time?.find(v => v > 0) ||
-            tmdbData?.last_episode_to_air?.runtime ||
-            tmdbData?.next_episode_to_air?.runtime ||
-            45
-        )
-        : (tmdbData?.runtime || 90);
+const runtime = mediaType === 'tv'
+    ? (
+        tmdbData?.episode_run_time?.find(v => v > 0) || 
+        tmdbData?.runtime || 
+        tmdbData?.last_episode_to_air?.runtime ||
+        tmdbData?.next_episode_to_air?.runtime ||
+        45
+    )
+    : (tmdbData?.runtime || 90);
 
 const metaPayload = {
     name: displayTitle,

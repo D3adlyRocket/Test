@@ -141,21 +141,17 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
 
 // Filter exact episode for TV shows
 if (mediaType === 'tv' && season !== null && episode !== null) {
-    const seasonNum = Number(season);
-    const episodeNum = Number(episode);
+    const seasonSlug = String(season).padStart(2, '0');
+    const episodeSlug = String(episode).padStart(2, '0');
 
     paths = paths.filter(path => {
-        const file = path.text.toUpperCase();
+        const file = path.text;
 
         return (
-            // S01E01
-            new RegExp(`S0?${seasonNum}E0?${episodeNum}`, 'i').test(file) ||
+            new RegExp(`S${seasonSlug}E${episodeSlug}`, 'i').test(file) ||
 
-            // 1x01
-            new RegExp(`${seasonNum}X0?${episodeNum}`, 'i').test(file) ||
-
-            // Episode 01
-            new RegExp(`EP(?:ISODE)?\\s*0?${episodeNum}`, 'i').test(file)
+            // Also allow S1E1 style
+            new RegExp(`S${season}E${episode}`, 'i').test(file)
         );
     });
 }

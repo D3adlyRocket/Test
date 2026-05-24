@@ -476,6 +476,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
             name: "Movies4u",
             title: formatStreamTitle(mediaInfo, streamObj),
             url: result.url,
+            type: "hls"
             quality: streamObj.quality,
             headers: {
            "User-Agent": HEADERS["User-Agent"],

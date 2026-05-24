@@ -96,7 +96,7 @@ function buildTitle(meta, res, lang, format, size, filename) {
   return line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 }
 async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie', tmdbData = {}) {
-    async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie', tmdbData = {}) {
+    
     // Generates a clean baseline text without punctuation blockers like colons or apostrophes
     const cleanTitle = title.replace(/[:']/g, ''); 
     const encodedTitle = encodeURIComponent(cleanTitle);
@@ -155,18 +155,8 @@ if (mediaType === 'tv' && season !== null && episode !== null) {
             new RegExp(`${seasonNum}X0?${episodeNum}`, 'i').test(file) ||
 
             // Episode 01
-            new RegExp(`EP(?:ISODE)?\s*0?${episodeNum}`, 'i').test(file)
+            new RegExp(`EP(?:ISODE)?\\s*0?${episodeNum}`, 'i').test(file)
         );
-    });
-}
-
-        // 2. Season Pack safety fallback (prevents missing complete season batch files)
-        const isCompleteSeasonPack = (
-            file.includes(`S${seasonStr}.COMPLETE`) ||
-            file.includes(`SEASON ${season}`) && (file.includes("COMPLETE") || file.includes("PACK"))
-        );
-
-        return hasDirectEpisode || isCompleteSeasonPack;
     });
 }
     const sortedPaths = paths.sort((a, b) => {

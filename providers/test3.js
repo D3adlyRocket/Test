@@ -1,6 +1,3 @@
-// fivemovierulz.js
-// Nuvio-compatible 5movierulz scraper (fixed)
-
 const BASE_URL = "https://5movierulz.gripe";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
@@ -12,9 +9,6 @@ const HEADERS = {
   Referer: `${BASE_URL}/`
 };
 
-// =========================
-// Quality helper
-// =========================
 function extractQuality(url = "") {
   const u = url.toLowerCase();
   if (u.includes("2160p") || u.includes("4k")) return "4K";
@@ -24,42 +18,41 @@ function extractQuality(url = "") {
   return "Unknown";
 }
 
-// =========================
-// Main
-// =========================
-async function getStreams(tmdbId, mediaType, season, episode) {
+async function getStreams(tmdbId, mediaType) {
   try {
-    // 1. TMDB fetch
+    // =====================
+    // TMDB
+    // =====================
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-
     const mediaInfo = await (await fetch(tmdbUrl)).json();
-    if (!mediaInfo) return [];
-
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Search
+    // =====================
+    // SEARCH (FIXED)
+    // =====================
     const searchUrl = `${BASE_URL}/?s=${encodeURIComponent(title)}`;
-
-    const searchHtml = await (
-      await fetch(searchUrl, { headers: HEADERS })
-    ).text();
+    const searchHtml = await (await fetch(searchUrl, { headers: HEADERS })).text();
 
     const $ = cheerio.load(searchHtml);
 
     const results = [];
 
-    $("#main .cont_display").each((_, el) => {
-      const a = $(el).find("a").first();
-      const href = a.attr("href");
+    // 🔥 BROADER SEARCH (not brittle selector)
+    $("a").each((_, el) => {
+      const href = $(el).attr("href");
+      const text = ($(el).text() || "").trim();
 
-      const t = (a.attr("title") || a.text() || "")
-        .trim()
-        .replace(/\(.*$/, "")
-        .trim();
+      if (!href || !text) return;
 
-      if (href && t) {
-        results.push({ title: t, url: href });
+      // heuristic: movie pages usually include year or quality hints
+      if (
+        href.includes(BASE_URL) &&
+        text.length > 3 &&
+        !text.toLowerCase().includes("home") &&
+        !text.toLowerCase().includes("category")
+      ) {
+        results.push({ title: text, url: href });
       }
     });
 
@@ -71,40 +64,58 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       results.find(r => r.title.toLowerCase().includes(lcTitle)) ||
       results[0];
 
-    if (!match) return [];
-
     const pageUrl = match.url.startsWith("http")
       ? match.url
       : `${BASE_URL}${match.url}`;
 
-    // 3. Load page
-    const pageHtml = await (
-      await fetch(pageUrl, { headers: HEADERS })
-    ).text();
-
+    // =====================
+    // LOAD PAGE
+    // =====================
+    const pageHtml = await (await fetch(pageUrl, { headers: HEADERS })).text();
     const $page = cheerio.load(pageHtml);
 
     const streams = [];
 
-    // =========================
-    // Extract "watch online"
-    // =========================
-    $page("p a").each((_, el) => {
-      const text = $(el).text().toLowerCase().trim();
+    // =====================
+    // STRATEGY 1: direct watch links
+    // =====================
+    $page("a").each((_, el) => {
+      const text = ($(el).text() || "").toLowerCase();
       const href = $(el).attr("href");
 
       if (!href) return;
 
-      // filter only real watch links
-      if (text.includes("watch online")) {
+      if (
+        text.includes("watch") ||
+        text.includes("online") ||
+        text.includes("server") ||
+        text.includes("stream")
+      ) {
         streams.push({
           url: href,
           quality: extractQuality(href),
-          title: `5movierulz [${$(el).text().trim()}]`,
+          title: `5movierulz [direct]`,
           subtitles: []
         });
       }
     });
+
+    // =====================
+    // STRATEGY 2: fallback (iframe/video links)
+    // =====================
+    if (!streams.length) {
+      $page("iframe, video source, source").each((_, el) => {
+        const src = $(el).attr("src");
+        if (src && src.startsWith("http")) {
+          streams.push({
+            url: src,
+            quality: extractQuality(src),
+            title: `5movierulz [embed]`,
+            subtitles: []
+          });
+        }
+      });
+    }
 
     return streams;
   } catch (e) {
@@ -113,9 +124,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   }
 }
 
-// =========================
-// REQUIRED EXPORT
-// =========================
 module.exports = {
   getStreams
 };

@@ -188,7 +188,11 @@ function resolveHlsPlaylist(masterUrl) {
               : `${h}p`;
         }
 
-        result.variants.push({ url, quality });
+        const absoluteUrl = url.startsWith("http")
+  ? url
+  : new URL(url, masterUrl).href;
+
+result.variants.push({url: absoluteUrl, quality});
       }
     }
 
@@ -211,15 +215,29 @@ function extractFromM4UPlay(embedUrl) {
     const match = html.match(/https?:\/\/[^\s"']+\.m3u8[^\s"']*/);
     if (!match) return [];
 
-    return [
-      {
-        url: match[0],
-        quality: "Unknown",
-        audios: [],
-        audioInfo: "",
-        isMaster: false
-      }
-    ];
+    const streamUrl = match[0];
+
+if (streamUrl.includes("master")) {
+  const resolved = yield resolveHlsPlaylist(streamUrl);
+
+  if (resolved.variants.length) {
+    return resolved.variants.map(v => ({
+      url: v.url,
+      quality: v.quality,
+      audios: [],
+      audioInfo: "",
+      isMaster: false
+    }));
+  }
+}
+
+return [{
+  url: streamUrl,
+  quality: "Unknown",
+  audios: [],
+  audioInfo: "",
+  isMaster: false
+}];
   });
 }
 
@@ -255,11 +273,23 @@ function extractWatchLinks(movieUrl) {
 
 /* ---------------- TMDB ---------------- */
 
-function getTMDBDetails(id) {
+function getTMDBDetails(id, mediaType = "movie") {
   return __async(this, null, function* () {
+
+    const type = mediaType === "tv" ? "tv" : "movie";
+
     const res = yield fetchWithTimeout(
-      `${TMDB_BASE_URL}/movie/${id}?api_key=${TMDB_API_KEY}`
+      `${TMDB_BASE_URL}/${type}/${id}?api_key=${TMDB_API_KEY}`
     );
+
+    const data = yield res.json();
+
+    return {
+      title: data.title || data.name,
+      year: (data.release_date || data.first_air_date || "").split("-")[0]
+    };
+  });
+}
 
     const data = yield res.json();
 
@@ -272,7 +302,7 @@ function getTMDBDetails(id) {
 
 /* ---------------- MAIN ---------------- */
 
-function getStreams(tmdbId) {
+function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   return __async(this, null, function* () {
     let mediaInfo;
 

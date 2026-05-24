@@ -96,7 +96,7 @@ function buildTitle(meta, res, lang, format, size, filename) {
   return line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 }
 async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie', tmdbData = {}) {
-    const cleanTitle = title.replace(/:/g, '');
+    const cleanTitle = title.replace(/[:']/g, '');
     const folderVariants = season !== null ? [
         `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season < 10 ? '0' + season : season}/`,
         `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season}/`

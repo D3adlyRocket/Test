@@ -1,7 +1,7 @@
 const cheerio = require("cheerio");
 
 const BASE_URL =
-  "https://dudefilms.sarl";
+  "https://onepace.co";
 
 const TMDB_API_KEY =
   "1865f43a0549ca50d341dd9ab8b29f49";
@@ -13,111 +13,148 @@ const HEADERS = {
     `${BASE_URL}/`
 };
 
-// ======================================
+// =====================================
 // QUALITY
-// ======================================
+// =====================================
 function extractQuality(str = "") {
 
-  const u = str.toLowerCase();
+  const s =
+    str.toLowerCase();
 
-  if (u.includes("2160p") || u.includes("4k"))
-    return "4K";
+  if (
+    s.includes("2160") ||
+    s.includes("4k")
+  ) return "4K";
 
-  if (u.includes("1080p"))
+  if (s.includes("1080"))
     return "1080p";
 
-  if (u.includes("720p"))
+  if (s.includes("720"))
     return "720p";
 
-  if (u.includes("480p"))
+  if (s.includes("480"))
     return "480p";
 
   return "Unknown";
 }
 
-// ======================================
-// PROXY FETCH
-// ======================================
-const PROXY = (url) =>
-  `https://r.jina.ai/http://${url.replace(/^https?:\/\//, "")}`;
+// =====================================
+// PROXY
+// =====================================
+function proxy(url) {
 
+  return `https://r.jina.ai/http://${url.replace(/^https?:\/\//, "")}`;
+
+}
+
+// =====================================
+// FETCH TEXT
+// =====================================
 async function fetchText(url) {
 
   try {
 
-    const res = await fetch(
-      PROXY(url),
-      {
-        headers: HEADERS,
-        skipSizeCheck: true
-      }
-    );
+    const res =
+      await fetch(
+        proxy(url),
+        {
+          headers: HEADERS,
+          skipSizeCheck: true
+        }
+      );
 
     return await res.text();
 
   } catch (e) {
+
     return "";
+
   }
+
 }
 
-// ======================================
-// NORMALIZE URL
-// ======================================
-function normalizeUrl(url) {
-
-  if (!url) return null;
-
-  if (url.startsWith("http"))
-    return url;
-
-  if (url.startsWith("//"))
-    return "https:" + url;
-
-  if (url.startsWith("/"))
-    return BASE_URL + url;
-
-  return `${BASE_URL}/${url}`;
-}
-
-// ======================================
-// EXTRACT STREAMS
-// ======================================
-async function extractStreams(url, label) {
+// =====================================
+// EXTRACT VIDEO URLS
+// =====================================
+async function extractVideoLinks(
+  url,
+  label
+) {
 
   try {
 
     const html =
       await fetchText(url);
 
-    if (!html) return [];
-
-    const $ = cheerio.load(html);
+    if (!html)
+      return [];
 
     const streams = [];
 
-    // ==================================
-    // direct media
-    // ==================================
-    $("source, video source").each((_, el) => {
+    // =================================
+    // m3u8 direct
+    // =================================
+    const m3u8 =
+      html.match(
+        /https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/gi
+      ) || [];
+
+    for (const link of m3u8) {
+
+      streams.push({
+        url: link,
+        quality:
+          extractQuality(link),
+        title:
+          `${label} [m3u8]`,
+        subtitles: []
+      });
+
+    }
+
+    // =================================
+    // mp4 direct
+    // =================================
+    const mp4 =
+      html.match(
+        /https?:\/\/[^\s"'<>]+\.mp4[^\s"'<>]*/gi
+      ) || [];
+
+    for (const link of mp4) {
+
+      streams.push({
+        url: link,
+        quality:
+          extractQuality(link),
+        title:
+          `${label} [mp4]`,
+        subtitles: []
+      });
+
+    }
+
+    // =================================
+    // source tags
+    // =================================
+    const $ =
+      cheerio.load(html);
+
+    $("source").each((_, el) => {
 
       const src =
         $(el).attr("src");
 
-      if (!src) return;
-
-      const full =
-        normalizeUrl(src);
-
       if (
-        full.includes(".mp4") ||
-        full.includes(".m3u8")
+        src &&
+        src.startsWith("http")
       ) {
 
         streams.push({
-          url: full,
+          url: src,
           quality:
-            extractQuality(full),
-          title: label,
+            extractQuality(src),
+          title:
+            `${label} [source]`,
           subtitles: []
         });
 
@@ -125,68 +162,24 @@ async function extractStreams(url, label) {
 
     });
 
-    // ==================================
-    // iframe extraction
-    // ==================================
+    // =================================
+    // iframe fallback
+    // =================================
     $("iframe").each((_, el) => {
 
       const src =
         $(el).attr("src");
 
-      if (!src) return;
-
-      const full =
-        normalizeUrl(src);
-
-      streams.push({
-        url: full,
-        quality:
-          extractQuality(full),
-        title:
-          `${label} [iframe]`,
-        subtitles: []
-      });
-
-    });
-
-    // ==================================
-    // button links
-    // ==================================
-    $("a").each((_, el) => {
-
-      const href =
-        $(el).attr("href");
-
-      const text =
-        ($(el).text() || "")
-        .trim();
-
-      if (!href) return;
-
-      const full =
-        normalizeUrl(href);
-
-      const lc =
-        text.toLowerCase();
-
       if (
-        lc.includes("download") ||
-        lc.includes("watch") ||
-        lc.includes("stream") ||
-        lc.includes("server") ||
-        lc.includes("play") ||
-        full.includes(".mp4") ||
-        full.includes(".m3u8")
+        src &&
+        src.startsWith("http")
       ) {
 
         streams.push({
-          url: full,
-          quality:
-            extractQuality(
-              text + " " + full
-            ),
+          url: src,
+          quality: "Unknown",
           title:
-            `${label} [${text}]`,
+            `${label} [iframe]`,
           subtitles: []
         });
 
@@ -194,16 +187,33 @@ async function extractStreams(url, label) {
 
     });
 
-    return streams;
+    // dedupe
+    const seen =
+      new Set();
+
+    return streams.filter(s => {
+
+      if (
+        seen.has(s.url)
+      ) return false;
+
+      seen.add(s.url);
+
+      return true;
+
+    });
 
   } catch (e) {
+
     return [];
+
   }
+
 }
 
-// ======================================
+// =====================================
 // MAIN
-// ======================================
+// =====================================
 async function getStreams(
   tmdbId,
   mediaType,
@@ -213,9 +223,9 @@ async function getStreams(
 
   try {
 
-    // ==================================
+    // =================================
     // TMDB
-    // ==================================
+    // =================================
     const tmdbUrl =
       `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
 
@@ -236,152 +246,204 @@ async function getStreams(
     if (!title)
       return [];
 
-    console.log(
-      "[DUDEFILMS TITLE]",
-      title
-    );
+    // =================================
+    // SERIES PAGE
+    // =================================
+    const seriesUrl =
+      `${BASE_URL}/series/one-pace-english-sub/`;
 
-    // ==================================
-    // SEARCH
-    // ==================================
-    const searchUrl =
-      `${BASE_URL}/page/1/?s=${encodeURIComponent(title)}`;
+    const html =
+      await fetchText(
+        seriesUrl
+      );
 
-    const searchHtml =
-      await fetchText(searchUrl);
-
-    if (!searchHtml)
+    if (!html)
       return [];
 
     const $ =
-      cheerio.load(searchHtml);
+      cheerio.load(html);
 
-    const results = [];
+    const streams = [];
 
-    // broad extraction
-    $("a").each((_, el) => {
+    // =================================
+    // FIND EPISODE
+    // =================================
+    let episodeUrl =
+      null;
 
-      const href =
-        $(el).attr("href");
+    $("li").each((_, el) => {
 
-      const text =
-        ($(el).text() || "")
-        .trim();
+      if (episodeUrl)
+        return;
+
+      const txt =
+        $(el).text();
+
+      const s =
+        txt.match(/S(\d+)/i);
+
+      const e =
+        txt.match(/E(\d+)/i);
 
       if (
-        !href ||
-        !text
+        !s ||
+        !e
       ) return;
 
       if (
-        href.includes(BASE_URL)
+        parseInt(s[1]) === parseInt(season || 1) &&
+        parseInt(e[1]) === parseInt(episode || 1)
       ) {
 
-        results.push({
-          title: text,
-          url: href
-        });
+        const href =
+          $(el)
+          .find("a")
+          .attr("href");
+
+        if (href)
+          episodeUrl =
+            href.startsWith("http")
+              ? href
+              : BASE_URL + href;
 
       }
 
     });
 
-    if (!results.length) {
-      console.log(
-        "[DUDEFILMS] No results"
-      );
+    // fallback
+    if (!episodeUrl) {
 
-      return [];
+      const first =
+        $("li a")
+        .first()
+        .attr("href");
+
+      if (first) {
+
+        episodeUrl =
+          first.startsWith("http")
+            ? first
+            : BASE_URL + first;
+
+      }
+
     }
 
-    // ==================================
-    // MATCH
-    // ==================================
-    const lcTitle =
-      title.toLowerCase();
+    if (!episodeUrl)
+      return [];
 
-    let match =
-      results.find(r =>
-        r.title
-         .toLowerCase()
-         .includes(lcTitle)
-      ) || results[0];
+    console.log(
+      "[ONEPACE EP]",
+      episodeUrl
+    );
+
+    // =================================
+    // EP PAGE
+    // =================================
+    const epHtml =
+      await fetchText(
+        episodeUrl
+      );
+
+    if (!epHtml)
+      return [];
+
+    const epDoc =
+      cheerio.load(epHtml);
+
+    const bodyClass =
+      epDoc("body")
+      .attr("class") || "";
+
+    const match =
+      bodyClass.match(
+        /(?:term|postid)-(\d+)/
+      );
 
     if (!match)
       return [];
 
-    const pageUrl =
-      normalizeUrl(match.url);
+    const term =
+      match[1];
 
-    console.log(
-      "[DUDEFILMS PAGE]",
-      pageUrl
-    );
-
-    // ==================================
-    // EXTRACT
-    // ==================================
-    let streams =
-      await extractStreams(
-        pageUrl,
-        `DudeFilms - ${title}`
-      );
-
-    // ==================================
-    // FOLLOW BUTTON LINKS
-    // ==================================
-    const extraStreams = [];
-
-    for (const s of streams.slice(0, 10)) {
+    // =================================
+    // SERVERS
+    // =================================
+    for (
+      let i = 0;
+      i <= 7;
+      i++
+    ) {
 
       try {
 
-        const nested =
-          await extractStreams(
-            s.url,
-            s.title
+        const iframePage =
+          `${BASE_URL}/?trdekho=${i}&trid=${term}&trtype=2`;
+
+        const iframeHtml =
+          await fetchText(
+            iframePage
           );
 
-        extraStreams.push(
-          ...nested
+        if (!iframeHtml)
+          continue;
+
+        const iframeDoc =
+          cheerio.load(
+            iframeHtml
+          );
+
+        const iframeSrc =
+          iframeDoc("iframe")
+          .attr("src");
+
+        if (!iframeSrc)
+          continue;
+
+        // =================================
+        // EXTRACT REAL VIDEO
+        // =================================
+        const extracted =
+          await extractVideoLinks(
+            iframeSrc,
+            `OnePace Server ${i + 1}`
+          );
+
+        streams.push(
+          ...extracted
         );
 
       } catch (e) {}
 
     }
 
-    streams.push(
-      ...extraStreams
-    );
-
     // dedupe
     const seen =
       new Set();
 
-    streams =
-      streams.filter(s => {
+    return streams.filter(s => {
 
-        if (
-          seen.has(s.url)
-        ) return false;
+      if (
+        seen.has(s.url)
+      ) return false;
 
-        seen.add(s.url);
+      seen.add(s.url);
 
-        return true;
+      return true;
 
-      });
-
-    return streams.slice(0, 20);
+    });
 
   } catch (e) {
 
     console.log(
-      "[DUDEFILMS ERROR]",
+      "[ONEPACE ERROR]",
       e
     );
 
     return [];
+
   }
+
 }
 
 module.exports = {

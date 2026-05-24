@@ -18,30 +18,23 @@ async function makeRequest(url) {
 
 function parseLinks(html) {
     const links = [];
-
-    const anchorRegex = /<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
     let match;
+    while ((match = rowRegex.exec(html)) !== null) {
+        const rowContent = match[1];
+        const linkMatch = rowContent.match(/<a[^>]*href=["']([^"']*)["'][^>]*>([^<]*)<\/a>/i);
+        const sizeMatch = rowContent.match(/<td[^>]*>(\d+(?:\.\d+)?\s?[KMGT]B)<\/td>/i);
 
-    while ((match = anchorRegex.exec(html)) !== null) {
-        const href = match[1];
-        const text = match[2]
-            .replace(/<[^>]*>/g, '')
-            .replace(/\s+/g, ' ')
-            .trim();
+        if (linkMatch) {
+            const href = linkMatch[1];
+            const text = linkMatch[2].trim();
+            const size = sizeMatch ? sizeMatch[1].trim() : 'N/A';
 
-        if (
-            text &&
-            href !== '../' &&
-            /\.(mkv|mp4|avi|webm|m3u8)$/i.test(text)
-        ) {
-            links.push({
-                text,
-                href,
-                size: 'N/A'
-            });
+            if (text && href !== '../' && /\.(mkv|mp4|avi|webm|m3u8)$/i.test(text)) {
+                links.push({ text, href, size });
+            }
         }
     }
-
     return links;
 }
 
@@ -103,7 +96,7 @@ function buildTitle(meta, res, lang, format, size, filename) {
   return line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 }
 async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie', tmdbData = {}) {
-    
+    async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie', tmdbData = {}) {
     // Generates a clean baseline text without punctuation blockers like colons or apostrophes
     const cleanTitle = title.replace(/[:']/g, ''); 
     const encodedTitle = encodeURIComponent(cleanTitle);
@@ -112,32 +105,15 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     let folderVariants = [];
 
     if (mediaType === 'tv' && season !== null) {
-    const padSeason = season < 10 ? '0' + season : season;
-
-    // Different title styles used by DahmerMovies folders
-    const colonDashTitle = title.replace(/:/g, ' -');
-    const noColonTitle = title.replace(/:/g, '');
-    const noApostropheTitle = title.replace(/'/g, '');
-
-    folderVariants = [
-        // Original title
-        `/tvs/${encodeURIComponent(title)}/Season%20${padSeason}/`,
-        `/tvs/${encodeURIComponent(title)}/Season%20${season}/`,
-
-        // Colon replaced with dash
-        `/tvs/${encodeURIComponent(colonDashTitle)}/Season%20${padSeason}/`,
-        `/tvs/${encodeURIComponent(colonDashTitle)}/Season%20${season}/`,
-
-        // Colon removed
-        `/tvs/${encodeURIComponent(noColonTitle)}/Season%20${padSeason}/`,
-        `/tvs/${encodeURIComponent(noColonTitle)}/Season%20${season}/`,
-
-        // Apostrophes removed
-        `/tvs/${encodeURIComponent(noApostropheTitle)}/Season%20${padSeason}/`,
-        `/tvs/${encodeURIComponent(noApostropheTitle)}/Season%20${season}/`
-    ];
-}
-    else {
+        const padSeason = season < 10 ? '0' + season : season;
+        folderVariants = [
+            // Matches titles with or without apostrophes (e.g., Marvels Daredevil vs Marvel's Daredevil)
+            `/tvs/${encodedTitle}/Season%20${padSeason}/`,
+            `/tvs/${encodedTitle}/Season%20${season}/`,
+            `/tvs/${encodedRawTitle}/Season%20${padSeason}/`,
+            `/tvs/${encodedRawTitle}/Season%20${season}/`
+        ];
+    } else {
         // Fallbacks for movies that omit or include years in the directory name
         folderVariants = [
             `/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`,
@@ -163,20 +139,31 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     if (!html) return [];
     let paths = parseLinks(html);
 
-// Filter exact episode for TV shows
-if (mediaType === 'tv' && season !== null && episode !== null) {
-    const seasonSlug = String(season).padStart(2, '0');
-    const episodeSlug = String(episode).padStart(2, '0');
+    // Filter exact episode for TV shows
+    if (mediaType === 'tv' && season !== null && episode !== null) {
+        const seasonStr = String(season).padStart(2, '0');
+        const episodeStr = String(episode).padStart(2, '0');
 
-    paths = paths.filter(path => {
-        const file = path.text;
+        paths = paths.filter(path => {
+            const file = path.text.toUpperCase();
+            
+            // Flexible matching for raw episode codes
+            return (.
+                file.includes(`S${seasonStr}E${episodeStr}`) ||
+                file.includes(`${seasonStr}X${episodeStr}`) ||
+                file.includes(`SEASON ${season} EPISODE ${episode}`) ||
+                file.includes(`EP${episodeStr}`)
+            );
+        });
+    }
 
-        return (
-            new RegExp(`S${seasonSlug}E${episodeSlug}`, 'i').test(file) ||
-
-            // Also allow S1E1 style
-            new RegExp(`S${season}E${episode}`, 'i').test(file)
+        // 2. Season Pack safety fallback (prevents missing complete season batch files)
+        const isCompleteSeasonPack = (
+            file.includes(`S${seasonStr}.COMPLETE`) ||
+            file.includes(`SEASON ${season}`) && (file.includes("COMPLETE") || file.includes("PACK"))
         );
+
+        return hasDirectEpisode || isCompleteSeasonPack;
     });
 }
     const sortedPaths = paths.sort((a, b) => {

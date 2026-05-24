@@ -311,12 +311,11 @@ function getStreams(tmdbId) {
         streams.push({
           name: "Movies4u",
           title: formatStreamTitle(mediaInfo, s),
-          url: s.url,
+          url: `https://nuvio-hls-proxy.onrender.com/proxy?url=${encodeURIComponent(s.url)}`,
           type: "hls",
           quality: s.quality,
           headers: {
             "User-Agent": HEADERS["User-Agent"],
-            Referer: "https://m4uplay.store/"
           },
           provider: "Movies4u"
         });

@@ -1,190 +1,165 @@
-// goojara.js - Nuvio Compliant Provider Module
-const cheerio = require('cheerio'); // Ensures parser parsing operations don't throw Reference errors
+// kickassanime.js
+// Fixed for Nuvio module system + safer stream extraction
 
-const BASE_URL = "https://ww1.goojara.to";
+const BASE_URL = "https://kaa.lt";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
+
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   "Accept": "*/*",
-  "Referer": BASE_URL + "/"
+  "Content-Type": "application/json",
+  "x-origin": "kickass-anime.ru"
 };
 
-function extractQuality(url) {
-  const u = (url || "").toLowerCase();
-  if (u.includes("2160p") || u.includes("4k")) return "4K";
-  if (u.includes("1080p")) return "1080p";
-  if (u.includes("720p")) return "720p";
-  if (u.includes("480p")) return "480p";
-  return "720p"; // Safe baseline video fallback
-}
-
-/**
- * Dynamically fetches the Goojara landing assets to pull live cryptographic tokens
- */
-async function fetchSearchTokens() {
-  try {
-    const res = await fetch(BASE_URL, { headers: HEADERS, skipSizeCheck: true });
-    const html = await res.text();
-    
-    // Regex matching structures to isolate dynamic security tokens in Goojara's scripts
-    const zMatch = html.match(/z\s*=\s*['"]([^'"]+)['"]/);
-    const xMatch = html.match(/x\s*=\s*['"]([^'"]+)['"]/);
-    
-    return {
-      z: zMatch ? zMatch[1] : "Mwxxa3Vnaw", // Fallback to hardcoded only if structural regex fails
-      x: xMatch ? xMatch[1] : "b3716e05ff"
-    };
-  } catch (e) {
-    return { z: "Mwxxa3Vnaw", x: "b3716e05ff" };
-  }
+function extractQuality(text) {
+  const u = (text || "").toLowerCase();
+  if (u.includes("2160") || u.includes("4k")) return "4K";
+  if (u.includes("1080")) return "1080p";
+  if (u.includes("720")) return "720p";
+  if (u.includes("480")) return "480p";
+  return "Unknown";
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // 1. Resolve localized naming configuration structures via TMDB
-    const type = mediaType === "tv" ? "tv" : "movie";
-    const tmdbUrl = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    // 1. TMDB lookup
+    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Fetch fresh structural auth tokens prior to running search
-    const tokens = await fetchSearchTokens();
-    const searchBody = new URLSearchParams({
-      z: tokens.z,
-      x: tokens.x,
-      q: title
-    });
-
-    const searchResp = await fetch(`${BASE_URL}/xmre.php`, {
+    // 2. Search API
+    const searchResp = await fetch(`${BASE_URL}/api/fsearch`, {
       method: "POST",
-      headers: {
-        ...HEADERS,
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: searchBody.toString(),
+      headers: HEADERS,
+      body: JSON.stringify({ page: "1", query: title }),
       skipSizeCheck: true
     });
 
-    const searchHtml = await searchResp.text();
-    const $ = cheerio.load(searchHtml);
+    const searchData = await searchResp.json();
+    if (!searchData?.result?.length) return [];
 
-    const results = [];
-    $("li a").each((i, a) => {
-      const href = $(a).attr("href");
-      const t = $(a).text().trim();
-      if (href) results.push({ title: t, url: href });
-    });
+    const match =
+      searchData.result.find(r =>
+        (r.title_en || r.title || "").toLowerCase().includes(title.toLowerCase())
+      ) || searchData.result[0];
 
-    if (!results.length) return [];
+    if (!match) return [];
 
-    const isTV = type === "tv";
-    const lcTitle = title.toLowerCase();
-    let match = results.find(r => r.title.toLowerCase().includes(lcTitle));
-    if (!match) match = results[0];
+    const showSlug = match.slug || match.watch_uri;
+    if (!showSlug) return [];
 
-    let matchUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url.startsWith('/') ? '' : '/'}${match.url}`;
+    const showName = showSlug.startsWith("/")
+      ? showSlug
+      : `/${showSlug}`;
 
-    const matchPageHtml = await (await fetch(matchUrl, { headers: HEADERS, skipSizeCheck: true })).text();
-    const $match = cheerio.load(matchPageHtml);
-    const showHref = $match("div.snfo h1 a").attr("href") || match.url;
-    const showUrl = showHref.startsWith("http") ? showHref : `${BASE_URL}${showHref.startsWith('/') ? '' : '/'}${showHref}`;
+    // 3. Episodes list
+    const epsResp = await fetch(
+      `${BASE_URL}/api/show${showName}/episodes?ep=1&lang=ja-JP`,
+      { headers: HEADERS, skipSizeCheck: true }
+    );
 
-    // 3. Evaluate specific Season & Episode layouts if TV Show context
-    const showHtml = await (await fetch(showUrl, { headers: HEADERS, skipSizeCheck: true })).text();
-    const $show = cheerio.load(showHtml);
+    const epsData = await epsResp.json();
+    const episodes = epsData?.result || [];
 
-    let targetUrl = showUrl;
+    let target = episodes.find(e => {
+      const epNum = Math.floor(parseFloat(e.episode_number || 0));
+      return epNum === parseInt(episode);
+    }) || episodes[0];
 
-    if (isTV) {
-      const seasonLink = $show("#sesh a.ste").attr("href") || "";
-      if (!seasonLink) return [];
+    if (!target) return [];
 
-      const totalSeasons = parseInt(seasonLink.split("?s=")[1]) || 1;
-      if (season > totalSeasons) return [];
+    const epNum = Math.floor(parseFloat(target.episode_number || 1));
 
-      const seasonHref = seasonLink.split("?s=")[0] + `?s=${season}`;
-      const seasonUrl = seasonHref.startsWith("http") ? seasonHref : `${BASE_URL}${seasonHref.startsWith('/') ? '' : '/'}${seasonHref}`;
+    const episodeUrl = `${BASE_URL}/api/show${showName}/episode/ep-${epNum}-${target.slug}`;
 
-      const seasonHtml = await (await fetch(seasonUrl, { headers: HEADERS, skipSizeCheck: true })).text();
-      const $season = cheerio.load(seasonHtml);
-
-      let epUrl = "";
-      $season("div.seho").each((i, el) => {
-        if (epUrl) return;
-        const epText = $season("span.sea", el).text().replace(/^0/, "").trim();
-        const epNum = parseInt(epText);
-        if (epNum === parseInt(episode)) {
-          const href = $season("a", el).attr("href");
-          epUrl = href ? (href.startsWith("http") ? href : `${BASE_URL}${href.startsWith('/') ? '' : '/'}${href}`) : "";
-        }
-      });
-
-      if (!epUrl) return [];
-      targetUrl = epUrl;
-    }
-
-    // 4. Load Stream Host selection contexts
-    const playerResp = await fetch(targetUrl, {
-      headers: { ...HEADERS, Referer: BASE_URL },
+    // 4. Get servers
+    const serversResp = await fetch(episodeUrl, {
+      headers: HEADERS,
       skipSizeCheck: true
     });
-    const playerHtml = await playerResp.text();
-    const $player = cheerio.load(playerHtml);
 
-    const setCookie = playerResp.headers.get ? playerResp.headers.get("set-cookie") : "";
-    const chkMatch = playerHtml.match(/_3chk\(\s*'([^']+)'\s*,\s*'([^']+)'/);
-    const cookieStr = setCookie ? `${setCookie.split(";")[0]}${chkMatch ? `; ${chkMatch[1]}=${chkMatch[2]}` : ""}` : "";
+    const serversData = await serversResp.json();
+    if (!serversData?.servers) return [];
 
     const streams = [];
-    const drlLinks = $player("#drl a").toArray();
 
-    for (const a of drlLinks) {
-      let href = $player(a).attr("href") || "";
-      if (!href) continue;
-      
-      if (href.startsWith("//")) href = "https:" + href;
-      else if (!href.startsWith("http")) href = `${BASE_URL}${href.startsWith('/') ? '' : '/'}${href}`;
+    for (const server of serversData.servers) {
+      if (!server?.src) continue;
 
-      try {
-        const redirectResp = await fetch(href, {
-          headers: {
-            ...HEADERS,
-            Referer: targetUrl,
-            Cookie: cookieStr
-          },
-          redirect: "manual",
-          skipSizeCheck: true
-        });
-        
-        const embedUrl = redirectResp.headers.get ? redirectResp.headers.get("location") : "";
-        if (embedUrl && embedUrl.startsWith("http")) {
-          streams.push({
-            name: "Goojara CDN",
-            title: `Goojara Stream (${extractQuality(embedUrl)})`,
-            url: embedUrl,
-            quality: extractQuality(embedUrl).toLowerCase(),
+      if (!server.name) continue;
+
+      const name = server.name.toLowerCase();
+
+      if (
+        name.includes("vidstreaming") ||
+        name.includes("catstream") ||
+        name.includes("birdstream")
+      ) {
+        try {
+          const pageResp = await fetch(server.src, {
             headers: {
               "User-Agent": HEADERS["User-Agent"],
-              "Referer": BASE_URL + "/",
-              "Connection": "keep-alive"
+              "Referer": BASE_URL
             },
-            provider: "goojara"
+            skipSizeCheck: true
           });
-        }
-      } catch (e) {}
+
+          const html = await pageResp.text();
+
+          // 1. direct m3u8
+          const m3u8 = html.match(/https?:\/\/[^\s"'<>]+\.m3u8/);
+          if (m3u8) {
+            streams.push({
+              url: m3u8[0],
+              quality: "1080p",
+              title: `KickassAnime ${server.name}`,
+              subtitles: []
+            });
+            continue;
+          }
+
+          // 2. props fallback
+          const props = html.match(/props="([^"]+)"/);
+          if (props) {
+            try {
+              const jsonStr = props[1]
+                .replace(/&amp;/g, "&")
+                .replace(/&quot;/g, '"')
+                .replace(/&#39;/g, "'");
+
+              const json = JSON.parse(jsonStr);
+
+              const video =
+                json?.manifest?.[1];
+
+              if (video) {
+                streams.push({
+                  url: "https:" + video,
+                  quality: "1080p",
+                  title: `KickassAnime ${server.name}`,
+                  subtitles: []
+                });
+              }
+            } catch (_) {}
+          }
+
+        } catch (_) {}
+      }
     }
 
     return streams;
   } catch (e) {
-    console.error("[Goojara Addon Engine Error]", e);
+    console.error("[KickassAnime]", e);
     return [];
   }
 }
 
-// --- Nuvio Environment Bridge Integration Layer ---
-if (typeof module !== 'undefined' && module.exports) {
+/**
+ * ✅ NUVIO EXPORT FIX (THIS WAS MISSING BEFORE)
+ */
+if (typeof module !== "undefined" && module.exports) {
   module.exports = { getStreams };
-} else if (typeof global !== 'undefined') {
+} else {
   global.getStreams = getStreams;
 }

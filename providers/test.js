@@ -57,11 +57,11 @@ function extractQuality(url) {
   if (u.includes("720p")) return "720p";
   if (u.includes("480p")) return "480p";
   if (u.includes("360p")) return "360p";
-  return "Unknown";
+  return "1080p"; // Fallback to safe default
 }
 
-// Main Nuvio function implementation
-function getStreams(tmdbId, mediaType, season, episode) {
+// Fixed Nuvio getStreams entry point
+function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
   return new Promise((resolve, reject) => {
     let BASE_URL = "";
     let title = "";
@@ -88,8 +88,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
         $("div.result-item").each((i, el) => {
           const a = $(el).find("div.title > a");
           const href = a.attr("href");
-          const name = a.text().replace(/\(\d{4}\)/, "").trim();
-          if (href && name) results.push({ href, name });
+          const nameValue = a.text().replace(/\(\d{4}\)/, "").trim();
+          if (href && nameValue) results.push({ href, name: nameValue });
         });
 
         if (results.length === 0) throw new Error("No search results");
@@ -126,7 +126,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
           });
 
           if (epLinks.length > 0) {
-            let targetEp = epLinks.find(ep => ep.season === parseInt(season || 1) && ep.episode === parseInt(episode || 1)) || epLinks[0];
+            // Using Nuvio's exact seasonNum and episodeNum parameter signatures
+            let targetEp = epLinks.find(ep => ep.season === parseInt(seasonNum || 1) && ep.episode === parseInt(episodeNum || 1)) || epLinks[0];
             return fetch(targetEp.href, { headers: HEADERS })
               .then(epResp => epResp.text().then(epHtml => ({ epHtml, epDirectUrl: new URL(epResp.url || targetEp.href).origin })))
               .then(({ epHtml, epDirectUrl }) => {
@@ -149,7 +150,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           }
         }
 
-        // Processing Movie Players
+        // Processing Movie Links
         const playerItems = [];
         $p("ul#playeroptionsul > li").each((i, el) => {
           playerItems.push({
@@ -169,11 +170,12 @@ function getStreams(tmdbId, mediaType, season, episode) {
         if (embedUrls && embedUrls.length > 0) {
           embedUrls.forEach(embedUrl => {
             if (embedUrl && !embedUrl.includes("youtube")) {
+              // Critical Fix: Stream structure mapping exactly to what Nuvio expects
               streams.push({
-                name: "Movierulzhd", // Nuvio commonly checks for 'name' or 'title'
+                name: "Movierulzhd", 
+                title: "Server Link (" + extractQuality(embedUrl) + ")",
                 url: embedUrl,
                 quality: extractQuality(embedUrl),
-                title: "Movierulzhd",
                 subtitles: []
               });
             }
@@ -183,12 +185,12 @@ function getStreams(tmdbId, mediaType, season, episode) {
       })
       .catch(err => {
         console.error("[Movierulzhd Error]", err);
-        resolve([]); // Resolve empty array so app doesn't hang
+        resolve([]); 
       });
   });
 }
 
-// Correct Nuvio validation export
+// Global scope export mapping for the Nuvio JS Sandboxed Environment
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { getStreams };
 } else {

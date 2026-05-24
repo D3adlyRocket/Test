@@ -96,11 +96,32 @@ function buildTitle(meta, res, lang, format, size, filename) {
   return line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 }
 async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie', tmdbData = {}) {
-    const cleanTitle = title.replace(/[:']/g, '');
-    const folderVariants = season !== null ? [
-        `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season < 10 ? '0' + season : season}/`,
-        `/tvs/${encodeURIComponent(cleanTitle)}/Season%20${season}/`
-    ] : [`/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`];
+    async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie', tmdbData = {}) {
+    // Generates a clean baseline text without punctuation blockers like colons or apostrophes
+    const cleanTitle = title.replace(/[:']/g, ''); 
+    const encodedTitle = encodeURIComponent(cleanTitle);
+    const encodedRawTitle = encodeURIComponent(title);
+
+    let folderVariants = [];
+
+    if (mediaType === 'tv' && season !== null) {
+        const padSeason = season < 10 ? '0' + season : season;
+        folderVariants = [
+            // Matches titles with or without apostrophes (e.g., Marvels Daredevil vs Marvel's Daredevil)
+            `/tvs/${encodedTitle}/Season%20${padSeason}/`,
+            `/tvs/${encodedTitle}/Season%20${season}/`,
+            `/tvs/${encodedRawTitle}/Season%20${padSeason}/`,
+            `/tvs/${encodedRawTitle}/Season%20${season}/`
+        ];
+    } else {
+        // Fallbacks for movies that omit or include years in the directory name
+        folderVariants = [
+            `/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`,
+            `/movies/${encodeURIComponent(title + ' (' + year + ')')}/`,
+            `/movies/${encodedTitle}/`,
+            `/movies/${encodedRawTitle}/`
+        ];
+    }
 
     let html = '';
     let activeDirUrl = '';
@@ -118,22 +139,23 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     if (!html) return [];
     let paths = parseLinks(html);
 
-// Filter exact episode for TV shows with complete season pack safety fallbacks
-if (mediaType === 'tv' && season !== null && episode !== null) {
-    const seasonStr = String(season).padStart(2, '0');
-    const episodeStr = String(episode).padStart(2, '0');
+    // Filter exact episode for TV shows
+    if (mediaType === 'tv' && season !== null && episode !== null) {
+        const seasonStr = String(season).padStart(2, '0');
+        const episodeStr = String(episode).padStart(2, '0');
 
-    paths = paths.filter(path => {
-        const file = path.text.toUpperCase();
-
-        // 1. Direct episode match patterns
-        const hasDirectEpisode = (
-            file.includes(`S${seasonStr}E${episodeStr}`) ||
-            file.includes(`${seasonStr}X${episodeStr}`) ||
-            file.includes(`SEASON ${season} EPISODE ${episode}`) ||
-            file.includes(`EPISODE ${episode}`) ||
-            file.includes(`EP${episodeStr}`)
-        );
+        paths = paths.filter(path => {
+            const file = path.text.toUpperCase();
+            
+            // Flexible matching for raw episode codes
+            return (.
+                file.includes(`S${seasonStr}E${episodeStr}`) ||
+                file.includes(`${seasonStr}X${episodeStr}`) ||
+                file.includes(`SEASON ${season} EPISODE ${episode}`) ||
+                file.includes(`EP${episodeStr}`)
+            );
+        });
+    }
 
         // 2. Season Pack safety fallback (prevents missing complete season batch files)
         const isCompleteSeasonPack = (

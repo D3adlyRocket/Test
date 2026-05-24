@@ -139,23 +139,26 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     if (!html) return [];
     let paths = parseLinks(html);
 
-    // Filter exact episode for TV shows
-    if (mediaType === 'tv' && season !== null && episode !== null) {
-        const seasonStr = String(season).padStart(2, '0');
-        const episodeStr = String(episode).padStart(2, '0');
+// Filter exact episode for TV shows
+if (mediaType === 'tv' && season !== null && episode !== null) {
+    const seasonNum = Number(season);
+    const episodeNum = Number(episode);
 
-        paths = paths.filter(path => {
-            const file = path.text.toUpperCase();
-            
-            // Flexible matching for raw episode codes
-            return (.
-                file.includes(`S${seasonStr}E${episodeStr}`) ||
-                file.includes(`${seasonStr}X${episodeStr}`) ||
-                file.includes(`SEASON ${season} EPISODE ${episode}`) ||
-                file.includes(`EP${episodeStr}`)
-            );
-        });
-    }
+    paths = paths.filter(path => {
+        const file = path.text.toUpperCase();
+
+        return (
+            // S01E01
+            new RegExp(`S0?${seasonNum}E0?${episodeNum}`, 'i').test(file) ||
+
+            // 1x01
+            new RegExp(`${seasonNum}X0?${episodeNum}`, 'i').test(file) ||
+
+            // Episode 01
+            new RegExp(`EP(?:ISODE)?\s*0?${episodeNum}`, 'i').test(file)
+        );
+    });
+}
 
         // 2. Season Pack safety fallback (prevents missing complete season batch files)
         const isCompleteSeasonPack = (

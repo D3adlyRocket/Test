@@ -212,7 +212,7 @@ function extractFromM4UPlay(embedUrl) {
 
     const html = yield res.text();
 
-    const match = html.match(/https?:\/\/[^\s"']+\.m3u8[^\s"']*/);
+    const match = html.match(/https?:\/\/[^\s"']+\.(?:m3u8|txt)[^\s"']*/);
     if (!match) return [];
 
     const streamUrl = match[0];

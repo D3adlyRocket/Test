@@ -1,8 +1,5 @@
-/**
- * @name Movierulzhd
- * @description Hindi movies/series provider with WordPress admin-ajax embed extraction
- * @version 1.0.0
- */
+// movierulzhd.js
+// Movierulzhd - Hindi movies/series provider formatted for Nuvio
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://123moviesfree9.cloud";
@@ -14,33 +11,34 @@ const HEADERS = {
 
 let cachedBaseUrl = null;
 
-async function getBaseUrl() {
-  if (cachedBaseUrl) return cachedBaseUrl;
-  try {
-    const resp = await fetch(DOMAINS_URL);
-    const data = await resp.json();
-    cachedBaseUrl = data.movierulzhd || FALLBACK_URL;
-  } catch (e) {
-    cachedBaseUrl = FALLBACK_URL;
-  }
-  return cachedBaseUrl;
+function getBaseUrl() {
+  if (cachedBaseUrl) return Promise.resolve(cachedBaseUrl);
+  return fetch(DOMAINS_URL)
+    .then(resp => resp.json())
+    .then(data => {
+      cachedBaseUrl = data.movierulzhd || FALLBACK_URL;
+      return cachedBaseUrl;
+    })
+    .catch(() => {
+      cachedBaseUrl = FALLBACK_URL;
+      return cachedBaseUrl;
+    });
 }
 
-async function fetchEmbedUrl(baseUrl, post, nume, type) {
-  try {
-    const resp = await fetch(`${baseUrl}/wp-admin/admin-ajax.php`, {
-      method: "POST",
-      headers: {
-        ...HEADERS,
-        "Content-Type": "application/x-www-form-urlencoded",
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": baseUrl
-      },
-      body: `action=doo_player_ajax&post=${post}&nume=${nume}&type=${type}`
-    });
-    const data = await resp.json();
+function fetchEmbedUrl(baseUrl, post, nume, type) {
+  return fetch(`${baseUrl}/wp-admin/admin-ajax.php`, {
+    method: "POST",
+    headers: {
+      ...HEADERS,
+      "Content-Type": "application/x-www-form-urlencoded",
+      "X-Requested-With": "XMLHttpRequest",
+      "Referer": baseUrl
+    },
+    body: `action=doo_player_ajax&post=${post}&nume=${nume}&type=${type}`
+  })
+  .then(resp => resp.json())
+  .then(data => {
     const embedUrl = data.embed_url || "";
-
     const srcMatch = embedUrl.match(/SRC="(https?:[^"]+)"/i);
     if (srcMatch) return srcMatch[1].trim();
 
@@ -48,9 +46,8 @@ async function fetchEmbedUrl(baseUrl, post, nume, type) {
     if (urlMatch) return urlMatch[1].trim();
 
     return embedUrl.replace(/^"|"$/g, "").trim();
-  } catch (e) {
-    return null;
-  }
+  })
+  .catch(() => null);
 }
 
 function extractQuality(url) {
@@ -63,140 +60,137 @@ function extractQuality(url) {
   return "Unknown";
 }
 
-// Nuvio Specification Object Export
-export default {
-  /**
-   * Main entry point for Nuvio stream extraction
-   * @param {Object} ctx - The Nuvio context object containing metadata
-   * @param {string} ctx.tmdbId - TMDB ID of the item
-   * @param {string} ctx.type - "movie" or "tv"
-   * @param {number} [ctx.season] - Season number if type is tv
-   * @param {number} [ctx.episode] - Episode number if type is tv
-   */
-  async getStreams(ctx) {
-    try {
-      const { tmdbId, type: mediaType, season, episode } = ctx;
-      const BASE_URL = await getBaseUrl();
+// Main Nuvio function implementation
+function getStreams(tmdbId, mediaType, season, episode) {
+  return new Promise((resolve, reject) => {
+    let BASE_URL = "";
+    let title = "";
+    const streams = [];
 
-      // Step 1: Get title from TMDB
-      const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-      const mediaInfo = await (await fetch(tmdbUrl)).json();
-      const title = mediaInfo.title || mediaInfo.name;
-      if (!title) return [];
+    getBaseUrl()
+      .then(url => {
+        BASE_URL = url;
+        const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+        return fetch(tmdbUrl);
+      })
+      .then(resp => resp.json())
+      .then(mediaInfo => {
+        title = mediaInfo.title || mediaInfo.name;
+        if (!title) throw new Error("Title not found");
 
-      // Step 2: Search Movierulzhd
-      const searchResp = await fetch(`${BASE_URL}/search/${encodeURIComponent(title.replace(/ /g, "-"))}`, {
-        headers: HEADERS
-      });
-      const searchHtml = await searchResp.text();
-      const $ = cheerio.load(searchHtml);
+        return fetch(`${BASE_URL}/search/${encodeURIComponent(title.replace(/ /g, "-"))}`, { headers: HEADERS });
+      })
+      .then(resp => resp.text())
+      .then(searchHtml => {
+        const $ = cheerio.load(searchHtml);
+        const results = [];
 
-      const results = [];
-      $("div.result-item").each((i, el) => {
-        const a = $(el).find("div.title > a");
-        const href = a.attr("href");
-        const name = a.text().replace(/\(\d{4}\)/, "").trim();
-        if (href && name) results.push({ href, name });
-      });
-
-      if (results.length === 0) return [];
-
-      const match = results.find(r =>
-        r.name.toLowerCase().includes(title.toLowerCase())
-      ) || results[0];
-
-      let contentUrl = match.href;
-      if (contentUrl.includes("/episodes/")) {
-        const t = contentUrl.split("/episodes/")[1];
-        const slug = t.match(/(.+?)-season/)?.[1] || t;
-        contentUrl = `${BASE_URL}/tvshows/${slug}`;
-      } else if (contentUrl.includes("/seasons/")) {
-        const t = contentUrl.split("/seasons/")[1];
-        const slug = t.match(/(.+?)-season/)?.[1] || t;
-        contentUrl = `${BASE_URL}/tvshows/${slug}`;
-      }
-
-      // Step 3: Load content page
-      const pageResp = await fetch(contentUrl, { headers: HEADERS });
-      const pageHtml = await pageResp.text();
-      const $p = cheerio.load(pageHtml);
-      const directUrl = new URL(pageResp.url || contentUrl).origin;
-
-      const isMovie = mediaType === "movie";
-      const streams = [];
-
-      if (!isMovie && mediaType === "tv") {
-        const epLinks = [];
-        $p("ul.episodios > li").each((i, el) => {
-          const href = $p(el).find("a").attr("href");
-          const numText = $p(el).find("div.numerando").text().replace(/ /g, "");
-          const parts = numText.split("-");
-          const sNum = parseInt(parts[0] || "0");
-          const eNum = parseInt(parts[1] || "0");
-          if (href) epLinks.push({ href, season: sNum, episode: eNum });
+        $("div.result-item").each((i, el) => {
+          const a = $(el).find("div.title > a");
+          const href = a.attr("href");
+          const name = a.text().replace(/\(\d{4}\)/, "").trim();
+          if (href && name) results.push({ href, name });
         });
 
-        if (epLinks.length > 0) {
-          let targetEp = epLinks.find(ep =>
-            ep.season === parseInt(season || 1) && ep.episode === parseInt(episode || 1)
-          ) || epLinks[0];
+        if (results.length === 0) throw new Error("No search results");
 
-          const epResp = await fetch(targetEp.href, { headers: HEADERS });
-          const epHtml = await epResp.text();
-          const $ep = cheerio.load(epHtml);
-          const epDirectUrl = new URL(epResp.url || targetEp.href).origin;
+        const match = results.find(r => r.name.toLowerCase().includes(title.toLowerCase())) || results[0];
+        let contentUrl = match.href;
 
-          const epItems = [];
-          $ep("ul#playeroptionsul > li").each((i, el) => {
-            epItems.push({
-              post: $ep(el).attr("data-post"),
-              nume: $ep(el).attr("data-nume"),
-              type: $ep(el).attr("data-type")
-            });
+        if (contentUrl.includes("/episodes/") || contentUrl.includes("/seasons/")) {
+          const splitKey = contentUrl.includes("/episodes/") ? "/episodes/" : "/seasons/";
+          const t = contentUrl.split(splitKey)[1];
+          const slug = t.match(/(.+?)-season/)?.[1] || t;
+          contentUrl = `${BASE_URL}/tvshows/${slug}`;
+        }
+
+        return fetch(contentUrl, { headers: HEADERS });
+      })
+      .then(pageResp => {
+        return pageResp.text().then(pageHtml => ({ pageHtml, finalUrl: pageResp.url }));
+      })
+      .then(({ pageHtml, finalUrl }) => {
+        const $p = cheerio.load(pageHtml);
+        const directUrl = new URL(finalUrl).origin;
+        const isMovie = mediaType === "movie";
+
+        if (!isMovie && mediaType === "tv") {
+          const epLinks = [];
+          $p("ul.episodios > li").each((i, el) => {
+            const href = $p(el).find("a").attr("href");
+            const numText = $p(el).find("div.numerando").text().replace(/ /g, "");
+            const parts = numText.split("-");
+            const sNum = parseInt(parts[0] || "0");
+            const eNum = parseInt(parts[1] || "0");
+            if (href) epLinks.push({ href, season: sNum, episode: eNum });
           });
 
-          for (const item of epItems.slice(0, 5)) {
-            if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
-            const embedUrl = await fetchEmbedUrl(epDirectUrl, item.post, item.nume, item.type);
+          if (epLinks.length > 0) {
+            let targetEp = epLinks.find(ep => ep.season === parseInt(season || 1) && ep.episode === parseInt(episode || 1)) || epLinks[0];
+            return fetch(targetEp.href, { headers: HEADERS })
+              .then(epResp => epResp.text().then(epHtml => ({ epHtml, epDirectUrl: new URL(epResp.url || targetEp.href).origin })))
+              .then(({ epHtml, epDirectUrl }) => {
+                const $ep = cheerio.load(epHtml);
+                const epItems = [];
+                $ep("ul#playeroptionsul > li").each((i, el) => {
+                  epItems.push({
+                    post: $ep(el).attr("data-post"),
+                    nume: $ep(el).attr("data-nume"),
+                    type: $ep(el).attr("data-type")
+                  });
+                });
+
+                const promises = epItems.slice(0, 5)
+                  .filter(item => item.post && item.nume && !item.nume.includes("trailer"))
+                  .map(item => fetchEmbedUrl(epDirectUrl, item.post, item.nume, item.type));
+
+                return Promise.all(promises);
+              });
+          }
+        }
+
+        // Processing Movie Players
+        const playerItems = [];
+        $p("ul#playeroptionsul > li").each((i, el) => {
+          playerItems.push({
+            post: $p(el).attr("data-post"),
+            nume: $p(el).attr("data-nume"),
+            type: $p(el).attr("data-type")
+          });
+        });
+
+        const promises = playerItems.slice(0, 5)
+          .filter(item => item.post && item.nume && !item.nume.includes("trailer"))
+          .map(item => fetchEmbedUrl(directUrl, item.post, item.nume, item.type));
+
+        return Promise.all(promises);
+      })
+      .then(embedUrls => {
+        if (embedUrls && embedUrls.length > 0) {
+          embedUrls.forEach(embedUrl => {
             if (embedUrl && !embedUrl.includes("youtube")) {
               streams.push({
+                name: "Movierulzhd", // Nuvio commonly checks for 'name' or 'title'
                 url: embedUrl,
                 quality: extractQuality(embedUrl),
                 title: "Movierulzhd",
                 subtitles: []
               });
             }
-          }
-          return streams;
-        }
-      }
-
-      const playerItems = [];
-      $p("ul#playeroptionsul > li").each((i, el) => {
-        playerItems.push({
-          post: $p(el).attr("data-post"),
-          nume: $p(el).attr("data-nume"),
-          type: $p(el).attr("data-type")
-        });
-      });
-
-      for (const item of playerItems.slice(0, 5)) {
-        if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
-        const embedUrl = await fetchEmbedUrl(directUrl, item.post, item.nume, item.type);
-        if (embedUrl && !embedUrl.includes("youtube")) {
-          streams.push({
-            url: embedUrl,
-            quality: extractQuality(embedUrl),
-            title: "Movierulzhd",
-            subtitles: []
           });
         }
-      }
+        resolve(streams);
+      })
+      .catch(err => {
+        console.error("[Movierulzhd Error]", err);
+        resolve([]); // Resolve empty array so app doesn't hang
+      });
+  });
+}
 
-      return streams;
-    } catch (e) {
-      console.error("[Movierulzhd]", e);
-      return [];
-    }
-  }
-};
+// Correct Nuvio validation export
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+}

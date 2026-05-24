@@ -345,8 +345,9 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
           type: "hls",
           quality: s.quality,
           headers: {
-            "User-Agent": HEADERS["User-Agent"],
-          },
+  "User-Agent": HEADERS["User-Agent"],
+  "Referer": "https://m4uplay.store/"
+},
           provider: "Movies4u"
         });
       }

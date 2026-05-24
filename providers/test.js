@@ -291,15 +291,6 @@ function getTMDBDetails(id, mediaType = "movie") {
   });
 }
 
-    const data = yield res.json();
-
-    return {
-      title: data.title,
-      year: (data.release_date || "").split("-")[0]
-    };
-  });
-}
-
 /* ---------------- MAIN ---------------- */
 
 function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
@@ -307,7 +298,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
     let mediaInfo;
 
     if (/^\d+$/.test(tmdbId)) {
-      mediaInfo = yield getTMDBDetails(tmdbId);
+      mediaInfo = yield getTMDBDetails(tmdbId, mediaType);
     } else {
       mediaInfo = { title: tmdbId, year: null };
     }

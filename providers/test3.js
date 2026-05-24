@@ -1,155 +1,131 @@
-// netcinez.js
-// Netcinez provider rebuilt using the working proxy/iframe engine approach
-
-const cheerio = require("cheerio");
-
-const BASE_URL = "https://netcinez.si";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
+
+const TORRENTIO_API = "https://torrentio.strem.fun";
 
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-  "Referer": `${BASE_URL}/`
+  "Accept": "application/json"
 };
-
-// ======================================
-// PROXY FETCH (IMPORTANT)
-// ======================================
-const PROXY = (url) =>
-  `https://r.jina.ai/http://${url.replace(/^https?:\/\//, "")}`;
-
-async function fetchText(url) {
-  try {
-    const res = await fetch(PROXY(url), {
-      headers: HEADERS,
-      skipSizeCheck: true
-    });
-
-    return await res.text();
-  } catch (e) {
-    console.log("[FETCH ERROR]", e);
-    return "";
-  }
-}
 
 // ======================================
 // QUALITY
 // ======================================
-function extractQuality(text = "") {
-  const u = text.toLowerCase();
+function extractQuality(str = "") {
+  const u = str.toLowerCase();
 
   if (u.includes("2160p") || u.includes("4k")) return "4K";
-  if (u.includes("1080p") || u.includes("fullhd")) return "1080p";
+  if (u.includes("1080p")) return "1080p";
   if (u.includes("720p")) return "720p";
   if (u.includes("480p")) return "480p";
-  if (u.includes("360p")) return "360p";
 
   return "Unknown";
 }
 
 // ======================================
-// URL NORMALIZER
+// STATIC TRACKERS (more reliable)
 // ======================================
-function normalizeUrl(url) {
-  if (!url) return null;
+const TRACKERS = [
+  "udp://tracker.opentrackr.org:1337/announce",
+  "udp://open.stealth.si:80/announce",
+  "udp://tracker.torrent.eu.org:451/announce",
+  "udp://exodus.desync.com:6969/announce"
+];
 
-  if (url.startsWith("http")) return url;
+// ======================================
+// MAGNET BUILDER
+// ======================================
+function buildMagnet(infoHash) {
+  if (!infoHash) return "";
 
-  if (url.startsWith("//")) {
-    return "https:" + url;
-  }
+  const tr = TRACKERS.map(
+    t => `&tr=${encodeURIComponent(t)}`
+  ).join("");
 
-  if (url.startsWith("/")) {
-    return BASE_URL + url;
-  }
-
-  return `${BASE_URL}/${url}`;
+  return `magnet:?xt=urn:btih:${infoHash}${tr}`;
 }
 
 // ======================================
-// STREAM EXTRACTOR
+// TMDB -> IMDB
 // ======================================
-async function extractPlayerStreams(url, label = "Netcinez") {
+async function getImdbId(tmdbId, mediaType) {
   try {
-    const html = await fetchText(url);
+    const url =
+      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}` +
+      `?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
-    if (!html) return [];
+    const res = await (
+      await fetch(url, { skipSizeCheck: true })
+    ).json();
 
-    const $ = cheerio.load(html);
+    return (
+      res.external_ids?.imdb_id ||
+      res.imdb_id ||
+      null
+    );
+  } catch (e) {
+    return null;
+  }
+}
+
+// ======================================
+// TORRENTIO
+// ======================================
+async function invokeTorrentio(imdbId, season, episode) {
+  try {
+    const isTV =
+      season != null && episode != null;
+
+    const url = isTV
+      ? `${TORRENTIO_API}/stream/series/${imdbId}:${season}:${episode}.json`
+      : `${TORRENTIO_API}/stream/movie/${imdbId}.json`;
+
+    console.log("[TORRENTIO URL]", url);
+
+    const res = await fetch(url, {
+      headers: HEADERS,
+      skipSizeCheck: true
+    });
+
+    const json = await res.json();
+
+    if (!json || !json.streams) {
+      console.log("[TORRENTIO] No streams");
+      return [];
+    }
 
     const streams = [];
 
-    // --------------------------
-    // direct media
-    // --------------------------
-    $("source, video source").each((_, el) => {
-      const src = $(el).attr("src");
+    for (const stream of json.streams.slice(0, 15)) {
+      try {
+        const title = stream.title || "";
 
-      if (!src) return;
+        const quality =
+          extractQuality(title);
 
-      const full = normalizeUrl(src);
+        const seeders =
+          title.match(/👤\s*(\d+)/)?.[1] || "?";
 
-      if (
-        full.includes(".mp4") ||
-        full.includes(".m3u8")
-      ) {
+        const magnet =
+          buildMagnet(stream.infoHash);
+
+        if (!magnet) continue;
+
         streams.push({
-          url: full,
-          quality: extractQuality(full),
-          title: label,
+          url: magnet,
+          quality,
+          title:
+            `Torrentio | ${quality} | 👤 ${seeders}`,
           subtitles: []
         });
-      }
-    });
 
-    // --------------------------
-    // iframe fallback
-    // --------------------------
-    $("iframe").each((_, el) => {
-      const src = $(el).attr("src");
-
-      if (!src) return;
-
-      const full = normalizeUrl(src);
-
-      streams.push({
-        url: full,
-        quality: extractQuality(full),
-        title: `${label} [iframe]`,
-        subtitles: []
-      });
-    });
-
-    // --------------------------
-    // button links fallback
-    // --------------------------
-    $("a").each((_, el) => {
-      const href = $(el).attr("href");
-      const text = ($(el).text() || "").trim();
-
-      if (!href) return;
-
-      const full = normalizeUrl(href);
-
-      if (
-        full.includes(".mp4") ||
-        full.includes(".m3u8") ||
-        text.toLowerCase().includes("download") ||
-        text.toLowerCase().includes("assistir") ||
-        text.toLowerCase().includes("player")
-      ) {
-        streams.push({
-          url: full,
-          quality: extractQuality(text + " " + full),
-          title: `${label} [${text || "link"}]`,
-          subtitles: []
-        });
-      }
-    });
+      } catch (e) {}
+    }
 
     return streams;
+
   } catch (e) {
-    console.log("[EXTRACT ERROR]", e);
+    console.log("[TORRENTIO ERROR]", e);
     return [];
   }
 }
@@ -157,131 +133,43 @@ async function extractPlayerStreams(url, label = "Netcinez") {
 // ======================================
 // MAIN
 // ======================================
-async function getStreams(tmdbId, mediaType, season, episode) {
+async function getStreams(
+  tmdbId,
+  mediaType,
+  season,
+  episode
+) {
   try {
-    // ==================================
-    // TMDB
-    // ==================================
-    const tmdbUrl =
-      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
 
-    const mediaInfo =
-      await (await fetch(tmdbUrl, {
-        skipSizeCheck: true
-      })).json();
+    // TMDB -> IMDB
+    const imdbId =
+      await getImdbId(tmdbId, mediaType);
 
-    const title = mediaInfo.title || mediaInfo.name;
-
-    if (!title) return [];
-
-    console.log("[NETCINEZ TITLE]", title);
-
-    // ==================================
-    // SEARCH
-    // ==================================
-    const searchUrl =
-      `${BASE_URL}/?s=${encodeURIComponent(title)}`;
-
-    const searchHtml = await fetchText(searchUrl);
-
-    if (!searchHtml) {
-      console.log("[NETCINEZ] Empty search HTML");
+    if (!imdbId) {
+      console.log("[TORRA] No IMDB ID");
       return [];
     }
 
-    const $ = cheerio.load(searchHtml);
+    console.log("[TORRA IMDB]", imdbId);
 
-    const results = [];
-
-    // BROAD SEARCH
-    $("a").each((_, el) => {
-      const href = $(el).attr("href");
-      const text = ($(el).text() || "").trim();
-
-      if (!href || !text) return;
-
-      if (
-        href.includes(BASE_URL) &&
-        text.length > 2
-      ) {
-        results.push({
-          title: text,
-          url: href
-        });
-      }
-    });
-
-    if (!results.length) {
-      console.log("[NETCINEZ] No results");
-      return [];
-    }
-
-    // ==================================
-    // MATCH
-    // ==================================
-    const lcTitle = title.toLowerCase();
-
-    let match =
-      results.find(r =>
-        r.title.toLowerCase().includes(lcTitle)
-      ) || results[0];
-
-    if (!match) return [];
-
-    const pageUrl = normalizeUrl(match.url);
-
-    console.log("[NETCINEZ PAGE]", pageUrl);
-
-    // ==================================
-    // LOAD PAGE
-    // ==================================
-    const pageHtml = await fetchText(pageUrl);
-
-    if (!pageHtml) {
-      console.log("[NETCINEZ] Empty page HTML");
-      return [];
-    }
-
-    const $page = cheerio.load(pageHtml);
-
-    // ==================================
-    // iframe/player extraction
-    // ==================================
-    let playerUrl =
-      $page("#player-container iframe").attr("src") ||
-      $page("#player-container iframe").attr("data-src") ||
-      $page("iframe").first().attr("src");
-
-    playerUrl = normalizeUrl(playerUrl);
-
-    // fallback to current page extraction
-    if (!playerUrl) {
-      console.log("[NETCINEZ] No iframe found, using page");
-
-      return await extractPlayerStreams(
-        pageUrl,
-        `Netcinez - ${title}`
+    const streams =
+      await invokeTorrentio(
+        imdbId,
+        mediaType === "tv" ? season : null,
+        mediaType === "tv" ? episode : null
       );
-    }
-
-    console.log("[NETCINEZ PLAYER]", playerUrl);
-
-    // ==================================
-    // extract streams from iframe/player
-    // ==================================
-    const streams = await extractPlayerStreams(
-      playerUrl,
-      `Netcinez - ${title}`
-    );
 
     return streams;
 
   } catch (e) {
-    console.log("[NETCINEZ FATAL]", e);
+    console.log("[TORRA FATAL]", e);
     return [];
   }
 }
 
+// ======================================
+// REQUIRED
+// ======================================
 module.exports = {
   getStreams
 };

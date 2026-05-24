@@ -160,46 +160,7 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
         }
     }
 
-    if (!html && mediaType === 'tv') {
-    try {
-        const tvRoot = await makeRequest(DAHMER_MOVIES_API + '/tvs/');
-        
-        if (tvRoot.ok) {
-            const rootHtml = await tvRoot.text();
-
-            const folderMatches = [...rootHtml.matchAll(
-                /<a[^>]*href=["']([^"']+)["'][^>]*>([^<]+)<\/a>/gi
-            )];
-
-            const possibleFolders = folderMatches
-                .map(m => m[2].trim())
-                .filter(name => {
-                    const clean = name.toLowerCase();
-                    const target = title.toLowerCase();
-
-                    return (
-                        clean.includes(target) ||
-                        target.includes(clean.replace('/', ''))
-                    );
-                });
-
-            for (const folder of possibleFolders) {
-                const fallbackUrl =
-                    `${DAHMER_MOVIES_API}/tvs/${encodeURIComponent(folder.replace('/', ''))}/Season%20${season}/`;
-
-                const fallbackResp = await makeRequest(fallbackUrl);
-
-                if (fallbackResp.ok) {
-                    html = await fallbackResp.text();
-                    activeDirUrl = fallbackUrl;
-                    break;
-                }
-            }
-        }
-    } catch (e) {}
-}
-
-if (!html) return [];
+    if (!html) return [];
     
     let paths = parseLinks(html);
 

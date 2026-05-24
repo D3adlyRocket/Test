@@ -18,23 +18,30 @@ async function makeRequest(url) {
 
 function parseLinks(html) {
     const links = [];
-    const rowRegex = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
+
+    const anchorRegex = /<a[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
     let match;
-    while ((match = rowRegex.exec(html)) !== null) {
-        const rowContent = match[1];
-        const linkMatch = rowContent.match(/<a[^>]*href=["']([^"']*)["'][^>]*>([^<]*)<\/a>/i);
-        const sizeMatch = rowContent.match(/<td[^>]*>(\d+(?:\.\d+)?\s?[KMGT]B)<\/td>/i);
 
-        if (linkMatch) {
-            const href = linkMatch[1];
-            const text = linkMatch[2].trim();
-            const size = sizeMatch ? sizeMatch[1].trim() : 'N/A';
+    while ((match = anchorRegex.exec(html)) !== null) {
+        const href = match[1];
+        const text = match[2]
+            .replace(/<[^>]*>/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
 
-            if (text && href !== '../' && /\.(mkv|mp4|avi|webm|m3u8)$/i.test(text)) {
-                links.push({ text, href, size });
-            }
+        if (
+            text &&
+            href !== '../' &&
+            /\.(mkv|mp4|avi|webm|m3u8)$/i.test(text)
+        ) {
+            links.push({
+                text,
+                href,
+                size: 'N/A'
+            });
         }
     }
+
     return links;
 }
 

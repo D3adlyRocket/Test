@@ -1,182 +1,204 @@
 const cheerio = require("cheerio");
 
-// ======================================
-// STATIC VALUES
-// ======================================
 const BASE_URL =
-  "https://dataapi.yomoviesapk.com/";
+  "https://dudefilms.sarl";
 
 const TMDB_API_KEY =
   "1865f43a0549ca50d341dd9ab8b29f49";
 
 const HEADERS = {
-  "cf-access-client-id":
-    "e3a15ad999dab7f3592f3d855e0ec6ed.access",
-
-  "cf-access-client-secret":
-    "8a22536e2dac86369a2caa911d55a89a109939cc69e6646e51bf5d8527a1dca5",
-
-  "user-agent":
-    "Mozilla/5.0"
+  "User-Agent":
+    "Mozilla/5.0",
+  "Referer":
+    `${BASE_URL}/`
 };
 
 // ======================================
 // QUALITY
 // ======================================
-function inferQuality(str = "") {
-  const l = str.toLowerCase();
+function extractQuality(str = "") {
 
-  if (l.includes("2160") || l.includes("4k"))
+  const u = str.toLowerCase();
+
+  if (u.includes("2160p") || u.includes("4k"))
     return "4K";
 
-  if (l.includes("1080"))
+  if (u.includes("1080p"))
     return "1080p";
 
-  if (l.includes("720"))
+  if (u.includes("720p"))
     return "720p";
 
-  if (l.includes("480"))
+  if (u.includes("480p"))
     return "480p";
-
-  if (l.includes("360"))
-    return "360p";
 
   return "Unknown";
 }
 
 // ======================================
-// FETCH JSON
+// PROXY FETCH
 // ======================================
-async function fetchJson(url) {
+const PROXY = (url) =>
+  `https://r.jina.ai/http://${url.replace(/^https?:\/\//, "")}`;
+
+async function fetchText(url) {
+
   try {
 
-    const res = await fetch(url, {
-      headers: HEADERS,
-      skipSizeCheck: true
-    });
+    const res = await fetch(
+      PROXY(url),
+      {
+        headers: HEADERS,
+        skipSizeCheck: true
+      }
+    );
 
-    const text = await res.text();
-
-    return JSON.parse(text);
+    return await res.text();
 
   } catch (e) {
-    return null;
+    return "";
   }
 }
 
 // ======================================
-// RESOLVE VIDEO LINKS
+// NORMALIZE URL
 // ======================================
-async function resolveVideo(url) {
+function normalizeUrl(url) {
+
+  if (!url) return null;
+
+  if (url.startsWith("http"))
+    return url;
+
+  if (url.startsWith("//"))
+    return "https:" + url;
+
+  if (url.startsWith("/"))
+    return BASE_URL + url;
+
+  return `${BASE_URL}/${url}`;
+}
+
+// ======================================
+// EXTRACT STREAMS
+// ======================================
+async function extractStreams(url, label) {
+
   try {
 
-    // direct media
-    if (
-      url.includes(".mp4") ||
-      url.includes(".m3u8")
-    ) {
-      return [url];
-    }
+    const html =
+      await fetchText(url);
 
-    // load page
-    const html = await (
-      await fetch(url, {
-        headers: HEADERS,
-        skipSizeCheck: true
-      })
-    ).text();
+    if (!html) return [];
 
     const $ = cheerio.load(html);
 
-    const found = [];
+    const streams = [];
 
-    // iframe
+    // ==================================
+    // direct media
+    // ==================================
+    $("source, video source").each((_, el) => {
+
+      const src =
+        $(el).attr("src");
+
+      if (!src) return;
+
+      const full =
+        normalizeUrl(src);
+
+      if (
+        full.includes(".mp4") ||
+        full.includes(".m3u8")
+      ) {
+
+        streams.push({
+          url: full,
+          quality:
+            extractQuality(full),
+          title: label,
+          subtitles: []
+        });
+
+      }
+
+    });
+
+    // ==================================
+    // iframe extraction
+    // ==================================
     $("iframe").each((_, el) => {
-      const src = $(el).attr("src");
 
-      if (src && src.startsWith("http")) {
-        found.push(src);
-      }
+      const src =
+        $(el).attr("src");
+
+      if (!src) return;
+
+      const full =
+        normalizeUrl(src);
+
+      streams.push({
+        url: full,
+        quality:
+          extractQuality(full),
+        title:
+          `${label} [iframe]`,
+        subtitles: []
+      });
+
     });
 
-    // source
-    $("source").each((_, el) => {
-      const src = $(el).attr("src");
+    // ==================================
+    // button links
+    // ==================================
+    $("a").each((_, el) => {
 
-      if (src) {
-        found.push(src);
+      const href =
+        $(el).attr("href");
+
+      const text =
+        ($(el).text() || "")
+        .trim();
+
+      if (!href) return;
+
+      const full =
+        normalizeUrl(href);
+
+      const lc =
+        text.toLowerCase();
+
+      if (
+        lc.includes("download") ||
+        lc.includes("watch") ||
+        lc.includes("stream") ||
+        lc.includes("server") ||
+        lc.includes("play") ||
+        full.includes(".mp4") ||
+        full.includes(".m3u8")
+      ) {
+
+        streams.push({
+          url: full,
+          quality:
+            extractQuality(
+              text + " " + full
+            ),
+          title:
+            `${label} [${text}]`,
+          subtitles: []
+        });
+
       }
+
     });
 
-    // video
-    $("video").each((_, el) => {
-      const src = $(el).attr("src");
-
-      if (src) {
-        found.push(src);
-      }
-    });
-
-    return found;
+    return streams;
 
   } catch (e) {
     return [];
   }
-}
-
-// ======================================
-// SEARCH
-// ======================================
-async function searchRingZ(title) {
-
-  const endpoints = [
-    "Nwm.json",
-    "Nws.json",
-    "lstanime.json"
-  ];
-
-  const lcTitle = title.toLowerCase();
-
-  for (const ep of endpoints) {
-
-    try {
-
-      const data =
-        await fetchJson(BASE_URL + ep);
-
-      if (!data) continue;
-
-      // broader extraction
-      const arrays = [];
-
-      for (const k of Object.keys(data)) {
-        if (Array.isArray(data[k])) {
-          arrays.push(...data[k]);
-        }
-      }
-
-      for (const item of arrays) {
-
-        const name =
-          (item.mn ||
-           item.name ||
-           item.title ||
-           "").toLowerCase();
-
-        if (!name) continue;
-
-        if (
-          name.includes(lcTitle) ||
-          lcTitle.includes(name)
-        ) {
-          return item;
-        }
-      }
-
-    } catch (e) {}
-  }
-
-  return null;
 }
 
 // ======================================
@@ -188,6 +210,7 @@ async function getStreams(
   season,
   episode
 ) {
+
   try {
 
     // ==================================
@@ -198,119 +221,169 @@ async function getStreams(
 
     const media =
       await (
-        await fetch(tmdbUrl, {
-          skipSizeCheck: true
-        })
+        await fetch(
+          tmdbUrl,
+          {
+            skipSizeCheck: true
+          }
+        )
       ).json();
 
     const title =
       media.title ||
       media.name;
 
-    if (!title) return [];
+    if (!title)
+      return [];
 
-    console.log("[RINGZ TITLE]", title);
+    console.log(
+      "[DUDEFILMS TITLE]",
+      title
+    );
 
     // ==================================
     // SEARCH
     // ==================================
-    const item =
-      await searchRingZ(title);
+    const searchUrl =
+      `${BASE_URL}/page/1/?s=${encodeURIComponent(title)}`;
 
-    if (!item) {
-      console.log("[RINGZ] No match");
+    const searchHtml =
+      await fetchText(searchUrl);
+
+    if (!searchHtml)
+      return [];
+
+    const $ =
+      cheerio.load(searchHtml);
+
+    const results = [];
+
+    // broad extraction
+    $("a").each((_, el) => {
+
+      const href =
+        $(el).attr("href");
+
+      const text =
+        ($(el).text() || "")
+        .trim();
+
+      if (
+        !href ||
+        !text
+      ) return;
+
+      if (
+        href.includes(BASE_URL)
+      ) {
+
+        results.push({
+          title: text,
+          url: href
+        });
+
+      }
+
+    });
+
+    if (!results.length) {
+      console.log(
+        "[DUDEFILMS] No results"
+      );
+
       return [];
     }
 
     // ==================================
-    // EXTRACT URLS
+    // MATCH
     // ==================================
-    const streams = [];
+    const lcTitle =
+      title.toLowerCase();
 
-    for (const key of Object.keys(item)) {
+    let match =
+      results.find(r =>
+        r.title
+         .toLowerCase()
+         .includes(lcTitle)
+      ) || results[0];
+
+    if (!match)
+      return [];
+
+    const pageUrl =
+      normalizeUrl(match.url);
+
+    console.log(
+      "[DUDEFILMS PAGE]",
+      pageUrl
+    );
+
+    // ==================================
+    // EXTRACT
+    // ==================================
+    let streams =
+      await extractStreams(
+        pageUrl,
+        `DudeFilms - ${title}`
+      );
+
+    // ==================================
+    // FOLLOW BUTTON LINKS
+    // ==================================
+    const extraStreams = [];
+
+    for (const s of streams.slice(0, 10)) {
 
       try {
 
-        const value = item[key];
+        const nested =
+          await extractStreams(
+            s.url,
+            s.title
+          );
 
-        if (
-          typeof value !== "string"
-        ) continue;
-
-        if (
-          !value.startsWith("http")
-        ) continue;
-
-        // TV filtering
-        if (
-          mediaType === "tv" &&
-          episode
-        ) {
-          const epNum =
-            key.match(/\d+/)?.[0];
-
-          if (
-            epNum &&
-            parseInt(epNum) !==
-            parseInt(episode)
-          ) {
-            continue;
-          }
-        }
-
-        // resolve stream
-        const resolved =
-          await resolveVideo(value);
-
-        if (
-          resolved &&
-          resolved.length
-        ) {
-
-          for (const r of resolved) {
-
-            streams.push({
-              url: r,
-              quality:
-                inferQuality(
-                  r + " " + key
-                ),
-              title:
-                `RingZ [${key}]`,
-              subtitles: []
-            });
-
-          }
-
-        } else {
-
-          streams.push({
-            url: value,
-            quality:
-              inferQuality(
-                value + " " + key
-              ),
-            title:
-              `RingZ [${key}]`,
-            subtitles: []
-          });
-
-        }
+        extraStreams.push(
+          ...nested
+        );
 
       } catch (e) {}
+
     }
+
+    streams.push(
+      ...extraStreams
+    );
+
+    // dedupe
+    const seen =
+      new Set();
+
+    streams =
+      streams.filter(s => {
+
+        if (
+          seen.has(s.url)
+        ) return false;
+
+        seen.add(s.url);
+
+        return true;
+
+      });
 
     return streams.slice(0, 20);
 
   } catch (e) {
-    console.log("[RINGZ ERROR]", e);
+
+    console.log(
+      "[DUDEFILMS ERROR]",
+      e
+    );
+
     return [];
   }
 }
 
-// ======================================
-// EXPORT
-// ======================================
 module.exports = {
   getStreams
 };

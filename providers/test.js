@@ -1,6 +1,6 @@
 /**
  * hianime - Built from src/hianime/
- * Generated: 2026-05-23T18:18:42.790Z
+ * Generated: 2026-05-25T14:15:00.000Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -111,30 +111,51 @@ function getTmdbDetails(tmdbId, mediaType) {
   });
 }
 
-// MODIFIED: Adjusted fallback string argument to map correctly if TMDB call drops out
-function getEpisodeMetadata(tmdbId, mediaType, season, episode, fallbackEpNum) {
+// FIX: New smart Metadata engine that queries TMDB absolute lists when seasons drift out of bounds
+function getEpisodeMetadata(tmdbId, mediaType, season, episode, absoluteEpNum) {
   return __async(this, null, function* () {
     try {
       if (mediaType === "movie") {
         const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}`;
         const data = yield fetchJson(url);
-        return {
-          title: data.title || "Movie",
-          duration: data.runtime ? `${data.runtime}m` : "N/A"
-        };
-      } else {
-        const url = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
-        const data = yield fetchJson(url);
-        return {
-          title: data.name || `Episode ${fallbackEpNum}`,
-          duration: data.runtime ? `${data.runtime}m` : "24m"
-        };
+        return { title: data.title || "Movie", duration: data.runtime ? `${data.runtime}m` : "N/A" };
       }
+
+      // Step 1: Look for TMDB's absolute episode groups for this show
+      const groupListUrl = `https://api.themoviedb.org/3/tv/${tmdbId}/episode_groups?api_key=${TMDB_API_KEY}`;
+      const groupsData = yield fetchJson(groupListUrl);
+      
+      if (groupsData && groupsData.results && groupsData.results.length > 0) {
+        // Find an Absolute or Story Arc order group if it exists
+        const targetGroup = groupsData.results.find(g => g.type === 2 || g.type === 1) || groupsData.results[0];
+        const groupDetailsUrl = `https://api.themoviedb.org/3/tv/episode_group/${targetGroup.id}?api_key=${TMDB_API_KEY}`;
+        const groupDetails = yield fetchJson(groupDetailsUrl);
+        
+        if (groupDetails && groupDetails.groups) {
+          // Loop through the group chunks to look for our absolute episode number
+          for (const chunk of groupDetails.groups) {
+            const foundEpisode = chunk.episodes.find(ep => ep.absolute_number === absoluteEpNum || ep.order === absoluteEpNum);
+            if (foundEpisode && foundEpisode.name) {
+              return { title: foundEpisode.name, duration: "24m" };
+            }
+          }
+        }
+      }
+
+      // Step 2: Fallback to regular standard indexing if absolute mapping isn't found or fails
+      const standardUrl = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
+      const standardData = yield fetchJson(standardUrl);
+      if (standardData && standardData.name) {
+        return { title: standardData.name, duration: standardData.runtime ? `${standardData.runtime}m` : "24m" };
+      }
+
+      return { title: `Episode ${absoluteEpNum}`, duration: "24m" };
     } catch (e) {
-      return { title: `Episode ${fallbackEpNum}`, duration: "24m" };
+      return { title: `Episode ${absoluteEpNum}`, duration: "24m" };
     }
   });
 }
+
 function resolveMapping(imdbId, season, episode) {
   return __async(this, null, function* () {
     try {
@@ -165,7 +186,6 @@ function searchMalId(title, mediaType) {
 }
 
 // src/hianime/index.js
-// MODIFIED: Now accepts both target Display Episode and backend Absolute Scraped Episode values separately
 function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaType, seasonNum, displayEpNum, scrapedEpNum, type, meta) {
   return __async(this, null, function* () {
     var _a;
@@ -191,7 +211,6 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaTy
           `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
         ];
       } else {
-        // FIX: Display layout uses clean S1E1 pattern, avoiding the trailing global offset injection
         lines = [
           `🎬 ${animeTitle}`,
           `🎥 S${seasonNum}E${displayEpNum} - ${meta.epTitle}`,
@@ -228,7 +247,6 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaTy
   });
 }
 
-// MODIFIED: Accepts and forwards contextual alignment parameters downstream
 function scrapeType(malId, scrapedEp, type, animeTitle, meta, mediaType, season, displayEp) {
   return __async(this, null, function* () {
     const streams = [];
@@ -353,7 +371,7 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       if (!malId)
         return [];
 
-      // FIX: Passing mappedEp context into metadata helper to build cleaner fallbacks
+      // Now pulling metadata cleanly using the fully mapped absolute episode reference
       const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, season, episode, mappedEp);
       const meta = {
         epTitle: tmdbMeta.title,

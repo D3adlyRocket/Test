@@ -1,85 +1,126 @@
-// Dutamovie21 Scraper for Nuvio Local Scrapers
-// React Native compatible version - Promise-based approach only
-// Scrapes https://simplycufflinks.com (Dutamovie21 / LK21 mirror)
+// PencuriMovie SubMalay scraper for Nuvio
+// Domain: https://ww105.pencurimoviesubmalay.guru/
+// Promise-based, React Native compatible
 
+const BASE_URL = 'https://ww105.pencurimoviesubmalay.guru';
 const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-const BASE_URL = 'https://simplycufflinks.com';
 
-const WORKING_HEADERS = {
+const HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9,ms;q=0.8',
   'Accept-Encoding': 'gzip, deflate, br',
-  'Referer': 'https://simplycufflinks.com/',
-  'Connection': 'keep-alive',
-  'DNT': '1',
+  'Referer': BASE_URL + '/',
+  'Origin': BASE_URL
 };
 
 const PLAYBACK_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+  'User-Agent': HEADERS['User-Agent'],
   'Accept': 'video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5',
   'Accept-Language': 'en-US,en;q=0.9',
   'Accept-Encoding': 'identity',
-  'Referer': 'https://simplycufflinks.com/',
-  'Connection': 'keep-alive',
+  'Referer': BASE_URL + '/',
+  'Origin': BASE_URL
 };
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function makeRequest(url, options) {
   options = options || {};
   return fetch(url, {
     method: options.method || 'GET',
-    headers: Object.assign({}, WORKING_HEADERS, options.headers || {}),
+    headers: Object.assign({}, HEADERS, options.headers || {})
   }).then(function (response) {
     if (!response.ok) throw new Error('HTTP ' + response.status + ' ' + response.statusText);
     return response;
-  }).catch(function (error) {
-    console.error('[Dutamovie21] Request failed for ' + url + ' — ' + error.message);
-    throw error;
   });
 }
 
 function getTMDBDetails(tmdbId, mediaType) {
-  var endpoint = mediaType === 'tv' ? 'tv' : 'movie';
-  var url = TMDB_BASE_URL + '/' + endpoint + '/' + tmdbId + '?api_key=' + TMDB_API_KEY;
+  const endpoint = mediaType === 'tv' ? 'tv' : 'movie';
+  const url = TMDB_BASE_URL + '/' + endpoint + '/' + tmdbId + '?api_key=' + TMDB_API_KEY;
   return makeRequest(url)
     .then(function (r) { return r.json(); })
     .then(function (data) {
-      var title = mediaType === 'tv' ? data.name : data.title;
-      var releaseDate = mediaType === 'tv' ? data.first_air_date : data.release_date;
-      var year = releaseDate ? parseInt(releaseDate.split('-')[0]) : null;
+      const title = mediaType === 'tv' ? data.name : data.title;
+      const date = mediaType === 'tv' ? data.first_air_date : data.release_date;
+      const year = date ? parseInt(date.split('-')[0], 10) : null;
       return { title: title, year: year };
     });
 }
 
-// Build slug variants to try (site uses hyphenated slugs with year suffix)
-function buildSlugs(title, year) {
-  var base = title
+function slugify(title) {
+  return String(title || '')
     .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-');
-  var slugs = [];
-  if (year) slugs.push(base + '-' + year);
-  slugs.push(base);
-  return slugs;
+    .replace(/['".:,&!?()[\]’]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
 }
 
-// Extract quality from URL
-function extractQuality(url) {
+function buildCandidateSlugs(title, year, mediaType, season, episode) {
+  const base = slugify(title);
+  const out = [];
+  if (mediaType === 'tv' && season && episode) {
+    out.push(base + '-season-' + season + '-episode-' + episode);
+    out.push(base + '-s' + String(season).padStart(2, '0') + 'e' + String(episode).padStart(2, '0'));
+    out.push(base + '-' + year + '-season-' + season + '-episode-' + episode);
+  }
+  if (year) out.push(base + '-' + year);
+  out.push(base);
+  return out.filter(Boolean);
+}
+
+function extractUrls(html, regex) {
+  const out = [];
+  let m;
+  while ((m = regex.exec(html)) !== null) {
+    const val = (m[1] || '').trim();
+    if (val && out.indexOf(val) === -1) out.push(val);
+  }
+  return out;
+}
+
+function extractIframeUrls(html) {
+  return extractUrls(html, /<iframe[^>]+src=["']([^"'#]+)["']/gi)
+    .concat(extractUrls(html, /data-src=["']([^"'#]+)["']/gi))
+    .filter(function (u, i, arr) {
+      return arr.indexOf(u) === i;
+    });
+}
+
+function extractMediaUrls(html) {
+  const found = [];
+  [
+    /<source[^>]+src=["']([^"']+)["']/gi,
+    /["']file["']\s*:\s*["']([^"']+)["']/gi,
+    /["']src["']\s*:\s*["']([^"']+\.(?:m3u8|mp4)[^"']*)["']/gi,
+    /(https?:\/\/[^"'\\\s<>]+(?:\.m3u8|\.mp4)[^"'\\\s<>]*)/gi
+  ].forEach(function (rx) {
+    let m;
+    while ((m = rx.exec(html)) !== null) {
+      const u = (m[1] || '').trim();
+      if (u && found.indexOf(u) === -1) found.push(u);
+    }
+  });
+  return found;
+}
+
+function normalizeUrl(url) {
+  if (!url) return '';
+  if (url.indexOf('//') === 0) return 'https:' + url;
+  return url;
+}
+
+function getQualityFromUrl(url) {
   if (!url) return 'Unknown';
-  var m;
-  m = url.match(/(\d{3,4})[pP]/);
+  const m = url.match(/(\d{3,4})p/i);
   if (m) {
-    var res = parseInt(m[1]);
-    if (res >= 2160) return '4K';
-    if (res >= 1440) return '1440p';
-    if (res >= 1080) return '1080p';
-    if (res >= 720) return '720p';
-    if (res >= 480) return '480p';
-    if (res >= 360) return '360p';
+    const q = parseInt(m[1], 10);
+    if (q >= 2160) return '4K';
+    if (q >= 1440) return '1440p';
+    if (q >= 1080) return '1080p';
+    if (q >= 720) return '720p';
+    if (q >= 480) return '480p';
+    if (q >= 360) return '360p';
     return '240p';
   }
   if (/4k|2160/i.test(url)) return '4K';
@@ -89,323 +130,164 @@ function extractQuality(url) {
   return 'Unknown';
 }
 
-// ─── Page Fetch & Parse ─────────────────────────────────────────────────────
-
-function fetchMoviePage(slug) {
-  var url = BASE_URL + '/' + slug + '/';
-  console.log('[Dutamovie21] Trying page: ' + url);
+function searchSite(title) {
+  const url = BASE_URL + '/?s=' + encodeURIComponent(title);
   return makeRequest(url)
     .then(function (r) { return r.text(); })
     .then(function (html) {
-      return { html: html, pageUrl: url };
+      const links = extractUrls(html, /href=["'](https:\/\/ww105\.pencurimoviesubmalay\.guru\/[^"'?#]+\/)["']/gi)
+        .filter(function (u) {
+          return (
+            u.indexOf('/group_movie/') === -1 &&
+            u.indexOf('/search/') === -1 &&
+            u.indexOf('/comments/') === -1 &&
+            u.indexOf('/wp-content/') === -1 &&
+            u !== BASE_URL + '/'
+          );
+        });
+      return links;
     })
-    .catch(function () { return null; });
+    .catch(function () { return []; });
 }
 
-function fetchTVPage(slug, season, episode) {
-  // DM21 TV pattern: /tv-show-slug/season-X/episode-Y/
-  var url = BASE_URL + '/tv/' + slug + '/season-' + season + '/episode-' + episode + '/';
-  console.log('[Dutamovie21] Trying TV page: ' + url);
-  return makeRequest(url)
-    .then(function (r) { return r.text(); })
-    .then(function (html) { return { html: html, pageUrl: url }; })
-    .catch(function () {
-      // Fallback: /slug-sXXeYY/
-      var epSlug = slug + '-s' + String(season).padStart(2, '0') + 'e' + String(episode).padStart(2, '0');
-      var url2 = BASE_URL + '/' + epSlug + '/';
-      console.log('[Dutamovie21] Fallback TV page: ' + url2);
-      return makeRequest(url2)
+function tryCandidatePages(candidates) {
+  let p = Promise.resolve(null);
+  candidates.forEach(function (url) {
+    p = p.then(function (result) {
+      if (result) return result;
+      return makeRequest(url)
         .then(function (r) { return r.text(); })
-        .then(function (html) { return { html: html, pageUrl: url2 }; })
+        .then(function (html) {
+          if (/404|page not found|not found/i.test(html)) return null;
+          return { url: url, html: html };
+        })
         .catch(function () { return null; });
     });
+  });
+  return p;
 }
 
-// Extract all iframe/embed src values from page HTML
-function extractIframeSrcs(html) {
-  var srcs = [];
-  var iframeRegex = /<iframe[^>]+src=["']([^"']+)["'][^>]*>/gi;
-  var match;
-  while ((match = iframeRegex.exec(html)) !== null) {
-    var src = match[1].trim();
-    if (
-      src &&
-      !src.includes('googletagmanager') &&
-      !src.includes('google-analytics') &&
-      !src.includes('facebook') &&
-      !src.includes('disqus') &&
-      !src.includes('yandex') &&
-      src.length > 10
-    ) {
-      srcs.push(src);
-    }
-  }
-  // Also check data-src attributes (lazy-loaded iframes)
-  var dataSrcRegex = /<iframe[^>]+data-src=["']([^"']+)["'][^>]*>/gi;
-  while ((match = dataSrcRegex.exec(html)) !== null) {
-    var src = match[1].trim();
-    if (src && !srcs.includes(src)) srcs.push(src);
-  }
-  return srcs;
-}
-
-// Extract direct video sources from page HTML (some DM21 pages embed sources directly)
-function extractDirectSources(html) {
-  var sources = [];
-  // Match <source src="..." type="video/...">
-  var srcRegex = /<source[^>]+src=["']([^"']+)["'][^>]*>/gi;
-  var match;
-  while ((match = srcRegex.exec(html)) !== null) {
-    var url = match[1].trim();
-    if (url && (url.endsWith('.mp4') || url.endsWith('.m3u8') || url.includes('.mp4') || url.includes('.m3u8'))) {
-      sources.push(url);
-    }
-  }
-  // Match jwplayer / player config file: "file":"..."
-  var fileRegex = /"file"\s*:\s*["']([^"']+(?:\.mp4|\.m3u8)[^"']*)["']/gi;
-  while ((match = fileRegex.exec(html)) !== null) {
-    var url = match[1].trim();
-    if (url && !sources.includes(url)) sources.push(url);
-  }
-  // Match sources array: sources:[{file:"..."}]
-  var sourcesArrRegex = /sources\s*:\s*\[([^\]]+)\]/gi;
-  while ((match = sourcesArrRegex.exec(html)) !== null) {
-    var block = match[1];
-    var fileMatches = block.match(/["']?(https?:\/\/[^"',\s]+)["']?/g);
-    if (fileMatches) {
-      fileMatches.forEach(function (f) {
-        var clean = f.replace(/['"]/g, '').trim();
-        if (clean && !sources.includes(clean)) sources.push(clean);
-      });
-    }
-  }
-  return sources;
-}
-
-// Resolve an embed/iframe URL to get the final stream URL
-function resolveEmbed(embedUrl, pageUrl) {
-  console.log('[Dutamovie21] Resolving embed: ' + embedUrl.substring(0, 80));
-  return fetch(embedUrl, {
+function resolveIframe(url, referer) {
+  url = normalizeUrl(url);
+  return fetch(url, {
     method: 'GET',
-    headers: Object.assign({}, WORKING_HEADERS, {
-      'Referer': pageUrl,
-      'Origin': BASE_URL,
-    }),
+    headers: Object.assign({}, HEADERS, {
+      Referer: referer || (BASE_URL + '/')
+    })
   })
     .then(function (r) {
       if (!r.ok) throw new Error('HTTP ' + r.status);
       return r.text();
     })
-    .then(function (embedHtml) {
-      var directSrcs = extractDirectSources(embedHtml);
-      var nestedIframes = extractIframeSrcs(embedHtml);
-      return { directSrcs: directSrcs, nestedIframes: nestedIframes };
+    .then(function (html) {
+      return {
+        media: extractMediaUrls(html),
+        nested: extractIframeUrls(html)
+      };
     })
-    .catch(function (e) {
-      console.warn('[Dutamovie21] Embed resolve failed: ' + e.message);
-      return { directSrcs: [], nestedIframes: [] };
+    .catch(function () {
+      return { media: [], nested: [] };
     });
 }
 
-// ─── Stream Builder ──────────────────────────────────────────────────────────
-
-function buildStream(url, mediaTitle, embedSource) {
-  var quality = extractQuality(url);
-  var isHLS = url.includes('.m3u8');
+function buildStream(url, title, label) {
   return {
-    name: 'Dutamovie21' + (embedSource ? ' — ' + embedSource : ''),
-    title: mediaTitle,
+    name: 'PencuriMovie' + (label ? ' - ' + label : ''),
+    title: title,
     url: url,
-    quality: quality,
+    quality: getQualityFromUrl(url),
     size: 'Unknown',
     headers: PLAYBACK_HEADERS,
-    provider: 'dutamovie21',
-    behaviorHints: isHLS ? { notWebReady: false } : undefined,
+    provider: 'pencurimoviesubmalay'
   };
 }
 
-// ─── Search Fallback ─────────────────────────────────────────────────────────
-
-function searchSite(title, year) {
-  var query = encodeURIComponent(title);
-  var url = BASE_URL + '/?s=' + query + '&post_type[]=post&post_type[]=tv';
-  console.log('[Dutamovie21] Searching: ' + url);
-  return makeRequest(url)
-    .then(function (r) { return r.text(); })
-    .then(function (html) {
-      // Extract all article/post links from search results
-      var links = [];
-      var linkRegex = /href=["'](https:\/\/simplycufflinks\.com\/[a-z0-9-]+\/?)["']/gi;
-      var match;
-      var seen = {};
-      while ((match = linkRegex.exec(html)) !== null) {
-        var href = match[1];
-        if (
-          !seen[href] &&
-          !href.includes('/category/') &&
-          !href.includes('/tag/') &&
-          !href.includes('/page/') &&
-          !href.includes('/movie/') &&
-          !href.includes('/tv/') &&
-          !href.includes('/wp-content/') &&
-          href !== BASE_URL + '/'
-        ) {
-          seen[href] = true;
-          links.push(href);
-        }
-      }
-      // Filter by year in URL if possible
-      if (year) {
-        var yearLinks = links.filter(function (l) { return l.includes(String(year)); });
-        if (yearLinks.length > 0) return yearLinks.slice(0, 3);
-      }
-      return links.slice(0, 3);
-    })
-    .catch(function () { return []; });
+function flatten(arr) {
+  return [].concat.apply([], arr);
 }
 
-// ─── Main Orchestrator ───────────────────────────────────────────────────────
+function dedupeStreams(streams) {
+  const seen = {};
+  return streams.filter(function (s) {
+    if (!s || !s.url || seen[s.url]) return false;
+    seen[s.url] = true;
+    return true;
+  });
+}
+
+function sortStreams(streams) {
+  const order = { '4K': 6, '1440p': 5, '1080p': 4, '720p': 3, '480p': 2, '360p': 1, '240p': 0, 'Unknown': -1 };
+  return streams.sort(function (a, b) {
+    return (order[b.quality] || -1) - (order[a.quality] || -1);
+  });
+}
 
 function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
-  mediaType = mediaType || 'movie';
-  console.log('[Dutamovie21] getStreams — TMDB:' + tmdbId + ' type:' + mediaType +
-    (mediaType === 'tv' ? ' S' + seasonNum + 'E' + episodeNum : ''));
-
   return getTMDBDetails(tmdbId, mediaType)
-    .then(function (mediaInfo) {
-      console.log('[Dutamovie21] Title: ' + mediaInfo.title + ' (' + mediaInfo.year + ')');
-      var slugs = buildSlugs(mediaInfo.title, mediaInfo.year);
-      var mediaTitle = mediaInfo.title;
-      if (mediaInfo.year) mediaTitle += ' (' + mediaInfo.year + ')';
-      if (mediaType === 'tv' && seasonNum && episodeNum) {
-        mediaTitle += ' S' + String(seasonNum).padStart(2, '0') + 'E' + String(episodeNum).padStart(2, '0');
-      }
+    .then(function (info) {
+      const candidates = buildCandidateSlugs(info.title, info.year, mediaType, seasonNum, episodeNum)
+        .map(function (slug) { return BASE_URL + '/' + slug + '/'; });
 
-      // Try each slug to find the page
-      var pageFetcher;
-      if (mediaType === 'tv') {
-        pageFetcher = slugs.reduce(function (chain, slug) {
-          return chain.then(function (result) {
-            if (result) return result;
-            return fetchTVPage(slug, seasonNum, episodeNum);
+      return tryCandidatePages(candidates)
+        .then(function (page) {
+          if (page) return page;
+          return searchSite(info.title).then(function (links) {
+            return tryCandidatePages(links.slice(0, 5));
           });
-        }, Promise.resolve(null));
-      } else {
-        pageFetcher = slugs.reduce(function (chain, slug) {
-          return chain.then(function (result) {
-            if (result) return result;
-            return fetchMoviePage(slug);
-          });
-        }, Promise.resolve(null));
-      }
+        })
+        .then(function (page) {
+          if (!page || !page.html) return [];
 
-      return pageFetcher.then(function (pageResult) {
-        // Fallback: use search
-        var searchPromise;
-        if (!pageResult) {
-          console.log('[Dutamovie21] Slug attempts failed, falling back to search...');
-          searchPromise = searchSite(mediaInfo.title, mediaInfo.year)
-            .then(function (searchLinks) {
-              if (searchLinks.length === 0) return null;
-              return fetch(searchLinks[0], { headers: WORKING_HEADERS })
-                .then(function (r) { return r.ok ? r.text() : null; })
-                .then(function (html) {
-                  return html ? { html: html, pageUrl: searchLinks[0] } : null;
-                })
-                .catch(function () { return null; });
-            });
-        } else {
-          searchPromise = Promise.resolve(pageResult);
-        }
+          let streams = [];
+          const mediaTitle =
+            mediaType === 'tv' && seasonNum && episodeNum
+              ? info.title + ' S' + String(seasonNum).padStart(2, '0') + 'E' + String(episodeNum).padStart(2, '0')
+              : (info.year ? info.title + ' (' + info.year + ')' : info.title);
 
-        return searchPromise.then(function (finalPage) {
-          if (!finalPage || !finalPage.html) {
-            console.log('[Dutamovie21] No page found for ' + mediaInfo.title);
-            return [];
-          }
-
-          var html = finalPage.html;
-          var pageUrl = finalPage.pageUrl;
-
-          // 1. Extract direct video sources from the page
-          var directSources = extractDirectSources(html);
-
-          // 2. Extract iframe embeds
-          var iframeSrcs = extractIframeSrcs(html);
-          console.log('[Dutamovie21] Found ' + directSources.length + ' direct sources, ' + iframeSrcs.length + ' iframes');
-
-          // Build streams from direct sources immediately
-          var directStreams = directSources.map(function (src) {
-            return buildStream(src, mediaTitle, 'Direct');
+          const directMedia = extractMediaUrls(page.html).map(function (u) {
+            return buildStream(normalizeUrl(u), mediaTitle, 'Direct');
           });
 
-          // Resolve each iframe for additional streams
-          var embedPromises = iframeSrcs.slice(0, 5).map(function (embedUrl) {
-            // Ensure absolute URL
-            if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
-            return resolveEmbed(embedUrl, pageUrl).then(function (resolved) {
-              var streams = [];
-              resolved.directSrcs.forEach(function (src) {
-                streams.push(buildStream(src, mediaTitle, getDomain(embedUrl)));
+          streams = streams.concat(directMedia);
+
+          const iframes = extractIframeUrls(page.html).slice(0, 6);
+
+          return Promise.all(
+            iframes.map(function (iframeUrl) {
+              return resolveIframe(iframeUrl, page.url).then(function (res1) {
+                const level1 = res1.media.map(function (u) {
+                  return buildStream(normalizeUrl(u), mediaTitle, 'Embed');
+                });
+
+                return Promise.all(
+                  res1.nested.slice(0, 3).map(function (nestedUrl) {
+                    return resolveIframe(nestedUrl, normalizeUrl(iframeUrl)).then(function (res2) {
+                      return res2.media.map(function (u) {
+                        return buildStream(normalizeUrl(u), mediaTitle, 'Nested');
+                      });
+                    });
+                  })
+                ).then(function (nestedStreams) {
+                  return level1.concat(flatten(nestedStreams));
+                });
               });
-              // One level of nested iframes
-              var nestedPromises = resolved.nestedIframes.slice(0, 2).map(function (nested) {
-                if (nested.startsWith('//')) nested = 'https:' + nested;
-                return resolveEmbed(nested, embedUrl).then(function (r2) {
-                  return r2.directSrcs.map(function (s) {
-                    return buildStream(s, mediaTitle, getDomain(nested));
-                  });
-                }).catch(function () { return []; });
-              });
-              return Promise.all(nestedPromises).then(function (nestedResults) {
-                nestedResults.forEach(function (ns) { streams = streams.concat(ns); });
-                return streams;
-              });
-            }).catch(function () { return []; });
-          });
-
-          return Promise.all(embedPromises).then(function (embedResults) {
-            var allStreams = directStreams.slice();
-            embedResults.forEach(function (es) { allStreams = allStreams.concat(es); });
-
-            // Deduplicate by URL
-            var seen = {};
-            allStreams = allStreams.filter(function (s) {
-              if (!s || !s.url || seen[s.url]) return false;
-              seen[s.url] = true;
-              return true;
-            });
-
-            // Sort by quality
-            var order = { '4K': 6, '1440p': 5, '1080p': 4, '720p': 3, '480p': 2, '360p': 1, '240p': 0, 'Unknown': -1 };
-            allStreams.sort(function (a, b) {
-              return (order[b.quality] || -1) - (order[a.quality] || -1);
-            });
-
-            console.log('[Dutamovie21] Total streams: ' + allStreams.length);
-            return allStreams;
+            })
+          ).then(function (embedStreams) {
+            streams = streams.concat(flatten(embedStreams));
+            streams = dedupeStreams(streams);
+            streams = sortStreams(streams);
+            return streams;
           });
         });
-      });
     })
     .catch(function (err) {
-      console.error('[Dutamovie21] Fatal error: ' + err.message);
+      console.error('PencuriMovie scraper error:', err.message);
       return [];
     });
 }
 
-function getDomain(url) {
-  try {
-    return new URL(url).hostname.replace('www.', '');
-  } catch (e) {
-    return 'embed';
-  }
-}
-
-// ─── Export ──────────────────────────────────────────────────────────────────
-
 if (typeof module !== 'undefined') {
   module.exports = getStreams;
 } else {
-  global.Dutamovie21ScraperModule = getStreams;
+  global.PencuriMovieSubMalayScraperModule = getStreams;
 }

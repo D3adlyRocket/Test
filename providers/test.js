@@ -164,10 +164,10 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaTy
           `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString}`
         ];
       } else {
-        // FIXED: Combines your structural labels with absolute counters so shifting cannot occur
+        // FIXED: Displays clean, accurate structural coordinates
         lines = [
           `🎬 ${animeTitle}`,
-          ` 🎥 S${seasonNum}E${displayEpNum} (Absolute Ep. ${scrapedEpNum})`,
+          `🎥 S${seasonNum}E${displayEpNum} (Absolute Ep. ${scrapedEpNum})`,
           `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString}`
         ];
       }
@@ -328,6 +328,8 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       const settings = globalThis.SCRAPER_SETTINGS || {};
       const preference = settings.subDub || "both";
       let allStreams = [];
+      
+      // FIXED: Restored mappedEp here so the true absolute trackers are safely dispatched down the pipeline
       if (preference === "both") {
         const [subStreams, dubStreams] = yield Promise.all([
           scrapeType(malId, mappedEp, "sub", showTitle, mediaType, s, e),

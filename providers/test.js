@@ -1,6 +1,6 @@
 /**
  * hianime - Built from src/hianime/
- * Generated: 2026-05-25T14:15:00.000Z
+ * Generated: 2026-05-25T14:40:00.000Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -111,37 +111,6 @@ function getTmdbDetails(tmdbId, mediaType) {
   });
 }
 
-// IMPLEMENTED SYSTEM: Grabs full season array maps to match index positions natively
-function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    try {
-      if (mediaType === "movie") {
-        const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}`;
-        const data = yield fetchJson(url);
-        return { title: data.title || "Movie", duration: data.runtime ? `${data.runtime}m` : "N/A" };
-      }
-
-      // Query the full season object structure directly
-      const url = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_API_KEY}`;
-      const data = yield fetchJson(url);
-      
-      if (data && data.episodes && data.episodes.length > 0) {
-        // Find the index offset match (Episode 1 is array offset index 0)
-        const match = data.episodes[episode - 1] || data.episodes.find(ep => ep.episode_number === episode);
-        if (match) {
-          return {
-            title: match.name || `Episode ${episode}`,
-            duration: match.runtime ? `${match.runtime}m` : "24m"
-          };
-        }
-      }
-      return { title: `Episode ${episode}`, duration: "24m" };
-    } catch (e) {
-      return { title: `Episode ${episode}`, duration: "24m" };
-    }
-  });
-}
-
 function resolveMapping(imdbId, season, episode) {
   return __async(this, null, function* () {
     try {
@@ -172,7 +141,7 @@ function searchMalId(title, mediaType) {
 }
 
 // src/hianime/index.js
-function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaType, seasonNum, displayEpNum, type, meta) {
+function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaType, seasonNum, displayEpNum, type, epTitle, epDuration) {
   return __async(this, null, function* () {
     var _a;
     try {
@@ -194,13 +163,14 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaTy
       if (mediaType === "movie") {
         lines = [
           `🎬 ${animeTitle} (${upperType})`,
-          `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
+          `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${epDuration}`
         ];
       } else {
+        // FIXED: Uses the clean mapping variables parsed directly from the data loop below
         lines = [
           `🎬 ${animeTitle}`,
-          `🎥 S${seasonNum}E${displayEpNum} - ${meta.epTitle}`,
-          `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
+          `🎥 S${seasonNum}E${displayEpNum} - ${epTitle}`,
+          `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${epDuration}`
         ];
       }
       const streamTitle = lines.join("\n");
@@ -233,7 +203,7 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaTy
   });
 }
 
-function scrapeType(malId, scrapedEp, type, animeTitle, meta, mediaType, season, displayEp) {
+function scrapeType(malId, scrapedEp, type, animeTitle, mediaType, season, displayEp, epTitle, epDuration) {
   return __async(this, null, function* () {
     const streams = [];
     const megaUrl = `${MEGAPLAY_BASE}/stream/mal/${malId}/${scrapedEp}/${type}`;
@@ -251,7 +221,7 @@ function scrapeType(malId, scrapedEp, type, animeTitle, meta, mediaType, season,
       if (dataId) {
         const apiUrl = `${MEGAPLAY_BASE}/stream/getSources?id=${dataId}&id=${dataId}`;
         extractions.push(
-          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, mediaType, season, displayEp, type, meta)
+          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, mediaType, season, displayEp, type, epTitle, epDuration)
         );
       }
       if (realId) {
@@ -264,7 +234,7 @@ function scrapeType(malId, scrapedEp, type, animeTitle, meta, mediaType, season,
             const vDataId = vPlayer.attr("data-id");
             if (vDataId) {
               const apiUrl = `${VIDWISH_BASE}/stream/getSources?id=${vDataId}&id=${vDataId}`;
-              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, mediaType, season, displayEp, type, meta);
+              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, mediaType, season, displayEp, type, epTitle, epDuration);
             }
           } catch (err) {
           }
@@ -281,7 +251,7 @@ function scrapeType(malId, scrapedEp, type, animeTitle, meta, mediaType, season,
             const mDataId = mPlayer.attr("data-id");
             if (mDataId) {
               const apiUrl = `${MEGACLOUD_BASE}/stream/getSources?id=${mDataId}&id=${mDataId}`;
-              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, mediaType, season, displayEp, type, meta);
+              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, mediaType, season, displayEp, type, epTitle, epDuration);
             }
           } catch (err) {
           }
@@ -337,6 +307,10 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       let mappedEp = episode;
       let showTitle = tmdbData.name || tmdbData.title || tmdbData.original_title || (mediaType === "movie" ? "Movie" : "Anime");
       
+      // Setup direct fallbacks for string interpolation safety
+      let activeTitle = `Episode ${episode}`;
+      let activeDuration = "24m";
+
       const imdbId = yield getImdbId(tmdbId, mediaType);
       if (!imdbId)
         return [];
@@ -352,29 +326,30 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
         if (mapping && mapping.mal_id) {
           malId = mapping.mal_id;
           mappedEp = mapping.mal_episode || episode;
+          
+          // REAL BYPASS: Pulls the true clean title and duration fields natively out of the mapping database packet
+          if (mapping.title || mapping.episode_title) {
+            activeTitle = mapping.episode_title || mapping.title;
+          }
+          if (mapping.runtime || mapping.duration) {
+            activeDuration = mapping.runtime ? `${mapping.runtime}m` : (mapping.duration || "24m");
+          }
         }
       }
       if (!malId)
         return [];
-
-      // Execute implemented metadata mapping block
-      const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, s, e);
-      const meta = {
-        epTitle: tmdbMeta.title,
-        duration: tmdbMeta.duration
-      };
 
       const settings = globalThis.SCRAPER_SETTINGS || {};
       const preference = settings.subDub || "both";
       let allStreams = [];
       if (preference === "both") {
         const [subStreams, dubStreams] = yield Promise.all([
-          scrapeType(malId, mappedEp, "sub", showTitle, meta, mediaType, s, e),
-          scrapeType(malId, mappedEp, "dub", showTitle, meta, mediaType, s, e)
+          scrapeType(malId, mappedEp, "sub", showTitle, mediaType, s, e, activeTitle, activeDuration),
+          scrapeType(malId, mappedEp, "dub", showTitle, mediaType, s, e, activeTitle, activeDuration)
         ]);
         allStreams = [...subStreams, ...dubStreams];
       } else {
-        allStreams = yield scrapeType(malId, mappedEp, preference, showTitle, meta, mediaType, s, e);
+        allStreams = yield scrapeType(malId, mappedEp, preference, showTitle, mediaType, s, e, activeTitle, activeDuration);
       }
       const seen = /* @__PURE__ */ new Set();
       return allStreams.filter((s2) => {

@@ -1,364 +1,420 @@
-var MAIN_URL = "https://animepahe.pw";
-var PROXY_URL = "https://animepaheproxy.phisheranimepahe.workers.dev/?url=";
-var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
-  "Cookie": "__ddg2_=1234567890",
-  "Referer": "https://animepahe.pw/"
+/**
+ * torbox - Built from src/torbox/
+ * Generated: 2026-05-23T15:13:58.650Z
+ */
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
 };
-var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-
-function fetchText(url, options) {
-  options = options || {};
-  var useProxy = options.useProxy !== false;
-  var finalUrl = url.indexOf("http") === 0 ? url : MAIN_URL + url;
-  var targetUrl = useProxy ? PROXY_URL + encodeURIComponent(finalUrl) : finalUrl;
-
-  var fetchOpts = Object.assign({
-    headers: options.headers || HEADERS,
-    skipSizeCheck: true
-  }, options);
-  delete fetchOpts.useProxy;
-  delete fetchOpts.headers;
-  fetchOpts.headers = options.headers || HEADERS;
-
-  return fetch(targetUrl, fetchOpts).then(function(response) {
-    if (!response.ok) throw new Error("HTTP " + response.status + " on " + finalUrl);
-    return response.text();
-  });
-}
-
-function fetchJson(url, options) {
-  return fetchText(url, options).then(function(text) {
-    return JSON.parse(text);
-  });
-}
-
-function getImdbId(tmdbId, mediaType) {
-  var url = "https://api.themoviedb.org/3/" + (mediaType === "tv" ? "tv" : "movie") + "/" + tmdbId + "/external_ids?api_key=" + TMDB_API_KEY;
-  return fetch(url, { skipSizeCheck: true })
-    .then(function(res) { return res.json(); })
-    .then(function(data) { return data.imdb_id; })
-    .catch(function() { return null; });
-}
-
-function resolveMapping(imdbId, season, episode) {
-  var url = "https://id-mapping-api-malid.hf.space/api/resolve?id=" + imdbId + "&s=" + season + "&e=" + episode;
-  return fetch(url, { skipSizeCheck: true })
-    .then(function(res) {
-      if (!res.ok) return null;
-      return res.json();
-    })
-    .catch(function() { return null; });
-}
-
-function getMalTitle(malId) {
-  return fetch("https://api.jikan.moe/v4/anime/" + malId, { skipSizeCheck: true })
-    .then(function(res) {
-      if (!res.ok) return null;
-      return res.json();
-    })
-    .then(function(data) {
-      return data.data ? data.data.title : null;
-    })
-    .catch(function() { return null; });
-}
-
-function searchAnime(query) {
-  var url = "/api?m=search&l=8&q=" + encodeURIComponent(query);
-  return fetchJson(url);
-}
-
-function extractQuality(text) {
-  var match = text.match(/(\d{3,4}p)/);
-  return match ? match[1] : "720p";
-}
-
-function unpack(code) {
-  try {
-    var match = code.match(/}\((['"])([\s\S]*?)\1,\s*(\d+),\s*(\d+),\s*(['"])([\s\S]*?)\5\.split\((['"])\|\7\)/);
-    if (match) {
-      var p = match[2];
-      var a = parseInt(match[3]);
-      var c = parseInt(match[4]);
-      var kStr = match[6];
-      p = p.replace(/\\'/g, "'").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
-      var k = kStr.split("|");
-      var e = function(c2) {
-        return (c2 < a ? "" : e(parseInt(c2 / a))) + ((c2 = c2 % a) > 35 ? String.fromCharCode(c2 + 29) : c2.toString(36));
-      };
-      var d = {};
-      while (c--) {
-        d[e(c)] = k[c] || e(c);
-      }
-      return p.replace(/\b\w+\b/g, function(w) {
-        return d[w];
-      });
-    }
-  } catch (e) {
-    console.error("[AnimePahe] Unpack error:", e.message);
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
   }
-  return code;
-}
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
 
-function extractKwik(url) {
-  return fetchText(url, {
-    headers: Object.assign({}, HEADERS, {
-      "Referer": url,
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }),
-    useProxy: false
-  }).then(function(html) {
-    var scripts = html.match(/<script[^>]*>([\s\S]*?)<\/script>/g) || [];
-    var matches = [];
-    for (var i = 0; i < scripts.length; i++) {
-      var script = scripts[i];
-      if (script.indexOf("eval(function(p,a,c,k,e,d)") !== -1) {
-        var pos = 0;
-        while (true) {
-          var start = script.indexOf("eval(function(p,a,c,k,e,d)", pos);
-          if (start === -1) break;
-          var end = script.indexOf(".split('|')", start);
-          if (end === -1) break;
-          var closeParen = script.indexOf("))", end);
-          if (closeParen === -1) break;
-          matches.push(script.substring(start, closeParen + 2));
-          pos = closeParen + 2;
+// src/torbox/index.js
+var torbox_exports = {};
+__export(torbox_exports, {
+  getStreams: () => getStreams
+});
+module.exports = __toCommonJS(torbox_exports);
+
+// src/torbox/http.js
+var TORBOX_BASE = "https://api.torbox.app/v1/api";
+function tbGet(path, params, apiKey) {
+  return __async(this, null, function* () {
+    const url = new URL(TORBOX_BASE + path);
+    if (params) {
+      Object.keys(params).forEach((k) => {
+        if (params[k] !== null && params[k] !== void 0) {
+          url.searchParams.append(k, String(params[k]));
         }
-      }
-    }
-    for (var j = 0; j < matches.length; j++) {
-      var unpacked = unpack(matches[j]);
-      var urlMatch = unpacked.match(/source\s*=\s*["'](https?:\/\/.*?)["']/) ||
-                     unpacked.match(/const\s+source\s*=\s*["'](https?:\/\/.*?)["']/) ||
-                     unpacked.match(/var\s+source\s*=\s*["'](https?:\/\/.*?)["']/) ||
-                     unpacked.match(/src\s*:\s*["'](https?:\/\/.*?)["']/);
-      if (urlMatch) {
-        return {
-          url: urlMatch[1],
-          headers: {
-            "Referer": "https://kwik.cx/",
-            "Origin": "https://kwik.cx",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-          }
-        };
-      }
-    }
-    return null;
-  }).catch(function(e) {
-    console.error("[AnimePahe] Kwik extraction failed:", e.message);
-    return null;
-  });
-}
-
-function parseResolutionButtons(html) {
-  var streams = [];
-  var regex = /<button[^>]*data-src=["']([^"']+)["'][^>]*>([\s\S]*?)<\/button>/gi;
-  var match;
-  while ((match = regex.exec(html)) !== null) {
-    var kwikUrl = match[1];
-    var btnText = match[2].replace(/<[^>]*>/g, "").trim();
-    if (kwikUrl && kwikUrl.indexOf("kwik") !== -1) {
-      var quality = extractQuality(btnText);
-      var type = btnText.toLowerCase().indexOf("eng") !== -1 ? "Dub" : "Sub";
-      streams.push({
-        kwikUrl: kwikUrl,
-        quality: quality,
-        type: type,
-        name: "AnimePahe (" + quality + " " + type + ")"
       });
     }
-  }
-  return streams;
-}
-
-function getStreams(tmdbId, mediaType, season, episode) {
-  console.log("[AnimePahe] Starting for TMDB ID:", tmdbId, "Type:", mediaType);
-  return new Promise(function(resolve, reject) {
-    var animeSession = null;
-    var animeTitle = "";
-    var mappedEp = episode;
-    var targetMalId = null;
-
-    if (mediaType === "tv") {
-      getImdbId(tmdbId, mediaType)
-        .then(function(imdbId) {
-          console.log("[AnimePahe] IMDB ID:", imdbId);
-          if (!imdbId) {
-            resolve([]);
-            return Promise.reject("No IMDB");
-          }
-          return resolveMapping(imdbId, season, episode);
-        })
-        .then(function(mapping) {
-          console.log("[AnimePahe] MAL mapping:", mapping);
-          if (!mapping || !mapping.mal_id) {
-            resolve([]);
-            return Promise.reject("No MAL mapping");
-          }
-          targetMalId = mapping.mal_id;
-          mappedEp = mapping.mal_episode || episode;
-          return getMalTitle(targetMalId);
-        })
-        .then(function(title) {
-          animeTitle = title;
-          console.log("[AnimePahe] MAL title:", animeTitle);
-          if (!animeTitle) {
-            resolve([]);
-            return Promise.reject("No MAL title");
-          }
-          return searchAnime(animeTitle);
-        })
-        .then(function(searchResults) {
-          console.log("[AnimePahe] Search results:", searchResults.data ? searchResults.data.length : 0);
-          if (searchResults.data && searchResults.data.length > 0) {
-            var checkNext = function(idx) {
-              if (idx >= Math.min(searchResults.data.length, 3)) {
-                return Promise.resolve();
-              }
-              var item = searchResults.data[idx];
-              return fetchText("/anime/" + item.session).then(function(pageHtml) {
-                if (pageHtml.indexOf("myanimelist.net/anime/" + targetMalId) !== -1) {
-                  animeSession = item.session;
-                  console.log("[AnimePahe] Found session:", animeSession);
-                  return Promise.resolve();
-                }
-                return checkNext(idx + 1);
-              });
-            };
-            return checkNext(0);
-          }
-          return Promise.resolve();
-        })
-        .then(function() {
-          return proceedToEpisodes();
-        })
-        .catch(function(err) {
-          console.error("[AnimePahe] TV error:", err);
-          resolve([]);
-        });
-    } else {
-      var tmdbUrl = "https://api.themoviedb.org/3/movie/" + tmdbId + "?api_key=" + TMDB_API_KEY;
-      fetch(tmdbUrl, { skipSizeCheck: true })
-        .then(function(res) { return res.json(); })
-        .then(function(tmdbData) {
-          animeTitle = tmdbData.title || tmdbData.original_title;
-          mappedEp = 1;
-          console.log("[AnimePahe] Movie title:", animeTitle);
-          if (!animeTitle) {
-            resolve([]);
-            return Promise.reject("No title");
-          }
-          return searchAnime(animeTitle);
-        })
-        .then(function(searchResults) {
-          console.log("[AnimePahe] Search results:", searchResults.data ? searchResults.data.length : 0);
-          if (searchResults.data && searchResults.data.length > 0) {
-            var firstResult = searchResults.data[0];
-            if (firstResult.title.toLowerCase() === animeTitle.toLowerCase()) {
-              animeSession = firstResult.session;
-              console.log("[AnimePahe] Found session:", animeSession);
-            }
-          }
-          return proceedToEpisodes();
-        })
-        .catch(function(err) {
-          console.error("[AnimePahe] Movie error:", err);
-          resolve([]);
-        });
-    }
-
-    function proceedToEpisodes() {
-      if (!animeSession) {
-        console.log("[AnimePahe] No anime session found");
-        resolve([]);
-        return Promise.resolve();
+    const res = yield fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Authorization: "Bearer " + apiKey,
+        "Content-Type": "application/json"
       }
-
-      var firstPageUrl = "/api?m=release&id=" + animeSession + "&sort=episode_asc&page=1";
-      return fetchJson(firstPageUrl)
-        .then(function(firstPageData) {
-          console.log("[AnimePahe] First page episodes:", firstPageData.data ? firstPageData.data.length : 0);
-          if (!firstPageData.data || firstPageData.data.length === 0) {
-            resolve([]);
-            return Promise.reject("No episodes");
-          }
-          var paheEpStart = Math.floor(firstPageData.data[0].episode);
-          var perPage = firstPageData.per_page || 30;
-          var targetPaheEp = paheEpStart - 1 + mappedEp;
-          var targetPage = Math.ceil(mappedEp / perPage) || 1;
-          var targetPageUrl = "/api?m=release&id=" + animeSession + "&sort=episode_asc&page=" + targetPage;
-
-          return fetchJson(targetPageUrl).then(function(targetPageData) {
-            var episodeSession = null;
-            if (targetPageData && targetPageData.data) {
-              for (var i = 0; i < targetPageData.data.length; i++) {
-                if (Math.floor(targetPageData.data[i].episode) == targetPaheEp) {
-                  episodeSession = targetPageData.data[i].session;
-                  break;
-                }
-              }
-            }
-            if (!episodeSession && targetPage !== 1) {
-              for (var j = 0; j < firstPageData.data.length; j++) {
-                if (Math.floor(firstPageData.data[j].episode) == targetPaheEp) {
-                  episodeSession = firstPageData.data[j].session;
-                  break;
-                }
-              }
-            }
-            if (!episodeSession) {
-              console.log("[AnimePahe] No episode session found");
-              resolve([]);
-              return Promise.reject("No episode");
-            }
-
-            var playUrl = "/play/" + animeSession + "/" + episodeSession;
-            return fetchText(playUrl).then(function(playHtml) {
-              var buttons = parseResolutionButtons(playHtml);
-              console.log("[AnimePahe] Found", buttons.length, "resolution buttons");
-
-              if (buttons.length === 0) {
-                resolve([]);
-                return;
-              }
-
-              var promises = [];
-              var streams = [];
-              for (var k = 0; k < buttons.length; k++) {
-                (function(btn) {
-                  promises.push(
-                    extractKwik(btn.kwikUrl).then(function(res) {
-                      if (res) {
-                        streams.push({
-                          name: btn.name,
-                          title: animeTitle + " - Episode " + mappedEp,
-                          url: res.url,
-                          quality: btn.quality,
-                          headers: res.headers
-                        });
-                      }
-                    })
-                  );
-                })(buttons[k]);
-              }
-
-              Promise.all(promises).then(function() {
-                var qualityOrder = { "1080p": 3, "720p": 2, "360p": 1 };
-                streams.sort(function(a, b) {
-                  return (qualityOrder[b.quality] || 0) - (qualityOrder[a.quality] || 0);
-                });
-                console.log("[AnimePahe] Returning", streams.length, "streams");
-                resolve(streams);
-              });
-            });
-          });
-        })
-        .catch(function(err) {
-          console.error("[AnimePahe] Episode error:", err);
-          resolve([]);
-        });
+    });
+    if (!res.ok)
+      throw new Error("TorBox GET error: " + res.status);
+    return res.json();
+  });
+}
+function tbPost(path, body, apiKey) {
+  return __async(this, null, function* () {
+    const res = yield fetch(TORBOX_BASE + path, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + apiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok)
+      throw new Error("TorBox POST error: " + res.status);
+    return res.json();
+  });
+}
+function publicGet(url, params) {
+  return __async(this, null, function* () {
+    const u = new URL(url);
+    if (params) {
+      Object.keys(params).forEach((k) => {
+        if (params[k] !== null && params[k] !== void 0) {
+          u.searchParams.set(k, String(params[k]));
+        }
+      });
     }
+    const res = yield fetch(u.toString(), {
+      method: "GET",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; NuvioProvider/1.0)" }
+    });
+    if (!res.ok)
+      throw new Error("Public GET error: " + res.status + " " + url);
+    return res.json();
   });
 }
 
-module.exports = { getStreams };
+// src/torbox/search.js
+var KNABEN_API = "https://knaben.eu/api/v1";
+var QUALITY_SCORE = {
+  "2160p": 8,
+  "4k": 8,
+  "uhd": 7,
+  "remux": 6,
+  "1080p": 5,
+  "bluray": 4,
+  "web-dl": 3,
+  "webrip": 3,
+  "720p": 2
+};
+function qualityScore(title) {
+  const t = (title || "").toLowerCase();
+  for (const [kw, score] of Object.entries(QUALITY_SCORE)) {
+    if (t.includes(kw))
+      return score;
+  }
+  return 0;
+}
+function extractHash(value) {
+  if (!value)
+    return null;
+  if (/^[a-fA-F0-9]{40}$/.test(value))
+    return value.toLowerCase();
+  const m = value.match(/btih:([a-fA-F0-9]{40})/i);
+  if (m)
+    return m[1].toLowerCase();
+  return null;
+}
+function searchKnaben(query, mediaType, maxResults) {
+  return __async(this, null, function* () {
+    const categoryId = mediaType === "tv" ? 5e3 : 2e3;
+    const data = yield publicGet(KNABEN_API + "/search", {
+      q: query,
+      categories: categoryId,
+      orderBy: "seeders",
+      orderDirection: "desc",
+      take: maxResults
+    });
+    if (!data || !Array.isArray(data.hits))
+      return [];
+    return data.hits.map((item) => {
+      const hash = extractHash(item.infoHash || item.hash || item.magnet || "");
+      if (!hash)
+        return null;
+      return {
+        hash,
+        title: item.name || item.title || "",
+        size: item.bytes || item.size || 0,
+        seeders: item.seeders || 0
+      };
+    }).filter(Boolean);
+  });
+}
+function buildQuery(title, year, mediaType, season, episode) {
+  let q = title;
+  if (year)
+    q += " " + year;
+  if (mediaType === "tv" && season != null && episode != null) {
+    const s = String(season).padStart(2, "0");
+    const e = String(episode).padStart(2, "0");
+    q += " S" + s + "E" + e;
+  }
+  return q.trim();
+}
+function findTorrentHashes(title, year, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    const query = buildQuery(title, year, mediaType, season, episode);
+    console.log("[TorBox/search] Query:", query);
+    let results = [];
+    try {
+      results = yield searchKnaben(query, mediaType, 30);
+      console.log("[TorBox/search] Knaben returned", results.length, "results");
+    } catch (err) {
+      console.log("[TorBox/search] Knaben error:", err.message);
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const unique = results.filter((r) => {
+      if (seen.has(r.hash))
+        return false;
+      seen.add(r.hash);
+      return true;
+    });
+    unique.sort((a, b) => {
+      const qs = qualityScore(b.title) - qualityScore(a.title);
+      if (qs !== 0)
+        return qs;
+      return (b.seeders || 0) - (a.seeders || 0);
+    });
+    return unique;
+  });
+}
+
+// src/torbox/torbox.js
+var TORBOX_BASE2 = "https://api.torbox.app/v1/api";
+function isVideoFile(name) {
+  if (!name)
+    return false;
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  return ["mkv", "mp4", "avi", "mov", "m4v", "ts", "webm", "wmv"].includes(ext);
+}
+function parseQuality(s) {
+  const t = (s || "").toLowerCase();
+  if (t.includes("2160p") || t.includes("4k") || t.includes("uhd"))
+    return "4K";
+  if (t.includes("1080p"))
+    return "1080p";
+  if (t.includes("720p"))
+    return "720p";
+  if (t.includes("480p"))
+    return "480p";
+  return "Unknown";
+}
+function checkCached(hashes, apiKey) {
+  return __async(this, null, function* () {
+    const cached = /* @__PURE__ */ new Set();
+    if (!hashes || hashes.length === 0)
+      return cached;
+    const BATCH = 100;
+    for (let i = 0; i < hashes.length; i += BATCH) {
+      const batch = hashes.slice(i, i + BATCH);
+      try {
+        const resp = yield tbGet(
+          "/torrents/checkcached",
+          { hash: batch.join(","), format: "list" },
+          apiKey
+        );
+        if (!resp.success || !resp.data)
+          continue;
+        const data = resp.data;
+        if (Array.isArray(data)) {
+          data.forEach((h) => cached.add(String(h).toLowerCase()));
+        } else if (typeof data === "object") {
+          Object.keys(data).forEach((h) => cached.add(h.toLowerCase()));
+        }
+      } catch (err) {
+        console.log("[TorBox/cache] checkcached error:", err.message);
+      }
+    }
+    return cached;
+  });
+}
+function addTorrent(hash, name, apiKey) {
+  return __async(this, null, function* () {
+    const magnet = "magnet:?xt=urn:btih:" + hash;
+    try {
+      const resp = yield tbPost(
+        "/torrents/createtorrent",
+        { magnet, name: name || hash, as_queued: false },
+        apiKey
+      );
+      if (resp.success && resp.data) {
+        return resp.data.torrent_id || resp.data.id || null;
+      }
+      if (resp.error === "DUPLICATE_ITEM" && resp.data) {
+        return resp.data.torrent_id || resp.data.id || null;
+      }
+      console.log("[TorBox] addTorrent failed:", resp.detail);
+      return null;
+    } catch (err) {
+      console.log("[TorBox] addTorrent error:", err.message);
+      return null;
+    }
+  });
+}
+function getTorrentFiles(torrentId, apiKey) {
+  return __async(this, null, function* () {
+    try {
+      const resp = yield tbGet(
+        "/torrents/mylist",
+        { id: torrentId, bypass_cache: "true" },
+        apiKey
+      );
+      if (!resp.success || !resp.data)
+        return [];
+      const torrent = Array.isArray(resp.data) ? resp.data[0] : resp.data;
+      return torrent && torrent.files ? torrent.files : [];
+    } catch (err) {
+      console.log("[TorBox] getTorrentFiles error:", err.message);
+      return [];
+    }
+  });
+}
+function buildStreamUrl(apiKey, torrentId, fileId) {
+  return TORBOX_BASE2 + "/torrents/requestdl?token=" + apiKey + "&torrent_id=" + torrentId + "&file_id=" + fileId + "&redirect=true";
+}
+function debridHash(hash, torrentTitle, apiKey) {
+  return __async(this, null, function* () {
+    const streams = [];
+    const torrentId = yield addTorrent(hash, torrentTitle, apiKey);
+    if (!torrentId)
+      return streams;
+    const files = yield getTorrentFiles(torrentId, apiKey);
+    const videos = files.filter((f) => isVideoFile(f.name || f.short_name || ""));
+    if (videos.length === 0) {
+      const url = buildStreamUrl(apiKey, torrentId, 0);
+      const q = parseQuality(torrentTitle);
+      streams.push({
+        name: "TorBox",
+        title: q + " \xB7 " + (torrentTitle || "").substring(0, 60),
+        url,
+        quality: q
+      });
+      return streams;
+    }
+    for (const file of videos) {
+      const fileId = file.id;
+      const fileName = file.name || file.short_name || "";
+      const url = buildStreamUrl(apiKey, torrentId, fileId);
+      const q = parseQuality(torrentTitle + " " + fileName);
+      streams.push({
+        name: "TorBox",
+        title: q + " \xB7 " + fileName.substring(0, 60),
+        url,
+        quality: q
+      });
+    }
+    return streams;
+  });
+}
+
+// src/torbox/extractor.js
+var TMDB_API = "https://api.themoviedb.org/3";
+function resolveTmdbTitle(tmdbId, mediaType, tmdbApiKey) {
+  return __async(this, null, function* () {
+    if (!tmdbApiKey)
+      return null;
+    try {
+      const endpoint = mediaType === "tv" ? TMDB_API + "/tv/" + tmdbId + "?api_key=" + tmdbApiKey + "&language=en-US" : TMDB_API + "/movie/" + tmdbId + "?api_key=" + tmdbApiKey + "&language=en-US";
+      const res = yield fetch(endpoint);
+      if (!res.ok)
+        return null;
+      const data = yield res.json();
+      const title = data.title || data.name || null;
+      const rawDate = data.release_date || data.first_air_date || "";
+      const year = rawDate ? parseInt(rawDate.substring(0, 4), 10) : null;
+      return title ? { title, year } : null;
+    } catch (err) {
+      console.log("[TorBox/tmdb] resolve error:", err.message);
+      return null;
+    }
+  });
+}
+function extractStreams(tmdbId, mediaType, season, episode, apiKey, tmdbApiKey) {
+  return __async(this, null, function* () {
+    let title = null;
+    let year = null;
+    const resolved = yield resolveTmdbTitle(tmdbId, mediaType, tmdbApiKey);
+    if (resolved) {
+      title = resolved.title;
+      year = resolved.year;
+      console.log("[TorBox] Resolved title:", title, year);
+    } else {
+      title = "tmdb" + tmdbId;
+      console.log("[TorBox] No TMDB key, searching by ID:", title);
+    }
+    const candidates = yield findTorrentHashes(title, year, mediaType, season, episode);
+    if (candidates.length === 0) {
+      console.log("[TorBox] No torrents found");
+      return [];
+    }
+    console.log("[TorBox] Found", candidates.length, "torrent candidates");
+    const hashes = candidates.map((c) => c.hash);
+    const cachedSet = yield checkCached(hashes, apiKey);
+    console.log("[TorBox] Cached hashes:", cachedSet.size, "/", hashes.length);
+    const cachedCandidates = candidates.filter((c) => cachedSet.has(c.hash));
+    if (cachedCandidates.length === 0) {
+      console.log("[TorBox] No cached hits, falling back to top 3 uncached");
+      const fallback = candidates.slice(0, 3);
+      const streams2 = [];
+      for (const c of fallback) {
+        const s = yield debridHash(c.hash, c.title, apiKey);
+        streams2.push(...s);
+      }
+      return streams2;
+    }
+    const toDebrid = cachedCandidates.slice(0, 5);
+    const streams = [];
+    for (const candidate of toDebrid) {
+      const s = yield debridHash(candidate.hash, candidate.title, apiKey);
+      streams.push(...s);
+    }
+    console.log("[TorBox] Total streams:", streams.length);
+    return streams;
+  });
+}
+
+// src/torbox/index.js
+function getSetting(key) {
+  if (typeof globalThis !== "undefined" && globalThis.SCRAPER_SETTINGS && globalThis.SCRAPER_SETTINGS[key]) {
+    return globalThis.SCRAPER_SETTINGS[key];
+  }
+  return null;
+}
+function getStreams(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    const apiKey = getSetting("torbox_api_key");
+    if (!apiKey) {
+      console.log("[TorBox] Missing torbox_api_key in SCRAPER_SETTINGS");
+      return [];
+    }
+    const tmdbApiKey = "01926d2187b6a5d861eefc750e9df3e3";
+    try {
+      return yield extractStreams(tmdbId, mediaType, season, episode, apiKey, tmdbApiKey);
+    } catch (err) {
+      console.log("[TorBox] Fatal error in getStreams:", err.message);
+      return [];
+    }
+  });
+}

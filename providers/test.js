@@ -111,7 +111,7 @@ function getTmdbDetails(tmdbId, mediaType) {
   });
 }
 
-// REAL FIX: Fetches the entire season index packet to read titles by array offset location
+// IMPLEMENTED SYSTEM: Grabs full season array maps to match index positions natively
 function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
@@ -121,12 +121,12 @@ function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
         return { title: data.title || "Movie", duration: data.runtime ? `${data.runtime}m` : "N/A" };
       }
 
-      // Query the full season pack directly
+      // Query the full season object structure directly
       const url = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_API_KEY}`;
       const data = yield fetchJson(url);
       
       if (data && data.episodes && data.episodes.length > 0) {
-        // Match by index position (episode 1 is array item 0, episode 13 is array item 12)
+        // Find the index offset match (Episode 1 is array offset index 0)
         const match = data.episodes[episode - 1] || data.episodes.find(ep => ep.episode_number === episode);
         if (match) {
           return {
@@ -357,7 +357,7 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       if (!malId)
         return [];
 
-      // Fetch metadata from the direct season packet block layout
+      // Execute implemented metadata mapping block
       const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, s, e);
       const meta = {
         epTitle: tmdbMeta.title,

@@ -110,8 +110,6 @@ function getTmdbDetails(tmdbId, mediaType) {
     }
   });
 }
-
-// NEW: Fetches specific episode metadata or movie runtime for duration/title strings
 function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
@@ -127,7 +125,7 @@ function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
         const data = yield fetchJson(url);
         return {
           title: data.name || `Episode ${episode}`,
-          duration: data.runtime ? `${data.runtime}m` : "24m" // Anime fallback default is usually 24m
+          duration: data.runtime ? `${data.runtime}m` : "24m"
         };
       }
     } catch (e) {
@@ -135,7 +133,6 @@ function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
     }
   });
 }
-
 function resolveMapping(imdbId, season, episode) {
   return __async(this, null, function* () {
     try {
@@ -166,8 +163,8 @@ function searchMalId(title, mediaType) {
 }
 
 // src/hianime/index.js
-// MODIFIED: Accepts meta context object to handle your custom 4-line title block layout
-function extractSources(apiUrl, referer, origin, serverName, animeTitle, episodeNum, type, meta) {
+// MODIFIED: Accepts mediaType and seasonNum parameters to clean up duplicates dynamically
+function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaType, seasonNum, episodeNum, type, meta) {
   return __async(this, null, function* () {
     var _a;
     try {
@@ -182,16 +179,24 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, episode
       if (!file)
         return [];
 
-      // Logic adjustments for Language strings
       const langString = type.toLowerCase() === "sub" ? "Original (SUB)" : "English (DUB)";
       const upperType = type.toUpperCase();
 
-      // Build the 4-line layout block
-      const streamTitle = [
-        `🎬 ${animeTitle} - Episode ${episodeNum} (${upperType})`,
-        `🎥 ${meta.epTitle}`,
-        `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
-      ].join("\n");
+      // Clean, dynamic layout blocks dependent on media category
+      let lines = [];
+      if (mediaType === "movie") {
+        lines = [
+          `🎬 ${animeTitle} (${upperType})`,
+          `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
+        ];
+      } else {
+        lines = [
+          `🎬 ${animeTitle}`,
+          `🎥 S${seasonNum}E${episodeNum} - ${meta.epTitle}`,
+          `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
+        ];
+      }
+      const streamTitle = lines.join("\n");
 
       const streams = [];
       streams.push({
@@ -221,8 +226,8 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, episode
   });
 }
 
-// MODIFIED: Now passes along the meta parameter object to downstream extractions
-function scrapeType(malId, episode, type, animeTitle, meta) {
+// MODIFIED: Passes down mediaType and season down to extractSources
+function scrapeType(malId, episode, type, animeTitle, meta, mediaType, season) {
   return __async(this, null, function* () {
     const streams = [];
     const megaUrl = `${MEGAPLAY_BASE}/stream/mal/${malId}/${episode}/${type}`;
@@ -240,7 +245,7 @@ function scrapeType(malId, episode, type, animeTitle, meta) {
       if (dataId) {
         const apiUrl = `${MEGAPLAY_BASE}/stream/getSources?id=${dataId}&id=${dataId}`;
         extractions.push(
-          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, episode, type, meta)
+          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, mediaType, season, episode, type, meta)
         );
       }
       if (realId) {
@@ -253,7 +258,7 @@ function scrapeType(malId, episode, type, animeTitle, meta) {
             const vDataId = vPlayer.attr("data-id");
             if (vDataId) {
               const apiUrl = `${VIDWISH_BASE}/stream/getSources?id=${vDataId}&id=${vDataId}`;
-              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, episode, type, meta);
+              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, mediaType, season, episode, type, meta);
             }
           } catch (err) {
           }
@@ -270,7 +275,7 @@ function scrapeType(malId, episode, type, animeTitle, meta) {
             const mDataId = mPlayer.attr("data-id");
             if (mDataId) {
               const apiUrl = `${MEGACLOUD_BASE}/stream/getSources?id=${mDataId}&id=${mDataId}`;
-              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, episode, type, meta);
+              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, mediaType, season, episode, type, meta);
             }
           } catch (err) {
           }
@@ -330,7 +335,6 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       if (!imdbId)
         return [];
 
-      // NEW: Fetch dynamic information (duration and episode title) from TMDB before scraping
       const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, season, episode);
       const meta = {
         epTitle: tmdbMeta.title,
@@ -357,12 +361,12 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       let allStreams = [];
       if (preference === "both") {
         const [subStreams, dubStreams] = yield Promise.all([
-          scrapeType(malId, mappedEp, "sub", showTitle, meta),
-          scrapeType(malId, mappedEp, "dub", showTitle, meta)
+          scrapeType(malId, mappedEp, "sub", showTitle, meta, mediaType, s),
+          scrapeType(malId, mappedEp, "dub", showTitle, meta, mediaType, s)
         ]);
         allStreams = [...subStreams, ...dubStreams];
       } else {
-        allStreams = yield scrapeType(malId, mappedEp, preference, showTitle, meta);
+        allStreams = yield scrapeType(malId, mappedEp, preference, showTitle, meta, mediaType, s);
       }
       const seen = /* @__PURE__ */ new Set();
       return allStreams.filter((s2) => {

@@ -1,11 +1,6 @@
 // cinefreak.js
-// Fully upgraded Cinefreak provider for Nuvio
-// - Resolves redirects
-// - Extracts direct streams
-// - Adds playback headers
-// - Validates playable URLs
-// - Supports m3u8/mp4
-// - Safer stream handling
+// Stable Cinefreak provider for Nuvio
+// Fetches links + improves playback reliability
 
 const BASE_URL = "https://cinefreak.nl";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -48,36 +43,7 @@ function decodeBase64Safe(str) {
 }
 
 // =========================
-// Stream Validation
-// =========================
-
-async function isPlayable(url) {
-  try {
-    const res = await fetch(url, {
-      method: "HEAD",
-      redirect: "follow",
-      headers: HEADERS
-    });
-
-    const type =
-      (res.headers.get("content-type") || "").toLowerCase();
-
-    console.log("[CONTENT TYPE]", type);
-
-    return (
-      type.includes("video") ||
-      type.includes("mp4") ||
-      type.includes("mpegurl") ||
-      type.includes("application/vnd.apple.mpegurl")
-    );
-  } catch (e) {
-    console.log("[isPlayable error]", e);
-    return false;
-  }
-}
-
-// =========================
-// Redirect Resolver
+// Resolve redirects
 // =========================
 
 async function resolveFinalUrl(url) {
@@ -89,31 +55,35 @@ async function resolveFinalUrl(url) {
     });
 
     return res.url || url;
-  } catch (e) {
-    console.log("[resolveFinalUrl error]", e);
+  } catch {
     return url;
   }
 }
 
 // =========================
-// Extract direct streams
+// Extract playable stream
 // =========================
 
 async function extractDirectStream(url) {
   try {
-    console.log("[EXTRACTING]", url);
+    console.log("[EXTRACT]", url);
 
-    // =========================
+    // already direct
+    if (
+      url.includes(".m3u8") ||
+      url.includes(".mp4") ||
+      url.includes(".mkv")
+    ) {
+      return url;
+    }
+
     // Pixeldrain
-    // =========================
     if (url.includes("pixeldrain.com/u/")) {
       const id = url.split("/u/")[1].split("?")[0];
       return `https://pixeldrain.com/api/file/${id}`;
     }
 
-    // =========================
     // Google Drive
-    // =========================
     if (url.includes("drive.google.com")) {
       const match = url.match(/\/d\/(.*?)\//);
 
@@ -122,109 +92,79 @@ async function extractDirectStream(url) {
       }
     }
 
-    // =========================
-    // Already playable
-    // =========================
-    if (
-      url.includes(".m3u8") ||
-      url.includes(".mp4")
-    ) {
-      return url;
-    }
-
-    // =========================
-    // Load page HTML
-    // =========================
+    // load page html
     const html = await (
       await fetch(url, {
         headers: HEADERS
       })
     ).text();
 
-    // =========================
-    // Extract m3u8
-    // =========================
-    const m3u8Match = html.match(
+    // m3u8
+    const m3u8 = html.match(
       /https?:\/\/[^"' ]+\.m3u8[^"' ]*/i
     );
 
-    if (m3u8Match) {
-      console.log("[FOUND M3U8]");
-      return m3u8Match[0];
+    if (m3u8) {
+      return m3u8[0];
     }
 
-    // =========================
-    // Extract mp4
-    // =========================
-    const mp4Match = html.match(
+    // mp4
+    const mp4 = html.match(
       /https?:\/\/[^"' ]+\.mp4[^"' ]*/i
     );
 
-    if (mp4Match) {
-      console.log("[FOUND MP4]");
-      return mp4Match[0];
+    if (mp4) {
+      return mp4[0];
     }
 
-    // =========================
-    // iframe extraction
-    // =========================
-    const iframeMatch = html.match(
+    // file:"..."
+    const fileMatch = html.match(
+      /file\s*:\s*["']([^"']+)["']/i
+    );
+
+    if (fileMatch) {
+      return fileMatch[1];
+    }
+
+    // source src=
+    const sourceMatch = html.match(
+      /<source[^>]+src=["']([^"']+)["']/i
+    );
+
+    if (sourceMatch) {
+      return sourceMatch[1];
+    }
+
+    // iframe
+    const iframe = html.match(
       /<iframe[^>]+src=["']([^"']+)["']/i
     );
 
-    if (iframeMatch) {
-      const iframeUrl = iframeMatch[1];
-
-      console.log("[FOUND IFRAME]", iframeUrl);
-
-      if (
-        iframeUrl.includes(".m3u8") ||
-        iframeUrl.includes(".mp4")
-      ) {
-        return iframeUrl;
-      }
-
-      // Try inside iframe
-      const iframeHtml = await (
-        await fetch(iframeUrl, {
-          headers: HEADERS
-        })
-      ).text();
-
-      const iframeM3u8 = iframeHtml.match(
-        /https?:\/\/[^"' ]+\.m3u8[^"' ]*/i
-      );
-
-      if (iframeM3u8) {
-        return iframeM3u8[0];
-      }
-
-      const iframeMp4 = iframeHtml.match(
-        /https?:\/\/[^"' ]+\.mp4[^"' ]*/i
-      );
-
-      if (iframeMp4) {
-        return iframeMp4[0];
-      }
+    if (iframe) {
+      return iframe[1];
     }
 
-    return null;
+    return url;
   } catch (e) {
-    console.log("[extractDirectStream error]", e);
-    return null;
+    console.log("[extract error]", e);
+    return url;
   }
 }
 
 // =========================
-// Create stream object
+// Create stream
 // =========================
 
 function createStream(url, quality, title) {
   return {
     type: "url",
+
     url,
+
     quality,
+
     title,
+
     subtitles: [],
 
     behaviorHints: {
@@ -252,15 +192,10 @@ async function getStreams(
   episode
 ) {
   try {
-    console.log(
-      "[CINEFREAK START]",
-      tmdbId,
-      mediaType
-    );
-
     // =========================
     // TMDB
     // =========================
+
     const tmdbUrl =
       `https://api.themoviedb.org/3/${mediaType}/${tmdbId}` +
       `?api_key=${TMDB_API_KEY}`;
@@ -281,6 +216,7 @@ async function getStreams(
     // =========================
     // Search
     // =========================
+
     const searchUrl =
       `${BASE_URL}/search-api.php?q=` +
       encodeURIComponent(title) +
@@ -302,17 +238,15 @@ async function getStreams(
       ? searchData.results
       : [];
 
-    if (!results.length) {
-      console.log("[NO RESULTS]");
-      return [];
-    }
+    if (!results.length) return [];
 
     // =========================
-    // Match
+    // Match title
     // =========================
+
     const lcTitle = title.toLowerCase();
 
-    let match =
+    const match =
       results.find(r =>
         (r.t || "")
           .toLowerCase()
@@ -325,7 +259,7 @@ async function getStreams(
       ? match.l
       : `${BASE_URL}/${match.l}/`;
 
-    console.log("[PAGE URL]", pageUrl);
+    console.log("[PAGE]", pageUrl);
 
     const pageHtml = await (
       await fetch(pageUrl, {
@@ -340,12 +274,9 @@ async function getStreams(
     // =========================
     // TV
     // =========================
+
     if (mediaType === "tv") {
-      let found = false;
-
-      $("div.ep-card").each(async (_, card) => {
-        if (found) return;
-
+      $("div.ep-card").each((_, card) => {
         const seasonText = $(card)
           .find("span.season-number")
           .text()
@@ -377,168 +308,136 @@ async function getStreams(
           !epNums.includes(
             parseInt(episode || 1)
           )
-        )
+        ) {
           return;
-
-        found = true;
-
-        const links = $(card)
-          .find("div.download-links a")
-          .toArray();
-
-        for (const a of links) {
-          try {
-            let href = $(a).attr("href");
-
-            if (!href) continue;
-
-            console.log("[RAW TV LINK]", href);
-
-            const idMatch =
-              href.match(/id=([^&]+)/);
-
-            if (idMatch) {
-              const decoded =
-                decodeBase64Safe(idMatch[1]);
-
-              if (decoded) href = decoded;
-            }
-
-            href = await resolveFinalUrl(href);
-
-            const direct =
-              await extractDirectStream(href);
-
-            if (!direct) continue;
-
-            const playable =
-              await isPlayable(direct);
-
-            if (!playable) continue;
-
-            streams.push(
-              createStream(
-                direct,
-                extractQuality(href),
-                "Cinefreak"
-              )
-            );
-          } catch (e) {
-            console.log("[TV stream error]", e);
-          }
         }
+
+        $(card)
+          .find("div.download-links a")
+          .each(async (_, a) => {
+            try {
+              let href = $(a).attr("href");
+
+              if (!href) return;
+
+              // decode
+              const idMatch =
+                href.match(/id=([^&]+)/);
+
+              if (idMatch) {
+                const decoded =
+                  decodeBase64Safe(idMatch[1]);
+
+                if (decoded) {
+                  href = decoded;
+                }
+              }
+
+              href = await resolveFinalUrl(href);
+
+              const finalUrl =
+                await extractDirectStream(href);
+
+              streams.push(
+                createStream(
+                  finalUrl,
+                  extractQuality(href),
+                  "Cinefreak"
+                )
+              );
+            } catch {}
+          });
       });
 
       return streams;
     }
 
     // =========================
-    // MOVIES
+    // Movies
     // =========================
-    const containers = $("div.download-links-div")
-      .toArray();
 
-    for (const container of containers) {
-      const titles = $(container)
-        .find("h4.movie-title")
-        .toArray();
+    $("div.download-links-div").each(
+      (_, container) => {
+        $(container)
+          .find("h4.movie-title")
+          .each((_, titleEl) => {
+            const titleText =
+              $(titleEl).text();
 
-      for (const titleEl of titles) {
-        const titleText =
-          $(titleEl).text();
+            const quality =
+              extractQuality(titleText);
 
-        const quality =
-          extractQuality(titleText);
+            $(titleEl)
+              .next()
+              .find("a.dlbtn-download[href]")
+              .each(async (_, a) => {
+                try {
+                  let href = $(a).attr("href");
 
-        const links = $(titleEl)
-          .next()
-          .find("a.dlbtn-download[href]")
-          .toArray();
+                  if (!href) return;
 
-        for (const a of links) {
-          try {
-            let href = $(a).attr("href");
+                  console.log(
+                    "[RAW LINK]",
+                    href
+                  );
 
-            if (!href) continue;
+                  // decode base64
+                  const idMatch =
+                    href.match(/id=([^&]+)/);
 
-            console.log("[RAW MOVIE LINK]", href);
+                  if (idMatch) {
+                    const decoded =
+                      decodeBase64Safe(
+                        idMatch[1]
+                      );
 
-            // =========================
-            // Decode base64
-            // =========================
-            const idMatch =
-              href.match(/id=([^&]+)/);
+                    if (decoded) {
+                      href = decoded;
+                    }
+                  }
 
-            if (idMatch) {
-              const decoded =
-                decodeBase64Safe(idMatch[1]);
+                  // resolve redirects
+                  href =
+                    await resolveFinalUrl(href);
 
-              if (decoded) {
-                href = decoded;
-              }
-            }
+                  console.log(
+                    "[RESOLVED]",
+                    href
+                  );
 
-            // =========================
-            // Resolve redirects
-            // =========================
-            href = await resolveFinalUrl(href);
+                  // extract stream
+                  const finalUrl =
+                    await extractDirectStream(
+                      href
+                    );
 
-            console.log(
-              "[RESOLVED LINK]",
-              href
-            );
+                  console.log(
+                    "[FINAL]",
+                    finalUrl
+                  );
 
-            // =========================
-            // Extract direct media
-            // =========================
-            const direct =
-              await extractDirectStream(href);
-
-            if (!direct) {
-              console.log(
-                "[NO DIRECT STREAM]"
-              );
-              continue;
-            }
-
-            console.log(
-              "[DIRECT STREAM]",
-              direct
-            );
-
-            // =========================
-            // Validate stream
-            // =========================
-            const playable =
-              await isPlayable(direct);
-
-            if (!playable) {
-              console.log(
-                "[NOT PLAYABLE]"
-              );
-              continue;
-            }
-
-            console.log(
-              "[PLAYABLE STREAM]"
-            );
-
-            streams.push(
-              createStream(
-                direct,
-                quality,
-                `Cinefreak [${quality}]`
-              )
-            );
-          } catch (e) {
-            console.log(
-              "[Movie stream error]",
-              e
-            );
-          }
-        }
+                  streams.push(
+                    createStream(
+                      finalUrl,
+                      quality,
+                      `Cinefreak [${quality}]`
+                    )
+                  );
+                } catch (e) {
+                  console.log(
+                    "[STREAM ERROR]",
+                    e
+                  );
+                }
+              });
+          });
       }
-    }
+    );
+
+    // allow async each to finish
+    await new Promise(r =>
+      setTimeout(r, 3000)
+    );
 
     console.log(
       "[TOTAL STREAMS]",
@@ -551,10 +450,6 @@ async function getStreams(
     return [];
   }
 }
-
-// =========================
-// Export
-// =========================
 
 module.exports = {
   getStreams

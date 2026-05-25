@@ -128,23 +128,27 @@ function getEpisodeMetadata(tmdbId, mediaType, absoluteEpNum) {
         return { title: `Episode ${absoluteEpNum}`, duration: "24m" };
       }
 
-      // Clean up special seasons (like Season 0) and sort chronologically
+      // Filter out specials (Season 0)
       const cleanSeasons = showData.seasons.filter(s => s.season_number > 0).sort((a, b) => a.season_number - b.season_number);
 
       let accumulatedCount = 0;
-      // Loop through TMDB's seasons and find where our absolute episode lands mathematically
       for (const currentSeason of cleanSeasons) {
         const seasonEpCount = currentSeason.episode_count;
         
+        // If our absolute episode falls within this season block
         if (absoluteEpNum <= accumulatedCount + seasonEpCount) {
-          // The exact relative episode inside TMDB's strict season layout
-          const targetTmdbEpisodeNumber = absoluteEpNum - accumulatedCount;
           
+          // Request the full season details from TMDB
           const seasonUrl = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${currentSeason.season_number}?api_key=${TMDB_API_KEY}`;
           const seasonData = yield fetchJson(seasonUrl);
           
           if (seasonData && seasonData.episodes) {
-            const finalMatch = seasonData.episodes.find(ep => ep.episode_number === targetTmdbEpisodeNumber);
+            // Find the episode where the absolute_number or the array index match our true absolute target
+            const finalMatch = seasonData.episodes.find((ep, index) => {
+              const currentAbsolute = accumulatedCount + (index + 1);
+              return currentAbsolute === absoluteEpNum;
+            });
+
             if (finalMatch && finalMatch.name) {
               return {
                 title: finalMatch.name,

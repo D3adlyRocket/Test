@@ -490,6 +490,7 @@ async function getStreams(id, type, season, episode) {
     let extractedEpTitle = "";
     let extractedDuration = "24m";
 
+    // 1. Resolve localized English Title using AniList Pipeline
     if (anilistId) {
         const resolved = await resolveAnilistEpisode(anilistId, episode);
         console.log("Resolved:", resolved);
@@ -507,15 +508,18 @@ async function getStreams(id, type, season, episode) {
         } catch (e) {}
     }
 
-    // Ensure TMDB metadata query runs properly alongside the AniList title configuration
-const tmdbMeta = await getTmdbEpisodeMetadata(tmdbId, type, season, episode);
-extractedEpTitle = tmdbMeta.title;
+    // 2. Fetch the Episode Name metadata from TMDB cleanly
+    const tmdbMeta = await getTmdbEpisodeMetadata(tmdbId, type, season, episode);
+    if (tmdbMeta && tmdbMeta.title) {
+        extractedEpTitle = tmdbMeta.title;
+    }
 
-// If TMDB found a valid title, use it; otherwise, check if AllAnime's match gave us anything clean
-if (!extractedEpTitle || extractedEpTitle.startsWith("Episode ")) {
-    extractedEpTitle = ""; // Wipes out generic repeating labels like "Episode 1"
-}
-    if (tmdbMeta.duration && tmdbMeta.duration !== "N/A") {
+    // Wipe out generic repeating labels like "Episode 1" so it stays clean
+    if (extractedEpTitle.startsWith("Episode ")) {
+        extractedEpTitle = ""; 
+    }
+
+    if (tmdbMeta && tmdbMeta.duration && tmdbMeta.duration !== "N/A") {
         extractedDuration = tmdbMeta.duration;
     }
 
@@ -616,7 +620,7 @@ if (!extractedEpTitle || extractedEpTitle.startsWith("Episode ")) {
         fetchSources(matchDub, "Dub", dubEp)
     ]);
 
-    // MODIFIED Layout block structure utilizing layout flags and design patterns from HiAnime
+    // Build the structural UI cards matching layout engines
     return rawStreams.map(s => {
         let res = "Auto";
         if (s.quality) {
@@ -627,6 +631,7 @@ if (!extractedEpTitle || extractedEpTitle.startsWith("Episode ")) {
 
         const langString = s.lang === "Sub" ? "Original (SUB)" : "English (DUB)";
         const upperType = s.lang.toUpperCase();
+        const activeEpNum = s.lang === "Sub" ? subEp : dubEp;
 
         let lines = [];
         if (type === "movie") {
@@ -635,10 +640,11 @@ if (!extractedEpTitle || extractedEpTitle.startsWith("Episode ")) {
                 `🎞️ MP4 | ⚡ ${res} | 🌍 ${langString} | ⏱️ ${extractedDuration}`
             ];
         } else {
-            const displayTitle = (extractedEpTitle && !extractedEpTitle.startsWith("Episode ")) ? ` - ${extractedEpTitle}` : "";
+            // FIX: Append extractedEpTitle safely here
+            const displayTitle = extractedEpTitle ? ` - ${extractedEpTitle}` : "";
             lines = [
                 `🎬 ${showTitle}`,
-                `🎥 S${season}E${episode}${displayTitle}`,
+                `🎥 S${season}E${activeEpNum}${displayTitle}`,
                 `🎞️ MP4 | ⚡ ${res} | 🌍 ${langString} | ⏱️ ${extractedDuration}`
             ];
         }

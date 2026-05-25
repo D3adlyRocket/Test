@@ -139,7 +139,7 @@ var searchMalId = (_1, _2) => __async(this, null, function* (title, mediaType) {
 });
 
 // src/hianime/index.js
-function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaType, seasonNum, displayEpNum, scrapedEpNum, type) {
+function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaType, seasonNum, displayEpNum, type) {
   return __async(this, null, function* () {
     var _a;
     try {
@@ -164,10 +164,10 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaTy
           `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString}`
         ];
       } else {
-        // FIXED: Displays clean, accurate structural coordinates
+        // FIXED: Displays only the clean standard label format (e.g. S2E13)
         lines = [
           `🎬 ${animeTitle}`,
-          `🎥 S${seasonNum}E${displayEpNum} (Absolute Ep. ${scrapedEpNum})`,
+          `🎥 S${seasonNum}E${displayEpNum}`,
           `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString}`
         ];
       }
@@ -219,7 +219,7 @@ function scrapeType(malId, scrapedEp, type, animeTitle, mediaType, season, displ
       if (dataId) {
         const apiUrl = `${MEGAPLAY_BASE}/stream/getSources?id=${dataId}&id=${dataId}`;
         extractions.push(
-          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, mediaType, season, displayEp, scrapedEp, type)
+          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, mediaType, season, displayEp, type)
         );
       }
       if (realId) {
@@ -232,7 +232,7 @@ function scrapeType(malId, scrapedEp, type, animeTitle, mediaType, season, displ
             const vDataId = vPlayer.attr("data-id");
             if (vDataId) {
               const apiUrl = `${VIDWISH_BASE}/stream/getSources?id=${vDataId}&id=${vDataId}`;
-              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, mediaType, season, displayEp, scrapedEp, type);
+              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, mediaType, season, displayEp, type);
             }
           } catch (err) {
           }
@@ -249,7 +249,7 @@ function scrapeType(malId, scrapedEp, type, animeTitle, mediaType, season, displ
             const mDataId = mPlayer.attr("data-id");
             if (mDataId) {
               const apiUrl = `${MEGACLOUD_BASE}/stream/getSources?id=${mDataId}&id=${mDataId}`;
-              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, mediaType, season, displayEp, scrapedEp, type);
+              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, mediaType, season, displayEp, type);
             }
           } catch (err) {
           }
@@ -329,7 +329,6 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       const preference = settings.subDub || "both";
       let allStreams = [];
       
-      // FIXED: Restored mappedEp here so the true absolute trackers are safely dispatched down the pipeline
       if (preference === "both") {
         const [subStreams, dubStreams] = yield Promise.all([
           scrapeType(malId, mappedEp, "sub", showTitle, mediaType, s, e),

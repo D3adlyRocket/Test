@@ -1,834 +1,420 @@
-// Vidlink Scraper for Nuvio Local Scrapers
-// Enhanced Nuvio UI Version
-// Core logic untouched - ONLY formatting improved
-
-// ======================
-// CONSTANTS
-// ======================
-
-const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
-const ENC_DEC_API = "https://enc-dec.app/api";
-const VIDLINK_API = "https://vidlink.pro/api/b";
-
-// ======================
-// HEADERS
-// ======================
-
-const VIDLINK_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-    "Connection": "keep-alive",
-    "Referer": "https://vidlink.pro/",
-    "Origin": "https://vidlink.pro"
+/**
+ * torbox - Built from src/torbox/
+ * Generated: 2026-05-23T15:13:58.650Z
+ */
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
 };
 
-// ======================
-// UI HELPERS
-// ======================
+// src/torbox/index.js
+var torbox_exports = {};
+__export(torbox_exports, {
+  getStreams: () => getStreams
+});
+module.exports = __toCommonJS(torbox_exports);
 
-function calculateFallbackSize(quality, durationText) {
-
-    const mins = parseInt(durationText) || 90;
-
-    const norm =
-        String(quality || "").toLowerCase();
-
-    let estimatedGB = 2.5;
-
-    if (norm.includes("4k") || norm.includes("2160")) {
-        estimatedGB = mins * 0.055;
+// src/torbox/http.js
+var TORBOX_BASE = "https://api.torbox.app/v1/api";
+function tbGet(path, params, apiKey) {
+  return __async(this, null, function* () {
+    const url = new URL(TORBOX_BASE + path);
+    if (params) {
+      Object.keys(params).forEach((k) => {
+        if (params[k] !== null && params[k] !== void 0) {
+          url.searchParams.append(k, String(params[k]));
+        }
+      });
     }
-
-    else if (norm.includes("1440")) {
-        estimatedGB = mins * 0.038;
+    const res = yield fetch(url.toString(), {
+      method: "GET",
+      headers: {
+        Authorization: "Bearer " + apiKey,
+        "Content-Type": "application/json"
+      }
+    });
+    if (!res.ok)
+      throw new Error("TorBox GET error: " + res.status);
+    return res.json();
+  });
+}
+function tbPost(path, body, apiKey) {
+  return __async(this, null, function* () {
+    const res = yield fetch(TORBOX_BASE + path, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + apiKey,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    if (!res.ok)
+      throw new Error("TorBox POST error: " + res.status);
+    return res.json();
+  });
+}
+function publicGet(url, params) {
+  return __async(this, null, function* () {
+    const u = new URL(url);
+    if (params) {
+      Object.keys(params).forEach((k) => {
+        if (params[k] !== null && params[k] !== void 0) {
+          u.searchParams.set(k, String(params[k]));
+        }
+      });
     }
-
-    else if (norm.includes("1080")) {
-        estimatedGB = mins * 0.025;
-    }
-
-    else if (norm.includes("720")) {
-        estimatedGB = mins * 0.012;
-    }
-
-    else if (norm.includes("480")) {
-        estimatedGB = mins * 0.006;
-    }
-
-    else if (norm.includes("360")) {
-        estimatedGB = mins * 0.003;
-    }
-
-    return `${estimatedGB.toFixed(2)} GB`;
+    const res = yield fetch(u.toString(), {
+      method: "GET",
+      headers: { "User-Agent": "Mozilla/5.0 (compatible; NuvioProvider/1.0)" }
+    });
+    if (!res.ok)
+      throw new Error("Public GET error: " + res.status + " " + url);
+    return res.json();
+  });
 }
 
-function buildTitle(meta, res, lang, format, size, season, episode) {
+// src/torbox/search.js
+var KNABEN_API = "https://knaben.eu/api/v1";
+var QUALITY_SCORE = {
+  "2160p": 8,
+  "4k": 8,
+  "uhd": 7,
+  "remux": 6,
+  "1080p": 5,
+  "bluray": 4,
+  "web-dl": 3,
+  "webrip": 3,
+  "720p": 2
+};
+function qualityScore(title) {
+  const t = (title || "").toLowerCase();
+  for (const [kw, score] of Object.entries(QUALITY_SCORE)) {
+    if (t.includes(kw))
+      return score;
+  }
+  return 0;
+}
+function extractHash(value) {
+  if (!value)
+    return null;
+  if (/^[a-fA-F0-9]{40}$/.test(value))
+    return value.toLowerCase();
+  const m = value.match(/btih:([a-fA-F0-9]{40})/i);
+  if (m)
+    return m[1].toLowerCase();
+  return null;
+}
+function searchKnaben(query, mediaType, maxResults) {
+  return __async(this, null, function* () {
+    const categoryId = mediaType === "tv" ? 5e3 : 2e3;
+    const data = yield publicGet(KNABEN_API + "/search", {
+      q: query,
+      categories: categoryId,
+      orderBy: "seeders",
+      orderDirection: "desc",
+      take: maxResults
+    });
+    if (!data || !Array.isArray(data.hits))
+      return [];
+    return data.hits.map((item) => {
+      const hash = extractHash(item.infoHash || item.hash || item.magnet || "");
+      if (!hash)
+        return null;
+      return {
+        hash,
+        title: item.name || item.title || "",
+        size: item.bytes || item.size || 0,
+        seeders: item.seeders || 0
+      };
+    }).filter(Boolean);
+  });
+}
+function buildQuery(title, year, mediaType, season, episode) {
+  let q = title;
+  if (year)
+    q += " " + year;
+  if (mediaType === "tv" && season != null && episode != null) {
+    const s = String(season).padStart(2, "0");
+    const e = String(episode).padStart(2, "0");
+    q += " S" + s + "E" + e;
+  }
+  return q.trim();
+}
+function findTorrentHashes(title, year, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    const query = buildQuery(title, year, mediaType, season, episode);
+    console.log("[TorBox/search] Query:", query);
+    let results = [];
+    try {
+      results = yield searchKnaben(query, mediaType, 30);
+      console.log("[TorBox/search] Knaben returned", results.length, "results");
+    } catch (err) {
+      console.log("[TorBox/search] Knaben error:", err.message);
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const unique = results.filter((r) => {
+      if (seen.has(r.hash))
+        return false;
+      seen.add(r.hash);
+      return true;
+    });
+    unique.sort((a, b) => {
+      const qs = qualityScore(b.title) - qualityScore(a.title);
+      if (qs !== 0)
+        return qs;
+      return (b.seeders || 0) - (a.seeders || 0);
+    });
+    return unique;
+  });
+}
 
-    const qIcon =
-        res.includes("4K") || res.includes("2160")
-            ? "🌟"
-            : "💎";
-
-    let title = "";
-
-    if (season && episode) {
-
-        title =
-            `🎬 S${season}E${episode}`;
-
-        if (meta.episodeTitle) {
-            title += ` • ${meta.episodeTitle}`;
+// src/torbox/torbox.js
+var TORBOX_BASE2 = "https://api.torbox.app/v1/api";
+function isVideoFile(name) {
+  if (!name)
+    return false;
+  const ext = (name.split(".").pop() || "").toLowerCase();
+  return ["mkv", "mp4", "avi", "mov", "m4v", "ts", "webm", "wmv"].includes(ext);
+}
+function parseQuality(s) {
+  const t = (s || "").toLowerCase();
+  if (t.includes("2160p") || t.includes("4k") || t.includes("uhd"))
+    return "4K";
+  if (t.includes("1080p"))
+    return "1080p";
+  if (t.includes("720p"))
+    return "720p";
+  if (t.includes("480p"))
+    return "480p";
+  return "Unknown";
+}
+function checkCached(hashes, apiKey) {
+  return __async(this, null, function* () {
+    const cached = /* @__PURE__ */ new Set();
+    if (!hashes || hashes.length === 0)
+      return cached;
+    const BATCH = 100;
+    for (let i = 0; i < hashes.length; i += BATCH) {
+      const batch = hashes.slice(i, i + BATCH);
+      try {
+        const resp = yield tbGet(
+          "/torrents/checkcached",
+          { hash: batch.join(","), format: "list" },
+          apiKey
+        );
+        if (!resp.success || !resp.data)
+          continue;
+        const data = resp.data;
+        if (Array.isArray(data)) {
+          data.forEach((h) => cached.add(String(h).toLowerCase()));
+        } else if (typeof data === "object") {
+          Object.keys(data).forEach((h) => cached.add(h.toLowerCase()));
         }
+      } catch (err) {
+        console.log("[TorBox/cache] checkcached error:", err.message);
+      }
+    }
+    return cached;
+  });
+}
+function addTorrent(hash, name, apiKey) {
+  return __async(this, null, function* () {
+    const magnet = "magnet:?xt=urn:btih:" + hash;
+    try {
+      const resp = yield tbPost(
+        "/torrents/createtorrent",
+        { magnet, name: name || hash, as_queued: false },
+        apiKey
+      );
+      if (resp.success && resp.data) {
+        return resp.data.torrent_id || resp.data.id || null;
+      }
+      if (resp.error === "DUPLICATE_ITEM" && resp.data) {
+        return resp.data.torrent_id || resp.data.id || null;
+      }
+      console.log("[TorBox] addTorrent failed:", resp.detail);
+      return null;
+    } catch (err) {
+      console.log("[TorBox] addTorrent error:", err.message);
+      return null;
+    }
+  });
+}
+function getTorrentFiles(torrentId, apiKey) {
+  return __async(this, null, function* () {
+    try {
+      const resp = yield tbGet(
+        "/torrents/mylist",
+        { id: torrentId, bypass_cache: "true" },
+        apiKey
+      );
+      if (!resp.success || !resp.data)
+        return [];
+      const torrent = Array.isArray(resp.data) ? resp.data[0] : resp.data;
+      return torrent && torrent.files ? torrent.files : [];
+    } catch (err) {
+      console.log("[TorBox] getTorrentFiles error:", err.message);
+      return [];
+    }
+  });
+}
+function buildStreamUrl(apiKey, torrentId, fileId) {
+  return TORBOX_BASE2 + "/torrents/requestdl?token=" + apiKey + "&torrent_id=" + torrentId + "&file_id=" + fileId + "&redirect=true";
+}
+function debridHash(hash, torrentTitle, apiKey) {
+  return __async(this, null, function* () {
+    const streams = [];
+    const torrentId = yield addTorrent(hash, torrentTitle, apiKey);
+    if (!torrentId)
+      return streams;
+    const files = yield getTorrentFiles(torrentId, apiKey);
+    const videos = files.filter((f) => isVideoFile(f.name || f.short_name || ""));
+    if (videos.length === 0) {
+      const url = buildStreamUrl(apiKey, torrentId, 0);
+      const q = parseQuality(torrentTitle);
+      streams.push({
+        name: "TorBox",
+        title: q + " \xB7 " + (torrentTitle || "").substring(0, 60),
+        url,
+        quality: q
+      });
+      return streams;
+    }
+    for (const file of videos) {
+      const fileId = file.id;
+      const fileName = file.name || file.short_name || "";
+      const url = buildStreamUrl(apiKey, torrentId, fileId);
+      const q = parseQuality(torrentTitle + " " + fileName);
+      streams.push({
+        name: "TorBox",
+        title: q + " \xB7 " + fileName.substring(0, 60),
+        url,
+        quality: q
+      });
+    }
+    return streams;
+  });
+}
 
+// src/torbox/extractor.js
+var TMDB_API = "https://api.themoviedb.org/3";
+function resolveTmdbTitle(tmdbId, mediaType, tmdbApiKey) {
+  return __async(this, null, function* () {
+    if (!tmdbApiKey)
+      return null;
+    try {
+      const endpoint = mediaType === "tv" ? TMDB_API + "/tv/" + tmdbId + "?api_key=" + tmdbApiKey + "&language=en-US" : TMDB_API + "/movie/" + tmdbId + "?api_key=" + tmdbApiKey + "&language=en-US";
+      const res = yield fetch(endpoint);
+      if (!res.ok)
+        return null;
+      const data = yield res.json();
+      const title = data.title || data.name || null;
+      const rawDate = data.release_date || data.first_air_date || "";
+      const year = rawDate ? parseInt(rawDate.substring(0, 4), 10) : null;
+      return title ? { title, year } : null;
+    } catch (err) {
+      console.log("[TorBox/tmdb] resolve error:", err.message);
+      return null;
+    }
+  });
+}
+function extractStreams(tmdbId, mediaType, season, episode, apiKey, tmdbApiKey) {
+  return __async(this, null, function* () {
+    let title = null;
+    let year = null;
+    const resolved = yield resolveTmdbTitle(tmdbId, mediaType, tmdbApiKey);
+    if (resolved) {
+      title = resolved.title;
+      year = resolved.year;
+      console.log("[TorBox] Resolved title:", title, year);
     } else {
-
-        title =
-            `🎬 ${meta.title}`;
+      title = "tmdb" + tmdbId;
+      console.log("[TorBox] No TMDB key, searching by ID:", title);
     }
-
-    if (meta.year) {
-        title += ` (${meta.year})`;
+    const candidates = yield findTorrentHashes(title, year, mediaType, season, episode);
+    if (candidates.length === 0) {
+      console.log("[TorBox] No torrents found");
+      return [];
     }
-
-    title +=
-        ` • ${qIcon} ${res}` +
-        ` • 🌍 ${lang}` +
-        ` • 💾 ${size}` +
-        ` • ⏱️ ${meta.duration || "?"}` +
-        ` • 📼 AVC • 🔊 AAC`;
-
-    return title;
-}
-
-// ======================
-// REQUEST HELPER
-// ======================
-
-function makeRequest(url, options = {}) {
-
-    const defaultHeaders = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
-        'Accept': 'application/json,*/*',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate',
-        'Connection': 'keep-alive',
-        ...options.headers
-    };
-
-    return fetch(url, {
-        method: options.method || 'GET',
-        headers: defaultHeaders,
-        ...options
-    })
-
-    .then(response => {
-
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        return response;
-    })
-
-    .catch(error => {
-
-        console.error(`[Vidlink] Request failed for ${url}: ${error.message}`);
-        throw error;
-    });
-}
-
-// ======================
-// M3U8 PARSER
-// ======================
-
-function parseM3U8(content, baseUrl) {
-
-    const lines = content
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line);
-
+    console.log("[TorBox] Found", candidates.length, "torrent candidates");
+    const hashes = candidates.map((c) => c.hash);
+    const cachedSet = yield checkCached(hashes, apiKey);
+    console.log("[TorBox] Cached hashes:", cachedSet.size, "/", hashes.length);
+    const cachedCandidates = candidates.filter((c) => cachedSet.has(c.hash));
+    if (cachedCandidates.length === 0) {
+      console.log("[TorBox] No cached hits, falling back to top 3 uncached");
+      const fallback = candidates.slice(0, 3);
+      const streams2 = [];
+      for (const c of fallback) {
+        const s = yield debridHash(c.hash, c.title, apiKey);
+        streams2.push(...s);
+      }
+      return streams2;
+    }
+    const toDebrid = cachedCandidates.slice(0, 5);
     const streams = [];
-
-    let currentStream = null;
-
-    for (let i = 0; i < lines.length; i++) {
-
-        const line = lines[i];
-
-        if (line.startsWith('#EXT-X-STREAM-INF:')) {
-
-            currentStream = {
-                bandwidth: null,
-                resolution: null,
-                url: null
-            };
-
-            const bandwidthMatch =
-                line.match(/BANDWIDTH=(\d+)/);
-
-            if (bandwidthMatch) {
-                currentStream.bandwidth =
-                    parseInt(bandwidthMatch[1]);
-            }
-
-            const resolutionMatch =
-                line.match(/RESOLUTION=(\d+x\d+)/);
-
-            if (resolutionMatch) {
-                currentStream.resolution =
-                    resolutionMatch[1];
-            }
-        }
-
-        else if (
-            currentStream &&
-            !line.startsWith('#')
-        ) {
-
-            currentStream.url =
-                resolveUrl(line, baseUrl);
-
-            streams.push(currentStream);
-
-            currentStream = null;
-        }
+    for (const candidate of toDebrid) {
+      const s = yield debridHash(candidate.hash, candidate.title, apiKey);
+      streams.push(...s);
     }
-
+    console.log("[TorBox] Total streams:", streams.length);
     return streams;
+  });
 }
 
-function resolveUrl(url, baseUrl) {
-
-    if (url.startsWith('http')) {
-        return url;
+// src/torbox/index.js
+function getSetting(key) {
+  if (typeof globalThis !== "undefined" && globalThis.SCRAPER_SETTINGS && globalThis.SCRAPER_SETTINGS[key]) {
+    return globalThis.SCRAPER_SETTINGS[key];
+  }
+  return null;
+}
+function getStreams(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    const apiKey = getSetting("torbox_api_key");
+    if (!apiKey) {
+      console.log("[TorBox] Missing torbox_api_key in SCRAPER_SETTINGS");
+      return [];
     }
-
+    const tmdbApiKey = "01926d2187b6a5d861eefc750e9df3e3";
     try {
-
-        return new URL(url, baseUrl).toString();
-
-    } catch (error) {
-
-        console.error(`[Vidlink] URL resolve failed`);
-
-        return url;
+      return yield extractStreams(tmdbId, mediaType, season, episode, apiKey, tmdbApiKey);
+    } catch (err) {
+      console.log("[TorBox] Fatal error in getStreams:", err.message);
+      return [];
     }
-}
-
-function getQualityFromResolution(resolution) {
-
-    if (!resolution) return 'Auto';
-
-    const [width, height] =
-        resolution.split('x').map(Number);
-
-    if (height >= 2160) return '4K';
-    if (height >= 1440) return '1440p';
-    if (height >= 1080) return '1080p';
-    if (height >= 720) return '720p';
-    if (height >= 480) return '480p';
-    if (height >= 360) return '360p';
-
-    return '240p';
-}
-
-// ======================
-// FETCH PLAYLIST
-// ======================
-
-function fetchAndParseM3U8(
-    playlistUrl,
-    mediaInfo
-) {
-
-    return makeRequest(
-        playlistUrl,
-        {
-            headers: VIDLINK_HEADERS
-        }
-    )
-
-    .then(response => response.text())
-
-    .then(m3u8Content => {
-
-        const parsedStreams =
-            parseM3U8(
-                m3u8Content,
-                playlistUrl
-            );
-
-        if (parsedStreams.length === 0) {
-
-            const fallbackTitle =
-                buildTitle(
-                    mediaInfo,
-                    "Auto",
-                    "Original Audio",
-                    "M3U8",
-                    calculateFallbackSize(
-                        "Auto",
-                        mediaInfo.duration
-                    ),
-                    mediaInfo.season,
-                    mediaInfo.episode
-                );
-
-            return [{
-                name:
-                    `🎦 Vidlink | Auto | Original Audio`,
-
-                title: fallbackTitle,
-
-                url: playlistUrl,
-
-                quality: 'Auto',
-
-                headers: VIDLINK_HEADERS,
-
-                provider: 'vidlink'
-            }];
-        }
-
-        return parsedStreams.map(stream => {
-
-            const quality =
-                getQualityFromResolution(
-                    stream.resolution
-                );
-
-            const calculatedSize =
-                calculateFallbackSize(
-                    quality,
-                    mediaInfo.duration
-                );
-
-            const formattedTitle =
-                buildTitle(
-                    mediaInfo,
-                    quality,
-                    "Original Audio",
-                    "M3U8",
-                    calculatedSize,
-                    mediaInfo.season,
-                    mediaInfo.episode
-                );
-
-            return {
-
-                name:
-                    `🎦 Vidlink | ${quality} | Original Audio`,
-
-                title: formattedTitle,
-
-                url: stream.url,
-
-                quality: quality,
-
-                size: calculatedSize,
-
-                headers: VIDLINK_HEADERS,
-
-                provider: 'vidlink'
-            };
-        });
-    })
-
-    .catch(error => {
-
-        console.error(
-            `[Vidlink] Playlist Error: ${error.message}`
-        );
-
-        return [];
-    });
-}
-
-// ======================
-// TMDB INFO
-// ======================
-
-function getTmdbInfo(
-    tmdbId,
-    mediaType,
-    seasonNum = null,
-    episodeNum = null
-) {
-
-    const url =
-        `https://api.themoviedb.org/3/${
-            mediaType === 'tv'
-                ? 'tv'
-                : 'movie'
-        }/${tmdbId}?api_key=${TMDB_API_KEY}`;
-
-    return makeRequest(url)
-
-    .then(response => response.json())
-
-    .then(data => {
-
-        const title =
-            mediaType === 'tv'
-                ? data.name
-                : data.title;
-
-        const year =
-            mediaType === 'tv'
-                ? data.first_air_date?.substring(0, 4)
-                : data.release_date?.substring(0, 4);
-
-        if (!title) {
-            throw new Error('No title');
-        }
-
-        // ======================
-        // TV EPISODES
-        // ======================
-
-        if (
-            mediaType === 'tv' &&
-            seasonNum &&
-            episodeNum
-        ) {
-
-            const epUrl =
-                `https://api.themoviedb.org/3/tv/${tmdbId}/season/${seasonNum}/episode/${episodeNum}?api_key=${TMDB_API_KEY}`;
-
-            return makeRequest(epUrl)
-
-            .then(res => res.json())
-
-            .then(epData => ({
-
-                title,
-
-                year,
-
-                duration:
-                    epData.runtime
-                        ? `${epData.runtime} min`
-                        : "45 min",
-
-                episodeTitle:
-                    epData.name || "",
-
-                data
-            }))
-
-            .catch(() => ({
-
-                title,
-
-                year,
-
-                duration: "45 min",
-
-                episodeTitle: "",
-
-                data
-            }));
-        }
-
-        // ======================
-        // MOVIES
-        // ======================
-
-        return {
-
-            title,
-
-            year,
-
-            duration:
-                data.runtime
-                    ? `${data.runtime} min`
-                    : "90 min",
-
-            episodeTitle: "",
-
-            data
-        };
-    });
-}
-
-// ======================
-// ENCRYPT TMDB
-// ======================
-
-function encryptTmdbId(tmdbId) {
-
-    return makeRequest(
-        `${ENC_DEC_API}/enc-vidlink?text=${tmdbId}`
-    )
-
-    .then(response => response.json())
-
-    .then(data => {
-
-        if (data && data.result) {
-            return data.result;
-        }
-
-        throw new Error(
-            'Invalid encryption response'
-        );
-    });
-}
-
-// ======================
-// QUALITY DETECTION
-// ======================
-
-function extractQuality(streamData) {
-
-    if (!streamData) return 'Unknown';
-
-    const qualityFields = [
-        'quality',
-        'resolution',
-        'label',
-        'name'
-    ];
-
-    for (const field of qualityFields) {
-
-        if (streamData[field]) {
-
-            const quality =
-                streamData[field]
-                    .toString()
-                    .toLowerCase();
-
-            if (
-                quality.includes('2160') ||
-                quality.includes('4k')
-            ) return '4K';
-
-            if (
-                quality.includes('1440') ||
-                quality.includes('2k')
-            ) return '1440p';
-
-            if (quality.includes('1080'))
-                return '1080p';
-
-            if (quality.includes('720'))
-                return '720p';
-
-            if (quality.includes('480'))
-                return '480p';
-
-            if (quality.includes('360'))
-                return '360p';
-
-            if (quality.includes('240'))
-                return '240p';
-        }
-    }
-
-    return 'Unknown';
-}
-
-// ======================
-// PROCESS RESPONSE
-// ======================
-
-function processVidlinkResponse(
-    data,
-    mediaInfo
-) {
-
-    const streams = [];
-
-    try {
-
-        if (
-            data.stream &&
-            data.stream.qualities
-        ) {
-
-            Object.entries(
-                data.stream.qualities
-            )
-
-            .forEach(([qualityKey, qualityData]) => {
-
-                if (qualityData.url) {
-
-                    const quality =
-                        extractQuality({
-                            quality: qualityKey
-                        });
-
-                    const calculatedSize =
-                        calculateFallbackSize(
-                            quality,
-                            mediaInfo.duration
-                        );
-
-                    const formattedTitle =
-                        buildTitle(
-                            mediaInfo,
-                            quality,
-                            "Original Audio",
-                            "M3U8",
-                            calculatedSize,
-                            mediaInfo.season,
-                            mediaInfo.episode
-                        );
-
-                    streams.push({
-
-                        name:
-                            `🎦 Vidlink | ${quality} | Original Audio`,
-
-                        title:
-                            formattedTitle,
-
-                        url:
-                            qualityData.url,
-
-                        quality:
-                            quality,
-
-                        size:
-                            calculatedSize,
-
-                        headers:
-                            VIDLINK_HEADERS,
-
-                        provider:
-                            'vidlink'
-                    });
-                }
-            });
-
-            if (data.stream.playlist) {
-
-                streams.push({
-
-                    _isPlaylist: true,
-
-                    url:
-                        data.stream.playlist,
-
-                    mediaInfo
-                });
-            }
-        }
-
-        else if (
-            data.stream &&
-            data.stream.playlist &&
-            !data.stream.qualities
-        ) {
-
-            streams.push({
-
-                _isPlaylist: true,
-
-                url:
-                    data.stream.playlist,
-
-                mediaInfo
-            });
-        }
-
-    } catch (error) {
-
-        console.error(
-            `[Vidlink] Processing Error: ${error.message}`
-        );
-    }
-
-    return streams;
-}
-
-// ======================
-// MAIN FUNCTION
-// ======================
-
-function getStreams(
-    tmdbId,
-    mediaType = 'movie',
-    seasonNum = null,
-    episodeNum = null
-) {
-
-    console.log(
-        `[Vidlink] Fetching streams for ${tmdbId}`
-    );
-
-    return getTmdbInfo(
-        tmdbId,
-        mediaType,
-        seasonNum,
-        episodeNum
-    )
-
-    .then(tmdbInfo => {
-
-        const {
-            title,
-            year,
-            duration,
-            episodeTitle
-        } = tmdbInfo;
-
-        return encryptTmdbId(tmdbId)
-
-        .then(encryptedId => {
-
-            let vidlinkUrl;
-
-            if (
-                mediaType === 'tv' &&
-                seasonNum &&
-                episodeNum
-            ) {
-
-                vidlinkUrl =
-                    `${VIDLINK_API}/tv/${encryptedId}/${seasonNum}/${episodeNum}`;
-
-            } else {
-
-                vidlinkUrl =
-                    `${VIDLINK_API}/movie/${encryptedId}`;
-            }
-
-            return makeRequest(
-                vidlinkUrl,
-                {
-                    headers:
-                        VIDLINK_HEADERS
-                }
-            )
-
-            .then(response =>
-                response.json()
-            )
-
-            .then(data => {
-
-                const mediaInfo = {
-
-                    title,
-
-                    year,
-
-                    duration,
-
-                    episodeTitle,
-
-                    mediaType,
-
-                    season:
-                        seasonNum,
-
-                    episode:
-                        episodeNum
-                };
-
-                const streams =
-                    processVidlinkResponse(
-                        data,
-                        mediaInfo
-                    );
-
-                if (
-                    streams.length === 0
-                ) {
-                    return [];
-                }
-
-                const playlistStreams =
-                    streams.filter(
-                        s => s._isPlaylist
-                    );
-
-                const directStreams =
-                    streams.filter(
-                        s => !s._isPlaylist
-                    );
-
-                if (
-                    playlistStreams.length > 0
-                ) {
-
-                    const playlistPromises =
-                        playlistStreams.map(
-                            ps =>
-                                fetchAndParseM3U8(
-                                    ps.url,
-                                    ps.mediaInfo
-                                )
-                        );
-
-                    return Promise.all(
-                        playlistPromises
-                    )
-
-                    .then(parsedArrays => {
-
-                        const allStreams =
-                            directStreams.concat(
-                                ...parsedArrays
-                            );
-
-                        const qualityOrder = {
-                            '4K': 5,
-                            '1440p': 4,
-                            '1080p': 3,
-                            '720p': 2,
-                            '480p': 1,
-                            '360p': 0,
-                            '240p': -1,
-                            'Auto': -2,
-                            'Unknown': -3
-                        };
-
-                        allStreams.sort(
-                            (a, b) =>
-                                (qualityOrder[b.quality] || -3) -
-                                (qualityOrder[a.quality] || -3)
-                        );
-
-                        return allStreams;
-                    });
-                }
-
-                return directStreams;
-            });
-        });
-    })
-
-    .catch(error => {
-
-        console.error(
-            `[Vidlink] Error: ${error.message}`
-        );
-
-        return [];
-    });
-}
-
-// ======================
-// EXPORT
-// ======================
-
-if (
-    typeof module !== 'undefined' &&
-    module.exports
-) {
-
-    module.exports = {
-        getStreams
-    };
-
-} else {
-
-    global.VidlinkScraperModule = {
-        getStreams
-    };
+  });
 }

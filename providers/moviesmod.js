@@ -468,7 +468,8 @@ async function resolveAnilistEpisode(anilistId, targetEp) {
     const meta = await getAnilistMeta(anilistId);
     if (!meta) return { title: null, ep: targetEp, duration: "24m" };
 
-    const title = meta.title.romaji || meta.title.english || "";
+    // FIX: Swap the priority to English first, falling back to Romaji if English doesn't exist
+    const title = meta.title.english || meta.title.romaji || "";
     const duration = meta.duration ? `${meta.duration}m` : "24m";
     
     return { title, ep: targetEp, duration };
@@ -506,9 +507,14 @@ async function getStreams(id, type, season, episode) {
         } catch (e) {}
     }
 
-    // Pull the clean text string for the episode name using our unified fallback logic
-    const tmdbMeta = await getTmdbEpisodeMetadata(tmdbId, type, season, episode);
-    extractedEpTitle = tmdbMeta.title;
+    // Ensure TMDB metadata query runs properly alongside the AniList title configuration
+const tmdbMeta = await getTmdbEpisodeMetadata(tmdbId, type, season, episode);
+extractedEpTitle = tmdbMeta.title;
+
+// If TMDB found a valid title, use it; otherwise, check if AllAnime's match gave us anything clean
+if (!extractedEpTitle || extractedEpTitle.startsWith("Episode ")) {
+    extractedEpTitle = ""; // Wipes out generic repeating labels like "Episode 1"
+}
     if (tmdbMeta.duration && tmdbMeta.duration !== "N/A") {
         extractedDuration = tmdbMeta.duration;
     }

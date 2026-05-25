@@ -110,7 +110,9 @@ function getTmdbDetails(tmdbId, mediaType) {
     }
   });
 }
-function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
+
+// MODIFIED: Adjusted fallback string argument to map correctly if TMDB call drops out
+function getEpisodeMetadata(tmdbId, mediaType, season, episode, fallbackEpNum) {
   return __async(this, null, function* () {
     try {
       if (mediaType === "movie") {
@@ -124,12 +126,12 @@ function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
         const url = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
         const data = yield fetchJson(url);
         return {
-          title: data.name || `Episode ${episode}`,
+          title: data.name || `Episode ${fallbackEpNum}`,
           duration: data.runtime ? `${data.runtime}m` : "24m"
         };
       }
     } catch (e) {
-      return { title: `Episode ${episode}`, duration: "24m" };
+      return { title: `Episode ${fallbackEpNum}`, duration: "24m" };
     }
   });
 }
@@ -163,8 +165,8 @@ function searchMalId(title, mediaType) {
 }
 
 // src/hianime/index.js
-// MODIFIED: Accepts mediaType and seasonNum parameters to clean up duplicates dynamically
-function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaType, seasonNum, episodeNum, type, meta) {
+// MODIFIED: Now accepts both target Display Episode and backend Absolute Scraped Episode values separately
+function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaType, seasonNum, displayEpNum, scrapedEpNum, type, meta) {
   return __async(this, null, function* () {
     var _a;
     try {
@@ -182,7 +184,6 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaTy
       const langString = type.toLowerCase() === "sub" ? "Original (SUB)" : "English (DUB)";
       const upperType = type.toUpperCase();
 
-      // Clean, dynamic layout blocks dependent on media category
       let lines = [];
       if (mediaType === "movie") {
         lines = [
@@ -190,9 +191,10 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaTy
           `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
         ];
       } else {
+        // FIX: Display layout uses clean S1E1 pattern, avoiding the trailing global offset injection
         lines = [
           `🎬 ${animeTitle}`,
-          `🎥 S${seasonNum}E${episodeNum} - ${meta.epTitle}`,
+          `🎥 S${seasonNum}E${displayEpNum} - ${meta.epTitle}`,
           `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
         ];
       }
@@ -226,11 +228,11 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaTy
   });
 }
 
-// MODIFIED: Passes down mediaType and season down to extractSources
-function scrapeType(malId, episode, type, animeTitle, meta, mediaType, season) {
+// MODIFIED: Accepts and forwards contextual alignment parameters downstream
+function scrapeType(malId, scrapedEp, type, animeTitle, meta, mediaType, season, displayEp) {
   return __async(this, null, function* () {
     const streams = [];
-    const megaUrl = `${MEGAPLAY_BASE}/stream/mal/${malId}/${episode}/${type}`;
+    const megaUrl = `${MEGAPLAY_BASE}/stream/mal/${malId}/${scrapedEp}/${type}`;
     try {
       const html = yield fetchText(megaUrl, {
         headers: { "Referer": megaUrl }
@@ -245,7 +247,7 @@ function scrapeType(malId, episode, type, animeTitle, meta, mediaType, season) {
       if (dataId) {
         const apiUrl = `${MEGAPLAY_BASE}/stream/getSources?id=${dataId}&id=${dataId}`;
         extractions.push(
-          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, mediaType, season, episode, type, meta)
+          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, mediaType, season, displayEp, scrapedEp, type, meta)
         );
       }
       if (realId) {
@@ -258,7 +260,7 @@ function scrapeType(malId, episode, type, animeTitle, meta, mediaType, season) {
             const vDataId = vPlayer.attr("data-id");
             if (vDataId) {
               const apiUrl = `${VIDWISH_BASE}/stream/getSources?id=${vDataId}&id=${vDataId}`;
-              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, mediaType, season, episode, type, meta);
+              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, mediaType, season, displayEp, scrapedEp, type, meta);
             }
           } catch (err) {
           }
@@ -275,7 +277,7 @@ function scrapeType(malId, episode, type, animeTitle, meta, mediaType, season) {
             const mDataId = mPlayer.attr("data-id");
             if (mDataId) {
               const apiUrl = `${MEGACLOUD_BASE}/stream/getSources?id=${mDataId}&id=${mDataId}`;
-              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, mediaType, season, episode, type, meta);
+              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, mediaType, season, displayEp, scrapedEp, type, meta);
             }
           } catch (err) {
           }
@@ -334,12 +336,6 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       const imdbId = yield getImdbId(tmdbId, mediaType);
       if (!imdbId)
         return [];
-
-      const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, season, episode);
-      const meta = {
-        epTitle: tmdbMeta.title,
-        duration: tmdbMeta.duration
-      };
         
       const s = mediaType === "movie" ? 1 : season;
       const e = mediaType === "movie" ? 1 : episode;
@@ -356,17 +352,25 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       }
       if (!malId)
         return [];
+
+      // FIX: Passing mappedEp context into metadata helper to build cleaner fallbacks
+      const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, season, episode, mappedEp);
+      const meta = {
+        epTitle: tmdbMeta.title,
+        duration: tmdbMeta.duration
+      };
+
       const settings = globalThis.SCRAPER_SETTINGS || {};
       const preference = settings.subDub || "both";
       let allStreams = [];
       if (preference === "both") {
         const [subStreams, dubStreams] = yield Promise.all([
-          scrapeType(malId, mappedEp, "sub", showTitle, meta, mediaType, s),
-          scrapeType(malId, mappedEp, "dub", showTitle, meta, mediaType, s)
+          scrapeType(malId, mappedEp, "sub", showTitle, meta, mediaType, s, e),
+          scrapeType(malId, mappedEp, "dub", showTitle, meta, mediaType, s, e)
         ]);
         allStreams = [...subStreams, ...dubStreams];
       } else {
-        allStreams = yield scrapeType(malId, mappedEp, preference, showTitle, meta, mediaType, s);
+        allStreams = yield scrapeType(malId, mappedEp, preference, showTitle, meta, mediaType, s, e);
       }
       const seen = /* @__PURE__ */ new Set();
       return allStreams.filter((s2) => {

@@ -480,52 +480,66 @@ async function resolveAnilistEpisode(anilistId, targetEp) {
 // ═══════════════════════════════════════════════════
 async function getStreams(id, type, season, episode) {
     const tmdbId = id;
-    const anilistId = await getAnilistId(tmdbId);
-    console.log("Anilist ID:", anilistId);
+    const TMDB_API_KEY = "94fc7b2a9e6af14b1c78465d64e9e0d1";
 
     let showTitle = "Anime";
     let subEp = String(episode);
     let dubEp = String(episode);
-    
     let extractedEpTitle = "";
     let extractedDuration = "24m";
 
-    // 1. Resolve localized English Title using AniList Pipeline
+    // 1. Kick off ALL metadata fetches in parallel to eliminate the network waterfall
+    const anilistIdPromise = getAnilistId(tmdbId);
+    
+    const tmdbShowPromise = fetch(`https://api.themoviedb.org/3/${type === 'movie' ? 'movie' : 'tv'}/${tmdbId}?api_key=${TMDB_API_KEY}`)
+        .then(res => res.ok ? res.json() : null)
+        .catch(() => null);
+
+    const tmdbEpisodePromise = type === "movie" 
+        ? fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}`).then(res => res.ok ? res.json() : null).catch(() => null)
+        : fetch(`https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`).then(res => res.ok ? res.json() : null).catch(() => null);
+
+    // Wait for baseline TMDB and AniList ID mapping to resolve simultaneously
+    const [anilistId, tmdbShowData, tmdbEpData] = await Promise.all([
+        anilistIdPromise,
+        tmdbShowPromise,
+        tmdbEpisodePromise
+    ]);
+
+    console.log("Anilist ID:", anilistId);
+
+    // 2. Resolve the Show Title (Prioritize AniList English -> TMDB fallback)
     if (anilistId) {
         const resolved = await resolveAnilistEpisode(anilistId, episode);
-        console.log("Resolved:", resolved);
+        console.log("Resolved AniList:", resolved);
         showTitle = resolved.title || showTitle;
         subEp = String(resolved.ep);
         dubEp = String(resolved.ep);
         extractedDuration = resolved.duration;
-    } else {
-        try {
-            const res = await fetch(`https://api.themoviedb.org/3/${type === 'movie' ? 'movie' : 'tv'}/${tmdbId}?api_key=94fc7b2a9e6af14b1c78465d64e9e0d1`);
-            if (res.ok) {
-                const data = await res.json();
-                showTitle = data.name || data.title || showTitle;
-            }
-        } catch (e) {}
+    } else if (tmdbShowData) {
+        showTitle = tmdbShowData.name || tmdbShowData.title || showTitle;
     }
 
-    // 2. Fetch the Episode Name metadata from TMDB cleanly
-    const tmdbMeta = await getTmdbEpisodeMetadata(tmdbId, type, season, episode);
-    if (tmdbMeta && tmdbMeta.title) {
-        extractedEpTitle = tmdbMeta.title;
+    // 3. Resolve Episode Metadata safely from parallelized fetch
+    if (tmdbEpData) {
+        if (type === "movie") {
+            extractedEpTitle = tmdbEpData.title || "Movie";
+            extractedDuration = tmdbEpData.runtime ? `${tmdbEpData.runtime}m` : "N/A";
+        } else {
+            extractedEpTitle = tmdbEpData.name || "";
+            extractedDuration = tmdbEpData.runtime ? `${tmdbEpData.runtime}m` : "24m";
+        }
     }
 
-    // Wipe out generic repeating labels like "Episode 1" so it stays clean
-    if (extractedEpTitle.startsWith("Episode ")) {
+    // FIX: Only wipe out the episode title if it's a completely generic placeholder (e.g., "Episode 3")
+    if (extractedEpTitle.toLowerCase() === `episode ${episode}`) {
         extractedEpTitle = ""; 
-    }
-
-    if (tmdbMeta && tmdbMeta.duration && tmdbMeta.duration !== "N/A") {
-        extractedDuration = tmdbMeta.duration;
     }
 
     console.log("Search title:", showTitle);
     const uniqueQueries = [showTitle];
 
+    // 4. Fetch streams from AllAnime in parallel
     const [subResults, dubResults] = await Promise.all([
         searchAnime(uniqueQueries[0], "sub").catch(() => []),
         searchAnime(uniqueQueries[0], "dub").catch(() => [])
@@ -620,7 +634,6 @@ async function getStreams(id, type, season, episode) {
         fetchSources(matchDub, "Dub", dubEp)
     ]);
 
-    // Build the structural UI cards matching layout engines
     return rawStreams.map(s => {
         let res = "Auto";
         if (s.quality) {
@@ -640,7 +653,6 @@ async function getStreams(id, type, season, episode) {
                 `🎞️ MP4 | ⚡ ${res} | 🌍 ${langString} | ⏱️ ${extractedDuration}`
             ];
         } else {
-            // FIX: Append extractedEpTitle safely here
             const displayTitle = extractedEpTitle ? ` - ${extractedEpTitle}` : "";
             lines = [
                 `🎬 ${showTitle}`,
@@ -659,7 +671,7 @@ async function getStreams(id, type, season, episode) {
             provider: "allanime"
         };
     });
-}
+}                
 
 module.exports = {
     name: "AllAnime",

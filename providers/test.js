@@ -111,8 +111,8 @@ function getTmdbDetails(tmdbId, mediaType) {
   });
 }
 
-// FIXED: Scrapes titles by requesting full TMDB seasons dynamically to prevent offset shifting
-function getEpisodeMetadata(tmdbId, mediaType, absoluteEpNum) {
+// FIXED: Uses direct TMDB find-by-season query parameters to safely stop fallback looping drops
+function getEpisodeMetadata(tmdbId, mediaType, season, episode, absoluteEpNum) {
   return __async(this, null, function* () {
     try {
       if (mediaType === "movie") {
@@ -121,46 +121,20 @@ function getEpisodeMetadata(tmdbId, mediaType, absoluteEpNum) {
         return { title: data.title || "Movie", duration: data.runtime ? `${data.runtime}m` : "N/A" };
       }
 
-      // We fetch the main show data to check how many seasons TMDB actually tracks
-      const showUrl = `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_API_KEY}`;
-      const showData = yield fetchJson(showUrl);
-      if (!showData || !showData.seasons) {
-        return { title: `Episode ${absoluteEpNum}`, duration: "24m" };
-      }
-
-      // Filter out specials (Season 0)
-      const cleanSeasons = showData.seasons.filter(s => s.season_number > 0).sort((a, b) => a.season_number - b.season_number);
-
-      let accumulatedCount = 0;
-      for (const currentSeason of cleanSeasons) {
-        const seasonEpCount = currentSeason.episode_count;
-        
-        // If our absolute episode falls within this season block
-        if (absoluteEpNum <= accumulatedCount + seasonEpCount) {
-          
-          // Request the full season details from TMDB
-          const seasonUrl = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${currentSeason.season_number}?api_key=${TMDB_API_KEY}`;
-          const seasonData = yield fetchJson(seasonUrl);
-          
-          if (seasonData && seasonData.episodes) {
-            // Find the episode where the absolute_number or the array index match our true absolute target
-            const finalMatch = seasonData.episodes.find((ep, index) => {
-              const currentAbsolute = accumulatedCount + (index + 1);
-              return currentAbsolute === absoluteEpNum;
-            });
-
-            if (finalMatch && finalMatch.name) {
-              return {
-                title: finalMatch.name,
-                duration: finalMatch.runtime ? `${finalMatch.runtime}m` : "24m"
-              };
-            }
-          }
-          break;
+      // Query the specific season sheet directly to pull native titles safely
+      const url = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_API_KEY}`;
+      const data = yield fetchJson(url);
+      
+      if (data && data.episodes) {
+        // Look up the episode matching the display selection index passed by your local app
+        const match = data.episodes.find(ep => ep.episode_number === episode);
+        if (match && match.name) {
+          return {
+            title: match.name,
+            duration: match.runtime ? `${match.runtime}m` : "24m"
+          };
         }
-        accumulatedCount += seasonEpCount;
       }
-
       return { title: `Episode ${absoluteEpNum}`, duration: "24m" };
     } catch (e) {
       return { title: `Episode ${absoluteEpNum}`, duration: "24m" };
@@ -383,8 +357,8 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       if (!malId)
         return [];
 
-      // Pass the reliable mapped absolute episode tracking number into the new calculator
-      const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, mappedEp);
+      // Pull metadata using native app parameters to ensure tracking lists match perfectly
+      const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, s, e, mappedEp);
       const meta = {
         epTitle: tmdbMeta.title,
         duration: tmdbMeta.duration

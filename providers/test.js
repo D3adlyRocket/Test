@@ -111,8 +111,8 @@ function getTmdbDetails(tmdbId, mediaType) {
   });
 }
 
-// FIXED: Uses direct TMDB find-by-season query parameters to safely stop fallback looping drops
-function getEpisodeMetadata(tmdbId, mediaType, season, episode, absoluteEpNum) {
+// FIX: Pure dynamic extraction directly utilizing the app's native season layouts
+function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
       if (mediaType === "movie") {
@@ -121,23 +121,18 @@ function getEpisodeMetadata(tmdbId, mediaType, season, episode, absoluteEpNum) {
         return { title: data.title || "Movie", duration: data.runtime ? `${data.runtime}m` : "N/A" };
       }
 
-      // Query the specific season sheet directly to pull native titles safely
-      const url = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_API_KEY}`;
+      const url = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
       const data = yield fetchJson(url);
       
-      if (data && data.episodes) {
-        // Look up the episode matching the display selection index passed by your local app
-        const match = data.episodes.find(ep => ep.episode_number === episode);
-        if (match && match.name) {
-          return {
-            title: match.name,
-            duration: match.runtime ? `${match.runtime}m` : "24m"
-          };
-        }
+      if (data && data.name) {
+        return {
+          title: data.name,
+          duration: data.runtime ? `${data.runtime}m` : "24m"
+        };
       }
-      return { title: `Episode ${absoluteEpNum}`, duration: "24m" };
+      return { title: `Episode ${episode}`, duration: "24m" };
     } catch (e) {
-      return { title: `Episode ${absoluteEpNum}`, duration: "24m" };
+      return { title: `Episode ${episode}`, duration: "24m" };
     }
   });
 }
@@ -357,8 +352,8 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       if (!malId)
         return [];
 
-      // Pull metadata using native app parameters to ensure tracking lists match perfectly
-      const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, s, e, mappedEp);
+      // Simply fetch the metadata using the exact app structure variables (s, e)
+      const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, s, e);
       const meta = {
         epTitle: tmdbMeta.title,
         duration: tmdbMeta.duration

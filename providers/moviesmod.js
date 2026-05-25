@@ -1,420 +1,411 @@
-/**
- * torbox - Built from src/torbox/
- * Generated: 2026-05-23T15:13:58.650Z
- */
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
+// Dutamovie21 Scraper for Nuvio Local Scrapers
+// React Native compatible version - Promise-based approach only
+// Scrapes https://simplycufflinks.com (Dutamovie21 / LK21 mirror)
+
+const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
+const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+const BASE_URL = 'https://simplycufflinks.com';
+
+const WORKING_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
+  'Accept-Encoding': 'gzip, deflate, br',
+  'Referer': 'https://simplycufflinks.com/',
+  'Connection': 'keep-alive',
+  'DNT': '1',
 };
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
+
+const PLAYBACK_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+  'Accept': 'video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept-Encoding': 'identity',
+  'Referer': 'https://simplycufflinks.com/',
+  'Connection': 'keep-alive',
 };
-var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+function makeRequest(url, options) {
+  options = options || {};
+  return fetch(url, {
+    method: options.method || 'GET',
+    headers: Object.assign({}, WORKING_HEADERS, options.headers || {}),
+  }).then(function (response) {
+    if (!response.ok) throw new Error('HTTP ' + response.status + ' ' + response.statusText);
+    return response;
+  }).catch(function (error) {
+    console.error('[Dutamovie21] Request failed for ' + url + ' — ' + error.message);
+    throw error;
   });
-};
+}
 
-// src/torbox/index.js
-var torbox_exports = {};
-__export(torbox_exports, {
-  getStreams: () => getStreams
-});
-module.exports = __toCommonJS(torbox_exports);
+function getTMDBDetails(tmdbId, mediaType) {
+  var endpoint = mediaType === 'tv' ? 'tv' : 'movie';
+  var url = TMDB_BASE_URL + '/' + endpoint + '/' + tmdbId + '?api_key=' + TMDB_API_KEY;
+  return makeRequest(url)
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var title = mediaType === 'tv' ? data.name : data.title;
+      var releaseDate = mediaType === 'tv' ? data.first_air_date : data.release_date;
+      var year = releaseDate ? parseInt(releaseDate.split('-')[0]) : null;
+      return { title: title, year: year };
+    });
+}
 
-// src/torbox/http.js
-var TORBOX_BASE = "https://api.torbox.app/v1/api";
-function tbGet(path, params, apiKey) {
-  return __async(this, null, function* () {
-    const url = new URL(TORBOX_BASE + path);
-    if (params) {
-      Object.keys(params).forEach((k) => {
-        if (params[k] !== null && params[k] !== void 0) {
-          url.searchParams.append(k, String(params[k]));
+// Build slug variants to try (site uses hyphenated slugs with year suffix)
+function buildSlugs(title, year) {
+  var base = title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-');
+  var slugs = [];
+  if (year) slugs.push(base + '-' + year);
+  slugs.push(base);
+  return slugs;
+}
+
+// Extract quality from URL
+function extractQuality(url) {
+  if (!url) return 'Unknown';
+  var m;
+  m = url.match(/(\d{3,4})[pP]/);
+  if (m) {
+    var res = parseInt(m[1]);
+    if (res >= 2160) return '4K';
+    if (res >= 1440) return '1440p';
+    if (res >= 1080) return '1080p';
+    if (res >= 720) return '720p';
+    if (res >= 480) return '480p';
+    if (res >= 360) return '360p';
+    return '240p';
+  }
+  if (/4k|2160/i.test(url)) return '4K';
+  if (/1080|fhd/i.test(url)) return '1080p';
+  if (/720|hd/i.test(url)) return '720p';
+  if (/480|sd/i.test(url)) return '480p';
+  return 'Unknown';
+}
+
+// ─── Page Fetch & Parse ─────────────────────────────────────────────────────
+
+function fetchMoviePage(slug) {
+  var url = BASE_URL + '/' + slug + '/';
+  console.log('[Dutamovie21] Trying page: ' + url);
+  return makeRequest(url)
+    .then(function (r) { return r.text(); })
+    .then(function (html) {
+      return { html: html, pageUrl: url };
+    })
+    .catch(function () { return null; });
+}
+
+function fetchTVPage(slug, season, episode) {
+  // DM21 TV pattern: /tv-show-slug/season-X/episode-Y/
+  var url = BASE_URL + '/tv/' + slug + '/season-' + season + '/episode-' + episode + '/';
+  console.log('[Dutamovie21] Trying TV page: ' + url);
+  return makeRequest(url)
+    .then(function (r) { return r.text(); })
+    .then(function (html) { return { html: html, pageUrl: url }; })
+    .catch(function () {
+      // Fallback: /slug-sXXeYY/
+      var epSlug = slug + '-s' + String(season).padStart(2, '0') + 'e' + String(episode).padStart(2, '0');
+      var url2 = BASE_URL + '/' + epSlug + '/';
+      console.log('[Dutamovie21] Fallback TV page: ' + url2);
+      return makeRequest(url2)
+        .then(function (r) { return r.text(); })
+        .then(function (html) { return { html: html, pageUrl: url2 }; })
+        .catch(function () { return null; });
+    });
+}
+
+// Extract all iframe/embed src values from page HTML
+function extractIframeSrcs(html) {
+  var srcs = [];
+  var iframeRegex = /<iframe[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  var match;
+  while ((match = iframeRegex.exec(html)) !== null) {
+    var src = match[1].trim();
+    if (
+      src &&
+      !src.includes('googletagmanager') &&
+      !src.includes('google-analytics') &&
+      !src.includes('facebook') &&
+      !src.includes('disqus') &&
+      !src.includes('yandex') &&
+      src.length > 10
+    ) {
+      srcs.push(src);
+    }
+  }
+  // Also check data-src attributes (lazy-loaded iframes)
+  var dataSrcRegex = /<iframe[^>]+data-src=["']([^"']+)["'][^>]*>/gi;
+  while ((match = dataSrcRegex.exec(html)) !== null) {
+    var src = match[1].trim();
+    if (src && !srcs.includes(src)) srcs.push(src);
+  }
+  return srcs;
+}
+
+// Extract direct video sources from page HTML (some DM21 pages embed sources directly)
+function extractDirectSources(html) {
+  var sources = [];
+  // Match <source src="..." type="video/...">
+  var srcRegex = /<source[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  var match;
+  while ((match = srcRegex.exec(html)) !== null) {
+    var url = match[1].trim();
+    if (url && (url.endsWith('.mp4') || url.endsWith('.m3u8') || url.includes('.mp4') || url.includes('.m3u8'))) {
+      sources.push(url);
+    }
+  }
+  // Match jwplayer / player config file: "file":"..."
+  var fileRegex = /"file"\s*:\s*["']([^"']+(?:\.mp4|\.m3u8)[^"']*)["']/gi;
+  while ((match = fileRegex.exec(html)) !== null) {
+    var url = match[1].trim();
+    if (url && !sources.includes(url)) sources.push(url);
+  }
+  // Match sources array: sources:[{file:"..."}]
+  var sourcesArrRegex = /sources\s*:\s*\[([^\]]+)\]/gi;
+  while ((match = sourcesArrRegex.exec(html)) !== null) {
+    var block = match[1];
+    var fileMatches = block.match(/["']?(https?:\/\/[^"',\s]+)["']?/g);
+    if (fileMatches) {
+      fileMatches.forEach(function (f) {
+        var clean = f.replace(/['"]/g, '').trim();
+        if (clean && !sources.includes(clean)) sources.push(clean);
+      });
+    }
+  }
+  return sources;
+}
+
+// Resolve an embed/iframe URL to get the final stream URL
+function resolveEmbed(embedUrl, pageUrl) {
+  console.log('[Dutamovie21] Resolving embed: ' + embedUrl.substring(0, 80));
+  return fetch(embedUrl, {
+    method: 'GET',
+    headers: Object.assign({}, WORKING_HEADERS, {
+      'Referer': pageUrl,
+      'Origin': BASE_URL,
+    }),
+  })
+    .then(function (r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    })
+    .then(function (embedHtml) {
+      var directSrcs = extractDirectSources(embedHtml);
+      var nestedIframes = extractIframeSrcs(embedHtml);
+      return { directSrcs: directSrcs, nestedIframes: nestedIframes };
+    })
+    .catch(function (e) {
+      console.warn('[Dutamovie21] Embed resolve failed: ' + e.message);
+      return { directSrcs: [], nestedIframes: [] };
+    });
+}
+
+// ─── Stream Builder ──────────────────────────────────────────────────────────
+
+function buildStream(url, mediaTitle, embedSource) {
+  var quality = extractQuality(url);
+  var isHLS = url.includes('.m3u8');
+  return {
+    name: 'Dutamovie21' + (embedSource ? ' — ' + embedSource : ''),
+    title: mediaTitle,
+    url: url,
+    quality: quality,
+    size: 'Unknown',
+    headers: PLAYBACK_HEADERS,
+    provider: 'dutamovie21',
+    behaviorHints: isHLS ? { notWebReady: false } : undefined,
+  };
+}
+
+// ─── Search Fallback ─────────────────────────────────────────────────────────
+
+function searchSite(title, year) {
+  var query = encodeURIComponent(title);
+  var url = BASE_URL + '/?s=' + query + '&post_type[]=post&post_type[]=tv';
+  console.log('[Dutamovie21] Searching: ' + url);
+  return makeRequest(url)
+    .then(function (r) { return r.text(); })
+    .then(function (html) {
+      // Extract all article/post links from search results
+      var links = [];
+      var linkRegex = /href=["'](https:\/\/simplycufflinks\.com\/[a-z0-9-]+\/?)["']/gi;
+      var match;
+      var seen = {};
+      while ((match = linkRegex.exec(html)) !== null) {
+        var href = match[1];
+        if (
+          !seen[href] &&
+          !href.includes('/category/') &&
+          !href.includes('/tag/') &&
+          !href.includes('/page/') &&
+          !href.includes('/movie/') &&
+          !href.includes('/tv/') &&
+          !href.includes('/wp-content/') &&
+          href !== BASE_URL + '/'
+        ) {
+          seen[href] = true;
+          links.push(href);
         }
-      });
-    }
-    const res = yield fetch(url.toString(), {
-      method: "GET",
-      headers: {
-        Authorization: "Bearer " + apiKey,
-        "Content-Type": "application/json"
       }
-    });
-    if (!res.ok)
-      throw new Error("TorBox GET error: " + res.status);
-    return res.json();
-  });
+      // Filter by year in URL if possible
+      if (year) {
+        var yearLinks = links.filter(function (l) { return l.includes(String(year)); });
+        if (yearLinks.length > 0) return yearLinks.slice(0, 3);
+      }
+      return links.slice(0, 3);
+    })
+    .catch(function () { return []; });
 }
-function tbPost(path, body, apiKey) {
-  return __async(this, null, function* () {
-    const res = yield fetch(TORBOX_BASE + path, {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer " + apiKey,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(body)
-    });
-    if (!res.ok)
-      throw new Error("TorBox POST error: " + res.status);
-    return res.json();
-  });
-}
-function publicGet(url, params) {
-  return __async(this, null, function* () {
-    const u = new URL(url);
-    if (params) {
-      Object.keys(params).forEach((k) => {
-        if (params[k] !== null && params[k] !== void 0) {
-          u.searchParams.set(k, String(params[k]));
+
+// ─── Main Orchestrator ───────────────────────────────────────────────────────
+
+function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
+  mediaType = mediaType || 'movie';
+  console.log('[Dutamovie21] getStreams — TMDB:' + tmdbId + ' type:' + mediaType +
+    (mediaType === 'tv' ? ' S' + seasonNum + 'E' + episodeNum : ''));
+
+  return getTMDBDetails(tmdbId, mediaType)
+    .then(function (mediaInfo) {
+      console.log('[Dutamovie21] Title: ' + mediaInfo.title + ' (' + mediaInfo.year + ')');
+      var slugs = buildSlugs(mediaInfo.title, mediaInfo.year);
+      var mediaTitle = mediaInfo.title;
+      if (mediaInfo.year) mediaTitle += ' (' + mediaInfo.year + ')';
+      if (mediaType === 'tv' && seasonNum && episodeNum) {
+        mediaTitle += ' S' + String(seasonNum).padStart(2, '0') + 'E' + String(episodeNum).padStart(2, '0');
+      }
+
+      // Try each slug to find the page
+      var pageFetcher;
+      if (mediaType === 'tv') {
+        pageFetcher = slugs.reduce(function (chain, slug) {
+          return chain.then(function (result) {
+            if (result) return result;
+            return fetchTVPage(slug, seasonNum, episodeNum);
+          });
+        }, Promise.resolve(null));
+      } else {
+        pageFetcher = slugs.reduce(function (chain, slug) {
+          return chain.then(function (result) {
+            if (result) return result;
+            return fetchMoviePage(slug);
+          });
+        }, Promise.resolve(null));
+      }
+
+      return pageFetcher.then(function (pageResult) {
+        // Fallback: use search
+        var searchPromise;
+        if (!pageResult) {
+          console.log('[Dutamovie21] Slug attempts failed, falling back to search...');
+          searchPromise = searchSite(mediaInfo.title, mediaInfo.year)
+            .then(function (searchLinks) {
+              if (searchLinks.length === 0) return null;
+              return fetch(searchLinks[0], { headers: WORKING_HEADERS })
+                .then(function (r) { return r.ok ? r.text() : null; })
+                .then(function (html) {
+                  return html ? { html: html, pageUrl: searchLinks[0] } : null;
+                })
+                .catch(function () { return null; });
+            });
+        } else {
+          searchPromise = Promise.resolve(pageResult);
         }
+
+        return searchPromise.then(function (finalPage) {
+          if (!finalPage || !finalPage.html) {
+            console.log('[Dutamovie21] No page found for ' + mediaInfo.title);
+            return [];
+          }
+
+          var html = finalPage.html;
+          var pageUrl = finalPage.pageUrl;
+
+          // 1. Extract direct video sources from the page
+          var directSources = extractDirectSources(html);
+
+          // 2. Extract iframe embeds
+          var iframeSrcs = extractIframeSrcs(html);
+          console.log('[Dutamovie21] Found ' + directSources.length + ' direct sources, ' + iframeSrcs.length + ' iframes');
+
+          // Build streams from direct sources immediately
+          var directStreams = directSources.map(function (src) {
+            return buildStream(src, mediaTitle, 'Direct');
+          });
+
+          // Resolve each iframe for additional streams
+          var embedPromises = iframeSrcs.slice(0, 5).map(function (embedUrl) {
+            // Ensure absolute URL
+            if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
+            return resolveEmbed(embedUrl, pageUrl).then(function (resolved) {
+              var streams = [];
+              resolved.directSrcs.forEach(function (src) {
+                streams.push(buildStream(src, mediaTitle, getDomain(embedUrl)));
+              });
+              // One level of nested iframes
+              var nestedPromises = resolved.nestedIframes.slice(0, 2).map(function (nested) {
+                if (nested.startsWith('//')) nested = 'https:' + nested;
+                return resolveEmbed(nested, embedUrl).then(function (r2) {
+                  return r2.directSrcs.map(function (s) {
+                    return buildStream(s, mediaTitle, getDomain(nested));
+                  });
+                }).catch(function () { return []; });
+              });
+              return Promise.all(nestedPromises).then(function (nestedResults) {
+                nestedResults.forEach(function (ns) { streams = streams.concat(ns); });
+                return streams;
+              });
+            }).catch(function () { return []; });
+          });
+
+          return Promise.all(embedPromises).then(function (embedResults) {
+            var allStreams = directStreams.slice();
+            embedResults.forEach(function (es) { allStreams = allStreams.concat(es); });
+
+            // Deduplicate by URL
+            var seen = {};
+            allStreams = allStreams.filter(function (s) {
+              if (!s || !s.url || seen[s.url]) return false;
+              seen[s.url] = true;
+              return true;
+            });
+
+            // Sort by quality
+            var order = { '4K': 6, '1440p': 5, '1080p': 4, '720p': 3, '480p': 2, '360p': 1, '240p': 0, 'Unknown': -1 };
+            allStreams.sort(function (a, b) {
+              return (order[b.quality] || -1) - (order[a.quality] || -1);
+            });
+
+            console.log('[Dutamovie21] Total streams: ' + allStreams.length);
+            return allStreams;
+          });
+        });
       });
-    }
-    const res = yield fetch(u.toString(), {
-      method: "GET",
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; NuvioProvider/1.0)" }
+    })
+    .catch(function (err) {
+      console.error('[Dutamovie21] Fatal error: ' + err.message);
+      return [];
     });
-    if (!res.ok)
-      throw new Error("Public GET error: " + res.status + " " + url);
-    return res.json();
-  });
 }
 
-// src/torbox/search.js
-var KNABEN_API = "https://knaben.eu/api/v1";
-var QUALITY_SCORE = {
-  "2160p": 8,
-  "4k": 8,
-  "uhd": 7,
-  "remux": 6,
-  "1080p": 5,
-  "bluray": 4,
-  "web-dl": 3,
-  "webrip": 3,
-  "720p": 2
-};
-function qualityScore(title) {
-  const t = (title || "").toLowerCase();
-  for (const [kw, score] of Object.entries(QUALITY_SCORE)) {
-    if (t.includes(kw))
-      return score;
+function getDomain(url) {
+  try {
+    return new URL(url).hostname.replace('www.', '');
+  } catch (e) {
+    return 'embed';
   }
-  return 0;
-}
-function extractHash(value) {
-  if (!value)
-    return null;
-  if (/^[a-fA-F0-9]{40}$/.test(value))
-    return value.toLowerCase();
-  const m = value.match(/btih:([a-fA-F0-9]{40})/i);
-  if (m)
-    return m[1].toLowerCase();
-  return null;
-}
-function searchKnaben(query, mediaType, maxResults) {
-  return __async(this, null, function* () {
-    const categoryId = mediaType === "tv" ? 5e3 : 2e3;
-    const data = yield publicGet(KNABEN_API + "/search", {
-      q: query,
-      categories: categoryId,
-      orderBy: "seeders",
-      orderDirection: "desc",
-      take: maxResults
-    });
-    if (!data || !Array.isArray(data.hits))
-      return [];
-    return data.hits.map((item) => {
-      const hash = extractHash(item.infoHash || item.hash || item.magnet || "");
-      if (!hash)
-        return null;
-      return {
-        hash,
-        title: item.name || item.title || "",
-        size: item.bytes || item.size || 0,
-        seeders: item.seeders || 0
-      };
-    }).filter(Boolean);
-  });
-}
-function buildQuery(title, year, mediaType, season, episode) {
-  let q = title;
-  if (year)
-    q += " " + year;
-  if (mediaType === "tv" && season != null && episode != null) {
-    const s = String(season).padStart(2, "0");
-    const e = String(episode).padStart(2, "0");
-    q += " S" + s + "E" + e;
-  }
-  return q.trim();
-}
-function findTorrentHashes(title, year, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    const query = buildQuery(title, year, mediaType, season, episode);
-    console.log("[TorBox/search] Query:", query);
-    let results = [];
-    try {
-      results = yield searchKnaben(query, mediaType, 30);
-      console.log("[TorBox/search] Knaben returned", results.length, "results");
-    } catch (err) {
-      console.log("[TorBox/search] Knaben error:", err.message);
-    }
-    const seen = /* @__PURE__ */ new Set();
-    const unique = results.filter((r) => {
-      if (seen.has(r.hash))
-        return false;
-      seen.add(r.hash);
-      return true;
-    });
-    unique.sort((a, b) => {
-      const qs = qualityScore(b.title) - qualityScore(a.title);
-      if (qs !== 0)
-        return qs;
-      return (b.seeders || 0) - (a.seeders || 0);
-    });
-    return unique;
-  });
 }
 
-// src/torbox/torbox.js
-var TORBOX_BASE2 = "https://api.torbox.app/v1/api";
-function isVideoFile(name) {
-  if (!name)
-    return false;
-  const ext = (name.split(".").pop() || "").toLowerCase();
-  return ["mkv", "mp4", "avi", "mov", "m4v", "ts", "webm", "wmv"].includes(ext);
-}
-function parseQuality(s) {
-  const t = (s || "").toLowerCase();
-  if (t.includes("2160p") || t.includes("4k") || t.includes("uhd"))
-    return "4K";
-  if (t.includes("1080p"))
-    return "1080p";
-  if (t.includes("720p"))
-    return "720p";
-  if (t.includes("480p"))
-    return "480p";
-  return "Unknown";
-}
-function checkCached(hashes, apiKey) {
-  return __async(this, null, function* () {
-    const cached = /* @__PURE__ */ new Set();
-    if (!hashes || hashes.length === 0)
-      return cached;
-    const BATCH = 100;
-    for (let i = 0; i < hashes.length; i += BATCH) {
-      const batch = hashes.slice(i, i + BATCH);
-      try {
-        const resp = yield tbGet(
-          "/torrents/checkcached",
-          { hash: batch.join(","), format: "list" },
-          apiKey
-        );
-        if (!resp.success || !resp.data)
-          continue;
-        const data = resp.data;
-        if (Array.isArray(data)) {
-          data.forEach((h) => cached.add(String(h).toLowerCase()));
-        } else if (typeof data === "object") {
-          Object.keys(data).forEach((h) => cached.add(h.toLowerCase()));
-        }
-      } catch (err) {
-        console.log("[TorBox/cache] checkcached error:", err.message);
-      }
-    }
-    return cached;
-  });
-}
-function addTorrent(hash, name, apiKey) {
-  return __async(this, null, function* () {
-    const magnet = "magnet:?xt=urn:btih:" + hash;
-    try {
-      const resp = yield tbPost(
-        "/torrents/createtorrent",
-        { magnet, name: name || hash, as_queued: false },
-        apiKey
-      );
-      if (resp.success && resp.data) {
-        return resp.data.torrent_id || resp.data.id || null;
-      }
-      if (resp.error === "DUPLICATE_ITEM" && resp.data) {
-        return resp.data.torrent_id || resp.data.id || null;
-      }
-      console.log("[TorBox] addTorrent failed:", resp.detail);
-      return null;
-    } catch (err) {
-      console.log("[TorBox] addTorrent error:", err.message);
-      return null;
-    }
-  });
-}
-function getTorrentFiles(torrentId, apiKey) {
-  return __async(this, null, function* () {
-    try {
-      const resp = yield tbGet(
-        "/torrents/mylist",
-        { id: torrentId, bypass_cache: "true" },
-        apiKey
-      );
-      if (!resp.success || !resp.data)
-        return [];
-      const torrent = Array.isArray(resp.data) ? resp.data[0] : resp.data;
-      return torrent && torrent.files ? torrent.files : [];
-    } catch (err) {
-      console.log("[TorBox] getTorrentFiles error:", err.message);
-      return [];
-    }
-  });
-}
-function buildStreamUrl(apiKey, torrentId, fileId) {
-  return TORBOX_BASE2 + "/torrents/requestdl?token=" + apiKey + "&torrent_id=" + torrentId + "&file_id=" + fileId + "&redirect=true";
-}
-function debridHash(hash, torrentTitle, apiKey) {
-  return __async(this, null, function* () {
-    const streams = [];
-    const torrentId = yield addTorrent(hash, torrentTitle, apiKey);
-    if (!torrentId)
-      return streams;
-    const files = yield getTorrentFiles(torrentId, apiKey);
-    const videos = files.filter((f) => isVideoFile(f.name || f.short_name || ""));
-    if (videos.length === 0) {
-      const url = buildStreamUrl(apiKey, torrentId, 0);
-      const q = parseQuality(torrentTitle);
-      streams.push({
-        name: "TorBox",
-        title: q + " \xB7 " + (torrentTitle || "").substring(0, 60),
-        url,
-        quality: q
-      });
-      return streams;
-    }
-    for (const file of videos) {
-      const fileId = file.id;
-      const fileName = file.name || file.short_name || "";
-      const url = buildStreamUrl(apiKey, torrentId, fileId);
-      const q = parseQuality(torrentTitle + " " + fileName);
-      streams.push({
-        name: "TorBox",
-        title: q + " \xB7 " + fileName.substring(0, 60),
-        url,
-        quality: q
-      });
-    }
-    return streams;
-  });
-}
+// ─── Export ──────────────────────────────────────────────────────────────────
 
-// src/torbox/extractor.js
-var TMDB_API = "https://api.themoviedb.org/3";
-function resolveTmdbTitle(tmdbId, mediaType, tmdbApiKey) {
-  return __async(this, null, function* () {
-    if (!tmdbApiKey)
-      return null;
-    try {
-      const endpoint = mediaType === "tv" ? TMDB_API + "/tv/" + tmdbId + "?api_key=" + tmdbApiKey + "&language=en-US" : TMDB_API + "/movie/" + tmdbId + "?api_key=" + tmdbApiKey + "&language=en-US";
-      const res = yield fetch(endpoint);
-      if (!res.ok)
-        return null;
-      const data = yield res.json();
-      const title = data.title || data.name || null;
-      const rawDate = data.release_date || data.first_air_date || "";
-      const year = rawDate ? parseInt(rawDate.substring(0, 4), 10) : null;
-      return title ? { title, year } : null;
-    } catch (err) {
-      console.log("[TorBox/tmdb] resolve error:", err.message);
-      return null;
-    }
-  });
-}
-function extractStreams(tmdbId, mediaType, season, episode, apiKey, tmdbApiKey) {
-  return __async(this, null, function* () {
-    let title = null;
-    let year = null;
-    const resolved = yield resolveTmdbTitle(tmdbId, mediaType, tmdbApiKey);
-    if (resolved) {
-      title = resolved.title;
-      year = resolved.year;
-      console.log("[TorBox] Resolved title:", title, year);
-    } else {
-      title = "tmdb" + tmdbId;
-      console.log("[TorBox] No TMDB key, searching by ID:", title);
-    }
-    const candidates = yield findTorrentHashes(title, year, mediaType, season, episode);
-    if (candidates.length === 0) {
-      console.log("[TorBox] No torrents found");
-      return [];
-    }
-    console.log("[TorBox] Found", candidates.length, "torrent candidates");
-    const hashes = candidates.map((c) => c.hash);
-    const cachedSet = yield checkCached(hashes, apiKey);
-    console.log("[TorBox] Cached hashes:", cachedSet.size, "/", hashes.length);
-    const cachedCandidates = candidates.filter((c) => cachedSet.has(c.hash));
-    if (cachedCandidates.length === 0) {
-      console.log("[TorBox] No cached hits, falling back to top 3 uncached");
-      const fallback = candidates.slice(0, 3);
-      const streams2 = [];
-      for (const c of fallback) {
-        const s = yield debridHash(c.hash, c.title, apiKey);
-        streams2.push(...s);
-      }
-      return streams2;
-    }
-    const toDebrid = cachedCandidates.slice(0, 5);
-    const streams = [];
-    for (const candidate of toDebrid) {
-      const s = yield debridHash(candidate.hash, candidate.title, apiKey);
-      streams.push(...s);
-    }
-    console.log("[TorBox] Total streams:", streams.length);
-    return streams;
-  });
-}
-
-// src/torbox/index.js
-function getSetting(key) {
-  if (typeof globalThis !== "undefined" && globalThis.SCRAPER_SETTINGS && globalThis.SCRAPER_SETTINGS[key]) {
-    return globalThis.SCRAPER_SETTINGS[key];
-  }
-  return null;
-}
-function getStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    const apiKey = getSetting("torbox_api_key");
-    if (!apiKey) {
-      console.log("[TorBox] Missing torbox_api_key in SCRAPER_SETTINGS");
-      return [];
-    }
-    const tmdbApiKey = "01926d2187b6a5d861eefc750e9df3e3";
-    try {
-      return yield extractStreams(tmdbId, mediaType, season, episode, apiKey, tmdbApiKey);
-    } catch (err) {
-      console.log("[TorBox] Fatal error in getStreams:", err.message);
-      return [];
-    }
-  });
+if (typeof module !== 'undefined') {
+  module.exports = getStreams;
+} else {
+  global.Dutamovie21ScraperModule = getStreams;
 }

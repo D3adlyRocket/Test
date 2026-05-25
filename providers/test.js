@@ -186,7 +186,7 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaTy
       let lines = [];
       if (mediaType === "movie") {
         lines = [
-          `🎬 ${animeTitle} (${upperType})`,
+          `🎬 ${animeTitle}`,
           `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
         ];
       } else {

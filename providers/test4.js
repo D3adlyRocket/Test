@@ -1,5 +1,5 @@
 // cinefreak.js
-// Fixed async version
+// Stable working version
 
 const BASE_URL = "https://cinefreak.nl";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -13,6 +13,10 @@ const HEADERS = {
   Origin: BASE_URL,
   Cookie: "xla=s4t"
 };
+
+// =========================
+// Helpers
+// =========================
 
 function extractQuality(str = "") {
   const u = str.toLowerCase();
@@ -50,65 +54,16 @@ async function resolveFinalUrl(url) {
   }
 }
 
-async function extractDirectStream(url) {
-  try {
-    if (
-      url.includes(".m3u8") ||
-      url.includes(".mp4") ||
-      url.includes(".mkv")
-    ) {
-      return url;
-    }
-
-    // Pixeldrain
-    if (url.includes("pixeldrain.com/u/")) {
-      const id = url.split("/u/")[1].split("?")[0];
-      return `https://pixeldrain.com/api/file/${id}`;
-    }
-
-    // Drive
-    if (url.includes("drive.google.com")) {
-      const match = url.match(/\/d\/(.*?)\//);
-
-      if (match) {
-        return `https://drive.google.com/uc?export=download&id=${match[1]}`;
-      }
-    }
-
-    const html = await (
-      await fetch(url, {
-        headers: HEADERS
-      })
-    ).text();
-
-    const patterns = [
-      /https?:\/\/[^"' ]+\.m3u8[^"' ]*/i,
-      /https?:\/\/[^"' ]+\.mp4[^"' ]*/i,
-      /file\s*:\s*["']([^"']+)["']/i,
-      /<source[^>]+src=["']([^"']+)["']/i,
-      /<iframe[^>]+src=["']([^"']+)["']/i
-    ];
-
-    for (const pattern of patterns) {
-      const match = html.match(pattern);
-
-      if (match) {
-        return match[1] || match[0];
-      }
-    }
-
-    return url;
-  } catch {
-    return url;
-  }
-}
-
 function createStream(url, quality, title) {
   return {
     type: "url",
+
     url,
+
     quality,
+
     title,
+
     subtitles: [],
 
     behaviorHints: {
@@ -125,6 +80,10 @@ function createStream(url, quality, title) {
   };
 }
 
+// =========================
+// Main
+// =========================
+
 async function getStreams(
   tmdbId,
   mediaType,
@@ -132,6 +91,7 @@ async function getStreams(
   episode
 ) {
   try {
+    // TMDB
     const tmdbUrl =
       `https://api.themoviedb.org/3/${mediaType}/${tmdbId}` +
       `?api_key=${TMDB_API_KEY}`;
@@ -149,10 +109,11 @@ async function getStreams(
 
     console.log("[TITLE]", title);
 
+    // Search
     const searchUrl =
-      `${BASE_URL}/search-api.php?q=` +
-      encodeURIComponent(title) +
-      "&pg=1";
+      `${BASE_URL}/search-api.php?q=${encodeURIComponent(
+        title
+      )}&pg=1`;
 
     const searchResp = await fetch(searchUrl, {
       headers: HEADERS
@@ -172,9 +133,10 @@ async function getStreams(
 
     if (!results.length) return [];
 
+    // Match
     const lcTitle = title.toLowerCase();
 
-    const match =
+    let match =
       results.find(r =>
         (r.t || "")
           .toLowerCase()
@@ -187,7 +149,7 @@ async function getStreams(
       ? match.l
       : `${BASE_URL}/${match.l}/`;
 
-    console.log("[PAGE]", pageUrl);
+    console.log("[PAGE URL]", pageUrl);
 
     const pageHtml = await (
       await fetch(pageUrl, {
@@ -204,9 +166,7 @@ async function getStreams(
     // =========================
 
     if (mediaType === "tv") {
-      const cards = $("div.ep-card").toArray();
-
-      for (const card of cards) {
+      $("div.ep-card").each((_, card) => {
         const seasonText = $(card)
           .find("span.season-number")
           .text()
@@ -217,7 +177,7 @@ async function getStreams(
           : 1;
 
         if (cardSeason !== parseInt(season || 1))
-          continue;
+          return;
 
         const epText = $(card)
           .find("span.episode-badge")
@@ -227,7 +187,7 @@ async function getStreams(
           /Episode\s+([\d\-]+)/i
         );
 
-        if (!epMatch) continue;
+        if (!epMatch) return;
 
         const epNums = epMatch[1]
           .split("-")
@@ -239,44 +199,47 @@ async function getStreams(
             parseInt(episode || 1)
           )
         ) {
-          continue;
+          return;
         }
 
-        const links = $(card)
+        $(card)
           .find("div.download-links a")
-          .toArray();
+          .each((_, a) => {
+            try {
+              let href = $(a).attr("href");
 
-        for (const a of links) {
-          try {
-            let href = $(a).attr("href");
+              if (!href) return;
 
-            if (!href) continue;
+              const text = $(a).text().trim();
 
-            const idMatch =
-              href.match(/id=([^&]+)/);
+              // decode base64
+              const idMatch =
+                href.match(/id=([^&]+)/);
 
-            if (idMatch) {
-              const decoded =
-                decodeBase64Safe(idMatch[1]);
+              if (idMatch) {
+                const decoded =
+                  decodeBase64Safe(idMatch[1]);
 
-              if (decoded) href = decoded;
+                if (
+                  decoded &&
+                  decoded.startsWith("http")
+                ) {
+                  href = decoded;
+                }
+              }
+
+              streams.push(
+                createStream(
+                  href,
+                  extractQuality(text),
+                  `Cinefreak [${text}]`
+                )
+              );
+            } catch (e) {
+              console.log(e);
             }
-
-            href = await resolveFinalUrl(href);
-
-            const finalUrl =
-              await extractDirectStream(href);
-
-            streams.push(
-              createStream(
-                finalUrl,
-                extractQuality(href),
-                "Cinefreak"
-              )
-            );
-          } catch {}
-        }
-      }
+          });
+      });
 
       return streams;
     }
@@ -285,66 +248,73 @@ async function getStreams(
     // MOVIES
     // =========================
 
-    const containers = $("div.download-links-div")
-      .toArray();
+    $("div.download-links-div").each(
+      (_, container) => {
+        $(container)
+          .find("h4.movie-title")
+          .each((_, titleEl) => {
+            const qualMatch = $(titleEl)
+              .text()
+              .match(
+                /(480p|720p|1080p|2160p)/i
+              );
 
-    for (const container of containers) {
-      const titles = $(container)
-        .find("h4.movie-title")
-        .toArray();
+            const qual = qualMatch
+              ? qualMatch[1]
+              : "Unknown";
 
-      for (const titleEl of titles) {
-        const quality = extractQuality(
-          $(titleEl).text()
-        );
+            $(titleEl)
+              .next()
+              .find("a.dlbtn-download[href]")
+              .each((_, a) => {
+                try {
+                  let href =
+                    $(a).attr("href");
 
-        const links = $(titleEl)
-          .next()
-          .find("a.dlbtn-download[href]")
-          .toArray();
+                  if (!href) return;
 
-        for (const a of links) {
-          try {
-            let href = $(a).attr("href");
+                  console.log(
+                    "[RAW LINK]",
+                    href
+                  );
 
-            if (!href) continue;
+                  // decode
+                  const idMatch =
+                    href.match(/id=([^&]+)/);
 
-            console.log("[RAW]", href);
+                  if (idMatch) {
+                    const decoded =
+                      decodeBase64Safe(
+                        idMatch[1]
+                      );
 
-            const idMatch =
-              href.match(/id=([^&]+)/);
+                    if (
+                      decoded &&
+                      decoded.startsWith("http")
+                    ) {
+                      href = decoded;
+                    }
+                  }
 
-            if (idMatch) {
-              const decoded =
-                decodeBase64Safe(idMatch[1]);
-
-              if (decoded) href = decoded;
-            }
-
-            href = await resolveFinalUrl(href);
-
-            console.log("[RESOLVED]", href);
-
-            const finalUrl =
-              await extractDirectStream(href);
-
-            console.log("[FINAL]", finalUrl);
-
-            streams.push(
-              createStream(
-                finalUrl,
-                quality,
-                `Cinefreak [${quality}]`
-              )
-            );
-          } catch (e) {
-            console.log(e);
-          }
-        }
+                  streams.push(
+                    createStream(
+                      href,
+                      qual,
+                      `Cinefreak [${qual}]`
+                    )
+                  );
+                } catch (e) {
+                  console.log(e);
+                }
+              });
+          });
       }
-    }
+    );
 
-    console.log("[STREAMS]", streams.length);
+    console.log(
+      "[TOTAL STREAMS]",
+      streams.length
+    );
 
     return streams;
   } catch (e) {

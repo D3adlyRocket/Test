@@ -111,23 +111,33 @@ function getTmdbDetails(tmdbId, mediaType) {
   });
 }
 
-// RESTORED FIX: Uses the direct find-by-ID endpoint to match titles securely
-function getEpisodeMetadataByImdb(imdbEpisodeId) {
+// REAL FIX: Fetches the entire season index packet to read titles by array offset location
+function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
-      const url = `https://api.themoviedb.org/3/find/${imdbEpisodeId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+      if (mediaType === "movie") {
+        const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}`;
+        const data = yield fetchJson(url);
+        return { title: data.title || "Movie", duration: data.runtime ? `${data.runtime}m` : "N/A" };
+      }
+
+      // Query the full season pack directly
+      const url = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_API_KEY}`;
       const data = yield fetchJson(url);
       
-      if (data && data.tv_episode_results && data.tv_episode_results.length > 0) {
-        const ep = data.tv_episode_results[0];
-        return {
-          title: ep.name || "Episode Title",
-          duration: ep.runtime ? `${ep.runtime}m` : "24m"
-        };
+      if (data && data.episodes && data.episodes.length > 0) {
+        // Match by index position (episode 1 is array item 0, episode 13 is array item 12)
+        const match = data.episodes[episode - 1] || data.episodes.find(ep => ep.episode_number === episode);
+        if (match) {
+          return {
+            title: match.name || `Episode ${episode}`,
+            duration: match.runtime ? `${match.runtime}m` : "24m"
+          };
+        }
       }
-      return null;
+      return { title: `Episode ${episode}`, duration: "24m" };
     } catch (e) {
-      return null;
+      return { title: `Episode ${episode}`, duration: "24m" };
     }
   });
 }
@@ -162,7 +172,7 @@ function searchMalId(title, mediaType) {
 }
 
 // src/hianime/index.js
-function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaType, seasonNum, displayEpNum, scrapedEpNum, type, meta) {
+function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaType, seasonNum, displayEpNum, type, meta) {
   return __async(this, null, function* () {
     var _a;
     try {
@@ -187,7 +197,6 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaTy
           `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
         ];
       } else {
-        // RESTORED: Displays structural layout elements paired back with real English titles & duration strings
         lines = [
           `🎬 ${animeTitle}`,
           `🎥 S${seasonNum}E${displayEpNum} - ${meta.epTitle}`,
@@ -242,7 +251,7 @@ function scrapeType(malId, scrapedEp, type, animeTitle, meta, mediaType, season,
       if (dataId) {
         const apiUrl = `${MEGAPLAY_BASE}/stream/getSources?id=${dataId}&id=${dataId}`;
         extractions.push(
-          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, mediaType, season, displayEp, scrapedEp, type, meta)
+          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, mediaType, season, displayEp, type, meta)
         );
       }
       if (realId) {
@@ -255,7 +264,7 @@ function scrapeType(malId, scrapedEp, type, animeTitle, meta, mediaType, season,
             const vDataId = vPlayer.attr("data-id");
             if (vDataId) {
               const apiUrl = `${VIDWISH_BASE}/stream/getSources?id=${vDataId}&id=${vDataId}`;
-              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, mediaType, season, displayEp, scrapedEp, type, meta);
+              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, mediaType, season, displayEp, type, meta);
             }
           } catch (err) {
           }
@@ -272,7 +281,7 @@ function scrapeType(malId, scrapedEp, type, animeTitle, meta, mediaType, season,
             const mDataId = mPlayer.attr("data-id");
             if (mDataId) {
               const apiUrl = `${MEGACLOUD_BASE}/stream/getSources?id=${mDataId}&id=${mDataId}`;
-              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, mediaType, season, displayEp, scrapedEp, type, meta);
+              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, mediaType, season, displayEp, type, meta);
             }
           } catch (err) {
           }
@@ -334,8 +343,6 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
         
       const s = mediaType === "movie" ? 1 : season;
       const e = mediaType === "movie" ? 1 : episode;
-      
-      let imdbEpisodeId = null;
       if (mediaType === "movie") {
         malId = yield searchMalId(showTitle, "movie");
         mappedEp = 1;
@@ -345,20 +352,17 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
         if (mapping && mapping.mal_id) {
           malId = mapping.mal_id;
           mappedEp = mapping.mal_episode || episode;
-          imdbEpisodeId = mapping.imdb_episode_id || null;
         }
       }
       if (!malId)
         return [];
 
-      // RESTORED: Re-compile configuration rules utilizing absolute find parameters
-      let meta = { epTitle: `Episode ${episode}`, duration: "24m" };
-      if (imdbEpisodeId) {
-        const fetchedMeta = yield getEpisodeMetadataByImdb(imdbEpisodeId);
-        if (fetchedMeta) {
-          meta = fetchedMeta;
-        }
-      }
+      // Fetch metadata from the direct season packet block layout
+      const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, s, e);
+      const meta = {
+        epTitle: tmdbMeta.title,
+        duration: tmdbMeta.duration
+      };
 
       const settings = globalThis.SCRAPER_SETTINGS || {};
       const preference = settings.subDub || "both";

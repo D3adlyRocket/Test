@@ -349,24 +349,24 @@ if (m3u8 && m3u8.includes("master.txt")) {
   m3u8 = m3u8.replace("master.txt", "master.m3u8");
 }
 
-// FINAL URL
-const finalUrl = m3u8 || watchLink;
+// FINAL PLAYABLE URL
+const playableUrl = m3u8 || finalUrl;
 
-// skip obvious junk
+// skip junk
 if (
-  !finalUrl ||
-  finalUrl.includes("telegram") ||
-  finalUrl.includes("facebook")
+  !playableUrl ||
+  playableUrl.includes("telegram") ||
+  playableUrl.includes("facebook")
 ) {
   continue;
 }
 
 streams.push({
   name: "Movies4u",
-  title: `Movies4u ${extractQuality(finalUrl)}`,
-  quality: extractQuality(finalUrl),
+  title: `Movies4u ${extractQuality(playableUrl)}`,
+  quality: extractQuality(playableUrl),
 
-  url: finalUrl,
+  url: playableUrl,
 
   headers: {
     Referer: "https://m4uplay.store/",

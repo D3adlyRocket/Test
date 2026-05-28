@@ -1,16 +1,24 @@
 /**
- * Movies4u Provider v1.0
- * Uses Movies4u FastAPI: https://badboysxs-mfu.hf.space (backed v1)
- * Scrapes movies4u.promo with HubCloud FSL resolver via REST API.
- * By Murph Streams ⚡
+ * ╔══════════════════════════════════════════════════════════════════════════════╗
+ * ║            Movies4u — Nuvio Stream Plugin Optimized for Android TV            ║
+ * ╠══════════════════════════════════════════════════════════════════════════════╣
+ * ║  Source     › https://movies4u.promo                                               ║
+ * ║  Author     › Murph Streams ⚡                                                      ║
+ * ║  Backend    › https://badboysxs-murph-api.hf.space                                 ║
+ * ╠══════════════════════════════════════════════════════════════════════════════╣
+ * ║  Supports   › Movies & Series (HD / FSL Direct)                                   ║
+ * ║  Chain      › Movies4u FastAPI → HubCloud FSL Resolver                             ║
+ * ║  Parallel   › Asynchronous API query handling with caching                         ║
+ * ╚══════════════════════════════════════════════════════════════════════════════╝
  */
 
-'use strict';
+"use strict";
 
-// Will be updated after HF Space deployment
-const API_BASE = process.env.MFU_API_BASE || 'https://badboysxs-murph-api.hf.space';
-const TAG = '[Movies4u]';
+const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+const API_BASE = "https://badboysxs-murph-api.hf.space";
+const TAG = "[Movies4u]";
 
+// In-memory cache to prevent redundant backend hit hammering
 const cache = new Map();
 const CACHE_TTL = 15 * 60 * 1000;
 
@@ -20,6 +28,7 @@ function getCached(key) {
     if (Date.now() - entry.ts > CACHE_TTL) { cache.delete(key); return undefined; }
     return entry.val;
 }
+
 function setCached(key, val) {
     if (cache.size > 200) {
         const oldest = cache.keys().next().value;
@@ -28,36 +37,32 @@ function setCached(key, val) {
     cache.set(key, { val, ts: Date.now() });
 }
 
-async function apiFetch(path, params) {
-    const url = new URL(path, API_BASE);
-    if (params) {
-        for (const [k, v] of Object.entries(params)) {
-            if (v !== undefined && v !== null && v !== 0 && v !== '') url.searchParams.set(k, v);
-        }
+async function fetchJson(url) {
+    try {
+        const resp = await fetch(url, { 
+            method: "GET",
+            signal: AbortSignal.timeout(120000),
+            headers: { Accept: 'application/json', 'User-Agent': 'MurphAddon/7.0' }
+        });
+        return resp.ok ? await resp.json() : null;
+    } catch (e) { 
+        console.error(`${TAG} Fetch failed: ${e.message}`);
+        return null; 
     }
-    const res = await fetch(url.toString(), {
-        signal: AbortSignal.timeout(120000),
-        headers: { Accept: 'application/json', 'User-Agent': 'MurphAddon/7.0' }
-    });
-    if (!res.ok) throw new Error(`${TAG} HTTP ${res.status} for ${url}`);
-    return res.json();
 }
 
 async function tmdbMeta(tmdbId, mediaType) {
-    const type = mediaType === 'tv' ? 'tv' : 'movie';
-    const res = await fetch(
-        `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=439c478a771f35c05022f9feabcca01c`,
-        { signal: AbortSignal.timeout(10000) }
-    );
-    if (!res.ok) return null;
-    const d = await res.json();
+    const type = mediaType === 'tv' || mediaType === 'series' ? 'tv' : 'movie';
+    const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const d = await fetchJson(url);
+    if (!d) return null;
     return {
-        title: mediaType === 'tv' ? d.name : d.title,
-        year: (mediaType === 'tv' ? d.first_air_date : d.release_date || '').slice(0, 4)
+        title: type === 'tv' ? d.name : d.title,
+        year: (type === 'tv' ? d.first_air_date : d.release_date || '').slice(0, 4)
     };
 }
 
-function buildStream(row, isTv, se, ep) {
+function buildStream(row, isTv, se, ep, movieTitle) {
     const lang = row.audio_lang || 'Original';
     const quality = row.quality || 'HD';
     const size = row.per_episode_size || row.file_size || '';
@@ -65,8 +70,7 @@ function buildStream(row, isTv, se, ep) {
 
     if (!directUrl) return null;
 
-    const streamName = `📥 Movies4u | ${quality} | ${lang}`;
-
+    const streamName = `📥 Movies4u | ${movieTitle}`;
     const lines = [];
 
     if (isTv && se != null && ep != null) {
@@ -83,18 +87,17 @@ function buildStream(row, isTv, se, ep) {
     lines.push("By Murph Streams ⚡");
 
     return {
-        name:          streamName,
-        title:         lines.join('\n'),
-        url:           directUrl,
+        name: streamName,
+        title: lines.join('\n'),
+        url: directUrl,
         behaviorHints: {
             notWebReady: false,
-            bingeGroup: `movies4u-${quality.toLowerCase()}`
-        },
-        isMovieBoxDirect: true
+            bingeGroup: `movies4u-v3-refresh`
+        }
     };
 }
 
-function extractStreams(results, isTv, se, ep) {
+function extractStreams(results, isTv, se, ep, movieTitle) {
     const streams = [];
     for (const row of results) {
         let directUrl;
@@ -112,15 +115,16 @@ function extractStreams(results, isTv, se, ep) {
             continue;
         }
 
-        const s = buildStream({ ...row, direct_url: directUrl }, isTv, se, ep);
+        const s = buildStream({ ...row, direct_url: directUrl }, isTv, se, ep, movieTitle);
         if (s) streams.push(s);
     }
-    streams.sort((a, b) => {
-        const pa = parseInt((a.name || '').match(/\d+p/)?.[0] || 0);
-        const pb = parseInt((b.name || '').match(/\d+p/)?.[0] || 0);
+    
+    // Sort highest resolution to lowest
+    return streams.sort((a, b) => {
+        const pa = parseInt((a.title || '').match(/\d+p/)?.[0] || 0);
+        const pb = parseInt((b.title || '').match(/\d+p/)?.[0] || 0);
         return pb - pa;
     });
-    return streams;
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -131,40 +135,76 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const cacheKey = `mfu::${tmdbId}::${mediaType}::${se}::${ep}`;
     const cached = getCached(cacheKey);
     if (cached) {
-        console.log(`${TAG} Cache HIT → ${cached.length} streams`);
         return cached;
     }
 
     const meta = await tmdbMeta(tmdbId, mediaType);
-    if (!meta) {
-        console.log(`${TAG} No TMDB meta for ${tmdbId}`);
+    if (!meta || !meta.title) {
         return [];
     }
 
     const searchTitle = meta.title;
-    console.log(`${TAG} ▶ ${searchTitle} ${mediaType}${isTv ? ` S${se}E${ep}` : ''}`);
 
     try {
-        let data;
+        const url = new URL(isTv ? '/api/mfu/series' : '/api/mfu/movie', API_BASE);
+        url.searchParams.set('q', searchTitle);
         if (isTv) {
-            data = await apiFetch('/api/mfu/series', { q: searchTitle, season: se, episode: ep });
-        } else {
-            data = await apiFetch('/api/mfu/movie', { q: searchTitle });
+            url.searchParams.set('season', se);
+            url.searchParams.set('episode', ep);
         }
 
-        if (!data.results || data.results.length === 0) {
-            console.log(`${TAG} API returned no results for "${searchTitle}"`);
+        const data = await fetchJson(url.toString());
+        if (!data || !data.results || data.results.length === 0) {
             return [];
         }
 
-        const streams = extractStreams(data.results, isTv, se, ep);
-        console.log(`${TAG} ✓ ${streams.length} streams for "${searchTitle}"`);
+        const streams = extractStreams(data.results, isTv, se, ep, searchTitle);
         if (streams.length) setCached(cacheKey, streams);
         return streams;
     } catch (err) {
-        console.error(`${TAG} ✗ ${err.message}`);
         return [];
     }
 }
 
-module.exports = { getStreams };
+// Module system integration export
+if (typeof module !== "undefined" && module.exports) {
+    module.exports = { getStreams: getStreams };
+} else {
+    global.getStreams = getStreams;
+}
+
+/**
+ * ANDROID TV COMPATIBILITY NORMALIZER
+ */
+function __doomNormalizeStream(rawStream) {
+    if (!rawStream || !rawStream.url) return null;
+
+    return {
+        name: rawStream.name,
+        title: rawStream.title,
+        url: rawStream.url,
+        behaviorHints: rawStream.behaviorHints
+    };
+}
+
+(function() {
+    if (typeof getStreams !== "function" || getStreams.__doomNormalizedWrapped) return;
+
+    var __doomOriginalGetStreams = getStreams;
+    var __doomNormalizedGetStreams = function() {
+        return Promise.resolve(__doomOriginalGetStreams.apply(this, arguments))
+            .then(function(streams) {
+                if (!Array.isArray(streams)) return [];
+                return streams.map(__doomNormalizeStream).filter(Boolean);
+            });
+    };
+
+    __doomNormalizedGetStreams.__doomNormalizedWrapped = true;
+    getStreams = __doomNormalizedGetStreams;
+
+    if (typeof module !== "undefined" && module.exports) {
+        module.exports.getStreams = getStreams;
+    } else if (typeof global !== "undefined") {
+        global.getStreams = getStreams;
+    }
+})();

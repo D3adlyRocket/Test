@@ -1,14 +1,13 @@
 // movies4u.js
-// Fully fixed Nuvio-compatible Movies4u provider
+// Fixed Nuvio-compatible Movies4u provider (MULTI-QUALITY FIXED)
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new1.movies4u.finance";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
 const HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  "Referer": FALLBACK_URL + "/",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Referer": FALLBACK_URL,
   "Cookie": "xla=s4t"
 };
 
@@ -18,10 +17,7 @@ async function getBaseUrl() {
   if (cachedBaseUrl) return cachedBaseUrl;
 
   try {
-    const resp = await fetch(DOMAINS_URL, {
-      skipSizeCheck: true
-    });
-
+    const resp = await fetch(DOMAINS_URL, { skipSizeCheck: true });
     const data = await resp.json();
 
     cachedBaseUrl =
@@ -36,8 +32,8 @@ async function getBaseUrl() {
   return cachedBaseUrl;
 }
 
-function extractQuality(text) {
-  const u = (text || "").toLowerCase();
+function extractQuality(text = "") {
+  const u = text.toLowerCase();
 
   if (u.includes("2160") || u.includes("4k")) return "4K";
   if (u.includes("1080")) return "1080p";
@@ -48,128 +44,107 @@ function extractQuality(text) {
   return "Unknown";
 }
 
+// 🔥 NEW: extract ALL m3u8 links, not just one
+function extractAllStreams(html) {
+  const results = new Set();
+
+  const regex = /https?:\/\/[^\s"'<>]+(?:m3u8|master\.txt)[^\s"'<>]*/g;
+  let match;
+
+  while ((match = regex.exec(html)) !== null) {
+    let url = match[0];
+
+    // convert master.txt → master.m3u8 (important fix)
+    if (url.includes("master.txt")) {
+      url = url.replace("master.txt", "master.m3u8");
+    }
+
+    results.add(url);
+  }
+
+  return [...results];
+}
+
+// unpack helper
 function unpack(p, a, c, k) {
   while (c--) {
     if (k[c]) {
-      p = p.replace(
-        new RegExp("\\b" + c.toString(a) + "\\b", "g"),
-        k[c]
-      );
+      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
     }
   }
-
   return p;
 }
 
-async function getStreams(
-  tmdbId,
-  mediaType = "movie",
-  season = null,
-  episode = null
-) {
-  try {
+// =======================
+// MAIN
+// =======================
 
+async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
+  try {
     const BASE_URL = await getBaseUrl();
 
-    // TMDB FETCH
     const tmdbUrl =
       `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
 
     const mediaInfo =
-      await (
-        await fetch(tmdbUrl, {
-          skipSizeCheck: true
-        })
-      ).json();
+      await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
 
     const title = mediaInfo.title || mediaInfo.name;
-
     if (!title) return [];
 
     // SEARCH
     const searchResp = await fetch(
       `${BASE_URL}/?s=${encodeURIComponent(title)}`,
-      {
-        headers: HEADERS,
-        skipSizeCheck: true
-      }
+      { headers: HEADERS, skipSizeCheck: true }
     );
 
     const searchHtml = await searchResp.text();
-
     const $ = cheerio.load(searchHtml);
 
     const results = [];
 
     $("article").each((i, el) => {
-
-      const a =
-        $(el).find("h2 a, h3 a").first();
-
+      const a = $(el).find("h2 a, h3 a").first();
       const href = a.attr("href");
       const name = a.text().trim();
 
-      if (href && name) {
-        results.push({
-          href,
-          name
-        });
-      }
+      if (href && name) results.push({ href, name });
     });
 
-    if (!results.length) {
-      return [];
-    }
+    if (!results.length) return [];
 
     const match =
       results.find(r =>
-        r.name.toLowerCase().includes(
-          title.toLowerCase()
-        )
+        r.name.toLowerCase().includes(title.toLowerCase())
       ) || results[0];
 
-    if (!match) {
-      return [];
-    }
+    if (!match) return [];
 
-    // MOVIE PAGE
     const movieResp = await fetch(match.href, {
       headers: HEADERS,
       skipSizeCheck: true
     });
 
     const movieHtml = await movieResp.text();
-
     const $movie = cheerio.load(movieHtml);
 
     const watchLinks = [];
 
     $movie("a.btn.btn-zip").each((i, el) => {
-
       const href = $movie(el).attr("href");
 
       if (
         href &&
-        (
-          href.includes("m4uplay") ||
-          href.includes("m4ufree") ||
-          href.includes("m4u")
-        )
+        (href.includes("m4uplay") || href.includes("m4u"))
       ) {
         watchLinks.push(href);
       }
     });
 
-    if (!watchLinks.length) {
-      return [];
-    }
-
     const streams = [];
 
     for (const watchLink of watchLinks.slice(0, 5)) {
-
       try {
-
         const embedResp = await fetch(watchLink, {
           headers: {
             ...HEADERS,
@@ -180,156 +155,61 @@ async function getStreams(
 
         const embedHtml = await embedResp.text();
 
-        let m3u8 = null;
+        // 🔥 STEP 1: unpack if needed
+        let html = embedHtml;
 
-        // DIRECT .m3u8
-        m3u8 =
-          embedHtml.match(
-            /https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i
-          )?.[0];
+        const packedMatch = embedHtml.match(
+          /eval\(function\(p,a,c,k,e,d\).*?\)\((.*)\)/s
+        );
 
-        // DIRECT .txt
-        if (!m3u8) {
+        if (packedMatch) {
+          try {
+            const args = packedMatch[1];
+            const parts = args.split(/,(?=(?:[^']*'[^']*')*[^']*$)/);
 
-          m3u8 =
-            embedHtml.match(
-              /https?:\/\/[^\s"'<>]+\.(?:txt)[^\s"'<>]*/i
-            )?.[0];
-        }
-
-        // RELATIVE PATH
-        if (!m3u8) {
-
-          const rel =
-            embedHtml.match(
-              /\/(?:3o|stream)\/[^\s"'<>]+\.(?:m3u8|txt)/i
-            )?.[0];
-
-          if (rel) {
-            m3u8 =
-              "https://m4uplay.store" + rel;
-          }
-        }
-
-        // PACKED JS
-        if (!m3u8) {
-
-          const packedMatch = embedHtml.match(
-            /eval\(function\(p,a,c,k,e,d\).*?\}\s*\(\s*['"]([\s\S]*?)['"]\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*['"]([\s\S]*?)['"]\.split\(['"]\|['"]\)/
-          );
-
-          if (packedMatch) {
-
-            try {
-
-              const unpacked = unpack(
-                packedMatch[1],
-                parseInt(packedMatch[2]),
-                parseInt(packedMatch[3]),
-                packedMatch[4].split("|")
+            if (parts.length >= 4) {
+              html += unpack(
+                parts[0].replace(/['"]/g, ""),
+                parseInt(parts[1]),
+                parseInt(parts[2]),
+                parts[3].replace(/['"]|\.split\('\|'\)/g, "").split("|")
               );
-
-              // FULL URL
-              m3u8 =
-                unpacked.match(
-                  /https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i
-                )?.[0];
-
-              // TXT
-              if (!m3u8) {
-
-                m3u8 =
-                  unpacked.match(
-                    /https?:\/\/[^\s"'<>]+\.(?:txt)[^\s"'<>]*/i
-                  )?.[0];
-              }
-
-              // RELATIVE
-              if (!m3u8) {
-
-                const rel =
-                  unpacked.match(
-                    /\/(?:3o|stream)\/[^\s"'<>]+\.(?:m3u8|txt)/i
-                  )?.[0];
-
-                if (rel) {
-                  m3u8 =
-                    "https://m4uplay.store" + rel;
-                }
-              }
-
-            } catch (_) {}
-          }
+            }
+          } catch (_) {}
         }
 
-        // CONVERT TXT -> M3U8
-        if (
-          m3u8 &&
-          m3u8.endsWith(".txt")
-        ) {
-          m3u8 =
-            m3u8.replace(".txt", ".m3u8");
+        // 🔥 STEP 2: EXTRACT ALL STREAMS
+        const allStreams = extractAllStreams(html);
+
+        if (!allStreams.length) continue;
+
+        // 🔥 STEP 3: PUSH ALL QUALITIES (THIS WAS MISSING BEFORE)
+        for (const url of allStreams) {
+          streams.push({
+            name: "Movies4u",
+            title: "Movies4u Stream",
+            quality: extractQuality(url),
+            url,
+
+            headers: {
+              Referer: "https://m4uplay.store/",
+              Origin: "https://m4uplay.store",
+              "User-Agent": HEADERS["User-Agent"]
+            },
+
+            subtitles: []
+          });
         }
 
-        if (!m3u8) {
-          continue;
-        }
-
-        // REMOVE DUPLICATES
-        if (
-          streams.some(
-            s => s.url === m3u8
-          )
-        ) {
-          continue;
-        }
-
-        streams.push({
-          name: "Movies4u",
-          provider: "Movies4u",
-
-          title:
-            `Movies4u (${extractQuality(
-              watchLink + " " + m3u8
-            )})`,
-
-          quality: extractQuality(
-            watchLink + " " + m3u8
-          ),
-
-          url: m3u8,
-
-          headers: {
-            Referer: "https://m4uplay.store/",
-            Origin: "https://m4uplay.store",
-            "User-Agent":
-              HEADERS["User-Agent"]
-          },
-
-          behaviorHints: {
-            notWebReady: false
-          },
-
-          subtitles: []
-        });
-
-      } catch (_) {}
+      } catch (e) {}
     }
 
     return streams;
 
   } catch (e) {
-
-    console.error(
-      "[Movies4u]",
-      e
-    );
-
+    console.error("[Movies4u]", e);
     return [];
   }
 }
 
-// REQUIRED FOR NUVIO
-module.exports = {
-  getStreams
-};
+module.exports = { getStreams };

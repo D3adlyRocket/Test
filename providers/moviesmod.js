@@ -1,10 +1,10 @@
-const cheerio = require("cheerio-without-node-native");
+// movies4u.js
+// Fixed Nuvio-compatible Movies4u provider (HubCloud API fix included)
 
-const DOMAINS_URL =
-  "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
+const cheerio = require("cheerio");
 
+const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new1.movies4u.finance";
-
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
 const HEADERS = {
@@ -16,9 +16,9 @@ const HEADERS = {
 
 let cachedBaseUrl = null;
 
-/* =======================
-   BASE URL
-======================= */
+// ----------------------
+// BASE URL
+// ----------------------
 async function getBaseUrl() {
   if (cachedBaseUrl) return cachedBaseUrl;
 
@@ -26,10 +26,7 @@ async function getBaseUrl() {
     const resp = await fetch(DOMAINS_URL, { skipSizeCheck: true });
     const data = await resp.json();
 
-    cachedBaseUrl =
-      data.movies4u ||
-      data.movies4uhd ||
-      FALLBACK_URL;
+    cachedBaseUrl = data.movies4u || data.movies4uhd || FALLBACK_URL;
   } catch (_) {
     cachedBaseUrl = FALLBACK_URL;
   }
@@ -37,95 +34,90 @@ async function getBaseUrl() {
   return cachedBaseUrl;
 }
 
-/* =======================
-   QUALITY
-======================= */
+// ----------------------
+// QUALITY
+// ----------------------
 function extractQuality(text) {
   const u = (text || "").toLowerCase();
-
   if (u.includes("2160") || u.includes("4k")) return "4K";
   if (u.includes("1080")) return "1080p";
   if (u.includes("720")) return "720p";
   if (u.includes("480")) return "480p";
-  if (u.includes("360")) return "360p";
-
   return "Unknown";
 }
 
-/* =======================
-   FINAL FILTER ONLY
-======================= */
-function isBad(url) {
-  if (!url) return true;
-  const u = url.toLowerCase();
+// ----------------------
+// HUBCLOUD FIX (CORE)
+// ----------------------
+async function resolveHubcloudApi(url) {
+  try {
+    const id = url.match(/[?&]id=([^&]+)/)?.[1];
+    const token = url.match(/[?&]token=([^&]+)/)?.[1];
 
-  return (
-    u.includes(".apk") ||
-    u.includes(".zip") ||
-    u.includes("install") ||
-    u.includes("download-app")
-  );
+    if (!id || !token) return null;
+
+    const apiUrl = `https://hubcloud.php?host=hubcloud&id=${id}&token=${encodeURIComponent(
+      token
+    )}`;
+
+    const res = await fetch(apiUrl, {
+      headers: {
+        ...HEADERS,
+        Referer: "https://hubcloud.foo/",
+      },
+      skipSizeCheck: true,
+    });
+
+    const html = await res.text();
+
+    let stream =
+      html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
+      html.match(/https?:\/\/[^\s"'<>]+\.mp4[^\s"'<>]*/i)?.[0] ||
+      html.match(/https?:\/\/pub-[a-zA-Z0-9\-]+\.r2\.dev[^\s"'<>]*/i)?.[0] ||
+      html.match(/https?:\/\/[^\s"'<>]+token=[^\s"'<>]*/i)?.[0];
+
+    return stream || null;
+  } catch {
+    return null;
+  }
 }
 
-/* =======================
-   HUB / FSL DETECTOR
-======================= */
-function isHubLike(url) {
-  if (!url) return false;
-  const u = url.toLowerCase();
-
-  return (
-    u.includes("hub") ||
-    u.includes("fsl") ||
-    u.includes("homelander") ||
-    u.includes("gamerxyt") ||
-    u.includes("token=")
-  );
-}
-
-/* =======================
-   RESOLVE (SAFE)
-======================= */
+// ----------------------
+// SAFE RESOLVE
+// ----------------------
 async function resolveUrl(url) {
   try {
-    const res = await fetch(url, {
+    const resp = await fetch(url, {
       headers: HEADERS,
       redirect: "follow",
       skipSizeCheck: true,
     });
 
-    return res.url || url;
+    return resp.url || url;
   } catch {
     return url;
   }
 }
 
-/* =======================
-   MAIN
-======================= */
+// ----------------------
+// MAIN
+// ----------------------
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   try {
     const BASE_URL = await getBaseUrl();
 
-    const tmdbUrl =
-      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-
-    const mediaInfo =
-      await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
+    // TMDB
+    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const mediaInfo = await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
 
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    /* =======================
-       SEARCH
-    ======================= */
-    const searchResp = await fetch(
-      `${BASE_URL}/?s=${encodeURIComponent(title)}`,
-      {
-        headers: HEADERS,
-        skipSizeCheck: true,
-      }
-    );
+    // SEARCH
+    const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {
+      headers: HEADERS,
+      skipSizeCheck: true,
+    });
 
     const searchHtml = await searchResp.text();
     const $ = cheerio.load(searchHtml);
@@ -134,7 +126,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     $("article").each((i, el) => {
       const a = $(el).find("h2 a, h3 a").first();
-
       const href = a.attr("href");
       const name = a.text().trim();
 
@@ -144,15 +135,12 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     if (!results.length) return [];
 
     const match =
-      results.find(r =>
-        r.name.toLowerCase().includes(title.toLowerCase())
-      ) || results[0];
+      results.find((r) => r.name.toLowerCase().includes(title.toLowerCase())) ||
+      results[0];
 
     if (!match) return [];
 
-    /* =======================
-       MOVIE PAGE
-    ======================= */
+    // MOVIE PAGE
     const movieResp = await fetch(match.href, {
       headers: HEADERS,
       skipSizeCheck: true,
@@ -161,92 +149,58 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const movieHtml = await movieResp.text();
     const $movie = cheerio.load(movieHtml);
 
-    const links = [];
+    const watchLinks = [];
 
-    /* =======================
-       🔥 LAYER 1: DOWNLOAD BLOCKS (IMPORTANT FIX)
-    ======================= */
-    $movie("div.downloads-btns-div a[href], div.download-links-div a[href]").each((i, el) => {
+    $movie("a.btn.btn-zip").each((i, el) => {
       const href = $movie(el).attr("href");
-      if (href) links.push(href);
-    });
-
-    /* =======================
-       🔥 LAYER 2: EMBED LINKS
-    ======================= */
-    $movie("a[href]").each((i, el) => {
-      const href = $movie(el).attr("href");
-
-      if (
-        href &&
-        (
-          href.includes("m4u") ||
-          href.includes("m4uplay") ||
-          href.includes("m4ufree") ||
-          href.includes("hub") ||
-          href.includes("fsl") ||
-          href.includes("search-recover") ||
-          href.includes("archive")
-        )
-      ) {
-        links.push(href);
-      }
+      if (href) watchLinks.push(href);
     });
 
     const streams = [];
 
-    /* =======================
-       RESOLUTION ENGINE
-    ======================= */
-    for (const link of links.slice(0, 15)) {
+    // ----------------------
+    // STREAM RESOLUTION
+    // ----------------------
+    for (const watchLink of watchLinks.slice(0, 6)) {
       try {
-        const resolved = await resolveUrl(link);
-
-        if (isBad(resolved)) continue;
-
-        /* =======================
-           HUB / FSL DIRECT
-        ======================= */
-        if (isHubLike(resolved)) {
-          streams.push({
-            name: "Movies4u",
-            title: "Hub/FSL Stream",
-            quality: extractQuality(resolved),
-            url: resolved,
-            headers: {
-              Referer: BASE_URL + "/",
-              "User-Agent": HEADERS["User-Agent"],
-            },
-            subtitles: [],
-          });
-
-          continue;
-        }
-
-        /* =======================
-           EMBED STREAM PARSER
-        ======================= */
-        const embedResp = await fetch(link, {
-          headers: {
-            ...HEADERS,
-            Referer: BASE_URL + "/",
-          },
+        const embedResp = await fetch(watchLink, {
+          headers: { ...HEADERS, Referer: BASE_URL + "/" },
           skipSizeCheck: true,
         });
 
-        const html = await embedResp.text();
+        const embedHtml = await embedResp.text();
 
-        let stream =
-          html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
-          html.match(/https?:\/\/[^\s"'<>]+\.mp4[^\s"'<>]*/i)?.[0];
+        let m3u8 =
+          embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
+          embedHtml.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
 
-        if (!stream || isBad(stream)) continue;
+        // ----------------------
+        // HUBCLOUD FALLBACK DETECTION
+        // ----------------------
+        const hubMatch = embedHtml.match(
+          /https?:\/\/hubcloud[^"'<> ]+hubcloud\.php[^"'<> ]+/i
+        );
+
+        if (hubMatch) {
+          const resolved = await resolveHubcloudApi(hubMatch[0]);
+          if (resolved) m3u8 = resolved;
+        }
+
+        // convert master.txt
+        if (m3u8 && m3u8.includes("master.txt")) {
+          m3u8 = m3u8.replace("master.txt", "master.m3u8");
+        }
+
+        // ❌ filter junk
+        if (!m3u8) continue;
+        if (m3u8.includes(".apk")) continue;
+        if (m3u8.includes("Movies4u.apk")) continue;
 
         streams.push({
           name: "Movies4u",
-          title: "Stream",
-          quality: extractQuality(stream),
-          url: stream,
+          title: "HubCloud Stream",
+          quality: extractQuality(watchLink + " " + m3u8),
+          url: m3u8,
           headers: {
             Referer: "https://m4uplay.store/",
             Origin: "https://m4uplay.store",
@@ -254,36 +208,16 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           },
           subtitles: [],
         });
-
       } catch (_) {}
     }
 
-    /* =======================
-       FINAL CLEANUP
-    ======================= */
-    const seen = new Set();
-    const finalStreams = [];
-
-    for (const s of streams) {
-      if (!s.url) continue;
-      if (isBad(s.url)) continue;
-      if (seen.has(s.url)) continue;
-
-      seen.add(s.url);
-      finalStreams.push(s);
-    }
-
-    return finalStreams;
-
+    return streams;
   } catch (e) {
     console.error("[Movies4u]", e);
     return [];
   }
 }
 
-/* =======================
-   EXPORT
-======================= */
 module.exports = {
   getStreams,
 };

@@ -129,9 +129,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const $movie = cheerio.load(movieHtml);
 
-    const watchLinks = [];
+    const watchLinksRaw = [];
 
-    // EXTRA DISCOVERY (lightweight boost, does not break existing logic)
+// EXTRA DISCOVERY (keep all hosts)
 $movie("a[href]").each((i, el) => {
   const href = $movie(el).attr("href") || "";
 
@@ -142,26 +142,38 @@ $movie("a[href]").each((i, el) => {
     href.includes("hubcloud") ||
     href.includes("gdflix")
   ) {
-    watchLinks.push(href);
+    watchLinksRaw.push(href);
   }
 });
 
-    $movie("a.btn.btn-zip").each((i, el) => {
-      const href = $movie(el).attr("href");
+// PRIMARY BUTTON LINKS
+$movie("a.btn.btn-zip").each((i, el) => {
+  const href = $movie(el).attr("href");
 
-      if (
-        href &&
-        (
-          href.includes("m4uplay") ||
-          href.includes("m4ufree") ||
-          href.includes("m4u")
-        )
-      ) {
-        watchLinks.push(href);
-      }
-    });
+  if (
+    href &&
+    (
+      href.includes("m4uplay") ||
+      href.includes("m4ufree") ||
+      href.includes("m4u") ||
+      href.includes("hubcloud") ||
+      href.includes("gdflix")
+    )
+  ) {
+    watchLinksRaw.push(href);
+  }
+});
 
-    const streams = [];
+// CLEAN + REMOVE DUPLICATES
+const watchLinks = [
+  ...new Set(
+    watchLinksRaw
+      .filter(Boolean)
+      .map(l => l.split("?")[0])
+  )
+];
+
+const streams = [];
 
     for (const watchLink of watchLinks.slice(0, 5)) {
 
@@ -210,7 +222,31 @@ if (!m3u8) {
     m3u8 = "https://m4uplay.store" + rel;
   }
 }
+// IF NOTHING FOUND → CHECK IFRAMES (GDFlix / HubCloud FIX)
+if (!m3u8) {
+  const iframe =
+    embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/i)?.[1];
 
+  if (iframe) {
+    try {
+      const iframeResp = await fetch(iframe, {
+        headers: HEADERS,
+        skipSizeCheck: true
+      });
+
+      const iframeHtml = await iframeResp.text();
+
+      m3u8 =
+        iframeHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
+
+      if (!m3u8) {
+        m3u8 =
+          iframeHtml.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
+      }
+    } catch (e) {}
+  }
+}
+        
 // PACKED JS
 if (!m3u8) {
 

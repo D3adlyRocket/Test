@@ -1,12 +1,12 @@
 // movies4u.js
-// Fixed Nuvio-compatible Movies4u provider (SCRAPER + API HYBRID)
+// Multi-stream FIXED provider (Scraper + API + Host Resolver)
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new1.movies4u.finance";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
   "Referer": FALLBACK_URL,
   "Cookie": "xla=s4t"
 };
@@ -32,30 +32,29 @@ async function getBaseUrl() {
   return cachedBaseUrl;
 }
 
-function extractQuality(text) {
-  const u = (text || "").toLowerCase();
-
+function extractQuality(text = "") {
+  const u = text.toLowerCase();
   if (u.includes("2160") || u.includes("4k")) return "4K";
   if (u.includes("1080")) return "1080p";
   if (u.includes("720")) return "720p";
   if (u.includes("480")) return "480p";
-  if (u.includes("360")) return "360p";
-
   return "Unknown";
 }
 
-async function resolveUrl(url) {
+function getHost(url = "") {
   try {
-    const resp = await fetch(url, {
-      headers: HEADERS,
-      redirect: "follow",
-      skipSizeCheck: true
-    });
-
-    return resp.url || url;
-  } catch (_) {
-    return url;
+    return new URL(url).hostname;
+  } catch {
+    return "";
   }
+}
+
+function isValidStream(url = "") {
+  return (
+    url.includes("http") &&
+    !url.includes("telegram") &&
+    !url.includes("javascript:")
+  );
 }
 
 // =======================
@@ -66,7 +65,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
   try {
     const BASE_URL = await getBaseUrl();
 
-    // TMDB
     const tmdbUrl =
       `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
 
@@ -74,13 +72,13 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
 
     const title = mediaInfo.title || mediaInfo.name;
-
     if (!title) return [];
 
     const streams = [];
+    const seenHosts = new Set();
 
     // =========================================================
-    // 1. SCRAPER PIPELINE (YOUR ORIGINAL LOGIC - PRESERVED)
+    // 1. SCRAPER PIPELINE (MULTI-HOST EXTRACTION)
     // =========================================================
 
     const searchResp = await fetch(
@@ -95,23 +93,17 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     $("article").each((i, el) => {
       const a = $(el).find("h2 a, h3 a").first();
-
       const href = a.attr("href");
       const name = a.text().trim();
 
-      if (href && name) {
-        results.push({ href, name });
-      }
+      if (href && name) results.push({ href, name });
     });
 
     if (!results.length) return [];
 
     const match =
-      results.find(r =>
-        r.name.toLowerCase().includes(title.toLowerCase())
-      ) || results[0];
-
-    if (!match?.href) return [];
+      results.find(r => r.name.toLowerCase().includes(title.toLowerCase())) ||
+      results[0];
 
     const movieResp = await fetch(match.href, {
       headers: HEADERS,
@@ -121,107 +113,76 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const movieHtml = await movieResp.text();
     const $movie = cheerio.load(movieHtml);
 
-    const watchLinksRaw = [];
+    const links = [];
 
-    // EXTRA DISCOVERY
+    // collect ALL possible hosts
     $movie("a[href]").each((i, el) => {
       const href = $movie(el).attr("href") || "";
-
-      if (
-        href.includes("m4uplay") ||
-        href.includes("m4ufree") ||
-        href.includes("m4u") ||
-        href.includes("hubcloud") ||
-        href.includes("gdflix")
-      ) {
-        watchLinksRaw.push(href);
-      }
+      if (isValidStream(href)) links.push(href);
     });
 
-    // BUTTON LINKS
-    $movie("a.btn.btn-zip").each((i, el) => {
-      const href = $movie(el).attr("href");
+    const uniqueLinks = [...new Set(links)];
 
-      if (
-        href &&
-        (
-          href.includes("m4uplay") ||
-          href.includes("m4ufree") ||
-          href.includes("m4u") ||
-          href.includes("hubcloud") ||
-          href.includes("gdflix")
-        )
-      ) {
-        watchLinksRaw.push(href);
-      }
-    });
+    // =========================================================
+    // 2. RESOLVE EMBEDS → EXTRACT MULTI STREAMS
+    // =========================================================
 
-    const watchLinks = [
-      ...new Set(
-        watchLinksRaw
-          .filter(Boolean)
-          .map(l => l.split("?")[0])
-      )
-    ];
-
-    function unpack(p, a, c, k) {
-      while (c--) {
-        if (k[c]) {
-          p = p.replace(
-            new RegExp("\\b" + c.toString(a) + "\\b", "g"),
-            k[c]
-          );
-        }
-      }
-      return p;
-    }
-
-    for (const watchLink of watchLinks.slice(0, 5)) {
+    for (const link of uniqueLinks.slice(0, 8)) {
       try {
-        const embedResp = await fetch(watchLink, {
-          headers: {
-            ...HEADERS,
-            Referer: BASE_URL + "/"
-          },
+        const res = await fetch(link, {
+          headers: { ...HEADERS, Referer: BASE_URL + "/" },
           skipSizeCheck: true
         });
 
-        const embedHtml = await embedResp.text();
+        const html = await res.text();
 
-        let m3u8 = null;
+        const found = [];
 
-        m3u8 =
-          embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
+        // direct m3u8
+        const direct = html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
+        if (direct) found.push(direct);
 
-        if (!m3u8) {
-          m3u8 =
-            embedHtml.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
+        // master
+        const master = html.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
+        if (master) found.push(master.replace("master.txt", "master.m3u8"));
+
+        // iframe hop (GDFlix / HubCloud fix)
+        const iframe = html.match(/<iframe[^>]+src=["']([^"']+)["']/i)?.[1];
+        if (iframe) {
+          try {
+            const ires = await fetch(iframe, { headers: HEADERS, skipSizeCheck: true });
+            const ih = await ires.text();
+
+            const i1 = ih.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
+            const i2 = ih.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
+
+            if (i1) found.push(i1);
+            if (i2) found.push(i2.replace("master.txt", "master.m3u8"));
+          } catch {}
         }
 
-        if (!m3u8) {
-          const rel =
-            embedHtml.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
+        for (const url of found) {
+          if (!url) continue;
 
-          if (rel) {
-            m3u8 = "https://m4uplay.store" + rel;
-          }
+          const host = getHost(url);
+          if (seenHosts.has(host)) continue; // IMPORTANT DEDUPE BY HOST
+
+          seenHosts.add(host);
+
+          streams.push({
+            name: `Movies4u (${host})`,
+            title: `Movies4u Stream • ${extractQuality(url)}`,
+            url,
+            quality: extractQuality(url),
+            subtitles: []
+          });
         }
 
-        if (!m3u8) continue;
-
-        streams.push({
-          name: "Movies4u",
-          title: "Movies4u Stream",
-          url: m3u8,
-          quality: extractQuality(watchLink + " " + m3u8),
-          subtitles: []
-        });
-
-      } catch (_) {}
+      } catch {}
     }
 
     // =========================================================
-    // 2. API PIPELINE (ADDED MULTI-LINK SOURCE)
+    // 3. API PIPELINE (MULTI STREAM SOURCE)
     // =========================================================
 
     try {
@@ -237,22 +198,27 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
       if (apiData?.results?.length) {
         for (const row of apiData.results) {
-          const directUrl =
+          const url =
             row.direct_url ||
             row.episodes?.[0]?.direct_url;
 
-          if (!directUrl) continue;
+          if (!url) continue;
+
+          const host = getHost(url);
+          if (seenHosts.has(host)) continue;
+
+          seenHosts.add(host);
 
           streams.push({
-            name: "Movies4u API",
-            title: `Movies4u | ${row.quality || "HD"} | ${row.audio_lang || "Original"}`,
-            url: directUrl,
+            name: `Movies4u API (${host})`,
+            title: `API • ${row.quality || "HD"} • ${row.audio_lang || "Original"}`,
+            url,
             quality: row.quality || "HD",
             subtitles: []
           });
         }
       }
-    } catch (_) {}
+    } catch {}
 
     return streams;
 
@@ -261,7 +227,5 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     return [];
   }
 }
-
-// =======================
 
 module.exports = { getStreams };

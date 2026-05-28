@@ -1,6 +1,8 @@
 // movies4u.js
 // Fixed Nuvio-compatible Movies4u provider
 
+const cheerio = require("cheerio");
+
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new1.movies4u.finance";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -96,7 +98,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const results = [];
 
-    $("article").each((i, el) => {
+    $("article, .post, .result-item, .item, li").each((i, el) => {
       const a = $(el).find("h2 a, h3 a").first();
 
       const href = a.attr("href");
@@ -379,7 +381,9 @@ streams.push({
   subtitles: []
 });
 
-      } catch (e) {}
+      } catch (e) {
+  console.log("[Movies4u ERROR]", e.message);
+}
     }
 
     return streams;

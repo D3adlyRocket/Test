@@ -136,13 +136,13 @@ $movie("a[href]").each((i, el) => {
   const href = $movie(el).attr("href") || "";
 
   if (
-    href.includes("m4u") ||
-    href.includes("hubcloud") ||
-    href.includes("gdflix") ||
-    href.includes("watch") ||
-    href.includes("download") ||
-    href.startsWith("http")
-  ) {
+  href.includes("m4uplay") ||
+  href.includes("m4ufree") ||
+  href.includes("hubcloud") ||
+  href.includes("gdflix") ||
+  href.includes("/download/") ||
+  href.includes("/watch/")
+) {
     watchLinksRaw.push(href);
   }
 });

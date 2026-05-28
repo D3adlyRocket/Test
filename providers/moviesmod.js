@@ -1,11 +1,11 @@
 // movies4u.js
-// Fixed Nuvio-compatible Movies4u provider (WITH FSL / HUBCLOUD FIX)
-
-const cheerio = require("cheerio");
+// Fixed Nuvio-compatible Movies4u provider (clean HubCloud/FSL + stream filter fix)
 
 const DOMAINS_URL =
   "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
+
 const FALLBACK_URL = "https://new1.movies4u.finance";
+
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
 const HEADERS = {
@@ -54,27 +54,46 @@ function extractQuality(text) {
 }
 
 /* =======================
-   🔥 NEW FIX: DIRECT HUB/FSL DETECTION
+   STREAM VALIDATION (FIXED)
 ======================= */
-function isDirectStream(url) {
+function isValidStream(url) {
   if (!url) return false;
 
-  return (
-    url.includes("hub.homelander.buzz") ||
-    url.includes("hubcloud") ||
-    url.includes("fsl") ||
-    url.includes("?token=") ||
-    url.includes("r2.dev")
-  );
+  const u = url.toLowerCase();
+
+  // ❌ reject junk downloads
+  if (
+    u.includes(".apk") ||
+    u.includes(".zip") ||
+    u.includes("install") ||
+    u.includes("setup")
+  ) {
+    return false;
+  }
+
+  // ✅ real streams
+  if (u.includes(".m3u8")) return true;
+  if (u.includes(".mp4")) return true;
+
+  // ✅ hub / fsl / token based streams (valid but opaque)
+  if (
+    u.includes("hub.homelander.buzz") ||
+    u.includes("hubcloud") ||
+    u.includes("fsl") ||
+    u.includes("token=")
+  ) {
+    return true;
+  }
+
+  return false;
 }
 
 /* =======================
-   URL RESOLVER (FIXED)
+   RESOLVE URL
 ======================= */
 async function resolveUrl(url) {
   try {
-    // 🔥 IMPORTANT FIX: if already final CDN/FSL link, return immediately
-    if (isDirectStream(url)) return url;
+    if (isValidStream(url)) return url;
 
     const resp = await fetch(url, {
       headers: HEADERS,
@@ -89,7 +108,7 @@ async function resolveUrl(url) {
 }
 
 /* =======================
-   MAIN FUNCTION
+   MAIN
 ======================= */
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   try {
@@ -122,6 +141,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     $("article").each((i, el) => {
       const a = $(el).find("h2 a, h3 a").first();
+
       const href = a.attr("href");
       const name = a.text().trim();
 
@@ -161,7 +181,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           href.includes("m4uplay") ||
           href.includes("m4ufree") ||
           href.includes("m4u") ||
-          href.includes("m4ulinks") ||
           href.includes("hub") ||
           href.includes("fsl")
         )
@@ -173,17 +192,17 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const streams = [];
 
     /* =======================
-       STREAM EXTRACTION
+       STREAM RESOLUTION
     ======================= */
     for (const watchLink of watchLinks.slice(0, 8)) {
       try {
-
-        // 🔥 FIX 1: direct FSL/HUB links (NO parsing needed)
         const direct = await resolveUrl(watchLink);
-        if (isDirectStream(direct)) {
+
+        // 🔥 DIRECT HUB/FSL STREAM
+        if (isValidStream(direct)) {
           streams.push({
             name: "Movies4u",
-            title: "Direct Cloud Stream",
+            title: "Direct Stream",
             quality: extractQuality(direct),
             url: direct,
             headers: {
@@ -206,69 +225,26 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
         const embedHtml = await embedResp.text();
 
-        function unpack(p, a, c, k) {
-          while (c--) {
-            if (k[c]) {
-              p = p.replace(
-                new RegExp("\\b" + c.toString(a) + "\\b", "g"),
-                k[c]
-              );
-            }
-          }
-          return p;
-        }
-
         let m3u8 = null;
 
-        /* =======================
-           NORMAL STREAM DETECTION
-        ======================= */
+        // HLS
         m3u8 =
           embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
 
+        // MP4 fallback
+        if (!m3u8) {
+          m3u8 =
+            embedHtml.match(/https?:\/\/[^\s"'<>]+\.mp4[^\s"'<>]*/i)?.[0];
+        }
+
+        // master.txt
         if (!m3u8) {
           m3u8 =
             embedHtml.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
         }
 
-        if (!m3u8) {
-          const rel =
-            embedHtml.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
-
-          if (rel) {
-            m3u8 = "https://m4uplay.store" + rel;
-          }
-        }
-
-        /* =======================
-           PACKED JS
-        ======================= */
-        if (!m3u8) {
-          const packedMatch = embedHtml.match(
-            /eval\(function\(p,a,c,k,e,d\).*?\}\('(.*)',(\d+),(\d+),'(.*)'\.split\('\|'\)/s
-          );
-
-          if (packedMatch) {
-            try {
-              const unpacked = unpack(
-                packedMatch[1],
-                parseInt(packedMatch[2]),
-                parseInt(packedMatch[3]),
-                packedMatch[4].split("|")
-              );
-
-              m3u8 =
-                unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
-                unpacked.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
-            } catch (_) {}
-          }
-        }
-
         if (!m3u8) continue;
 
-        /* =======================
-           FINAL STREAM PUSH
-        ======================= */
         streams.push({
           name: "Movies4u",
           title: "Movies4u Stream",
@@ -282,7 +258,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           subtitles: [],
         });
 
-      } catch (e) {}
+      } catch (_) {}
     }
 
     return streams;

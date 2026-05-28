@@ -76,14 +76,21 @@ async function resolveHubCloud(hubUrl) {
       skipSizeCheck: true
     });
 
+    console.log("[HUB STATUS]", resp.status);
     const data = await resp.json();
 console.log("[HUB DATA]", JSON.stringify(data).slice(0, 500));
     
-    if (!data?.links?.length) {
-      return [];
-    }
+    const links =
+  data?.links ||
+  data?.data?.links ||
+  [];
 
-    return data.links
+if (!links.length) {
+  console.log("[NO LINKS]", JSON.stringify(data).slice(0, 500));
+  return [];
+}
+
+return links
       .filter(l => l?.url)
       .map(l => ({
         name: "Movies4u",
@@ -172,7 +179,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const $movie = cheerio.load(movieHtml);
 
-    const watchLinks = [];
+    const watchLinks = new Set();
 
     $movie("a[href]").each((i, el) => {
       const href = $movie(el).attr("href");
@@ -187,15 +194,14 @@ if (
   lowerHref.includes("hub-cloud") ||
   lowerHref.includes("fsl")
 ) {
-        watchLinks.push(href);
+        watchLinks.add(href);
   console.log("[WATCHLINK]", href);
       }
     });
 
     const streams = [];
 
-    for (const watchLink of watchLinks.slice(0, 5)) {
-
+    for (const watchLink of [...watchLinks]) {
   try {
 
     const lowerWatch = watchLink.toLowerCase();
@@ -203,9 +209,12 @@ if (
 if (
   lowerWatch.includes("hubcloud") ||
   lowerWatch.includes("hub-cloud") ||
-  lowerWatch.includes("fsl")
+  lowerWatch.includes("fsl") ||
+  lowerWatch.includes("gdflix") ||
+  lowerWatch.includes("driveleech") ||
+  lowerWatch.includes("pixeldrain")
 ){
-
+console.log("[RESOLVING HUB]", watchLink);
       const hubStreams = await resolveHubCloud(watchLink);
 console.log("[HUB RESULT]", hubStreams.length);
       if (hubStreams?.length) {

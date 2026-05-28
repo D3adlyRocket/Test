@@ -1,6 +1,8 @@
 // movies4u.js
 // Fixed Nuvio-compatible Movies4u provider
 
+const cheerio = require("cheerio");
+
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new1.movies4u.finance";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -54,7 +56,8 @@ function detectProvider(url = "") {
   if (u.includes("fsl")) return "fsl";
   if (u.includes("m4uplay")) return "m4uplay";
   if (u.includes("m4u")) return "m4u";
-  if (u.includes("m3u8") || u.includes("master.txt")) return "direct";
+  if if (u.includes(".m3u8")) return "direct";
+  if (u.includes("master.txt")) return "direct";
   if (u.includes("token=")) return "direct";
 
   return "unknown";
@@ -97,7 +100,12 @@ async function resolveStream(url) {
     }
 
     // fallback
-    return await resolveUrl(url);
+    return [{
+  url: await resolveUrl(url),
+  quality: "Unknown",
+  title: "Direct Stream",
+  subtitles: []
+}];
 
   } catch (e) {
     return [];
@@ -134,9 +142,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const searchHtml = await searchResp.text();
 
-    const $ = cheerio.load(searchHtml);
+if (!searchHtml) return [];
 
-    const results = [];
+const $ = cheerio.load(searchHtml);
 
     const results = [];
 
@@ -152,7 +160,7 @@ const selectors = [
 selectors.forEach(sel => {
   $(sel).each((_, el) => {
 
-    const a = $(el).find("a").first();
+    const a = $(el).find("a[href]").first();
 
     const href = a.attr("href");
 

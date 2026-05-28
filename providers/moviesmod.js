@@ -277,24 +277,33 @@ if (m3u8 && m3u8.includes("master.txt")) {
   m3u8 = m3u8.replace("master.txt", "master.m3u8");
 }
 
-        if (!m3u8) continue;
+// FINAL URL
+const finalUrl = m3u8 || watchLink;
 
-        streams.push({
-          name: "Movies4u",
-          title: "Movies4u Stream",
-          quality: extractQuality(
-  watchLink + " " + m3u8
-),
-          url: m3u8,
+// skip obvious junk
+if (
+  !finalUrl ||
+  finalUrl.includes("telegram") ||
+  finalUrl.includes("facebook")
+) {
+  continue;
+}
 
-          headers: {
-            Referer: "https://m4uplay.store/",
-            Origin: "https://m4uplay.store",
-            "User-Agent": HEADERS["User-Agent"]
-          },
+streams.push({
+  name: "Movies4u",
+  title: `Movies4u ${extractQuality(finalUrl)}`,
+  quality: extractQuality(finalUrl),
 
-          subtitles: []
-        });
+  url: finalUrl,
+
+  headers: {
+    Referer: "https://m4uplay.store/",
+    Origin: "https://m4uplay.store",
+    "User-Agent": HEADERS["User-Agent"]
+  },
+
+  subtitles: []
+});
 
       } catch (e) {}
     }

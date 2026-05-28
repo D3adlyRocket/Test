@@ -1,5 +1,5 @@
 // movies4u.js
-// Fully working Nuvio-compatible Movies4u provider with API-assisted HubCloud/FSL resolution
+// Optimized Nuvio-compatible Movies4u provider with aggressive link filtering
 
 const cheerio = require("cheerio");
 
@@ -17,50 +17,32 @@ let cachedBaseUrl = null;
 
 async function getBaseUrl() {
   if (cachedBaseUrl) return cachedBaseUrl;
-
   try {
-    const resp = await fetch(DOMAINS_URL, {
-      skipSizeCheck: true
-    });
-
+    const resp = await fetch(DOMAINS_URL, { skipSizeCheck: true });
     const data = await resp.json();
-
-    cachedBaseUrl =
-      data.movies4u ||
-      data.movies4uhd ||
-      FALLBACK_URL;
-
+    cachedBaseUrl = data.movies4u || data.movies4uhd || FALLBACK_URL;
   } catch (_) {
     cachedBaseUrl = FALLBACK_URL;
   }
-
   return cachedBaseUrl;
 }
 
 function extractQuality(text) {
   const u = (text || "").toLowerCase();
-
   if (u.includes("2160") || u.includes("4k")) return "4K";
   if (u.includes("1080")) return "1080p";
   if (u.includes("720")) return "720p";
   if (u.includes("480")) return "480p";
-  if (u.includes("360")) return "360p";
-
   return "Unknown";
 }
 
 function detectProvider(url = "") {
   const u = url.toLowerCase();
-
   if (u.includes("hubcloud") || u.includes("hc.now") || u.includes("hubcloud.club")) return "hubcloud";
   if (u.includes("fsl") || u.includes("fslink")) return "fsl";
   if (u.includes("m4uplay")) return "m4uplay";
   if (u.includes("m4u")) return "m4u";
-
-  if (u.includes("token=")) return "direct";
-  if (u.includes(".m3u8")) return "direct";
-  if (u.includes("master.txt")) return "direct";
-
+  if (u.includes("token=") || u.includes(".m3u8") || u.includes("master.txt")) return "direct";
   return "unknown";
 }
 
@@ -71,38 +53,24 @@ async function resolveUrl(url) {
       redirect: "follow",
       skipSizeCheck: true
     });
-
     return resp.url || url;
-
   } catch (_) {
     return url;
   }
 }
 
-// ==========================================
-// INSERTED FIXED HUBLOUD & FSL RESOLVERS HERE
-// ==========================================
-
-/**
- * Fixed HubCloud Resolver
- * Uses the external microservice to cleanly bypass browser validation gates
- */
 async function resolveHubCloud(url) {
   try {
-    // Encode the protected streaming link
     const extractionApi = `https://hc-zf3c.vercel.app/api/extract?url=${encodeURIComponent(url)}`;
-    
     const resp = await fetch(extractionApi, {
       headers: { "Accept": "application/json" },
       skipSizeCheck: true
     });
-
     if (!resp.ok) return [];
     
     const data = await resp.json();
     const links = data.links || [];
 
-    // Map out all active stream formats returned by the solver service
     if (links.length > 0) {
       return links.map(link => ({
         url: link.url,
@@ -111,18 +79,13 @@ async function resolveHubCloud(url) {
         subtitles: []
       }));
     }
-
     return [];
   } catch (e) {
-    console.error("[HubCloud Resolver Exception via Service]", e);
+    console.error("[HubCloud Resolver Exception]", e);
     return [];
   }
 }
 
-/**
- * Since FSL routes identically through the same gateway platforms,
- * we can route FSL links directly into the same operational solver.
- */
 async function resolveFSL(url) {
   return await resolveHubCloud(url);
 }
@@ -140,24 +103,12 @@ async function resolveM4U(url) {
   }
 }
 
-// ==========================================
-
 async function resolveStream(url) {
   const type = detectProvider(url);
-
   try {
-    if (type === "hubcloud") {
-      return await resolveHubCloud(url);
-    }
-
-    if (type === "fsl") {
-      return await resolveFSL(url);
-    }
-
-    if (type === "m4uplay" || type === "m4u") {
-      return await resolveM4U(url);
-    }
-
+    if (type === "hubcloud") return await resolveHubCloud(url);
+    if (type === "fsl") return await resolveFSL(url);
+    if (type === "m4uplay" || type === "m4u") return await resolveM4U(url);
     if (type === "direct") {
       return [{
         url,
@@ -166,123 +117,93 @@ async function resolveStream(url) {
         subtitles: []
       }];
     }
-
-    return [{
-      url: await resolveUrl(url),
-      quality: "Unknown",
-      title: "Direct Stream",
-      subtitles: []
-    }];
-
+    return [];
   } catch (e) {
     return [];
   }
 }
 
-// =======================
-// NUVIO EXPORT PIPELINE
-// =======================
+// ==========================================
+// CRITICAL FIX: CLEANED UP PIPELINE
+// ==========================================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   try {
     const BASE_URL = await getBaseUrl();
 
-    // TMDB
-    const tmdbUrl =
-      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-
-    const mediaInfo =
-      await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
-
+    // 1. TMDB Meta Lookup
+    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const mediaInfo = await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
     const title = mediaInfo.title || mediaInfo.name;
-
     if (!title) return [];
 
-    // SEARCH
-    const searchResp = await fetch(
-      `${BASE_URL}/?s=${encodeURIComponent(title)}`,
-      {
-        headers: HEADERS,
-        skipSizeCheck: true
-      }
-    );
-
+    // 2. Search Provider
+    const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {
+      headers: HEADERS,
+      skipSizeCheck: true
+    });
     const searchHtml = await searchResp.text();
-
     if (!searchHtml) return [];
 
     const $ = cheerio.load(searchHtml);
     const results = [];
-    const selectors = [
-      "article",
-      "div.item",
-      "div.post",
-      "div.card",
-      "div.grid-item",
-      "li"
-    ];
-
-    selectors.forEach(sel => {
-      $(sel).each((_, el) => {
-        const a = $(el).find("a[href]").first();
-        const href = a.attr("href");
-        const name =
-          $(el).find("h1,h2,h3,.title,.name").first().text().trim()
-          || a.text().trim();
-
-        if (href && name && name.length > 2) {
-          results.push({ href, name });
-        }
-      });
+    $("article, div.item, div.post").each((_, el) => {
+      const a = $(el).find("a[href]").first();
+      const href = a.attr("href");
+      const name = $(el).find("h1,h2,h3,.title").first().text().trim() || a.text().trim();
+      if (href && name && name.length > 2) {
+        results.push({ href, name });
+      }
     });
-
     if (!results.length) return [];
 
-    const match =
-      results.find(r =>
-        r.name.toLowerCase().includes(title.toLowerCase())
-      ) || results[0];
-
+    const match = results.find(r => r.name.toLowerCase().includes(title.toLowerCase())) || results[0];
     if (!match) return [];
 
-    // MOVIE PAGE
-    const movieResp = await fetch(match.href, {
-      headers: HEADERS,
-      skipSizeCheck: true
-    });
-
+    // 3. Extract Links from Content Page
+    const movieResp = await fetch(match.href, { headers: HEADERS, skipSizeCheck: true });
     const movieHtml = await movieResp.text();
     const $movie = cheerio.load(movieHtml);
     const watchLinks = [];
 
-    $movie("a.btn.btn-zip, a[href]").each((i, el) => {
+    $movie("a[href]").each((_, el) => {
       const href = $movie(el).attr("href");
+      if (!href) return;
+      
+      const lowerHref = href.toLowerCase();
 
-      if (href) {
-        const lowerHref = href.toLowerCase();
-        if (
-          lowerHref.includes("m4uplay") ||
-          lowerHref.includes("m4ufree") ||
-          lowerHref.includes("m4u") ||
-          lowerHref.includes("hubcloud") ||
-          lowerHref.includes("fsl") ||
-          lowerHref.includes("fslink")
-        ) {
-          if (!watchLinks.includes(href)) {
-            watchLinks.push(href);
-          }
-        }
+      // EXCLUSION FILTER: Skip non-video junk elements completely
+      if (lowerHref.includes(".apk") || lowerHref.includes("telegram.me") || lowerHref.includes("joincloud")) {
+        return;
+      }
+
+      // INCLUSION FILTER: Only grab target platforms
+      if (
+        lowerHref.includes("m4uplay") || 
+        lowerHref.includes("m4ufree") || 
+        lowerHref.includes("m4u") || 
+        lowerHref.includes("hubcloud") || 
+        lowerHref.includes("fsl") || 
+        lowerHref.includes("fslink") ||
+        lowerHref.includes("m4ulinks")
+      ) {
+        if (!watchLinks.includes(href)) watchLinks.push(href);
       }
     });
 
     const streams = [];
     if (!watchLinks.length) return [];
     
-    for (const watchLink of watchLinks.slice(0, 5)) {
+    // Process unique found valid links
+    for (const watchLink of watchLinks.slice(0, 6)) {
       try {
+        // Step forward past intermediate shorteners (like m4ulinks.com)
         const resolved = await resolveUrl(watchLink);
-        const providerStreams = await resolveStream(resolved);
+        
+        // Double-check resolved link isn't junk
+        if (resolved.toLowerCase().includes(".apk")) continue;
 
+        const providerStreams = await resolveStream(resolved);
         if (providerStreams?.length) {
           streams.push(...providerStreams.map(s => ({
             ...s,
@@ -290,16 +211,15 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             subtitles: []
           })));
         }
-
       } catch (e) {
-        console.log("[stream error]", e);
+        console.log("[stream process error]", e);
       }
     }
 
     return streams;
 
   } catch (e) {
-    console.error("[Movies4u]", e);
+    console.error("[Movies4u Fatal Engine Error]", e);
     return [];
   }
 }

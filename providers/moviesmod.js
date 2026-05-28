@@ -1,5 +1,5 @@
 // movies4u.js
-// Optimized Nuvio-compatible Movies4u provider with aggressive link filtering
+// Final Fixed Nuvio Provider - Correctly routes wrapper links to the resolver API
 
 const cheerio = require("cheerio");
 
@@ -36,13 +36,28 @@ function extractQuality(text) {
   return "Unknown";
 }
 
+/**
+ * UPDATED PROVIDER DETECTION
+ * Identifies m4uplay and m4ulinks as wrappers that need the API extractor
+ */
 function detectProvider(url = "") {
   const u = url.toLowerCase();
-  if (u.includes("hubcloud") || u.includes("hc.now") || u.includes("hubcloud.club")) return "hubcloud";
-  if (u.includes("fsl") || u.includes("fslink")) return "fsl";
-  if (u.includes("m4uplay")) return "m4uplay";
-  if (u.includes("m4u")) return "m4u";
+  
+  // If it's a known cloud host or an intermediate wrapper link, route it to the solver API
+  if (
+    u.includes("hubcloud") || 
+    u.includes("hc.now") || 
+    u.includes("hubcloud.club") ||
+    u.includes("fsl") || 
+    u.includes("fslink") ||
+    u.includes("m4uplay.store") || // <-- FIX: Catches the exact wrapper link
+    u.includes("m4ulinks.com")     // <-- FIX: Catches the exact shortener link
+  ) {
+    return "solver_api";
+  }
+
   if (u.includes("token=") || u.includes(".m3u8") || u.includes("master.txt")) return "direct";
+  
   return "unknown";
 }
 
@@ -59,13 +74,19 @@ async function resolveUrl(url) {
   }
 }
 
-async function resolveHubCloud(url) {
+/**
+ * Universal Solver API Route
+ * Sends wrappers, HubCloud, and FSL domains directly to the Vercel extraction engine
+ */
+async function resolveViaApi(url) {
   try {
     const extractionApi = `https://hc-zf3c.vercel.app/api/extract?url=${encodeURIComponent(url)}`;
+    
     const resp = await fetch(extractionApi, {
       headers: { "Accept": "application/json" },
       skipSizeCheck: true
     });
+
     if (!resp.ok) return [];
     
     const data = await resp.json();
@@ -75,30 +96,13 @@ async function resolveHubCloud(url) {
       return links.map(link => ({
         url: link.url,
         quality: extractQuality(link.label || ""),
-        title: `HubCloud (${link.label || 'Direct Stream'})`,
+        title: `Movies4u Cloud (${link.label || 'Direct Stream'})`,
         subtitles: []
       }));
     }
     return [];
   } catch (e) {
-    console.error("[HubCloud Resolver Exception]", e);
-    return [];
-  }
-}
-
-async function resolveFSL(url) {
-  return await resolveHubCloud(url);
-}
-
-async function resolveM4U(url) {
-  try {
-    return [{
-      url,
-      quality: "Unknown",
-      title: "M4U Stream",
-      subtitles: []
-    }];
-  } catch (e) {
+    console.error("[Solver API Exception]", e);
     return [];
   }
 }
@@ -106,9 +110,11 @@ async function resolveM4U(url) {
 async function resolveStream(url) {
   const type = detectProvider(url);
   try {
-    if (type === "hubcloud") return await resolveHubCloud(url);
-    if (type === "fsl") return await resolveFSL(url);
-    if (type === "m4uplay" || type === "m4u") return await resolveM4U(url);
+    // Both raw cloud hosts and wrapper URLs go here now
+    if (type === "solver_api") {
+      return await resolveViaApi(url);
+    }
+    
     if (type === "direct") {
       return [{
         url,
@@ -124,14 +130,14 @@ async function resolveStream(url) {
 }
 
 // ==========================================
-// CRITICAL FIX: CLEANED UP PIPELINE
+// EXPORT PIPELINE
 // ==========================================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   try {
     const BASE_URL = await getBaseUrl();
 
-    // 1. TMDB Meta Lookup
+    // 1. Meta Lookup
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
     const title = mediaInfo.title || mediaInfo.name;
@@ -160,7 +166,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const match = results.find(r => r.name.toLowerCase().includes(title.toLowerCase())) || results[0];
     if (!match) return [];
 
-    // 3. Extract Links from Content Page
+    // 3. Extract Links
     const movieResp = await fetch(match.href, { headers: HEADERS, skipSizeCheck: true });
     const movieHtml = await movieResp.text();
     const $movie = cheerio.load(movieHtml);
@@ -172,12 +178,12 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       
       const lowerHref = href.toLowerCase();
 
-      // EXCLUSION FILTER: Skip non-video junk elements completely
+      // Blacklist non-video files
       if (lowerHref.includes(".apk") || lowerHref.includes("telegram.me") || lowerHref.includes("joincloud")) {
         return;
       }
 
-      // INCLUSION FILTER: Only grab target platforms
+      // Whitelist targets
       if (
         lowerHref.includes("m4uplay") || 
         lowerHref.includes("m4ufree") || 
@@ -194,13 +200,10 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const streams = [];
     if (!watchLinks.length) return [];
     
-    // Process unique found valid links
+    // Process unique links
     for (const watchLink of watchLinks.slice(0, 6)) {
       try {
-        // Step forward past intermediate shorteners (like m4ulinks.com)
         const resolved = await resolveUrl(watchLink);
-        
-        // Double-check resolved link isn't junk
         if (resolved.toLowerCase().includes(".apk")) continue;
 
         const providerStreams = await resolveStream(resolved);

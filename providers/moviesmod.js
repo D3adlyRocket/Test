@@ -131,20 +131,46 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const watchLinksRaw = [];
 
-// collect ALL possible links
+// collect ALL possible download/watch links
 $movie("a[href]").each((i, el) => {
-  const href = $movie(el).attr("href") || "";
 
+  let href = $movie(el).attr("href") || "";
+
+  if (!href) return;
+
+  // fix relative URLs
+  if (href.startsWith("/")) {
+    href = BASE_URL + href;
+  }
+
+  // skip junk
   if (
-  href.includes("m4uplay") ||
-  href.includes("m4ufree") ||
-  href.includes("hubcloud") ||
-  href.includes("gdflix") ||
-  href.includes("/download/") ||
-  href.includes("/watch/")
-) {
+    href.startsWith("#") ||
+    href.includes("telegram") ||
+    href.includes("facebook") ||
+    href.includes("twitter") ||
+    href.includes("instagram") ||
+    href.includes("javascript:")
+  ) {
+    return;
+  }
+
+  // keep useful links only
+  if (
+    href.includes("m4u") ||
+    href.includes("hubcloud") ||
+    href.includes("gdflix") ||
+    href.includes("pixeldrain") ||
+    href.includes("dl") ||
+    href.includes("download") ||
+    href.includes("drive") ||
+    href.includes("watch") ||
+    href.includes("/file/") ||
+    href.includes("/drive/")
+  ) {
     watchLinksRaw.push(href);
   }
+
 });
 
 // also keep original button selector
@@ -167,7 +193,7 @@ const watchLinks = [
 
     const streams = [];
 
-    for (const watchLink of watchLinks.slice(0, 15)) {
+    for (const watchLink of watchLinks.slice(0, 30)) {
 
       try {
 

@@ -1,306 +1,170 @@
-"use strict";
+/**
+ * Movies4u Provider v1.0
+ * Uses Movies4u FastAPI: https://badboysxs-mfu.hf.space (backed v1)
+ * Scrapes movies4u.promo with HubCloud FSL resolver via REST API.
+ * By Murph Streams ⚡
+ */
 
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var MURPH_BASE = "https://badboysxs-morpheus.hf.space";
-var PROVIDER_NAME = "Movies4u Murph";
-var PROVIDER_TAG = "[Movies4u Murph]";
-var REQUEST_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-  "Accept": "application/json, text/plain, */*"
-};
+'use strict';
 
-var __doomProbeCache = Object.create(null);
-var __doomProbeCacheTtlMs = 10 * 60 * 1000;
-var __doomProbeTimeoutMs = 6 * 1000;
+// Will be updated after HF Space deployment
+const API_BASE = process.env.MFU_API_BASE || 'https://badboysxs-murph-api.hf.space';
+const TAG = '[Movies4u]';
 
-function withTimeout(promise, timeoutMs) {
-  return new Promise(function(resolve, reject) {
-    var settled = false;
-    var timer = setTimeout(function() {
-      if (settled) return;
-      settled = true;
-      reject(new Error("timeout"));
-    }, timeoutMs);
+const cache = new Map();
+const CACHE_TTL = 15 * 60 * 1000;
 
-    Promise.resolve(promise).then(function(value) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(value);
-    }, function(error) {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      reject(error);
-    });
-  });
+function getCached(key) {
+    const entry = cache.get(key);
+    if (!entry) return undefined;
+    if (Date.now() - entry.ts > CACHE_TTL) { cache.delete(key); return undefined; }
+    return entry.val;
 }
-
-function mergeHeaders(base, extra) {
-  var merged = {};
-  var key;
-  for (key in base || {}) merged[key] = base[key];
-  for (key in extra || {}) merged[key] = extra[key];
-  return merged;
-}
-
-function normalizeQuality(value) {
-  var text = String(value || "");
-  if (/2160p|4k/i.test(text)) return "2160p";
-  var match = text.match(/(1080p|720p|480p|360p|240p)/i);
-  return match ? match[1].toLowerCase() : "Auto";
-}
-
-function extractSize(value) {
-  var match = String(value || "").match(/\[([^\]]+)\]/);
-  return match ? match[1] : "";
-}
-
-function looksLikeHls(url, contentType) {
-  var normalizedUrl = String(url || "").toLowerCase();
-  var normalizedType = String(contentType || "").toLowerCase();
-  return normalizedUrl.indexOf(".m3u8") !== -1
-    || normalizedType.indexOf("mpegurl") !== -1
-    || normalizedType.indexOf("application/x-mpegurl") !== -1
-    || normalizedType.indexOf("vnd.apple.mpegurl") !== -1;
-}
-
-function getProbeCacheKey(stream) {
-  var headers = stream && stream.headers ? stream.headers : {};
-  return [
-    stream && stream.url ? stream.url : "",
-    headers.Referer || headers.referer || "",
-    headers.Origin || headers.origin || ""
-  ].join("|");
-}
-
-function getCachedProbeResult(cacheKey) {
-  var entry = __doomProbeCache[cacheKey];
-  if (!entry) return null;
-  if (Date.now() - entry.timestamp > __doomProbeCacheTtlMs) {
-    delete __doomProbeCache[cacheKey];
-    return null;
-  }
-  return entry.ok;
-}
-
-function setCachedProbeResult(cacheKey, ok) {
-  __doomProbeCache[cacheKey] = {
-    ok: !!ok,
-    timestamp: Date.now()
-  };
-}
-
-function responseIsSeekable(response, url) {
-  if (!response || !response.ok) return false;
-  var headers = response.headers;
-  var contentType = headers && headers.get ? headers.get("content-type") || "" : "";
-  if (looksLikeHls(url, contentType)) return true;
-  var acceptRanges = headers && headers.get ? headers.get("accept-ranges") || "" : "";
-  var contentRange = headers && headers.get ? headers.get("content-range") || "" : "";
-  return response.status === 206
-    || /bytes/i.test(acceptRanges)
-    || /^bytes\s+/i.test(contentRange);
-}
-
-function probeStream(stream) {
-  if (!stream || !stream.url || typeof fetch !== "function") {
-    return Promise.resolve(false);
-  }
-
-  var cacheKey = getProbeCacheKey(stream);
-  var cached = getCachedProbeResult(cacheKey);
-  if (cached !== null) return Promise.resolve(cached);
-
-  var url = stream.url;
-  var isHls = looksLikeHls(url, "");
-  var baseHeaders = mergeHeaders({}, stream.headers || {});
-  var rangedHeaders = mergeHeaders({}, baseHeaders);
-  if (!isHls && !rangedHeaders.Range && !rangedHeaders.range) {
-    rangedHeaders.Range = "bytes=0-1";
-  }
-
-  var attempts = [
-    { method: "GET", headers: isHls ? baseHeaders : rangedHeaders, redirect: "follow" },
-    { method: "HEAD", headers: baseHeaders, redirect: "follow" }
-  ];
-
-  function tryAttempt(index) {
-    if (index >= attempts.length) return Promise.resolve(false);
-    return withTimeout(fetch(url, attempts[index]), __doomProbeTimeoutMs)
-      .then(function(response) {
-        if (responseIsSeekable(response, url)) return true;
-        return tryAttempt(index + 1);
-      })
-      .catch(function() {
-        return tryAttempt(index + 1);
-      });
-  }
-
-  return tryAttempt(0).then(function(ok) {
-    setCachedProbeResult(cacheKey, ok);
-    return ok;
-  });
-}
-
-function looksLikeDirectMediaUrl(url) {
-  var normalized = String(url || "").toLowerCase();
-  if (!/^https?:\/\//i.test(normalized)) return false;
-  if (/\/login\.php\b/.test(normalized) || /action=logout/.test(normalized)) return false;
-  return /\.m(?:kv|p4)(?:$|[?#])/.test(normalized)
-    || /\.m3u8(?:$|[?#])/.test(normalized)
-    || /\.ts(?:$|[?#])/.test(normalized);
-}
-
-function looksLikeMurphFallbackCandidate(stream) {
-  if (!stream || !stream.url) return false;
-  if (!looksLikeDirectMediaUrl(stream.url)) return false;
-  var size = Number(stream.videoSize || (stream.behaviorHints && stream.behaviorHints.videoSize) || 0);
-  if (size > 0) return true;
-  return /\[[^\]]+(gb|mb)\]/i.test(String(stream.title || ""))
-    || /movies\s*4u/i.test(String(stream.name || ""));
-}
-
-function filterSeekableStreams(streams) {
-  if (!Array.isArray(streams) || streams.length === 0) {
-    return Promise.resolve([]);
-  }
-  return Promise.all(streams.map(function(stream) {
-    return probeStream(stream)
-      .then(function(ok) { return { stream: stream, ok: ok }; })
-      .catch(function() { return { stream: stream, ok: false }; });
-  })).then(function(results) {
-    var filtered = results.filter(function(item) { return item.ok; }).map(function(item) { return item.stream; });
-    if (filtered.length === 0) {
-      filtered = results
-        .map(function(item) { return item.stream; })
-        .filter(looksLikeMurphFallbackCandidate);
-      if (filtered.length > 0) {
-        console.log(PROVIDER_TAG + " Seekable filter fallback kept " + filtered.length + "/" + streams.length + " streams");
-        return filtered;
-      }
+function setCached(key, val) {
+    if (cache.size > 200) {
+        const oldest = cache.keys().next().value;
+        cache.delete(oldest);
     }
-    console.log(PROVIDER_TAG + " Seekable filter kept " + filtered.length + "/" + streams.length + " streams");
-    return filtered;
-  });
+    cache.set(key, { val, ts: Date.now() });
 }
 
-function fetchJson(url) {
-  return withTimeout(fetch(url, { headers: REQUEST_HEADERS, redirect: "follow" }), 15 * 1000).then(function(response) {
-    if (!response.ok) throw new Error("HTTP " + response.status + " -> " + url);
-    return response.json();
-  });
-}
-
-function absolutizeUrl(url) {
-  if (!url) return "";
-  url = String(url);
-  if (/^https?:\/\//i.test(url)) return url;
-  if (url.startsWith("//")) return "https:" + url;
-  if (url.startsWith("/")) return MURPH_BASE + url;
-  return MURPH_BASE + "/" + url.replace(/^\.?\//, "");
-}
-
-function extractMurphStreams(payload) {
-  if (Array.isArray(payload)) return payload;
-  if (!payload || typeof payload !== "object") return [];
-  var candidates = [
-    payload.streams,
-    payload.data && payload.data.streams,
-    payload.result && payload.result.streams,
-    payload.data && payload.data.results,
-    payload.results,
-    payload.items
-  ];
-  for (var i = 0; i < candidates.length; i += 1) {
-    if (Array.isArray(candidates[i])) return candidates[i];
-  }
-  return [];
-}
-
-function isProviderMatch(name) {
-  return /movies\s*4u/i.test(String(name || ""));
-}
-
-function resolveImdbId(id, mediaType) {
-  if (!id) return Promise.resolve("");
-  if (String(id).startsWith("tt")) return Promise.resolve(String(id));
-
-  if (mediaType === "tv") {
-    var tvUrl = "https://api.themoviedb.org/3/tv/" + id + "/external_ids?api_key=" + TMDB_API_KEY;
-    return fetchJson(tvUrl).then(function(data) {
-      return data && data.imdb_id ? data.imdb_id : "";
-    }).catch(function() {
-      return "";
+async function apiFetch(path, params) {
+    const url = new URL(path, API_BASE);
+    if (params) {
+        for (const [k, v] of Object.entries(params)) {
+            if (v !== undefined && v !== null && v !== 0 && v !== '') url.searchParams.set(k, v);
+        }
+    }
+    const res = await fetch(url.toString(), {
+        signal: AbortSignal.timeout(120000),
+        headers: { Accept: 'application/json', 'User-Agent': 'MurphAddon/7.0' }
     });
-  }
-
-  var movieUrl = "https://api.themoviedb.org/3/movie/" + id + "?api_key=" + TMDB_API_KEY;
-  return fetchJson(movieUrl).then(function(data) {
-    return data && data.imdb_id ? data.imdb_id : "";
-  }).catch(function() {
-    return "";
-  });
+    if (!res.ok) throw new Error(`${TAG} HTTP ${res.status} for ${url}`);
+    return res.json();
 }
 
-function buildEndpoint(imdbId, mediaType, season, episode) {
-  if (!imdbId) return "";
-  if (mediaType === "tv") {
-    if (season == null || episode == null) return "";
-    return MURPH_BASE + "/stream/series/" + imdbId + ":" + season + ":" + episode + ".json";
-  }
-  return MURPH_BASE + "/stream/movie/" + imdbId + ".json";
+async function tmdbMeta(tmdbId, mediaType) {
+    const type = mediaType === 'tv' ? 'tv' : 'movie';
+    const res = await fetch(
+        `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=439c478a771f35c05022f9feabcca01c`,
+        { signal: AbortSignal.timeout(10000) }
+    );
+    if (!res.ok) return null;
+    const d = await res.json();
+    return {
+        title: mediaType === 'tv' ? d.name : d.title,
+        year: (mediaType === 'tv' ? d.first_air_date : d.release_date || '').slice(0, 4)
+    };
 }
 
-function dedupeStreams(streams) {
-  var seen = new Set();
-  return streams.filter(function(stream) {
-    var fingerprint = [stream.name || "", stream.title || "", stream.url || ""].join("|");
-    if (seen.has(fingerprint)) return false;
-    seen.add(fingerprint);
-    return true;
-  });
+function buildStream(row, isTv, se, ep) {
+    const lang = row.audio_lang || 'Original';
+    const quality = row.quality || 'HD';
+    const size = row.per_episode_size || row.file_size || '';
+    const directUrl = row.direct_url || '';
+
+    if (!directUrl) return null;
+
+    const streamName = `📥 Movies4u | ${quality} | ${lang}`;
+
+    const lines = [];
+
+    if (isTv && se != null && ep != null) {
+        lines.push(`S${String(se).padStart(2, '0')}E${String(ep).padStart(2, '0')}`);
+    }
+
+    lines.push(`🎥 ${quality} · 🔊 ${lang}`);
+
+    if (size && size !== 'N/A') {
+        lines.push(`💾 ${size}`);
+    }
+
+    lines.push('⚡ FSL Direct');
+    lines.push("By Murph Streams ⚡");
+
+    return {
+        name:          streamName,
+        title:         lines.join('\n'),
+        url:           directUrl,
+        behaviorHints: {
+            notWebReady: false,
+            bingeGroup: `movies4u-${quality.toLowerCase()}`
+        },
+        isMovieBoxDirect: true
+    };
 }
 
-function mapMurphStream(item) {
-  if (!item) return null;
-  var name = String(item.name || "");
-  if (!isProviderMatch(name)) return null;
-  var url = item.url || item.streamUrl || item.stream_url || item.src || item.file || "";
-  if (!url) return null;
-  var absoluteUrl = absolutizeUrl(url);
-  var title = item.title || item.description || item.label || "Movies4u stream";
-  return {
-    name: name.replace(/movies\s*4u/i, PROVIDER_NAME),
-    title: title,
-    url: absoluteUrl,
-    quality: normalizeQuality(name + " " + title),
-    size: extractSize(title),
-    behaviorHints: item.behaviorHints,
-    videoSize: item.behaviorHints && item.behaviorHints.videoSize,
-    headers: void 0
-  };
-}
+function extractStreams(results, isTv, se, ep) {
+    const streams = [];
+    for (const row of results) {
+        let directUrl;
 
-function getStreams(id, type, season, episode) {
-  var mediaType = type === "series" ? "tv" : (type || "movie");
-  return resolveImdbId(id, mediaType).then(function(imdbId) {
-    if (!imdbId) return [];
-    var endpoint = buildEndpoint(imdbId, mediaType, season, episode);
-    if (!endpoint) return [];
-    return fetchJson(endpoint).then(function(payload) {
-      var streams = extractMurphStreams(payload);
-      var mapped = streams.map(mapMurphStream).filter(Boolean);
-      return filterSeekableStreams(dedupeStreams(mapped));
+        if (isTv && row.episodes && row.episodes.length) {
+            const matchingEp = ep != null
+                ? row.episodes.find(e => e.episode === ep)
+                : row.episodes[0];
+            directUrl = matchingEp ? matchingEp.direct_url : row.episodes[0].direct_url;
+        } else {
+            directUrl = row.direct_url;
+        }
+
+        if (!directUrl || typeof directUrl !== 'string') {
+            continue;
+        }
+
+        const s = buildStream({ ...row, direct_url: directUrl }, isTv, se, ep);
+        if (s) streams.push(s);
+    }
+    streams.sort((a, b) => {
+        const pa = parseInt((a.name || '').match(/\d+p/)?.[0] || 0);
+        const pb = parseInt((b.name || '').match(/\d+p/)?.[0] || 0);
+        return pb - pa;
     });
-  }).catch(function(error) {
-    console.error(PROVIDER_TAG + " " + (error && error.message ? error.message : String(error)));
-    return [];
-  });
+    return streams;
 }
 
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getStreams: getStreams };
-} else {
-  global.getStreams = getStreams;
+async function getStreams(tmdbId, mediaType, season, episode) {
+    const isTv = mediaType === 'tv' || mediaType === 'series';
+    const se = isTv ? season || 1 : null;
+    const ep = isTv ? episode || 1 : null;
+
+    const cacheKey = `mfu::${tmdbId}::${mediaType}::${se}::${ep}`;
+    const cached = getCached(cacheKey);
+    if (cached) {
+        console.log(`${TAG} Cache HIT → ${cached.length} streams`);
+        return cached;
+    }
+
+    const meta = await tmdbMeta(tmdbId, mediaType);
+    if (!meta) {
+        console.log(`${TAG} No TMDB meta for ${tmdbId}`);
+        return [];
+    }
+
+    const searchTitle = meta.title;
+    console.log(`${TAG} ▶ ${searchTitle} ${mediaType}${isTv ? ` S${se}E${ep}` : ''}`);
+
+    try {
+        let data;
+        if (isTv) {
+            data = await apiFetch('/api/mfu/series', { q: searchTitle, season: se, episode: ep });
+        } else {
+            data = await apiFetch('/api/mfu/movie', { q: searchTitle });
+        }
+
+        if (!data.results || data.results.length === 0) {
+            console.log(`${TAG} API returned no results for "${searchTitle}"`);
+            return [];
+        }
+
+        const streams = extractStreams(data.results, isTv, se, ep);
+        console.log(`${TAG} ✓ ${streams.length} streams for "${searchTitle}"`);
+        if (streams.length) setCached(cacheKey, streams);
+        return streams;
+    } catch (err) {
+        console.error(`${TAG} ✗ ${err.message}`);
+        return [];
+    }
 }
+
+module.exports = { getStreams };

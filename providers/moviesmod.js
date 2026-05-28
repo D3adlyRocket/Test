@@ -183,9 +183,15 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     $movie("a[href]").each((i, el) => {
       const href = $movie(el).attr("href");
+if (!href) return;
 
-      const lowerHref = (href || "").toLowerCase();
+const lowerHref = href.toLowerCase();
 
+if (
+  href.startsWith("javascript") ||
+  href.startsWith("#")
+) return;
+      
 if (
   lowerHref.includes("m4uplay") ||
   lowerHref.includes("m4ufree") ||

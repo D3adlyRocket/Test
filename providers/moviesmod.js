@@ -10,18 +10,19 @@ const HEADERS = {
   "Referer": FALLBACK_URL,
   "Cookie": "xla=s4t"
 };
+
 const HUBCLOUD_API = "https://hc-zf3c.vercel.app";
 
 let cachedBaseUrl = null;
 
+// -----------------------
+// BASE URL
+// -----------------------
 async function getBaseUrl() {
   if (cachedBaseUrl) return cachedBaseUrl;
 
   try {
-    const resp = await fetch(DOMAINS_URL, {
-      skipSizeCheck: true
-    });
-
+    const resp = await fetch(DOMAINS_URL, { skipSizeCheck: true });
     const data = await resp.json();
 
     cachedBaseUrl =
@@ -36,6 +37,9 @@ async function getBaseUrl() {
   return cachedBaseUrl;
 }
 
+// -----------------------
+// QUALITY
+// -----------------------
 function extractQuality(text) {
   const u = (text || "").toLowerCase();
 
@@ -48,25 +52,12 @@ function extractQuality(text) {
   return "Unknown";
 }
 
-async function resolveUrl(url) {
-  try {
-    const resp = await fetch(url, {
-      headers: HEADERS,
-      redirect: "follow",
-      skipSizeCheck: true
-    });
-
-    return resp.url || url;
-
-  } catch (_) {
-    return url;
-  }
-}
+// -----------------------
+// HUB RESOLVER
+// -----------------------
 async function resolveHubCloud(hubUrl) {
   try {
-
-    const api =
-      `${HUBCLOUD_API}/api/extract?url=${encodeURIComponent(hubUrl)}`;
+    const api = `${HUBCLOUD_API}/api/extract?url=${encodeURIComponent(hubUrl)}`;
 
     const resp = await fetch(api, {
       headers: {
@@ -77,27 +68,26 @@ async function resolveHubCloud(hubUrl) {
     });
 
     console.log("[HUB STATUS]", resp.status);
+
     const data = await resp.json();
-console.log("[HUB DATA]", JSON.stringify(data).slice(0, 500));
-    
+    console.log("[HUB DATA]", JSON.stringify(data).slice(0, 400));
+
     const links =
-  data?.links ||
-  data?.data?.links ||
-  [];
+      data?.links ||
+      data?.data?.links ||
+      [];
 
-if (!links.length) {
-  console.log("[NO LINKS]", JSON.stringify(data).slice(0, 500));
-  return [];
-}
+    if (!Array.isArray(links) || !links.length) {
+      console.log("[NO HUB LINKS]");
+      return [];
+    }
 
-return links
+    return links
       .filter(l => l?.url)
       .map(l => ({
         name: "Movies4u",
-        title: l.label || "FSL Stream",
-        quality: extractQuality(
-          (l.label || "") + " " + l.url
-        ),
+        title: l.label || "Stream",
+        quality: extractQuality((l.label || "") + " " + l.url),
         url: l.url,
         headers: {
           Referer: FALLBACK_URL + "/",
@@ -107,20 +97,18 @@ return links
       }));
 
   } catch (e) {
-    console.log("[HubCloud]", e);
+    console.log("[HubCloud Error]", e);
     return [];
   }
 }
 
-// =======================
-// NUVIO EXPORT FIX
-// =======================
-
-async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
+// -----------------------
+// MAIN
+// -----------------------
+async function getStreams(tmdbId, mediaType = "movie") {
   try {
     const BASE_URL = await getBaseUrl();
 
-    // TMDB
     const tmdbUrl =
       `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
 
@@ -128,16 +116,12 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
 
     const title = mediaInfo.title || mediaInfo.name;
-
     if (!title) return [];
 
     // SEARCH
     const searchResp = await fetch(
       `${BASE_URL}/?s=${encodeURIComponent(title)}`,
-      {
-        headers: HEADERS,
-        skipSizeCheck: true
-      }
+      { headers: HEADERS, skipSizeCheck: true }
     );
 
     const searchHtml = await searchResp.text();
@@ -146,26 +130,19 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const results = [];
 
-    $("article").each((i, el) => {
+    $("article").each((_, el) => {
       const a = $(el).find("h2 a, h3 a").first();
-
       const href = a.attr("href");
       const name = a.text().trim();
 
-      if (href && name) {
-        results.push({
-          href,
-          name
-        });
-      }
+      if (href && name) results.push({ href, name });
     });
 
     if (!results.length) return [];
 
     const match =
-      results.find(r =>
-        r.name.toLowerCase().includes(title.toLowerCase())
-      ) || results[0];
+      results.find(r => r.name.toLowerCase().includes(title.toLowerCase())) ||
+      results[0];
 
     if (!match) return [];
 
@@ -176,213 +153,94 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     });
 
     const movieHtml = await movieResp.text();
-
     const $movie = cheerio.load(movieHtml);
 
     const watchLinks = new Set();
 
-    $movie("a[href]").each((i, el) => {
+    $movie("a[href]").each((_, el) => {
       const href = $movie(el).attr("href");
-if (!href) return;
+      if (!href) return;
 
-const lowerHref = href.toLowerCase();
+      const l = href.toLowerCase();
 
-if (
-  href.startsWith("javascript") ||
-  href.startsWith("#")
-) return;
-      
-if (
-  lowerHref.includes("m4uplay") ||
-  lowerHref.includes("m4ufree") ||
-  lowerHref.includes("m4u") ||
-  lowerHref.includes("m4ulinks") ||
-  lowerHref.includes("hubcloud") ||
-  lowerHref.includes("hub-cloud") ||
-  lowerHref.includes("fsl") ||
-  lowerHref.includes("gdflix") ||
-  lowerHref.includes("driveleech") ||
-  lowerHref.includes("pixeldrain")
-) {
+      if (
+        l.startsWith("javascript") ||
+        l.startsWith("#")
+      ) return;
+
+      if (
+        l.includes("m4u") ||
+        l.includes("hubcloud") ||
+        l.includes("hub-cloud") ||
+        l.includes("fsl") ||
+        l.includes("gdflix") ||
+        l.includes("driveleech") ||
+        l.includes("pixeldrain") ||
+        l.includes("m4ulinks")
+      ) {
         watchLinks.add(href);
-  console.log("[WATCHLINK]", href);
       }
     });
 
     const streams = [];
 
     for (const watchLink of [...watchLinks]) {
-  try {
-const lowerWatch = watchLink.toLowerCase();
-    if (lowerWatch.includes("m4ulinks")) {
+      try {
 
-  console.log("[M4ULINKS PAGE]", watchLink);
+        const lower = watchLink.toLowerCase();
 
-  const dlResp = await fetch(watchLink, {
-    headers: HEADERS,
-    skipSizeCheck: true
-  });
+        // -----------------------
+        // M4ULINKS PAGE
+        // -----------------------
+        if (lower.includes("m4ulinks")) {
 
-  const dlHtml = await dlResp.text();
+          const dlResp = await fetch(watchLink, {
+            headers: HEADERS,
+            skipSizeCheck: true
+          });
 
-  const $$ = cheerio.load(dlHtml);
+          const dlHtml = await dlResp.text();
+          const $$ = cheerio.load(dlHtml);
 
-  const innerLinks = [];
+          const inner = [];
 
-  $$("a[href]").each((i, el) => {
-    const href = $$(el).attr("href");
+          $$("a[href]").each((_, el) => {
+            const href = $$(el).attr("href");
+            const l = (href || "").toLowerCase();
 
-    const l = (href || "").toLowerCase();
+            if (
+              l.includes("hubcloud") ||
+              l.includes("fsl") ||
+              l.includes("driveleech") ||
+              l.includes("gdflix")
+            ) {
+              inner.push(href);
+            }
+          });
 
-    if (
-      l.includes("hubcloud") ||
-      l.includes("hub-cloud") ||
-      l.includes("fsl") ||
-      l.includes("driveleech") ||
-      l.includes("gdflix")
-    ) {
-      innerLinks.push(href);
-      console.log("[INNER HUB]", href);
-    }
-  });
+          for (const i of inner) {
+            const hubStreams = await resolveHubCloud(i);
+            if (hubStreams.length) streams.push(...hubStreams);
+          }
 
-  for (const inner of innerLinks) {
-
-    const hubStreams = await resolveHubCloud(inner);
-
-    if (hubStreams?.length) {
-      streams.push(...hubStreams);
-    }
-}
-
-if (
-  lowerWatch.includes("hubcloud") ||
-  lowerWatch.includes("hub-cloud") ||
-  lowerWatch.includes("fsl") ||
-  lowerWatch.includes("gdflix") ||
-  lowerWatch.includes("driveleech") ||
-  lowerWatch.includes("pixeldrain")
-  lowerWatch.includes("hubdrive") ||
-  lowerWatch.includes("hubcdn") ||
-  lowerWatch.includes("short") ||
-  lowerWatch.includes("link") ||
-){
-console.log("[RESOLVING HUB]", watchLink);
-      const hubStreams = await resolveHubCloud(watchLink);
-console.log("[HUB RESULT]", hubStreams.length);
-      if (hubStreams?.length) {
-        streams.push(...hubStreams);
-      }
-
-      continue;
-    }
-
-    const embedResp = await fetch(watchLink, {
-          headers: {
-            ...HEADERS,
-            Referer: BASE_URL + "/"
-          },
-          skipSizeCheck: true
-        });
-
-        const embedHtml = await embedResp.text();
-
-        function unpack(p, a, c, k) {
-  while (c--) {
-    if (k[c]) {
-      p = p.replace(
-        new RegExp("\\b" + c.toString(a) + "\\b", "g"),
-        k[c]
-      );
-    }
-  }
-  return p;
-}
-
-let m3u8 = null;
-
-// DIRECT LINK
-m3u8 =
-  embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
-
-// master.txt
-if (!m3u8) {
-  m3u8 =
-    embedHtml.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
-}
-
-// Relative stream path
-if (!m3u8) {
-  const rel =
-    embedHtml.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
-
-  if (rel) {
-    m3u8 = "https://m4uplay.store" + rel;
-  }
-}
-
-// PACKED JS
-if (!m3u8) {
-
-  const packedMatch = embedHtml.match(
-    /eval\(function\(p,a,c,k,e,d\).*?\}\('(.*)',(\d+),(\d+),'(.*)'\.split\('\|'\)/s
-  );
-
-  if (packedMatch) {
-
-    try {
-
-      const unpacked = unpack(
-        packedMatch[1],
-        parseInt(packedMatch[2]),
-        parseInt(packedMatch[3]),
-        packedMatch[4].split("|")
-      );
-
-      m3u8 =
-        unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
-
-      if (!m3u8) {
-        m3u8 =
-          unpacked.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
-      }
-
-      if (!m3u8) {
-        const rel =
-          unpacked.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
-
-        if (rel) {
-          m3u8 = "https://m4uplay.store" + rel;
+          continue;
         }
-      }
 
-    } catch (_) {}
-  }
-}
-
-// Convert master.txt to m3u8
-if (m3u8 && m3u8.includes("master.txt")) {
-  m3u8 = m3u8.replace("master.txt", "master.m3u8");
-}
-
-        if (!m3u8) continue;
-
-        streams.push({
-          name: "Movies4u",
-          title: "Movies4u Stream",
-          quality: extractQuality(
-  watchLink + " " + m3u8
-),
-          url: m3u8,
-
-          headers: {
-            Referer: "https://m4uplay.store/",
-            Origin: "https://m4uplay.store",
-            "User-Agent": HEADERS["User-Agent"]
-          },
-
-          subtitles: []
-        });
+        // -----------------------
+        // HUB DIRECT
+        // -----------------------
+        if (
+          lower.includes("hubcloud") ||
+          lower.includes("hub-cloud") ||
+          lower.includes("fsl") ||
+          lower.includes("gdflix") ||
+          lower.includes("driveleech") ||
+          lower.includes("pixeldrain")
+        ) {
+          const hubStreams = await resolveHubCloud(watchLink);
+          if (hubStreams.length) streams.push(...hubStreams);
+          continue;
+        }
 
       } catch (e) {}
     }
@@ -395,10 +253,4 @@ if (m3u8 && m3u8.includes("master.txt")) {
   }
 }
 
-// =======================
-// REQUIRED FOR NUVIO
-// =======================
-
-module.exports = {
-  getStreams
-};
+module.exports = { getStreams };

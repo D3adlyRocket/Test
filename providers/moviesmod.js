@@ -123,31 +123,33 @@ async function resolveStream(url) {
   const type = detectProvider(url);
 
   try {
-    if (type === "hubcloud" || type === "fsl") {
-  return [{
-    url,
-    quality: "Unknown",
-    title: "HubCloud/FSL not implemented",
-    subtitles: []
-  }];
-}
+    if (type === "hubcloud") {
+      return await resolveHubCloud(url);
+    }
 
-if (type === "m4uplay" || type === "m4u") {
-  return [{
-    url,
-    quality: "Unknown",
-    title: "M4U not implemented",
-    subtitles: []
-  }];
-}
+    if (type === "fsl") {
+      return await resolveFSL(url);
+    }
 
-    // fallback
+    if (type === "m4uplay" || type === "m4u") {
+      return await resolveM4U(url);
+    }
+
+    if (type === "direct") {
+      return [{
+        url,
+        quality: extractQuality(url),
+        title: "Direct Stream",
+        subtitles: []
+      }];
+    }
+
     return [{
-  url: await resolveUrl(url),
-  quality: "Unknown",
-  title: "Direct Stream",
-  subtitles: []
-}];
+      url: await resolveUrl(url),
+      quality: "Unknown",
+      title: "Direct Stream",
+      subtitles: []
+    }];
 
   } catch (e) {
     return [];

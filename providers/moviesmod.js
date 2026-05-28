@@ -79,6 +79,46 @@ async function resolveUrl(url) {
   }
 }
 
+async function resolveHubCloud(url) {
+  try {
+    // TODO: real logic goes here
+    return [{
+      url,
+      quality: "Unknown",
+      title: "HubCloud Stream",
+      subtitles: []
+    }];
+  } catch (e) {
+    return [];
+  }
+}
+async function resolveFSL(url) {
+  try {
+    // FSL often behaves similar to HubCloud
+    return [{
+      url,
+      quality: "Unknown",
+      title: "FSL Stream",
+      subtitles: []
+    }];
+  } catch (e) {
+    return [];
+  }
+}
+async function resolveM4U(url) {
+  try {
+    // You can later move your unpack logic here
+    return [{
+      url,
+      quality: "Unknown",
+      title: "M4U Stream",
+      subtitles: []
+    }];
+  } catch (e) {
+    return [];
+  }
+}
+
 async function resolveStream(url) {
   const type = detectProvider(url);
 

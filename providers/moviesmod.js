@@ -1,5 +1,5 @@
 // movies4u.js
-// Fixed Nuvio-compatible Movies4u provider (FULL FIX)
+// Fixed Nuvio-compatible Movies4u provider
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new1.movies4u.finance";
@@ -17,7 +17,10 @@ async function getBaseUrl() {
   if (cachedBaseUrl) return cachedBaseUrl;
 
   try {
-    const resp = await fetch(DOMAINS_URL, { skipSizeCheck: true });
+    const resp = await fetch(DOMAINS_URL, {
+      skipSizeCheck: true
+    });
+
     const data = await resp.json();
 
     cachedBaseUrl =
@@ -44,28 +47,30 @@ function extractQuality(text) {
   return "Unknown";
 }
 
-// =======================
-// HELPERS
-// =======================
+async function resolveUrl(url) {
+  try {
+    const resp = await fetch(url, {
+      headers: HEADERS,
+      redirect: "follow",
+      skipSizeCheck: true
+    });
 
-function dedupe(arr, key = "url") {
-  const seen = new Set();
-  return arr.filter(i => {
-    if (!i[key]) return false;
-    if (seen.has(i[key])) return false;
-    seen.add(i[key]);
-    return true;
-  });
+    return resp.url || url;
+
+  } catch (_) {
+    return url;
+  }
 }
 
 // =======================
-// MAIN
+// NUVIO EXPORT FIX
 // =======================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   try {
     const BASE_URL = await getBaseUrl();
 
+    // TMDB
     const tmdbUrl =
       `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
 
@@ -73,116 +78,206 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
 
     const title = mediaInfo.title || mediaInfo.name;
+
     if (!title) return [];
 
     // SEARCH
     const searchResp = await fetch(
       `${BASE_URL}/?s=${encodeURIComponent(title)}`,
-      { headers: HEADERS, skipSizeCheck: true }
+      {
+        headers: HEADERS,
+        skipSizeCheck: true
+      }
     );
 
     const searchHtml = await searchResp.text();
+
     const $ = cheerio.load(searchHtml);
 
     const results = [];
 
     $("article").each((i, el) => {
       const a = $(el).find("h2 a, h3 a").first();
+
       const href = a.attr("href");
       const name = a.text().trim();
 
-      if (href && name) results.push({ href, name });
+      if (href && name) {
+        results.push({
+          href,
+          name
+        });
+      }
     });
 
     if (!results.length) return [];
 
     const match =
-      results.find(r => r.name.toLowerCase().includes(title.toLowerCase())) ||
-      results[0];
+      results.find(r =>
+        r.name.toLowerCase().includes(title.toLowerCase())
+      ) || results[0];
 
     if (!match) return [];
 
-    // PAGE
+    // MOVIE PAGE
     const movieResp = await fetch(match.href, {
       headers: HEADERS,
       skipSizeCheck: true
     });
 
     const movieHtml = await movieResp.text();
+
     const $movie = cheerio.load(movieHtml);
 
-    let watchLinks = [];
+    const watchLinks = [];
 
-    // 1. btn-zip links
+    // EXTRA DISCOVERY (lightweight boost, does not break existing logic)
+$movie("a[href]").each((i, el) => {
+  const href = $movie(el).attr("href") || "";
+
+  if (
+    href.includes("m4uplay") ||
+    href.includes("m4ufree") ||
+    href.includes("m4u") ||
+    href.includes("hubcloud") ||
+    href.includes("gdflix")
+  ) {
+    watchLinks.push(href);
+  }
+});
+
     $movie("a.btn.btn-zip").each((i, el) => {
       const href = $movie(el).attr("href");
-      if (href) watchLinks.push(href);
-    });
 
-    // 2. fallback m4u links anywhere
-    $movie("a[href]").each((i, el) => {
-      const href = $movie(el).attr("href");
-      if (href && href.includes("m4u")) watchLinks.push(href);
+      if (
+        href &&
+        (
+          href.includes("m4uplay") ||
+          href.includes("m4ufree") ||
+          href.includes("m4u")
+        )
+      ) {
+        watchLinks.push(href);
+      }
     });
-
-    watchLinks = [...new Set(watchLinks)];
 
     const streams = [];
 
-    // =======================
-    // PROCESS EACH LINK
-    // =======================
-    for (const watchLink of watchLinks.slice(0, 10)) {
+    for (const watchLink of watchLinks.slice(0, 5)) {
+
       try {
+
         const embedResp = await fetch(watchLink, {
-          headers: { ...HEADERS, Referer: BASE_URL + "/" },
+          headers: {
+            ...HEADERS,
+            Referer: BASE_URL + "/"
+          },
           skipSizeCheck: true
         });
 
-        const html = await embedResp.text();
+        const embedHtml = await embedResp.text();
 
-        let found = [];
+        function unpack(p, a, c, k) {
+  while (c--) {
+    if (k[c]) {
+      p = p.replace(
+        new RegExp("\\b" + c.toString(a) + "\\b", "g"),
+        k[c]
+      );
+    }
+  }
+  return p;
+}
 
-        // 1. direct m3u8/txt
-        const direct = html.match(/https?:\/\/[^\s"'<>]+(?:m3u8|txt)[^\s"'<>]*/g);
-        if (direct) found.push(...direct);
+let m3u8 = null;
 
-        // 2. iframe sources
-        const iframe = html.match(/<iframe[^>]+src=["']([^"']+)["']/gi);
-        if (iframe) {
-          iframe.forEach(i => {
-            const src = i.match(/src=["']([^"']+)["']/)?.[1];
-            if (src && src.includes("m4u")) found.push(src);
-          });
-        }
+// DIRECT LINK
+m3u8 =
+  embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
 
-        // 3. relative stream paths
-        const rel = html.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/g);
+// master.txt
+if (!m3u8) {
+  m3u8 =
+    embedHtml.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
+}
+
+// Relative stream path
+if (!m3u8) {
+  const rel =
+    embedHtml.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
+
+  if (rel) {
+    m3u8 = "https://m4uplay.store" + rel;
+  }
+}
+
+// PACKED JS
+if (!m3u8) {
+
+  const packedMatch = embedHtml.match(
+    /eval\(function\(p,a,c,k,e,d\).*?\}\('(.*)',(\d+),(\d+),'(.*)'\.split\('\|'\)/s
+  );
+
+  if (packedMatch) {
+
+    try {
+
+      const unpacked = unpack(
+        packedMatch[1],
+        parseInt(packedMatch[2]),
+        parseInt(packedMatch[3]),
+        packedMatch[4].split("|")
+      );
+
+      m3u8 =
+        unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
+
+      if (!m3u8) {
+        m3u8 =
+          unpacked.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
+      }
+
+      if (!m3u8) {
+        const rel =
+          unpacked.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
+
         if (rel) {
-          rel.forEach(r => found.push("https://m4uplay.store" + r));
+          m3u8 = "https://m4uplay.store" + rel;
         }
+      }
 
-        found = [...new Set(found)];
+    } catch (_) {}
+  }
+}
 
-        for (const url of found) {
-          streams.push({
-            name: "Movies4u",
-            title: "Movies4u Stream",
-            quality: extractQuality(url),
-            url,
-            headers: {
-              Referer: "https://m4uplay.store/",
-              Origin: "https://m4uplay.store",
-              "User-Agent": HEADERS["User-Agent"]
-            },
-            subtitles: []
-          });
-        }
+// Convert master.txt to m3u8
+if (m3u8 && m3u8.includes("master.txt")) {
+  m3u8 = m3u8.replace("master.txt", "master.m3u8");
+}
 
-      } catch (_) {}
+        if (!m3u8) continue;
+
+        streams.push({
+          name: "Movies4u",
+          title: "Movies4u Stream",
+          quality: extractQuality(
+  watchLink + " " + m3u8
+),
+          url: m3u8,
+
+          headers: {
+            Referer: "https://m4uplay.store/",
+            Origin: "https://m4uplay.store",
+            "User-Agent": HEADERS["User-Agent"]
+          },
+
+          subtitles: []
+        });
+
+      } catch (e) {}
     }
 
-    return dedupe(streams, "url");
+    return streams;
 
   } catch (e) {
     console.error("[Movies4u]", e);
@@ -190,4 +285,10 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
   }
 }
 
-module.exports = { getStreams };
+// =======================
+// REQUIRED FOR NUVIO
+// =======================
+
+module.exports = {
+  getStreams
+};

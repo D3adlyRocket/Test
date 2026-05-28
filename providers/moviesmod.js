@@ -253,9 +253,6 @@ const lowerWatch = watchLink.toLowerCase();
     if (hubStreams?.length) {
       streams.push(...hubStreams);
     }
-  }
-
-  continue;
 }
 
 if (
@@ -265,6 +262,10 @@ if (
   lowerWatch.includes("gdflix") ||
   lowerWatch.includes("driveleech") ||
   lowerWatch.includes("pixeldrain")
+  lowerWatch.includes("hubdrive") ||
+  lowerWatch.includes("hubcdn") ||
+  lowerWatch.includes("short") ||
+  lowerWatch.includes("link") ||
 ){
 console.log("[RESOLVING HUB]", watchLink);
       const hubStreams = await resolveHubCloud(watchLink);

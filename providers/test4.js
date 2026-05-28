@@ -14,16 +14,15 @@
 
 "use strict";
 
-const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-const API_BASE = "https://badboysxs-murph-api.hf.space";
-const TAG = "[Movies4u]";
+var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var API_BASE = "https://badboysxs-murph-api.hf.space";
+var TAG = "[Movies4u]";
 
-// In-memory cache to prevent redundant backend hit hammering
-const cache = new Map();
-const CACHE_TTL = 15 * 60 * 1000;
+var cache = new Map();
+var CACHE_TTL = 15 * 60 * 1000;
 
 function getCached(key) {
-    const entry = cache.get(key);
+    var entry = cache.get(key);
     if (!entry) return undefined;
     if (Date.now() - entry.ts > CACHE_TTL) { cache.delete(key); return undefined; }
     return entry.val;
@@ -31,134 +30,124 @@ function getCached(key) {
 
 function setCached(key, val) {
     if (cache.size > 200) {
-        const oldest = cache.keys().next().value;
+        var oldest = cache.keys().next().value;
         cache.delete(oldest);
     }
-    cache.set(key, { val, ts: Date.now() });
+    cache.set(key, { val: val, ts: Date.now() });
 }
 
 async function fetchJson(url) {
     try {
-        const resp = await fetch(url, { 
+        var resp = await fetch(url, { 
             method: "GET",
-            signal: AbortSignal.timeout(120000),
-            headers: { Accept: 'application/json', 'User-Agent': 'MurphAddon/7.0' }
+            headers: { 
+                "Accept": "application/json", 
+                "User-Agent": "MurphAddon/7.0"
+            }
         });
         return resp.ok ? await resp.json() : null;
     } catch (e) { 
-        console.error(`${TAG} Fetch failed: ${e.message}`);
         return null; 
     }
 }
 
 async function tmdbMeta(tmdbId, mediaType) {
-    const type = mediaType === 'tv' || mediaType === 'series' ? 'tv' : 'movie';
-    const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    const d = await fetchJson(url);
+    var type = (mediaType === "tv" || mediaType === "series") ? "tv" : "movie";
+    var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
+    var d = await fetchJson(url);
     if (!d) return null;
     return {
-        title: type === 'tv' ? d.name : d.title,
-        year: (type === 'tv' ? d.first_air_date : d.release_date || '').slice(0, 4)
+        title: type === "tv" ? d.name : d.title
     };
 }
 
 function buildStream(row, isTv, se, ep, movieTitle) {
-    const lang = row.audio_lang || 'Original';
-    const quality = row.quality || 'HD';
-    const size = row.per_episode_size || row.file_size || '';
-    const directUrl = row.direct_url || '';
+    var lang = row.audio_lang || "Original";
+    var quality = row.quality || "HD";
+    var size = row.per_episode_size || row.file_size || "";
+    var directUrl = row.direct_url || "";
 
     if (!directUrl) return null;
 
-    const streamName = `📥 Movies4u | ${movieTitle}`;
-    const lines = [];
+    var streamName = "Movies4u | " + movieTitle;
+    var lines = [];
 
     if (isTv && se != null && ep != null) {
-        lines.push(`S${String(se).padStart(2, '0')}E${String(ep).padStart(2, '0')}`);
+        lines.push("S" + String(se).padStart(2, "0") + "E" + String(ep).padStart(2, "0"));
     }
 
-    lines.push(`🎥 ${quality} · 🔊 ${lang}`);
+    lines.push("🎥 " + quality + " · 🔊 " + lang);
 
-    if (size && size !== 'N/A') {
-        lines.push(`💾 ${size}`);
+    if (size && size !== "N/A") {
+        lines.push("💾 " + size);
     }
 
-    lines.push('⚡ FSL Direct');
+    lines.push("⚡ FSL Direct");
     lines.push("By Murph Streams ⚡");
 
     return {
         name: streamName,
-        title: lines.join('\n'),
+        title: lines.join("\n"),
         url: directUrl,
         behaviorHints: {
             notWebReady: false,
-            bingeGroup: `movies4u-v3-refresh`
+            bingeGroup: "movies4u-v3-refresh"
         }
     };
 }
 
 function extractStreams(results, isTv, se, ep, movieTitle) {
-    const streams = [];
-    for (const row of results) {
-        let directUrl;
+    var streams = [];
+    for (var i = 0; i < results.length; i++) {
+        var row = results[i];
+        var directUrl = "";
 
         if (isTv && row.episodes && row.episodes.length) {
-            const matchingEp = ep != null
-                ? row.episodes.find(e => e.episode === ep)
+            var matchingEp = ep != null
+                ? row.episodes.find(function(e) { return e.episode === ep; })
                 : row.episodes[0];
             directUrl = matchingEp ? matchingEp.direct_url : row.episodes[0].direct_url;
         } else {
             directUrl = row.direct_url;
         }
 
-        if (!directUrl || typeof directUrl !== 'string') {
+        if (!directUrl || typeof directUrl !== "string") {
             continue;
         }
 
-        const s = buildStream({ ...row, direct_url: directUrl }, isTv, se, ep, movieTitle);
+        var s = buildStream({ ...row, direct_url: directUrl }, isTv, se, ep, movieTitle);
         if (s) streams.push(s);
     }
     
-    // Sort highest resolution to lowest
-    return streams.sort((a, b) => {
-        const pa = parseInt((a.title || '').match(/\d+p/)?.[0] || 0);
-        const pb = parseInt((b.title || '').match(/\d+p/)?.[0] || 0);
-        return pb - pa;
-    });
+    return streams;
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
-    const isTv = mediaType === 'tv' || mediaType === 'series';
-    const se = isTv ? season || 1 : null;
-    const ep = isTv ? episode || 1 : null;
+    var isTv = mediaType === "tv" || mediaType === "series";
+    var se = isTv ? season || 1 : null;
+    var ep = isTv ? episode || 1 : null;
 
-    const cacheKey = `mfu::${tmdbId}::${mediaType}::${se}::${ep}`;
-    const cached = getCached(cacheKey);
-    if (cached) {
-        return cached;
-    }
+    var cacheKey = "mfu::" + tmdbId + "::" + mediaType + "::" + se + "::" + ep;
+    var cached = getCached(cacheKey);
+    if (cached) return cached;
 
-    const meta = await tmdbMeta(tmdbId, mediaType);
-    if (!meta || !meta.title) {
-        return [];
-    }
+    var meta = await tmdbMeta(tmdbId, mediaType);
+    if (!meta || !meta.title) return [];
 
-    const searchTitle = meta.title;
+    var searchTitle = meta.title;
 
     try {
-        const url = new URL(isTv ? '/api/mfu/series' : '/api/mfu/movie', API_BASE);
-        url.searchParams.set('q', searchTitle);
-        if (isTv) {
-            url.searchParams.set('season', se);
-            url.searchParams.set('episode', ep);
-        }
+        // Direct safe URL concatenation to bypass standard runtime URL object mutations
+        var endpoint = isTv 
+            ? API_BASE + "/api/mfu/series?q=" + encodeURIComponent(searchTitle) + "&season=" + se + "&episode=" + ep
+            : API_BASE + "/api/mfu/movie?q=" + encodeURIComponent(searchTitle);
 
-        const data = await fetchJson(url.toString());
+        var data = await fetchJson(endpoint);
         if (!data || !data.results || data.results.length === 0) {
             return [];
         }
 
-        const streams = extractStreams(data.results, isTv, se, ep, searchTitle);
+        var streams = extractStreams(data.results, isTv, se, ep, searchTitle);
         if (streams.length) setCached(cacheKey, streams);
         return streams;
     } catch (err) {
@@ -166,7 +155,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
 }
 
-// Module system integration export
 if (typeof module !== "undefined" && module.exports) {
     module.exports = { getStreams: getStreams };
 } else {

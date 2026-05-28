@@ -1,5 +1,5 @@
 // movies4u.js
-// Safe fixed version (keeps working flow + adds HubCloud properly)
+// Fixed Nuvio-compatible Movies4u provider (SAFE + HubCloud upgrade)
 
 const cheerio = require("cheerio");
 
@@ -18,7 +18,7 @@ const HEADERS = {
 
 let cachedBaseUrl = null;
 
-// ---------------- BASE URL ----------------
+// ---------------- BASE ----------------
 async function getBaseUrl() {
   if (cachedBaseUrl) return cachedBaseUrl;
 
@@ -34,49 +34,59 @@ async function getBaseUrl() {
 }
 
 // ---------------- QUALITY ----------------
-function extractQuality(t) {
-  t = (t || "").toLowerCase();
-  if (t.includes("2160") || t.includes("4k")) return "4K";
-  if (t.includes("1080")) return "1080p";
-  if (t.includes("720")) return "720p";
-  if (t.includes("480")) return "480p";
+function extractQuality(text) {
+  const u = (text || "").toLowerCase();
+  if (u.includes("2160") || u.includes("4k")) return "4K";
+  if (u.includes("1080")) return "1080p";
+  if (u.includes("720")) return "720p";
+  if (u.includes("480")) return "480p";
   return "Unknown";
 }
 
-// ---------------- HUB RESOLVE (SAFE) ----------------
-async function resolveHubcloud(url) {
+// ---------------- SAFE REDIRECT RESOLVER ----------------
+async function resolveFinal(url) {
   try {
-    const id = url.match(/[?&]id=([^&]+)/)?.[1];
-    const token = url.match(/[?&]token=([^&]+)/)?.[1];
-
-    if (!id || !token) return null;
-
-    const api =
-      `https://hubcloud.php?host=hubcloud&id=${id}&token=${encodeURIComponent(token)}`;
-
-    const res = await fetch(api, {
+    const res = await fetch(url, {
       headers: HEADERS,
+      redirect: "follow",
       skipSizeCheck: true,
     });
 
-    const html = await res.text();
-
-    return (
-      html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
-      html.match(/https?:\/\/[^\s"'<>]+\.mp4[^\s"'<>]*/i)?.[0] ||
-      null
-    );
+    return res.url || url;
   } catch {
     return null;
   }
 }
 
-// ---------------- MAIN ----------------
+// ---------------- HUB RESOLVER (NEW FIX) ----------------
+async function resolveHub(url) {
+  try {
+    // CASE 1: hubcloud.php
+    if (url.includes("hubcloud.php")) {
+      return await resolveFinal(url);
+    }
+
+    // CASE 2: homelander bridge
+    if (url.includes("hub.homelander.buzz")) {
+      return await resolveFinal(url);
+    }
+
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// =======================
+// MAIN
+// =======================
 async function getStreams(tmdbId, mediaType = "movie") {
   try {
     const BASE_URL = await getBaseUrl();
 
-    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const tmdbUrl =
+      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+
     const mediaInfo = await (await fetch(tmdbUrl)).json();
 
     const title = mediaInfo.title || mediaInfo.name;
@@ -97,7 +107,6 @@ async function getStreams(tmdbId, mediaType = "movie") {
       const a = $(el).find("a").first();
       const href = a.attr("href");
       const name = a.text().trim();
-
       if (href && name) results.push({ href, name });
     });
 
@@ -124,7 +133,9 @@ async function getStreams(tmdbId, mediaType = "movie") {
 
     const streams = [];
 
-    // ---------------- STREAMS ----------------
+    // =======================
+    // STREAM EXTRACTION
+    // =======================
     for (const link of watchLinks.slice(0, 5)) {
       try {
         const embed = await fetch(link, {
@@ -137,17 +148,22 @@ async function getStreams(tmdbId, mediaType = "movie") {
           html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
           html.match(/https?:\/\/[^\s"'<>]+\.mp4[^\s"'<>]*/i)?.[0];
 
-        // 🔥 HUBCLOUD SAFE DETECT (NOT STRICT)
-        const hub =
-          html.match(/hubcloud\.php\?host=hubcloud[^"'<> ]+/i)?.[0];
+        // -----------------------
+        // HUB + HOMELANDER FIX
+        // -----------------------
+        if (!stream) {
+          const hubMatch =
+            html.match(/https?:\/\/hubcloud[^"'<> ]+hubcloud\.php[^"'<> ]+/i)?.[0] ||
+            html.match(/https?:\/\/hub\.homelander\.buzz\/[^\s"'<>]+/i)?.[0];
 
-        if (hub && !stream) {
-          const resolved = await resolveHubcloud(hub);
-          if (resolved) stream = resolved;
+          if (hubMatch) {
+            stream = await resolveHub(hubMatch);
+          }
         }
 
         if (!stream) continue;
 
+        // filter junk
         if (stream.includes(".apk")) continue;
 
         streams.push({

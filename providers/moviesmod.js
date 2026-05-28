@@ -203,8 +203,50 @@ if (
 
     for (const watchLink of [...watchLinks]) {
   try {
+const lowerWatch = watchLink.toLowerCase();
+    if (lowerWatch.includes("m4ulinks")) {
 
-    const lowerWatch = watchLink.toLowerCase();
+  console.log("[M4ULINKS PAGE]", watchLink);
+
+  const dlResp = await fetch(watchLink, {
+    headers: HEADERS,
+    skipSizeCheck: true
+  });
+
+  const dlHtml = await dlResp.text();
+
+  const $$ = cheerio.load(dlHtml);
+
+  const innerLinks = [];
+
+  $$("a[href]").each((i, el) => {
+    const href = $$(el).attr("href");
+
+    const l = (href || "").toLowerCase();
+
+    if (
+      l.includes("hubcloud") ||
+      l.includes("hub-cloud") ||
+      l.includes("fsl") ||
+      l.includes("driveleech") ||
+      l.includes("gdflix")
+    ) {
+      innerLinks.push(href);
+      console.log("[INNER HUB]", href);
+    }
+  });
+
+  for (const inner of innerLinks) {
+
+    const hubStreams = await resolveHubCloud(inner);
+
+    if (hubStreams?.length) {
+      streams.push(...hubStreams);
+    }
+  }
+
+  continue;
+}
 
 if (
   lowerWatch.includes("hubcloud") ||

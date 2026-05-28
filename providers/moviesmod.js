@@ -1,6 +1,3 @@
-// movies4u.js
-// Fixed Nuvio-compatible Movies4u provider (balanced fix: no over-filtering)
-
 const cheerio = require("cheerio-without-node-native");
 
 const DOMAINS_URL =
@@ -56,14 +53,12 @@ function extractQuality(text) {
 }
 
 /* =======================
-   SAFE FILTER (ONLY JUNK BLOCK)
+   FINAL FILTER ONLY
 ======================= */
-function isBadLink(url) {
+function isBad(url) {
   if (!url) return true;
-
   const u = url.toLowerCase();
 
-  // ONLY block obvious junk (DO NOT OVERBLOCK)
   return (
     u.includes(".apk") ||
     u.includes(".zip") ||
@@ -73,38 +68,34 @@ function isBadLink(url) {
 }
 
 /* =======================
-   STREAM DETECTOR (LOOSE - IMPORTANT)
+   HUB / FSL DETECTOR
 ======================= */
-function isLikelyStream(url) {
+function isHubLike(url) {
   if (!url) return false;
-
   const u = url.toLowerCase();
 
   return (
-    u.includes(".m3u8") ||
-    u.includes(".mp4") ||
-    u.includes("m4u") ||
     u.includes("hub") ||
     u.includes("fsl") ||
-    u.includes("token=") ||
-    u.includes("m4uplay") ||
-    u.includes("m4ufree")
+    u.includes("homelander") ||
+    u.includes("gamerxyt") ||
+    u.includes("token=")
   );
 }
 
 /* =======================
-   RESOLVE URL
+   RESOLVE (SAFE)
 ======================= */
 async function resolveUrl(url) {
   try {
-    const resp = await fetch(url, {
+    const res = await fetch(url, {
       headers: HEADERS,
       redirect: "follow",
       skipSizeCheck: true,
     });
 
-    return resp.url || url;
-  } catch (_) {
+    return res.url || url;
+  } catch {
     return url;
   }
 }
@@ -147,9 +138,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       const href = a.attr("href");
       const name = a.text().trim();
 
-      if (href && name) {
-        results.push({ href, name });
-      }
+      if (href && name) results.push({ href, name });
     });
 
     if (!results.length) return [];
@@ -172,45 +161,58 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const movieHtml = await movieResp.text();
     const $movie = cheerio.load(movieHtml);
 
-    const watchLinks = [];
+    const links = [];
 
-    $movie("a.btn.btn-zip, a[href]").each((i, el) => {
+    /* =======================
+       🔥 LAYER 1: DOWNLOAD BLOCKS (IMPORTANT FIX)
+    ======================= */
+    $movie("div.downloads-btns-div a[href], div.download-links-div a[href]").each((i, el) => {
+      const href = $movie(el).attr("href");
+      if (href) links.push(href);
+    });
+
+    /* =======================
+       🔥 LAYER 2: EMBED LINKS
+    ======================= */
+    $movie("a[href]").each((i, el) => {
       const href = $movie(el).attr("href");
 
       if (
         href &&
         (
+          href.includes("m4u") ||
           href.includes("m4uplay") ||
           href.includes("m4ufree") ||
-          href.includes("m4u") ||
           href.includes("hub") ||
-          href.includes("fsl")
+          href.includes("fsl") ||
+          href.includes("search-recover") ||
+          href.includes("archive")
         )
       ) {
-        watchLinks.push(href);
+        links.push(href);
       }
     });
 
     const streams = [];
 
     /* =======================
-       STREAM RESOLUTION
+       RESOLUTION ENGINE
     ======================= */
-    for (const watchLink of watchLinks.slice(0, 10)) {
+    for (const link of links.slice(0, 15)) {
       try {
-        const direct = await resolveUrl(watchLink);
+        const resolved = await resolveUrl(link);
 
-        // SAFE PUSH (FIXED LOGIC)
-        if (
-          direct &&
-          !isBadLink(direct) &&
-          isLikelyStream(direct)
-        ) {
+        if (isBad(resolved)) continue;
+
+        /* =======================
+           HUB / FSL DIRECT
+        ======================= */
+        if (isHubLike(resolved)) {
           streams.push({
             name: "Movies4u",
-            title: "Direct Stream",
-            quality: extractQuality(direct),
-            url: direct,
+            title: "Hub/FSL Stream",
+            quality: extractQuality(resolved),
+            url: resolved,
             headers: {
               Referer: BASE_URL + "/",
               "User-Agent": HEADERS["User-Agent"],
@@ -221,7 +223,10 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           continue;
         }
 
-        const embedResp = await fetch(watchLink, {
+        /* =======================
+           EMBED STREAM PARSER
+        ======================= */
+        const embedResp = await fetch(link, {
           headers: {
             ...HEADERS,
             Referer: BASE_URL + "/",
@@ -229,27 +234,19 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           skipSizeCheck: true,
         });
 
-        const embedHtml = await embedResp.text();
+        const html = await embedResp.text();
 
-        let m3u8 = null;
+        let stream =
+          html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
+          html.match(/https?:\/\/[^\s"'<>]+\.mp4[^\s"'<>]*/i)?.[0];
 
-        // HLS
-        m3u8 =
-          embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
-
-        // MP4 fallback
-        if (!m3u8) {
-          m3u8 =
-            embedHtml.match(/https?:\/\/[^\s"'<>]+\.mp4[^\s"'<>]*/i)?.[0];
-        }
-
-        if (!m3u8 || isBadLink(m3u8)) continue;
+        if (!stream || isBad(stream)) continue;
 
         streams.push({
           name: "Movies4u",
-          title: "Movies4u Stream",
-          quality: extractQuality(watchLink + " " + m3u8),
-          url: m3u8,
+          title: "Stream",
+          quality: extractQuality(stream),
+          url: stream,
           headers: {
             Referer: "https://m4uplay.store/",
             Origin: "https://m4uplay.store",
@@ -262,15 +259,14 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     }
 
     /* =======================
-       FINAL CLEANUP (IMPORTANT)
+       FINAL CLEANUP
     ======================= */
-
     const seen = new Set();
     const finalStreams = [];
 
     for (const s of streams) {
       if (!s.url) continue;
-      if (isBadLink(s.url)) continue;
+      if (isBad(s.url)) continue;
       if (seen.has(s.url)) continue;
 
       seen.add(s.url);

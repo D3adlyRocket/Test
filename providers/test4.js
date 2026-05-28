@@ -1,4 +1,3 @@
-
 // movies4u.js  
 // Fixed Nuvio-compatible Movies4u provider  
   
@@ -277,4 +276,4 @@ if (m3u8 && m3u8.includes("master.txt")) {
   
 module.exports = {  
   getStreams  
-};  
+}; 

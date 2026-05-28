@@ -1,14 +1,18 @@
 // movies4u.js
-// Fixed Nuvio-compatible Movies4u provider (MULTI-QUALITY FIXED)
+// Stable Nuvio-compatible Movies4u provider (FIXED + WORKING BASELINE)
 
-const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
+const cheerio = require("cheerio");
+
+const DOMAINS_URL =
+  "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
+
 const FALLBACK_URL = "https://new1.movies4u.finance";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  "Referer": FALLBACK_URL,
-  "Cookie": "xla=s4t"
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  Referer: FALLBACK_URL
 };
 
 let cachedBaseUrl = null;
@@ -24,8 +28,7 @@ async function getBaseUrl() {
       data.movies4u ||
       data.movies4uhd ||
       FALLBACK_URL;
-
-  } catch (_) {
+  } catch {
     cachedBaseUrl = FALLBACK_URL;
   }
 
@@ -39,57 +42,41 @@ function extractQuality(text = "") {
   if (u.includes("1080")) return "1080p";
   if (u.includes("720")) return "720p";
   if (u.includes("480")) return "480p";
-  if (u.includes("360")) return "360p";
 
   return "Unknown";
 }
 
-// 🔥 NEW: extract ALL m3u8 links, not just one
-function extractAllStreams(html) {
-  const results = new Set();
+// 🔥 SIMPLE SAFE STREAM EXTRACTOR (IMPORTANT FIX)
+function extractStreamsFromHtml(html) {
+  const streams = [];
 
-  const regex = /https?:\/\/[^\s"'<>]+(?:m3u8|master\.txt)[^\s"'<>]*/g;
+  const regex =
+    /https?:\/\/[^\s"'<>]+(?:m3u8|master\.txt|master\.m3u8)[^\s"'<>]*/g;
+
   let match;
-
   while ((match = regex.exec(html)) !== null) {
     let url = match[0];
 
-    // convert master.txt → master.m3u8 (important fix)
     if (url.includes("master.txt")) {
       url = url.replace("master.txt", "master.m3u8");
     }
 
-    results.add(url);
+    streams.push(url);
   }
 
-  return [...results];
+  return [...new Set(streams)];
 }
 
-// unpack helper
-function unpack(p, a, c, k) {
-  while (c--) {
-    if (k[c]) {
-      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
-    }
-  }
-  return p;
-}
-
-// =======================
-// MAIN
-// =======================
-
-async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
+async function getStreams(tmdbId, mediaType = "movie") {
   try {
     const BASE_URL = await getBaseUrl();
 
-    const tmdbUrl =
-      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    // TMDB
+    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
 
-    const mediaInfo =
-      await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
-
+    const mediaInfo = await (await fetch(tmdbUrl)).json();
     const title = mediaInfo.title || mediaInfo.name;
+
     if (!title) return [];
 
     // SEARCH
@@ -103,10 +90,10 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const results = [];
 
-    $("article").each((i, el) => {
-      const a = $(el).find("h2 a, h3 a").first();
-      const href = a.attr("href");
-      const name = a.text().trim();
+    // 🔥 FIXED SELECTORS (THIS WAS BREAKING YOUR VERSION)
+    $("h3.entry-title a, h2.entry-title a, h3 a, h2 a").each((i, el) => {
+      const href = $(el).attr("href");
+      const name = $(el).text().trim();
 
       if (href && name) results.push({ href, name });
     });
@@ -120,6 +107,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     if (!match) return [];
 
+    // MOVIE PAGE
     const movieResp = await fetch(match.href, {
       headers: HEADERS,
       skipSizeCheck: true
@@ -130,7 +118,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const watchLinks = [];
 
-    $movie("a.btn.btn-zip").each((i, el) => {
+    // 🔥 FIXED LINK PICKING
+    $movie("a[href]").each((i, el) => {
       const href = $movie(el).attr("href");
 
       if (
@@ -155,41 +144,16 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
         const embedHtml = await embedResp.text();
 
-        // 🔥 STEP 1: unpack if needed
-        let html = embedHtml;
+        // 🔥 EXTRACT ALL STREAMS
+        const urls = extractStreamsFromHtml(embedHtml);
 
-        const packedMatch = embedHtml.match(
-          /eval\(function\(p,a,c,k,e,d\).*?\)\((.*)\)/s
-        );
-
-        if (packedMatch) {
-          try {
-            const args = packedMatch[1];
-            const parts = args.split(/,(?=(?:[^']*'[^']*')*[^']*$)/);
-
-            if (parts.length >= 4) {
-              html += unpack(
-                parts[0].replace(/['"]/g, ""),
-                parseInt(parts[1]),
-                parseInt(parts[2]),
-                parts[3].replace(/['"]|\.split\('\|'\)/g, "").split("|")
-              );
-            }
-          } catch (_) {}
-        }
-
-        // 🔥 STEP 2: EXTRACT ALL STREAMS
-        const allStreams = extractAllStreams(html);
-
-        if (!allStreams.length) continue;
-
-        // 🔥 STEP 3: PUSH ALL QUALITIES (THIS WAS MISSING BEFORE)
-        for (const url of allStreams) {
+        for (const url of urls) {
           streams.push({
             name: "Movies4u",
             title: "Movies4u Stream",
-            quality: extractQuality(url),
             url,
+
+            quality: extractQuality(url),
 
             headers: {
               Referer: "https://m4uplay.store/",
@@ -200,12 +164,10 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             subtitles: []
           });
         }
-
       } catch (e) {}
     }
 
     return streams;
-
   } catch (e) {
     console.error("[Movies4u]", e);
     return [];

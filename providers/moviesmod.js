@@ -1,5 +1,5 @@
 // movies4u.js
-// Nuvio-compatible Movies4u provider (Unified Streaming + Playable Cloud Downloads)
+// Nuvio-compatible Movies4u provider (Unified Streams + Decoded GDFlix & HubCloud Players)
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new1.movies4u.finance";
@@ -35,36 +35,105 @@ function extractQuality(text) {
   return "Unknown";
 }
 
-// Bypasses the link shortener protection layer to get the raw GDFlix/HubCloud destination
-async function resolveDownloadUrl(url) {
+// Bypasses the intermediate m4ulinks shortener layer
+async function resolveShortener(url) {
   try {
-    const resp = await fetch(url, {
-      headers: HEADERS,
-      redirect: "follow",
-      skipSizeCheck: true
-    });
-    
-    // If the shortener bounces directly to the final host via location headers
-    if (resp.url && !resp.url.includes("m4ulinks")) {
-      return resp.url;
-    }
-
-    // If it renders an intermediate landing page, try parsing a deep link
+    const resp = await fetch(url, { headers: HEADERS, redirect: "follow", skipSizeCheck: true });
+    if (resp.url && !resp.url.includes("m4ulinks")) return resp.url;
     const html = await resp.text();
     const destination = html.match(/window\.location\.replace\(['"](.*?)['"]\)/)?.[1] || 
-                        html.match(/href=['"](https?:\/\/(?:gdflix|hubcloud|hubdrive)[^'"]+)['"]/i)?.[1];
-                        
+                        html.match(/href=['"](https?:\/\/[^'"]+)['"]/i)?.[1];
     return destination || url;
   } catch (_) {
     return url;
   }
 }
 
+// Deep Decoder: Extracts direct video streaming URLs from HubCloud mirrors
+async function decodeHubCloud(url) {
+  try {
+    const pageResp = await fetch(url, { headers: HEADERS, skipSizeCheck: true });
+    const html = await pageResp.text();
+    
+    // Find the intermediate download or token generation endpoint
+    let nextUrl = html.match(/href=['"](https?:\/\/[^'"]+?\/download\/[^'"]+)['"]/i)?.[1];
+    
+    if (!nextUrl) {
+      const matchKey = html.match(/[\?&]id=([^&"'<>]+)/)?.[1];
+      if (matchKey) {
+        const domain = url.match(/https?:\/\/[^\/]+/)[0];
+        nextUrl = `${domain}/download/?id=${matchKey}`;
+      }
+    }
+    if (!nextUrl) return null;
+
+    // Request the download page to process standard form elements
+    const dlPageResp = await fetch(nextUrl, { headers: { ...HEADERS, Referer: url }, skipSizeCheck: true });
+    const dlHtml = await dlPageResp.text();
+    const $h = cheerio.load(dlHtml);
+
+    // Look for direct download elements or cloud drive references
+    let directLink = $h("a.btn-success, a.btn-danger, a[href*='api/download']").first().attr("href");
+    
+    if (!directLink) {
+      directLink = dlHtml.match(/https?:\/\/[^\s"'<>]+?\.workers\.dev\/[^'"]+/i)?.[0] ||
+                   dlHtml.match(/https?:\/\/[^\s"'<>]+?\/api\/download\?[^'"]+/i)?.[0];
+    }
+    
+    return directLink || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// Deep Decoder: Extracts direct video streaming URLs from GDFlix mirrors
+async function decodeGDFlix(url) {
+  try {
+    const pageResp = await fetch(url, { headers: HEADERS, skipSizeCheck: true });
+    const html = await pageResp.text();
+    const $g = cheerio.load(html);
+
+    // Extract core parameters required to bypass the redirect screen
+    const form = $g("form");
+    const action = form.attr("action") || url;
+    
+    const formData = new URLSearchParams();
+    form.find("input").each((i, el) => {
+      const name = $g(el).attr("name");
+      const value = $g(el).attr("value") || "";
+      if (name) formData.append(name, value);
+    });
+
+    const bypassResp = await fetch(action, {
+      method: "POST",
+      headers: { 
+        ...HEADERS, 
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: url 
+      },
+      body: formData.toString(),
+      skipSizeCheck: true
+    });
+
+    const bHtml = await bypassResp.text();
+    const $b = cheerio.load(bHtml);
+    
+    // Grabs the immediate watch/stream or download asset
+    let streamUrl = $b("a.btn-primary, a[href*='drive.google.com'], a[href*='download']").first().attr("href");
+    
+    if (!streamUrl) {
+      streamUrl = bHtml.match(/https?:\/\/[^\s"'<>]+?\(stream\)[^'"]+/i)?.[0];
+    }
+
+    return streamUrl || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 function unpack(p, a, c, k) {
   while (c--) {
-    if (k[c]) {
-      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
-    }
+    if (k[c]) p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
   }
   return p;
 }
@@ -74,13 +143,13 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const BASE_URL = await getBaseUrl();
     const streams = [];
 
-    // Step 1: TMDB Lookup
+    // Step 1: TMDB Processing
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // Step 2: Search Website
+    // Step 2: Query Movies4u Site Indexer
     const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {
       headers: HEADERS,
       skipSizeCheck: true
@@ -100,13 +169,13 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const match = results.find(r => r.name.toLowerCase().includes(title.toLowerCase())) || results[0];
     if (!match) return [];
 
-    // Step 3: Load Movie/Content Page
+    // Step 3: Parse Target Structural Page Layout
     const movieResp = await fetch(match.href, { headers: HEADERS, skipSizeCheck: true });
     const movieHtml = await movieResp.text();
     const $movie = cheerio.load(movieHtml);
 
     // ==========================================
-    // STRATEGY A: Grab the direct Stream Embeds (Original Logic)
+    // STRATEGY A: Direct Stream Embed Extraction
     // ==========================================
     const watchLinks = [];
     $movie("a.btn.btn-zip").each((i, el) => {
@@ -116,40 +185,27 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       }
     });
 
-    for (const watchLink of watchLinks.slice(0, 3)) {
+    for (const watchLink of watchLinks.slice(0, 2)) {
       try {
         const embedResp = await fetch(watchLink, {
           headers: { ...HEADERS, Referer: BASE_URL + "/" },
           skipSizeCheck: true
         });
         const embedHtml = await embedResp.text();
-        let m3u8 = embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'*]*/i)?.[0] ||
-                   embedHtml.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'*]*/i)?.[0];
+        let m3u8 = embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'*]*/i)?.[0];
 
-        if (!m3u8) {
-          const rel = embedHtml.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
-          if (rel) m3u8 = "https://m4uplay.store" + rel;
-        }
-
-        // Packed JS evaluation fallback
         if (!m3u8) {
           const packedMatch = embedHtml.match(/eval\(function\(p,a,c,k,e,d\).*?\}\('(.*)',(\d+),(\d+),'(.*)'\.split\('\|'\)/s);
           if (packedMatch) {
             const unpacked = unpack(packedMatch[1], parseInt(packedMatch[2]), parseInt(packedMatch[3]), packedMatch[4].split("|"));
-            m3u8 = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'*]*/i)?.[0] ||
-                   unpacked.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'*]*/i)?.[0];
-            if (!m3u8) {
-              const rel = unpacked.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
-              if (rel) m3u8 = "https://m4uplay.store" + rel;
-            }
+            m3u8 = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'*]*/i)?.[0];
           }
         }
 
         if (m3u8) {
-          if (m3u8.includes("master.txt")) m3u8 = m3u8.replace("master.txt", "master.m3u8");
           streams.push({
             name: "Movies4u (Stream)",
-            title: "Movies4u Primary Stream",
+            title: "Primary Direct Web Stream",
             quality: extractQuality(watchLink + " " + m3u8),
             url: m3u8,
             headers: {
@@ -164,7 +220,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     }
 
     // ==========================================
-    // STRATEGY B: Grab & Un-shorten Cloud Download Links
+    // STRATEGY B: De-shorte and Decode Cloud Mirrors
     // ==========================================
     const rawDownloadButtons = [];
     $movie("div.downloads-btns-div a[href], div.download-links-div a[href]").each((i, el) => {
@@ -175,46 +231,51 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       }
     });
 
-    // Use a Set to make sure we don't return duplicated final destinations
     const processedUrls = new Set();
 
-    for (const btn of rawDownloadButtons.slice(0, 6)) {
+    for (const btn of rawDownloadButtons.slice(0, 8)) {
       try {
-        let finalUrl = btn.href;
+        let unshortenedUrl = btn.href;
         
-        // If protected by the shortener domain, unlock it
-        if (finalUrl.includes("m4ulinks.com")) {
-          finalUrl = await resolveDownloadUrl(finalUrl);
+        if (unshortenedUrl.includes("m4ulinks.com")) {
+          unshortenedUrl = await resolveShortener(unshortenedUrl);
+        }
+        if (!unshortenedUrl || processedUrls.has(unshortenedUrl)) continue;
+        processedUrls.add(unshortenedUrl);
+
+        let playableDirectUrl = null;
+        let hostLabel = "Cloud Source";
+
+        // Determine host and run the corresponding engine decoder
+        if (unshortenedUrl.includes("hubcloud") || unshortenedUrl.includes("hubdrive")) {
+          hostLabel = "HubCloud Decoded";
+          playableDirectUrl = await decodeHubCloud(unshortenedUrl);
+        } else if (unshortenedUrl.includes("gdflix")) {
+          hostLabel = "GDFlix Decoded";
+          playableDirectUrl = await decodeGDFlix(unshortenedUrl);
         }
 
-        // Drop if it failed to unpack or is a duplicate
-        if (!finalUrl || processedUrls.has(finalUrl) || finalUrl.includes("m4ulinks.com")) {
-          continue;
+        // Only append if the decoder found a direct link for ExoPlayer
+        if (playableDirectUrl) {
+          const quality = extractQuality(btn.text + " " + unshortenedUrl);
+          streams.push({
+            name: `Movies4u (${hostLabel})`,
+            title: `Direct Media Stream (${quality})`,
+            quality: quality,
+            url: playableDirectUrl,
+            headers: {
+              "User-Agent": HEADERS["User-Agent"],
+              Referer: unshortenedUrl
+            },
+            subtitles: []
+          });
         }
-        processedUrls.add(finalUrl);
-
-        const quality = extractQuality(btn.text + " " + finalUrl);
-        let hostName = "Cloud Link";
-        if (finalUrl.includes("gdflix")) hostName = "GDFlix";
-        if (finalUrl.includes("hubcloud")) hostName = "HubCloud";
-
-        streams.push({
-          name: `Movies4u (${hostName})`,
-          title: `Download Server Mirror (${quality})`,
-          quality: quality,
-          url: finalUrl,
-          headers: {
-            ...HEADERS,
-            Referer: match.href
-          },
-          subtitles: []
-        });
       } catch (e) {}
     }
 
     return streams;
   } catch (e) {
-    console.error("[Movies4u Engine Error]", e);
+    console.error("[Movies4u Fatal Parsing Error]", e);
     return [];
   }
 }

@@ -77,7 +77,8 @@ async function resolveHubCloud(hubUrl) {
     });
 
     const data = await resp.json();
-
+console.log("[HUB DATA]", JSON.stringify(data).slice(0, 500));
+    
     if (!data?.links?.length) {
       return [];
     }
@@ -173,21 +174,21 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const watchLinks = [];
 
-    $movie("a.btn.btn-zip").each((i, el) => {
+    $movie("a[href]").each((i, el) => {
       const href = $movie(el).attr("href");
 
-      if (
-  href &&
-  (
-    href.includes("m4uplay") ||
-    href.includes("m4ufree") ||
-    href.includes("m4u") ||
-    href.includes("hubcloud") ||
-    href.includes("hub-cloud") ||
-    href.includes("fsl")
-  )
+      const lowerHref = (href || "").toLowerCase();
+
+if (
+  lowerHref.includes("m4uplay") ||
+  lowerHref.includes("m4ufree") ||
+  lowerHref.includes("m4u") ||
+  lowerHref.includes("hubcloud") ||
+  lowerHref.includes("hub-cloud") ||
+  lowerHref.includes("fsl")
 ) {
         watchLinks.push(href);
+  console.log("[WATCHLINK]", href);
       }
     });
 
@@ -197,14 +198,16 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
   try {
 
-    if (
-      watchLink.includes("hubcloud") ||
-      watchLink.includes("hub-cloud") ||
-      watchLink.includes("fsl")
-    ) {
+    const lowerWatch = watchLink.toLowerCase();
+
+if (
+  lowerWatch.includes("hubcloud") ||
+  lowerWatch.includes("hub-cloud") ||
+  lowerWatch.includes("fsl")
+){
 
       const hubStreams = await resolveHubCloud(watchLink);
-
+console.log("[HUB RESULT]", hubStreams.length);
       if (hubStreams?.length) {
         streams.push(...hubStreams);
       }

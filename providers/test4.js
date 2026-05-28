@@ -1,198 +1,272 @@
-/**
- * ╔══════════════════════════════════════════════════════════════════════════════╗
- * ║            Movies4u — Nuvio Stream Plugin Optimized for Android TV            ║
- * ╠══════════════════════════════════════════════════════════════════════════════╣
- * ║  Source     › https://movies4u.promo                                               ║
- * ║  Author     › Murph Streams ⚡                                                      ║
- * ║  Backend    › https://badboysxs-murph-api.hf.space                                 ║
- * ╠══════════════════════════════════════════════════════════════════════════════╣
- * ║  Supports   › Movies & Series (HD / FSL Direct)                                   ║
- * ║  Chain      › Movies4u FastAPI → HubCloud FSL Resolver                             ║
- * ║  Parallel   › Asynchronous API query handling with caching                         ║
- * ╚══════════════════════════════════════════════════════════════════════════════╝
- */
+// movies4u.js
+// Fixed Nuvio-compatible Movies4u provider
 
-"use strict";
+const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
+const FALLBACK_URL = "https://new1.movies4u.finance";
+const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var API_BASE = "https://badboysxs-murph-api.hf.space";
-var TAG = "[Movies4u]";
+const HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Referer": FALLBACK_URL,
+  "Cookie": "xla=s4t"
+};
 
-var cache = new Map();
-var CACHE_TTL = 15 * 60 * 1000;
+let cachedBaseUrl = null;
 
-function getCached(key) {
-    var entry = cache.get(key);
-    if (!entry) return undefined;
-    if (Date.now() - entry.ts > CACHE_TTL) { cache.delete(key); return undefined; }
-    return entry.val;
+async function getBaseUrl() {
+  if (cachedBaseUrl) return cachedBaseUrl;
+
+  try {
+    const resp = await fetch(DOMAINS_URL, {
+      skipSizeCheck: true
+    });
+
+    const data = await resp.json();
+
+    cachedBaseUrl =
+      data.movies4u ||
+      data.movies4uhd ||
+      FALLBACK_URL;
+
+  } catch (_) {
+    cachedBaseUrl = FALLBACK_URL;
+  }
+
+  return cachedBaseUrl;
 }
 
-function setCached(key, val) {
-    if (cache.size > 200) {
-        var oldest = cache.keys().next().value;
-        cache.delete(oldest);
-    }
-    cache.set(key, { val: val, ts: Date.now() });
+function extractQuality(text) {
+  const u = (text || "").toLowerCase();
+
+  if (u.includes("2160") || u.includes("4k")) return "4K";
+  if (u.includes("1080")) return "1080p";
+  if (u.includes("720")) return "720p";
+  if (u.includes("480")) return "480p";
+  if (u.includes("360")) return "360p";
+
+  return "Unknown";
 }
 
-async function fetchJson(url) {
-    try {
-        var resp = await fetch(url, { 
-            method: "GET",
-            headers: { 
-                "Accept": "application/json", 
-                "User-Agent": "MurphAddon/7.0"
-            }
-        });
-        return resp.ok ? await resp.json() : null;
-    } catch (e) { 
-        return null; 
-    }
-}
+async function resolveUrl(url) {
+  try {
+    const resp = await fetch(url, {
+      headers: HEADERS,
+      redirect: "follow",
+      skipSizeCheck: true
+    });
 
-async function tmdbMeta(tmdbId, mediaType) {
-    var type = (mediaType === "tv" || mediaType === "series") ? "tv" : "movie";
-    var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
-    var d = await fetchJson(url);
-    if (!d) return null;
-    return {
-        title: type === "tv" ? d.name : d.title
-    };
-}
+    return resp.url || url;
 
-function buildStream(row, isTv, se, ep, movieTitle) {
-    var lang = row.audio_lang || "Original";
-    var quality = row.quality || "HD";
-    var size = row.per_episode_size || row.file_size || "";
-    var directUrl = row.direct_url || "";
-
-    if (!directUrl) return null;
-
-    var streamName = "Movies4u | " + movieTitle;
-    var lines = [];
-
-    if (isTv && se != null && ep != null) {
-        lines.push("S" + String(se).padStart(2, "0") + "E" + String(ep).padStart(2, "0"));
-    }
-
-    lines.push("🎥 " + quality + " · 🔊 " + lang);
-
-    if (size && size !== "N/A") {
-        lines.push("💾 " + size);
-    }
-
-    lines.push("⚡ FSL Direct");
-    lines.push("By Murph Streams ⚡");
-
-    return {
-        name: streamName,
-        title: lines.join("\n"),
-        url: directUrl,
-        behaviorHints: {
-            notWebReady: false,
-            bingeGroup: "movies4u-v3-refresh"
-        }
-    };
-}
-
-function extractStreams(results, isTv, se, ep, movieTitle) {
-    var streams = [];
-    for (var i = 0; i < results.length; i++) {
-        var row = results[i];
-        var directUrl = "";
-
-        if (isTv && row.episodes && row.episodes.length) {
-            var matchingEp = ep != null
-                ? row.episodes.find(function(e) { return e.episode === ep; })
-                : row.episodes[0];
-            directUrl = matchingEp ? matchingEp.direct_url : row.episodes[0].direct_url;
-        } else {
-            directUrl = row.direct_url;
-        }
-
-        if (!directUrl || typeof directUrl !== "string") {
-            continue;
-        }
-
-        var s = buildStream({ ...row, direct_url: directUrl }, isTv, se, ep, movieTitle);
-        if (s) streams.push(s);
-    }
-    
-    return streams;
+  } catch (_) {
+    return url;
+  }
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
-    var isTv = mediaType === "tv" || mediaType === "series";
-    var se = isTv ? season || 1 : null;
-    var ep = isTv ? episode || 1 : null;
+  try {
 
-    var cacheKey = "mfu::" + tmdbId + "::" + mediaType + "::" + se + "::" + ep;
-    var cached = getCached(cacheKey);
-    if (cached) return cached;
+    const BASE_URL = await getBaseUrl();
 
-    var meta = await tmdbMeta(tmdbId, mediaType);
-    if (!meta || !meta.title) return [];
+    // TMDB metadata
+    const tmdbUrl =
+      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
 
-    var searchTitle = meta.title;
+    const mediaInfo =
+      await (await fetch(tmdbUrl, {
+        skipSizeCheck: true
+      })).json();
 
-    try {
-        // Direct safe URL concatenation to bypass standard runtime URL object mutations
-        var endpoint = isTv 
-            ? API_BASE + "/api/mfu/series?q=" + encodeURIComponent(searchTitle) + "&season=" + se + "&episode=" + ep
-            : API_BASE + "/api/mfu/movie?q=" + encodeURIComponent(searchTitle);
+    const title =
+      mediaInfo.title ||
+      mediaInfo.name;
 
-        var data = await fetchJson(endpoint);
-        if (!data || !data.results || data.results.length === 0) {
-            return [];
+    if (!title) return [];
+
+    // SEARCH
+    const searchResp = await fetch(
+      `${BASE_URL}/?s=${encodeURIComponent(title)}`,
+      {
+        headers: HEADERS,
+        skipSizeCheck: true
+      }
+    );
+
+    const searchHtml = await searchResp.text();
+    const $ = cheerio.load(searchHtml);
+
+    const results = [];
+
+    $("article").each((i, el) => {
+
+      const a = $(el)
+        .find("h2 a, h3 a")
+        .first();
+
+      const href = a.attr("href");
+
+      const name = a
+        .text()
+        .replace(/\(\d{4}\)/, "")
+        .trim();
+
+      if (href && name) {
+        results.push({
+          href,
+          name
+        });
+      }
+    });
+
+    if (!results.length) return [];
+
+    const match =
+      results.find(r =>
+        r.name.toLowerCase().includes(title.toLowerCase())
+      ) || results[0];
+
+    if (!match?.href) return [];
+
+    // LOAD PAGE
+    const pageResp = await fetch(match.href, {
+      headers: HEADERS,
+      skipSizeCheck: true
+    });
+
+    const pageHtml = await pageResp.text();
+    const $p = cheerio.load(pageHtml);
+
+    const streams = [];
+
+    // =========================
+    // MOVIES
+    // =========================
+
+    if (mediaType === "movie") {
+
+      const links = [];
+
+      $p("a[href]").each((i, el) => {
+
+        const href = $p(el).attr("href") || "";
+        const text = $p(el).text().toLowerCase();
+
+        if (
+          href.startsWith("http") &&
+          (
+            text.includes("download") ||
+            text.includes("drive") ||
+            text.includes("watch") ||
+            href.includes("drive") ||
+            href.includes("hubcloud") ||
+            href.includes("gdflix") ||
+            href.includes("pixeldrain")
+          )
+        ) {
+          links.push(href);
+        }
+      });
+
+      const uniqueLinks = [...new Set(links)];
+
+      for (const link of uniqueLinks.slice(0, 10)) {
+
+        const finalUrl = await resolveUrl(link);
+
+        streams.push({
+          url: finalUrl,
+          quality: extractQuality(link + finalUrl),
+          title: `Movies4u`,
+          subtitles: []
+        });
+      }
+
+      return streams;
+    }
+
+    // =========================
+    // TV SERIES
+    // =========================
+
+    const episodeLinks = [];
+
+    $p("a[href]").each((i, el) => {
+
+      const href = $p(el).attr("href") || "";
+      const text = $p(el).text();
+
+      const epMatch =
+        text.match(/episode\s*(\d+)/i);
+
+      if (!epMatch) return;
+
+      const epNum = parseInt(epMatch[1]);
+
+      if (epNum !== parseInt(episode || 1))
+        return;
+
+      if (href.startsWith("http")) {
+        episodeLinks.push(href);
+      }
+    });
+
+    if (!episodeLinks.length) {
+      return [];
+    }
+
+    for (const epLink of episodeLinks.slice(0, 5)) {
+
+      try {
+
+        const epResp = await fetch(epLink, {
+          headers: HEADERS,
+          skipSizeCheck: true
+        });
+
+        const epHtml = await epResp.text();
+        const $ep = cheerio.load(epHtml);
+
+        const foundLinks = [];
+
+        $ep("a[href]").each((i, el) => {
+
+          const href = $ep(el).attr("href") || "";
+
+          if (
+            href.startsWith("http") &&
+            !href.includes("telegram")
+          ) {
+            foundLinks.push(href);
+          }
+        });
+
+        for (const lnk of foundLinks.slice(0, 5)) {
+
+          const finalUrl = await resolveUrl(lnk);
+
+          streams.push({
+            url: finalUrl,
+            quality: extractQuality(lnk),
+            title: `Movies4u S${season}E${episode}`,
+            subtitles: []
+          });
         }
 
-        var streams = extractStreams(data.results, isTv, se, ep, searchTitle);
-        if (streams.length) setCached(cacheKey, streams);
-        return streams;
-    } catch (err) {
-        return [];
+      } catch (_) {}
     }
-}
 
-if (typeof module !== "undefined" && module.exports) {
-    module.exports = { getStreams: getStreams };
-} else {
-    global.getStreams = getStreams;
+    return streams;
+
+  } catch (e) {
+    console.error("[Movies4u]", e);
+    return [];
+  }
 }
 
 /**
- * ANDROID TV COMPATIBILITY NORMALIZER
+ * ✅ REQUIRED FOR NUVIO
  */
-function __doomNormalizeStream(rawStream) {
-    if (!rawStream || !rawStream.url) return null;
-
-    return {
-        name: rawStream.name,
-        title: rawStream.title,
-        url: rawStream.url,
-        behaviorHints: rawStream.behaviorHints
-    };
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
 }
-
-(function() {
-    if (typeof getStreams !== "function" || getStreams.__doomNormalizedWrapped) return;
-
-    var __doomOriginalGetStreams = getStreams;
-    var __doomNormalizedGetStreams = function() {
-        return Promise.resolve(__doomOriginalGetStreams.apply(this, arguments))
-            .then(function(streams) {
-                if (!Array.isArray(streams)) return [];
-                return streams.map(__doomNormalizeStream).filter(Boolean);
-            });
-    };
-
-    __doomNormalizedGetStreams.__doomNormalizedWrapped = true;
-    getStreams = __doomNormalizedGetStreams;
-
-    if (typeof module !== "undefined" && module.exports) {
-        module.exports.getStreams = getStreams;
-    } else if (typeof global !== "undefined") {
-        global.getStreams = getStreams;
-    }
-})();

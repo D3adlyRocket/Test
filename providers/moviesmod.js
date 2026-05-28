@@ -1,5 +1,5 @@
 // movies4u.js
-// Fixed Nuvio-compatible Movies4u provider (SAFE + HubCloud upgrade)
+// Fixed Nuvio-compatible Movies4u provider
 
 const cheerio = require("cheerio");
 
@@ -18,14 +18,19 @@ const HEADERS = {
 
 let cachedBaseUrl = null;
 
-// ---------------- BASE ----------------
+// ---------------- BASE URL ----------------
 async function getBaseUrl() {
   if (cachedBaseUrl) return cachedBaseUrl;
 
   try {
     const resp = await fetch(DOMAINS_URL, { skipSizeCheck: true });
     const data = await resp.json();
-    cachedBaseUrl = data.movies4u || data.movies4uhd || FALLBACK_URL;
+
+    cachedBaseUrl =
+      data.movies4u ||
+      data.movies4uhd ||
+      FALLBACK_URL;
+
   } catch {
     cachedBaseUrl = FALLBACK_URL;
   }
@@ -36,15 +41,18 @@ async function getBaseUrl() {
 // ---------------- QUALITY ----------------
 function extractQuality(text) {
   const u = (text || "").toLowerCase();
+
   if (u.includes("2160") || u.includes("4k")) return "4K";
   if (u.includes("1080")) return "1080p";
   if (u.includes("720")) return "720p";
   if (u.includes("480")) return "480p";
+  if (u.includes("360")) return "360p";
+
   return "Unknown";
 }
 
-// ---------------- SAFE REDIRECT RESOLVER ----------------
-async function resolveFinal(url) {
+// ---------------- REDIRECT RESOLVER ----------------
+async function resolveRedirect(url) {
   try {
     const res = await fetch(url, {
       headers: HEADERS,
@@ -58,27 +66,8 @@ async function resolveFinal(url) {
   }
 }
 
-// ---------------- HUB RESOLVER (NEW FIX) ----------------
-async function resolveHub(url) {
-  try {
-    // CASE 1: hubcloud.php
-    if (url.includes("hubcloud.php")) {
-      return await resolveFinal(url);
-    }
-
-    // CASE 2: homelander bridge
-    if (url.includes("hub.homelander.buzz")) {
-      return await resolveFinal(url);
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
 // =======================
-// MAIN
+// MAIN FUNCTION
 // =======================
 async function getStreams(tmdbId, mediaType = "movie") {
   try {
@@ -88,11 +77,11 @@ async function getStreams(tmdbId, mediaType = "movie") {
       `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
 
     const mediaInfo = await (await fetch(tmdbUrl)).json();
-
     const title = mediaInfo.title || mediaInfo.name;
+
     if (!title) return [];
 
-    // SEARCH
+    // ---------------- SEARCH ----------------
     const searchResp = await fetch(
       `${BASE_URL}/?s=${encodeURIComponent(title)}`,
       { headers: HEADERS }
@@ -107,7 +96,10 @@ async function getStreams(tmdbId, mediaType = "movie") {
       const a = $(el).find("a").first();
       const href = a.attr("href");
       const name = a.text().trim();
-      if (href && name) results.push({ href, name });
+
+      if (href && name) {
+        results.push({ href, name });
+      }
     });
 
     if (!results.length) return [];
@@ -119,7 +111,7 @@ async function getStreams(tmdbId, mediaType = "movie") {
 
     if (!match) return [];
 
-    // MOVIE PAGE
+    // ---------------- MOVIE PAGE ----------------
     const movieResp = await fetch(match.href, { headers: HEADERS });
     const movieHtml = await movieResp.text();
     const $m = cheerio.load(movieHtml);
@@ -133,58 +125,76 @@ async function getStreams(tmdbId, mediaType = "movie") {
 
     const streams = [];
 
-    // =======================
-    // STREAM EXTRACTION
-    // =======================
-    for (const link of watchLinks.slice(0, 5)) {
+    // ---------------- STREAM LOOP ----------------
+    for (const watchLink of watchLinks.slice(0, 5)) {
       try {
-        const embed = await fetch(link, {
+        const embedResp = await fetch(watchLink, {
           headers: { ...HEADERS, Referer: BASE_URL + "/" },
         });
 
-        const html = await embed.text();
+        const embedHtml = await embedResp.text();
 
-        let stream =
-          html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
-          html.match(/https?:\/\/[^\s"'<>]+\.mp4[^\s"'<>]*/i)?.[0];
+        let m3u8 =
+          embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
+          embedHtml.match(/https?:\/\/[^\s"'<>]+\.mp4[^\s"'<>]*/i)?.[0];
 
-        // -----------------------
-        // HUB + HOMELANDER FIX
-        // -----------------------
-        if (!stream) {
-          const hubMatch =
-            html.match(/https?:\/\/hubcloud[^"'<> ]+hubcloud\.php[^"'<> ]+/i)?.[0] ||
-            html.match(/https?:\/\/hub\.homelander\.buzz\/[^\s"'<>]+/i)?.[0];
+        // =====================================================
+        // 🔥 HUBCLOUD / HOMELANDER SAFE FALLBACK (NO BREAKING)
+        // =====================================================
+        if (!m3u8) {
+          const hub =
+            embedHtml.match(/https?:\/\/hub\.homelander\.buzz\/[^\s"'<>]+/i)?.[0] ||
+            embedHtml.match(/https?:\/\/hubcloud[^"'<> ]+hubcloud\.php[^\s"'<>]*/i)?.[0];
 
-          if (hubMatch) {
-            stream = await resolveHub(hubMatch);
+          if (hub) {
+            const resolved = await resolveRedirect(hub);
+
+            if (resolved && !resolved.includes(".apk")) {
+              streams.push({
+                name: "Movies4u",
+                title: "Hub Stream",
+                quality: extractQuality(hub),
+                url: resolved,
+                headers: {
+                  Referer: "https://m4uplay.store/",
+                  "User-Agent": HEADERS["User-Agent"],
+                },
+                subtitles: [],
+              });
+            }
           }
+
+          continue;
         }
 
-        if (!stream) continue;
-
-        // filter junk
-        if (stream.includes(".apk")) continue;
-
+        // ---------------- NORMAL STREAM ----------------
         streams.push({
           name: "Movies4u",
-          title: "Stream",
-          quality: extractQuality(stream),
-          url: stream,
+          title: "Movies4u Stream",
+          quality: extractQuality(watchLink + " " + m3u8),
+          url: m3u8,
           headers: {
             Referer: "https://m4uplay.store/",
+            Origin: "https://m4uplay.store",
             "User-Agent": HEADERS["User-Agent"],
           },
           subtitles: [],
         });
+
       } catch {}
     }
 
     return streams;
+
   } catch (e) {
     console.error("[Movies4u]", e);
     return [];
   }
 }
 
-module.exports = { getStreams };
+// =======================
+// EXPORT
+// =======================
+module.exports = {
+  getStreams,
+};

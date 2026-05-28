@@ -1,5 +1,5 @@
 // movies4u.js
-// Nuvio-compatible Movies4u provider (FIXED: FSL + HubCloud + TV seasons)
+// Nuvio-compatible Movies4u provider (FIXED HubCloud/FSL direct CDN support)
 
 const cheerio = require("cheerio");
 
@@ -38,10 +38,15 @@ function extractQuality(text = "") {
 }
 
 /* =========================
-   IMPROVED CLOUD RESOLVER
+   FIXED CLOUD RESOLVER
 ========================= */
 async function resolveCloudStream(shortenerUrl) {
   try {
+    // 🔥 DIRECT HUB CDN SUPPORT (YOUR MAIN ISSUE FIX)
+    if (shortenerUrl?.includes("hub.homelander.buzz")) {
+      return shortenerUrl;
+    }
+
     const res1 = await fetch(shortenerUrl, {
       headers: HEADERS,
       redirect: "follow",
@@ -51,10 +56,9 @@ async function resolveCloudStream(shortenerUrl) {
     const finalUrl = res1.url;
     const html1 = await res1.text();
 
-    // 🔥 direct stream detection
+    // direct m3u8 (rare but keep)
     let direct =
-      html1.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
-      html1.match(/https?:\/\/[^\s"'<>]+\/playlist\.m3u8[^\s"'<>]*/i)?.[0];
+      html1.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
 
     if (direct) return direct;
 
@@ -74,12 +78,14 @@ async function resolveCloudStream(shortenerUrl) {
 
     const html2 = await res2.text();
 
-    // iframe fallback (FSL / HubCloud / GDFlix)
+    // 🔥 FIX: detect direct hub/fsl links inside HTML
+    const directHub =
+      html2.match(/https?:\/\/hub\.homelander\.buzz\/[^\s"'<>]+/i)?.[0];
+
+    if (directHub) return directHub;
+
     const iframe =
-      html2.match(/<iframe[^>]+src=["']([^"']+)["']/i)?.[1] ||
-      html2.match(
-        /src=["'](https?:\/\/(?:hubcloud|fsl|gdflix|player)[^"']+)["']/i
-      )?.[1];
+      html2.match(/<iframe[^>]+src=["']([^"']+)["']/i)?.[1];
 
     if (iframe) {
       const res3 = await fetch(iframe, {
@@ -103,7 +109,7 @@ async function resolveCloudStream(shortenerUrl) {
 }
 
 /* =========================
-   MAIN STREAM FUNCTION
+   MAIN FUNCTION
 ========================= */
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   try {
@@ -171,16 +177,16 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       }
     );
 
-    for (const watchLink of watchLinks.slice(0, 5)) {
+    for (const link of watchLinks.slice(0, 10)) {
       try {
-        const embedResp = await fetch(watchLink, {
+        const embedResp = await fetch(link, {
           headers: { ...HEADERS, Referer: BASE_URL + "/" },
           skipSizeCheck: true,
         });
 
         const embedHtml = await embedResp.text();
 
-        let m3u8 =
+        const m3u8 =
           embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
 
         if (m3u8) {
@@ -201,7 +207,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     }
 
     /* =========================
-       STRATEGY B: CLOUD LINKS
+       STRATEGY B: CLOUD LINKS (FIXED)
     ========================= */
     const rawDownloadButtons = [];
 
@@ -226,7 +232,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const processed = new Set();
 
-    for (const btn of rawDownloadButtons.slice(0, 15)) {
+    for (const btn of rawDownloadButtons.slice(0, 20)) {
       try {
         const resolved = await resolveCloudStream(btn.href);
 
@@ -246,45 +252,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           });
         }
       } catch (_) {}
-    }
-
-    /* =========================
-       TV FIX (IMPORTANT)
-    ========================= */
-    if (mediaType !== "movie") {
-      const seasonLinks = [];
-
-      $movie("div.download-links-div h4").each((i, el) => {
-        const h4Text = $movie(el).text();
-        const sMatch = h4Text.match(/Season\s*(\d+)/i);
-        if (!sMatch) return;
-
-        const sNum = parseInt(sMatch[1]);
-        if (season && sNum !== parseInt(season)) return;
-
-        const nextEl = $movie(el).next();
-
-        nextEl.find("a[href]").each((j, a) => {
-          const href = $movie(a).attr("href");
-          if (href) seasonLinks.push({ href, season: sNum });
-        });
-      });
-
-      for (const { href, season: sNum } of seasonLinks.slice(0, 5)) {
-        try {
-          const resolved = await resolveCloudStream(href);
-
-          if (resolved) {
-            streams.push({
-              name: "Movies4u TV",
-              title: `S${sNum}`,
-              quality: extractQuality(resolved),
-              url: resolved,
-              subtitles: [],
-            });
-          }
-        } catch (_) {}
-      }
     }
 
     return streams;

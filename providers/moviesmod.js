@@ -190,9 +190,13 @@ if (
   lowerHref.includes("m4uplay") ||
   lowerHref.includes("m4ufree") ||
   lowerHref.includes("m4u") ||
+  lowerHref.includes("m4ulinks") ||
   lowerHref.includes("hubcloud") ||
   lowerHref.includes("hub-cloud") ||
   lowerHref.includes("fsl")
+  lowerHref.includes("gdflix") ||
+  lowerHref.includes("driveleech") ||
+  lowerHref.includes("pixeldrain")
 ) {
         watchLinks.add(href);
   console.log("[WATCHLINK]", href);

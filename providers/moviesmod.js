@@ -131,42 +131,34 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const watchLinksRaw = [];
 
-// collect ALL possible download/watch links
+// ORIGINAL MOVIES4U DOWNLOAD BUTTONS (MOST IMPORTANT)
+$movie("div.downloads-btns-div a[href]").each((i, el) => {
+  const href = $movie(el).attr("href");
+
+  if (href) {
+    watchLinksRaw.push(href);
+  }
+});
+
+// ZIP / WATCH BUTTONS
+$movie("a.btn.btn-zip").each((i, el) => {
+  const href = $movie(el).attr("href");
+
+  if (href) {
+    watchLinksRaw.push(href);
+  }
+});
+
+// EXTRA FALLBACK DISCOVERY
 $movie("a[href]").each((i, el) => {
 
-  let href = $movie(el).attr("href") || "";
+  const href = $movie(el).attr("href") || "";
 
-  if (!href) return;
-
-  // fix relative URLs
-  if (href.startsWith("/")) {
-    href = BASE_URL + href;
-  }
-
-  // skip junk
   if (
-    href.startsWith("#") ||
-    href.includes("telegram") ||
-    href.includes("facebook") ||
-    href.includes("twitter") ||
-    href.includes("instagram") ||
-    href.includes("javascript:")
-  ) {
-    return;
-  }
-
-  // keep useful links only
-  if (
-    href.includes("m4u") ||
     href.includes("hubcloud") ||
     href.includes("gdflix") ||
-    href.includes("pixeldrain") ||
-    href.includes("dl") ||
-    href.includes("download") ||
-    href.includes("drive") ||
-    href.includes("watch") ||
-    href.includes("/file/") ||
-    href.includes("/drive/")
+    href.includes("m4uplay") ||
+    href.includes("m4ufree")
   ) {
     watchLinksRaw.push(href);
   }

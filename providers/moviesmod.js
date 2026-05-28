@@ -189,15 +189,24 @@ const watchLinks = [
 
       try {
 
-        const embedResp = await fetch(watchLink, {
-          headers: {
-            ...HEADERS,
-            Referer: BASE_URL + "/"
-          },
-          skipSizeCheck: true
-        });
+        let finalUrl = watchLink;
 
-        const embedHtml = await embedResp.text();
+// resolve redirects first
+try {
+  finalUrl = await resolveUrl(watchLink);
+} catch (_) {}
+
+// fetch resolved page
+const embedResp = await fetch(finalUrl, {
+  headers: {
+    ...HEADERS,
+    Referer: BASE_URL + "/"
+  },
+  redirect: "follow",
+  skipSizeCheck: true
+});
+
+const embedHtml = await embedResp.text();
 
         function unpack(p, a, c, k) {
   while (c--) {
@@ -212,6 +221,69 @@ const watchLinks = [
 }
 
 let m3u8 = null;
+// ======================
+// HUBCLOUD / GDFLIX FIX
+// ======================
+
+// hubcloud embeds
+if (
+  !m3u8 &&
+  (
+    finalUrl.includes("hubcloud") ||
+    finalUrl.includes("gdflix") ||
+    finalUrl.includes("m4ulinks")
+  )
+) {
+
+  // iframe extraction
+  const iframeSrc =
+    embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/i)?.[1];
+
+  if (iframeSrc) {
+
+    try {
+
+      const iframeUrl =
+        iframeSrc.startsWith("http")
+          ? iframeSrc
+          : new URL(iframeSrc, finalUrl).href;
+
+      const iframeResp = await fetch(iframeUrl, {
+        headers: {
+          ...HEADERS,
+          Referer: finalUrl
+        },
+        redirect: "follow",
+        skipSizeCheck: true
+      });
+
+      const iframeHtml = await iframeResp.text();
+
+      // direct m3u8
+      m3u8 =
+        iframeHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
+
+      // master.txt
+      if (!m3u8) {
+        m3u8 =
+          iframeHtml.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
+      }
+
+      // relative stream path
+      if (!m3u8) {
+
+        const rel =
+          iframeHtml.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
+
+        if (rel) {
+          m3u8 = "https://m4uplay.store" + rel;
+        }
+      }
+
+    } catch (_) {}
+  }
+}
+        
 
 // DIRECT LINK
 m3u8 =

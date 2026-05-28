@@ -193,7 +193,7 @@ if (
   lowerHref.includes("m4ulinks") ||
   lowerHref.includes("hubcloud") ||
   lowerHref.includes("hub-cloud") ||
-  lowerHref.includes("fsl")
+  lowerHref.includes("fsl") ||
   lowerHref.includes("gdflix") ||
   lowerHref.includes("driveleech") ||
   lowerHref.includes("pixeldrain")

@@ -1,5 +1,5 @@
 // movies4u.js
-// Fixed Nuvio-compatible Movies4u provider
+// Fixed Nuvio-compatible Movies4u provider (SCRAPER + API HYBRID)
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new1.movies4u.finance";
@@ -17,10 +17,7 @@ async function getBaseUrl() {
   if (cachedBaseUrl) return cachedBaseUrl;
 
   try {
-    const resp = await fetch(DOMAINS_URL, {
-      skipSizeCheck: true
-    });
-
+    const resp = await fetch(DOMAINS_URL, { skipSizeCheck: true });
     const data = await resp.json();
 
     cachedBaseUrl =
@@ -56,14 +53,13 @@ async function resolveUrl(url) {
     });
 
     return resp.url || url;
-
   } catch (_) {
     return url;
   }
 }
 
 // =======================
-// NUVIO EXPORT FIX
+// MAIN
 // =======================
 
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
@@ -81,17 +77,18 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     if (!title) return [];
 
-    // SEARCH
+    const streams = [];
+
+    // =========================================================
+    // 1. SCRAPER PIPELINE (YOUR ORIGINAL LOGIC - PRESERVED)
+    // =========================================================
+
     const searchResp = await fetch(
       `${BASE_URL}/?s=${encodeURIComponent(title)}`,
-      {
-        headers: HEADERS,
-        skipSizeCheck: true
-      }
+      { headers: HEADERS, skipSizeCheck: true }
     );
 
     const searchHtml = await searchResp.text();
-
     const $ = cheerio.load(searchHtml);
 
     const results = [];
@@ -103,10 +100,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       const name = a.text().trim();
 
       if (href && name) {
-        results.push({
-          href,
-          name
-        });
+        results.push({ href, name });
       }
     });
 
@@ -117,68 +111,73 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         r.name.toLowerCase().includes(title.toLowerCase())
       ) || results[0];
 
-    if (!match) return [];
+    if (!match?.href) return [];
 
-    // MOVIE PAGE
     const movieResp = await fetch(match.href, {
       headers: HEADERS,
       skipSizeCheck: true
     });
 
     const movieHtml = await movieResp.text();
-
     const $movie = cheerio.load(movieHtml);
 
     const watchLinksRaw = [];
 
-// EXTRA DISCOVERY (keep all hosts)
-$movie("a[href]").each((i, el) => {
-  const href = $movie(el).attr("href") || "";
+    // EXTRA DISCOVERY
+    $movie("a[href]").each((i, el) => {
+      const href = $movie(el).attr("href") || "";
 
-  if (
-    href.includes("m4uplay") ||
-    href.includes("m4ufree") ||
-    href.includes("m4u") ||
-    href.includes("hubcloud") ||
-    href.includes("gdflix")
-  ) {
-    watchLinksRaw.push(href);
-  }
-});
+      if (
+        href.includes("m4uplay") ||
+        href.includes("m4ufree") ||
+        href.includes("m4u") ||
+        href.includes("hubcloud") ||
+        href.includes("gdflix")
+      ) {
+        watchLinksRaw.push(href);
+      }
+    });
 
-// PRIMARY BUTTON LINKS
-$movie("a.btn.btn-zip").each((i, el) => {
-  const href = $movie(el).attr("href");
+    // BUTTON LINKS
+    $movie("a.btn.btn-zip").each((i, el) => {
+      const href = $movie(el).attr("href");
 
-  if (
-    href &&
-    (
-      href.includes("m4uplay") ||
-      href.includes("m4ufree") ||
-      href.includes("m4u") ||
-      href.includes("hubcloud") ||
-      href.includes("gdflix")
-    )
-  ) {
-    watchLinksRaw.push(href);
-  }
-});
+      if (
+        href &&
+        (
+          href.includes("m4uplay") ||
+          href.includes("m4ufree") ||
+          href.includes("m4u") ||
+          href.includes("hubcloud") ||
+          href.includes("gdflix")
+        )
+      ) {
+        watchLinksRaw.push(href);
+      }
+    });
 
-// CLEAN + REMOVE DUPLICATES
-const watchLinks = [
-  ...new Set(
-    watchLinksRaw
-      .filter(Boolean)
-      .map(l => l.split("?")[0])
-  )
-];
+    const watchLinks = [
+      ...new Set(
+        watchLinksRaw
+          .filter(Boolean)
+          .map(l => l.split("?")[0])
+      )
+    ];
 
-const streams = [];
+    function unpack(p, a, c, k) {
+      while (c--) {
+        if (k[c]) {
+          p = p.replace(
+            new RegExp("\\b" + c.toString(a) + "\\b", "g"),
+            k[c]
+          );
+        }
+      }
+      return p;
+    }
 
     for (const watchLink of watchLinks.slice(0, 5)) {
-
       try {
-
         const embedResp = await fetch(watchLink, {
           headers: {
             ...HEADERS,
@@ -189,129 +188,71 @@ const streams = [];
 
         const embedHtml = await embedResp.text();
 
-        function unpack(p, a, c, k) {
-  while (c--) {
-    if (k[c]) {
-      p = p.replace(
-        new RegExp("\\b" + c.toString(a) + "\\b", "g"),
-        k[c]
-      );
-    }
-  }
-  return p;
-}
+        let m3u8 = null;
 
-let m3u8 = null;
-
-// DIRECT LINK
-m3u8 =
-  embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
-
-// master.txt
-if (!m3u8) {
-  m3u8 =
-    embedHtml.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
-}
-
-// Relative stream path
-if (!m3u8) {
-  const rel =
-    embedHtml.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
-
-  if (rel) {
-    m3u8 = "https://m4uplay.store" + rel;
-  }
-}
-// IF NOTHING FOUND → CHECK IFRAMES (GDFlix / HubCloud FIX)
-if (!m3u8) {
-  const iframe =
-    embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/i)?.[1];
-
-  if (iframe) {
-    try {
-      const iframeResp = await fetch(iframe, {
-        headers: HEADERS,
-        skipSizeCheck: true
-      });
-
-      const iframeHtml = await iframeResp.text();
-
-      m3u8 =
-        iframeHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
-
-      if (!m3u8) {
         m3u8 =
-          iframeHtml.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
-      }
-    } catch (e) {}
-  }
-}
-        
-// PACKED JS
-if (!m3u8) {
+          embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
 
-  const packedMatch = embedHtml.match(
-    /eval\(function\(p,a,c,k,e,d\).*?\}\('(.*)',(\d+),(\d+),'(.*)'\.split\('\|'\)/s
-  );
-
-  if (packedMatch) {
-
-    try {
-
-      const unpacked = unpack(
-        packedMatch[1],
-        parseInt(packedMatch[2]),
-        parseInt(packedMatch[3]),
-        packedMatch[4].split("|")
-      );
-
-      m3u8 =
-        unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
-
-      if (!m3u8) {
-        m3u8 =
-          unpacked.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
-      }
-
-      if (!m3u8) {
-        const rel =
-          unpacked.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
-
-        if (rel) {
-          m3u8 = "https://m4uplay.store" + rel;
+        if (!m3u8) {
+          m3u8 =
+            embedHtml.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
         }
-      }
 
-    } catch (_) {}
-  }
-}
+        if (!m3u8) {
+          const rel =
+            embedHtml.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
 
-// Convert master.txt to m3u8
-if (m3u8 && m3u8.includes("master.txt")) {
-  m3u8 = m3u8.replace("master.txt", "master.m3u8");
-}
+          if (rel) {
+            m3u8 = "https://m4uplay.store" + rel;
+          }
+        }
 
         if (!m3u8) continue;
 
         streams.push({
           name: "Movies4u",
           title: "Movies4u Stream",
-          quality: extractQuality(
-  watchLink + " " + m3u8
-),
           url: m3u8,
-
-          headers: {
-            Referer: "https://m4uplay.store/",
-            Origin: "https://m4uplay.store",
-            "User-Agent": HEADERS["User-Agent"]
-          },
-
+          quality: extractQuality(watchLink + " " + m3u8),
           subtitles: []
         });
 
-      } catch (e) {}
+      } catch (_) {}
     }
+
+    // =========================================================
+    // 2. API PIPELINE (ADDED MULTI-LINK SOURCE)
+    // =========================================================
+
+    try {
+      const apiBase = "https://badboysxs-murph-api.hf.space";
+
+      const apiUrl =
+        mediaType === "tv"
+          ? `${apiBase}/api/mfu/series?q=${encodeURIComponent(title)}&season=${season || 1}&episode=${episode || 1}`
+          : `${apiBase}/api/mfu/movie?q=${encodeURIComponent(title)}`;
+
+      const apiResp = await fetch(apiUrl, { skipSizeCheck: true });
+      const apiData = await apiResp.json();
+
+      if (apiData?.results?.length) {
+        for (const row of apiData.results) {
+          const directUrl =
+            row.direct_url ||
+            row.episodes?.[0]?.direct_url;
+
+          if (!directUrl) continue;
+
+          streams.push({
+            name: "Movies4u API",
+            title: `Movies4u | ${row.quality || "HD"} | ${row.audio_lang || "Original"}`,
+            url: directUrl,
+            quality: row.quality || "HD",
+            subtitles: []
+          });
+        }
+      }
+    } catch (_) {}
 
     return streams;
 
@@ -322,9 +263,5 @@ if (m3u8 && m3u8.includes("master.txt")) {
 }
 
 // =======================
-// REQUIRED FOR NUVIO
-// =======================
 
-module.exports = {
-  getStreams
-};
+module.exports = { getStreams };

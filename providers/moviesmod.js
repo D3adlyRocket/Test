@@ -286,8 +286,10 @@ if (
         
 
 // DIRECT LINK
-m3u8 =
-  embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
+if (!m3u8) {
+  m3u8 =
+    embedHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
+}
 
 // master.txt
 if (!m3u8) {

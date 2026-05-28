@@ -1,11 +1,11 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════════════════╗
- * ║              MovieBox Provider v5.1 — Android TV Optimized                 ║
+ * ║               MovieBox Provider v6.0 — Android TV Stable                   ║
  * ╠══════════════════════════════════════════════════════════════════════════════╣
  * ║  Worker      › https://moviebox.s4nch1tt.workers.dev                      ║
- * ║  Features    › Multi-Language | Direct Playback | Android TV Safe         ║
- * ║  Playback    › Uses proxy_url from worker                                 ║
- * ║  Optimized   › Stremio Android TV / Nuvio                                 ║
+ * ║  Playback    › Direct Worker Playback                                     ║
+ * ║  Optimized   › Nuvio / Stremio Android TV                                 ║
+ * ║  Features    › Multi-Language | Quality Sorting | Cache                   ║
  * ║  Author      › Murph Streams ⚡                                            ║
  * ╚══════════════════════════════════════════════════════════════════════════════╝
  */
@@ -16,15 +16,18 @@ const WORKER_BASE = "https://moviebox.s4nch1tt.workers.dev";
 const TAG = "[MovieBox]";
 
 /**
- * SIMPLE LRU CACHE
+ * SIMPLE CACHE
  */
 const cache = new Map();
 const CACHE_TTL = 20 * 60 * 1000;
 
 function getCached(key) {
+
     const entry = cache.get(key);
 
-    if (!entry) return undefined;
+    if (!entry) {
+        return undefined;
+    }
 
     if (Date.now() - entry.ts > CACHE_TTL) {
         cache.delete(key);
@@ -35,8 +38,12 @@ function getCached(key) {
 }
 
 function setCached(key, val) {
+
     if (cache.size > 300) {
-        const oldest = cache.keys().next().value;
+
+        const oldest =
+            cache.keys().next().value;
+
         cache.delete(oldest);
     }
 
@@ -47,51 +54,73 @@ function setCached(key, val) {
 }
 
 /**
- * SAFE FETCH JSON
+ * SAFE JSON FETCH
  */
-async function safeJson(url) {
+async function fetchJson(url) {
+
     try {
-        const res = await fetch(url, {
+
+        const response = await fetch(url, {
             method: "GET",
             headers: {
                 "Accept": "application/json",
-                "User-Agent": "MurphAddon/5.1"
+                "User-Agent": "Mozilla/5.0"
             },
             signal: AbortSignal.timeout(15000)
         });
 
-        if (!res.ok) {
-            console.log(`${TAG} HTTP ${res.status}`);
+        if (!response.ok) {
+
+            console.log(
+                `${TAG} HTTP ${response.status}`
+            );
+
             return null;
         }
 
-        return await res.json();
+        return await response.json();
 
     } catch (err) {
-        console.log(`${TAG} Fetch Error → ${err.message}`);
+
+        console.log(
+            `${TAG} Fetch Error → ${err.message}`
+        );
+
         return null;
     }
 }
 
 /**
- * FETCH STREAMS FROM WORKER
+ * FETCH FROM WORKER
  */
-async function fetchFromWorker(tmdbId, mediaType, season, episode) {
+async function fetchFromWorker(
+    tmdbId,
+    mediaType,
+    season,
+    episode
+) {
 
     let url =
-        `${WORKER_BASE}/streams?tmdb_id=${encodeURIComponent(tmdbId)}` +
-        `&type=${encodeURIComponent(mediaType)}` +
+        `${WORKER_BASE}/streams?tmdb_id=` +
+        encodeURIComponent(tmdbId) +
+        `&type=` +
+        encodeURIComponent(mediaType) +
         `&lang=all`;
 
     if (mediaType === "tv") {
-        url += `&se=${season || 1}&ep=${episode || 1}`;
+
+        url +=
+            `&se=${season || 1}` +
+            `&ep=${episode || 1}`;
     }
 
     console.log(`${TAG} Worker → ${url}`);
 
-    const data = await safeJson(url);
+    const data = await fetchJson(url);
 
-    if (!data) return [];
+    if (!data) {
+        return [];
+    }
 
     if (Array.isArray(data.streams)) {
         return data.streams;
@@ -105,156 +134,223 @@ async function fetchFromWorker(tmdbId, mediaType, season, episode) {
 }
 
 /**
- * BUILD STREAM OBJECT
+ * CLEAN STREAM URL
  */
-function buildStream(s, isTv, season, episode) {
+function normalizeUrl(url) {
 
-    let streamUrl = s.proxy_url || s.url || "";
-
-    /**
-     * FIX RELATIVE URLS
-     */
-    if (streamUrl && !streamUrl.startsWith("http")) {
-        streamUrl =
-            WORKER_BASE +
-            (streamUrl.startsWith("/") ? "" : "/") +
-            streamUrl;
+    if (!url) {
+        return "";
     }
 
-    if (!streamUrl) return null;
-
-    /**
-     * QUALITY
-     */
-    let quality = "Auto";
-
-    if (s.resolution) {
-        const match = String(s.resolution).match(/(\d+)/);
-        quality = match
-            ? match[1] + "p"
-            : String(s.resolution);
+    if (
+        url.startsWith("http://") ||
+        url.startsWith("https://")
+    ) {
+        return url;
     }
 
-    /**
-     * LANGUAGE
-     */
-    let lang = "Original";
+    return (
+        WORKER_BASE +
+        (url.startsWith("/") ? "" : "/") +
+        url
+    );
+}
 
-    const langMatch = (s.name || "").match(/\(([^)]+)\)/);
+/**
+ * EXTRACT QUALITY
+ */
+function getQuality(stream) {
 
-    if (langMatch) {
-        lang = langMatch[1];
+    if (!stream || !stream.resolution) {
+        return "Auto";
     }
 
-    /**
-     * STREAM NAME
-     */
-    const streamName =
-        `📥 MovieBox | ${quality} | ${lang}`;
+    const match =
+        String(stream.resolution)
+            .match(/(\d+)/);
 
-    /**
-     * TITLE LINES
-     */
-    const lines = [];
+    return match
+        ? match[1] + "p"
+        : String(stream.resolution);
+}
 
-    const baseTitle =
-        (s.title || "")
-            .split(" S0")[0]
-            .split(" S1")[0]
+/**
+ * EXTRACT LANGUAGE
+ */
+function getLanguage(stream) {
+
+    const match =
+        String(stream.name || "")
+            .match(/\(([^)]+)\)/);
+
+    if (match && match[1]) {
+        return match[1].trim();
+    }
+
+    return "Original";
+}
+
+/**
+ * BUILD STREAM
+ */
+function buildStream(
+    stream,
+    isTv,
+    season,
+    episode
+) {
+
+    const streamUrl =
+        normalizeUrl(
+            stream.proxy_url ||
+            stream.url ||
+            ""
+        );
+
+    if (!streamUrl) {
+        return null;
+    }
+
+    const quality =
+        getQuality(stream);
+
+    const language =
+        getLanguage(stream);
+
+    let title =
+        (stream.title || "MovieBox Stream")
+            .replace(/\s+/g, " ")
             .trim();
 
-    let epTag = "";
+    if (
+        isTv &&
+        season != null &&
+        episode != null
+    ) {
 
-    if (isTv && season != null && episode != null) {
-        epTag =
-            ` · S${String(season).padStart(2, "0")}` +
+        title +=
+            ` • S${String(season).padStart(2, "0")}` +
             `E${String(episode).padStart(2, "0")}`;
     }
 
-    lines.push(baseTitle + epTag);
+    const metaLine =
+        `🎥 ${quality} • 🔊 ${language}`;
 
-    let techLine =
-        `🎥 ${quality} · 🔊 ${lang}`;
-
-    if (s.codec) {
-        techLine += ` · 🎞 ${s.codec}`;
-    }
-
-    if (s.format) {
-        techLine += ` · [${s.format}]`;
-    }
-
-    lines.push(techLine);
-
-    if (s.size_mb > 0) {
-
-        let meta = `💾 ${s.size_mb} MB`;
-
-        if (s.duration_s) {
-            meta +=
-                ` · ⏱ ${Math.round(s.duration_s / 60)} min`;
-        }
-
-        lines.push(meta);
-    }
-
-    lines.push("By Murph Streams ⚡");
-
-    /**
-     * FINAL STREAM
-     */
     return {
 
-        name: streamName,
+        /**
+         * KEEP VERY SIMPLE
+         * ANDROID TV SAFE
+         */
+        name:
+            `MovieBox | ${quality} | ${language}`,
 
-        title: lines.join("\n"),
+        title:
+            title +
+            "\n" +
+            metaLine,
 
         url: streamUrl,
 
         behaviorHints: {
 
             /**
-             * ANDROID TV SAFE
+             * IMPORTANT
+             * ONLY bingeGroup
              */
-            notWebReady: false,
-
-            /**
-             * FORCE REFRESH
-             */
-            bingeGroup: "moviebox-v5-refresh"
-        },
-
-        /**
-         * TELL INDEX.JS NOT TO PROXY AGAIN
-         */
-        isMovieBoxDirect: true
+            bingeGroup: "moviebox-v6"
+        }
     };
 }
 
 /**
- * MAIN EXPORT
+ * SORT STREAMS
  */
-async function getStreams(tmdbId, mediaType, season, episode) {
+function sortStreams(streams) {
+
+    function langPriority(name) {
+
+        const lang =
+            String(name)
+                .toLowerCase();
+
+        if (lang.includes("original")) {
+            return 0;
+        }
+
+        if (
+            lang.includes("hindi")
+        ) {
+            return 1;
+        }
+
+        return 2;
+    }
+
+    streams.sort((a, b) => {
+
+        const pa =
+            langPriority(a.name);
+
+        const pb =
+            langPriority(b.name);
+
+        if (pa !== pb) {
+            return pa - pb;
+        }
+
+        const qa =
+            parseInt(
+                a.name.match(/\d+p/)?.[0] || 0
+            );
+
+        const qb =
+            parseInt(
+                b.name.match(/\d+p/)?.[0] || 0
+            );
+
+        return qb - qa;
+    });
+
+    return streams;
+}
+
+/**
+ * MAIN
+ */
+async function getStreams(
+    tmdbId,
+    mediaType,
+    season,
+    episode
+) {
 
     const isTv =
         mediaType === "tv" ||
         mediaType === "series";
 
-    const se = isTv
-        ? season || 1
-        : null;
+    const se =
+        isTv
+            ? season || 1
+            : null;
 
-    const ep = isTv
-        ? episode || 1
-        : null;
+    const ep =
+        isTv
+            ? episode || 1
+            : null;
 
     const cacheKey =
-        `mb::v5::${tmdbId}::${mediaType}::${se}::${ep}`;
+        `moviebox::${tmdbId}::${mediaType}::${se}::${ep}`;
 
-    const cached = getCached(cacheKey);
+    const cached =
+        getCached(cacheKey);
 
     if (cached) {
-        console.log(`${TAG} Cache HIT → ${cached.length} streams`);
+
+        console.log(
+            `${TAG} Cache HIT → ${cached.length}`
+        );
+
         return cached;
     }
 
@@ -265,7 +361,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     try {
 
-        const raw =
+        const rawStreams =
             await fetchFromWorker(
                 tmdbId,
                 mediaType,
@@ -273,74 +369,45 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                 ep
             );
 
-        if (!raw.length) {
-            console.log(`${TAG} No streams returned`);
+        if (!rawStreams.length) {
+
+            console.log(
+                `${TAG} No streams`
+            );
+
             return [];
         }
 
-        const streams = raw
-            .map(s => buildStream(s, isTv, se, ep))
-            .filter(Boolean);
+        const streams =
+            rawStreams
+                .map(stream =>
+                    buildStream(
+                        stream,
+                        isTv,
+                        se,
+                        ep
+                    )
+                )
+                .filter(Boolean);
 
-        /**
-         * SORT STREAMS
-         * Hindi first → higher quality first
-         */
-        const langPriority = lang => {
+        sortStreams(streams);
 
-            const l =
-                String(lang)
-                    .toLowerCase()
-                    .trim();
+        console.log(
+            `${TAG} ✔ ${streams.length} streams ready`
+        );
 
-            if (l === "original") return 0;
-            if (l === "hindi") return 1;
-            if (l === "hindi dub") return 1;
-
-            return 2;
-        };
-
-        streams.sort((a, b) => {
-
-            const la =
-                (a.name.split("|").pop() || "").trim();
-
-            const lb =
-                (b.name.split("|").pop() || "").trim();
-
-            const pa = langPriority(la);
-            const pb = langPriority(lb);
-
-            if (pa !== pb) {
-                return pa - pb;
-            }
-
-            const qa =
-                parseInt(
-                    a.name.match(/\d+p/)?.[0] || 0
-                );
-
-            const qb =
-                parseInt(
-                    b.name.match(/\d+p/)?.[0] || 0
-                );
-
-            if (qb !== qa) {
-                return qb - qa;
-            }
-
-            return la.localeCompare(lb);
-        });
-
-        console.log(`${TAG} ✔ ${streams.length} streams ready`);
-
-        setCached(cacheKey, streams);
+        setCached(
+            cacheKey,
+            streams
+        );
 
         return streams;
 
     } catch (err) {
 
-        console.log(`${TAG} Error → ${err.message}`);
+        console.log(
+            `${TAG} Error → ${err.message}`
+        );
 
         return [];
     }
@@ -349,104 +416,17 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 /**
  * EXPORT
  */
-if (typeof module !== "undefined" && module.exports) {
+if (
+    typeof module !== "undefined" &&
+    module.exports
+) {
+
     module.exports = {
-        getStreams: getStreams
+        getStreams
     };
+
 } else {
-    global.getStreams = getStreams;
+
+    global.getStreams =
+        getStreams;
 }
-
-/**
- * ╔════════════════════════════════════════════════════════════╗
- * ║        ANDROID TV COMPATIBILITY NORMALIZER                ║
- * ╚════════════════════════════════════════════════════════════╝
- */
-
-function __movieboxNormalizeStream(rawStream) {
-
-    if (!rawStream || !rawStream.url) {
-        return null;
-    }
-
-    return {
-
-        /**
-         * CLEAN SAFE VALUES ONLY
-         */
-        name: rawStream.name,
-
-        title: rawStream.title,
-
-        url: rawStream.url,
-
-        behaviorHints: {
-
-            /**
-             * STREMIO ANDROID TV SAFE
-             */
-            notWebReady: false,
-
-            /**
-             * FORCE UI REFRESH
-             */
-            bingeGroup: "moviebox-v5-refresh"
-        },
-
-        /**
-         * KEEP DIRECT PLAYBACK
-         */
-        isMovieBoxDirect: true
-    };
-}
-
-/**
- * WRAP getStreams()
- */
-(function () {
-
-    if (
-        typeof getStreams !== "function" ||
-        getStreams.__movieboxNormalizedWrapped
-    ) {
-        return;
-    }
-
-    const __movieboxOriginalGetStreams = getStreams;
-
-    const __movieboxNormalizedGetStreams =
-        function () {
-
-            return Promise.resolve(
-                __movieboxOriginalGetStreams.apply(
-                    this,
-                    arguments
-                )
-            ).then(function (streams) {
-
-                if (!Array.isArray(streams)) {
-                    return [];
-                }
-
-                return streams
-                    .map(__movieboxNormalizeStream)
-                    .filter(Boolean);
-            });
-        };
-
-    __movieboxNormalizedGetStreams.__movieboxNormalizedWrapped = true;
-
-    getStreams = __movieboxNormalizedGetStreams;
-
-    if (
-        typeof module !== "undefined" &&
-        module.exports
-    ) {
-        module.exports.getStreams = getStreams;
-
-    } else if (typeof global !== "undefined") {
-
-        global.getStreams = getStreams;
-    }
-
-})();

@@ -56,9 +56,10 @@ function detectProvider(url = "") {
   if (u.includes("fsl")) return "fsl";
   if (u.includes("m4uplay")) return "m4uplay";
   if (u.includes("m4u")) return "m4u";
-  if if (u.includes(".m3u8")) return "direct";
-  if (u.includes("master.txt")) return "direct";
+
   if (u.includes("token=")) return "direct";
+  if (u.includes(".m3u8")) return "direct";
+  if (u.includes("master.txt")) return "direct";
 
   return "unknown";
 }
@@ -83,21 +84,22 @@ async function resolveStream(url) {
 
   try {
     if (type === "hubcloud" || type === "fsl") {
-      return await resolveHubCloud(url); // <-- you already have this logic elsewhere
-    }
+  return [{
+    url,
+    quality: "Unknown",
+    title: "HubCloud/FSL not implemented",
+    subtitles: []
+  }];
+}
 
-    if (type === "m4uplay" || type === "m4u") {
-      return await resolveM4U(url); // keep your existing logic
-    }
-
-    if (type === "direct") {
-      return [{
-        url,
-        quality: extractQuality(url),
-        title: "Direct Stream",
-        subtitles: []
-      }];
-    }
+if (type === "m4uplay" || type === "m4u") {
+  return [{
+    url,
+    quality: "Unknown",
+    title: "M4U not implemented",
+    subtitles: []
+  }];
+}
 
     // fallback
     return [{

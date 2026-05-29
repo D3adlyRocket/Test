@@ -45,9 +45,9 @@ function parseExtraMetadata(text) {
   if (norm.includes("DUAL")) lang = "Dual Audio";
   if (norm.includes("ENGLISH") && !norm.includes("HINDI")) lang = "English";
   
-  // 2. Sizes
+  // 2. Sizes (Improved regex to match formats like "1.2GB", "700MB", "2 GB" without getting lost)
   const sizeMatch = norm.match(/(\d+(?:\.\d+)?\s*[MGB]B)/i);
-  const size = sizeMatch ? sizeMatch[0] : "N/A";
+  const size = sizeMatch ? sizeMatch[0].replace(/\s+/g, "") : "N/A";
   
   // 3. Formats & Codecs
   let format = "MKV";
@@ -68,6 +68,25 @@ function parseExtraMetadata(text) {
     format: format,
     extras: extras.length > 0 ? extras.join(" | ") : "Standard Dynamic Range"
   };
+}
+
+/**
+ * Cleans up messy raw HubCloud server text strings into readable output like [FSL Server]
+ */
+function cleanServerName(serverText) {
+  if (!serverText) return "HubCloud";
+  let clean = serverText.toLowerCase();
+  
+  // Remove wrapper syntax words commonly passed by scraper lists
+  clean = clean.replace(/download|links?|button|\s+/gi, " ").trim();
+  clean = clean.replace(/[\[\]\(\)]/g, "").trim(); // Strip brackets/parentheses inside string
+  
+  if (clean.includes("fsl")) return "FSL Server";
+  if (clean.includes("pixel")) return "PixelDrain";
+  if (clean.includes("drive")) return "Cloud Drive";
+  
+  // Fallback Capitalization
+  return clean.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
 }
 
 /**
@@ -265,8 +284,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           });
 
           for (const rawUrl of targetUrls) {
-            let quality = extractQuality(downloadPage);
-            const meta = parseExtraMetadata(downloadPage);
+            let quality = extractQuality(downloadPage + " " + rawUrl);
+            const meta = parseExtraMetadata(downloadPage + " " + rawUrl);
 
             if (rawUrl.includes("m4uplay.store")) {
               const directM3u8 = await extractDirectM3u8(rawUrl);
@@ -283,12 +302,13 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             } else {
               const extractedLinks = await resolveAllHubCloudLinks(rawUrl);
               for (const linkItem of extractedLinks) {
-                // Read metadata and size straight out of the Hubcloud Label or URL if downloadPage is missing it
-                const innerMeta = parseExtraMetadata(linkItem.label || linkItem.url || downloadPage);
-                let finalQuality = quality === "Unknown" ? extractQuality(linkItem.label || linkItem.url) : quality;
+                const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${downloadPage}`;
+                const innerMeta = parseExtraMetadata(searchString);
+                let finalQuality = extractQuality(searchString);
+                if (finalQuality === "Unknown") finalQuality = quality;
                 
                 rawStreamsList.push({
-                  server: linkItem.label ? linkItem.label.split("-")[0].trim() : "HubCloud",
+                  server: cleanServerName(linkItem.label || "HubCloud"),
                   quality: finalQuality,
                   meta: { 
                     language: innerMeta.language !== "Hindi-English" ? innerMeta.language : meta.language,
@@ -331,8 +351,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           });
 
           for (const rawUrl of targetUrls) {
-            let quality = extractQuality(redirectPage);
-            const meta = parseExtraMetadata(redirectPage);
+            let quality = extractQuality(redirectPage + " " + rawUrl);
+            const meta = parseExtraMetadata(redirectPage + " " + rawUrl);
 
             if (rawUrl.includes("m4uplay.store")) {
               const directM3u8 = await extractDirectM3u8(rawUrl);
@@ -349,12 +369,13 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             } else {
               const extractedLinks = await resolveAllHubCloudLinks(rawUrl);
               for (const linkItem of extractedLinks) {
-                // Read metadata and size straight out of the Hubcloud Label or URL if redirectPage is missing it
-                const innerMeta = parseExtraMetadata(linkItem.label || linkItem.url || redirectPage);
-                let finalQuality = quality === "Unknown" ? extractQuality(linkItem.label || linkItem.url) : quality;
+                const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${redirectPage}`;
+                const innerMeta = parseExtraMetadata(searchString);
+                let finalQuality = extractQuality(searchString);
+                if (finalQuality === "Unknown") finalQuality = quality;
 
                 rawStreamsList.push({
-                  server: linkItem.label ? linkItem.label.split("-")[0].trim() : "HubCloud",
+                  server: cleanServerName(linkItem.label || "HubCloud"),
                   quality: finalQuality,
                   meta: { 
                     language: innerMeta.language !== "Hindi-English" ? innerMeta.language : meta.language,

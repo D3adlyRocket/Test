@@ -1,5 +1,6 @@
 // movies4u.js
-// Fixed Nuvio-compatible Movies4u provider with Correct Quality Detection
+// Fixed Nuvio-compatible Movies4u provider with Custom 4-Line Layout
+// MINIMAL SAFE PATCH VERSION (keeps original scraper logic intact)
 
 const cheerio = require("cheerio");
 
@@ -37,7 +38,7 @@ async function getBaseUrl() {
 }
 
 // =======================
-// QUALITY ENGINE (FIXED)
+// FIXED QUALITY ENGINE
 // =======================
 
 function extractQuality(text) {
@@ -61,7 +62,7 @@ function parseExtraMetadata(text) {
 
   let lang = "Multi-Audio";
 
-  if (norm.includes("DUAL")) lang = "Dual Audio";
+  if (norm.includes("DUAL")) lang = "Multi Audio";
 
   if (
     norm.includes("ENGLISH") &&
@@ -181,6 +182,7 @@ function cleanServerName(serverText) {
 
 async function resolveAllHubCloudLinks(hubCloudUrl) {
   try {
+
     const apiURL =
       `${HUB_CLOUD_API}/api/extract?url=` +
       encodeURIComponent(hubCloudUrl);
@@ -217,9 +219,10 @@ async function resolveAllHubCloudLinks(hubCloudUrl) {
 // =======================
 
 async function detectM3U8Quality(url, headers = {}) {
+
   try {
 
-    // First try direct filename/url
+    // first try filename/url
     const fromUrl = extractQuality(
       decodeURIComponent(url)
     );
@@ -228,7 +231,7 @@ async function detectM3U8Quality(url, headers = {}) {
       return fromUrl;
     }
 
-    // Fetch actual playlist
+    // fetch actual playlist
     const resp = await fetch(url, {
       headers,
       skipSizeCheck: true
@@ -236,6 +239,7 @@ async function detectM3U8Quality(url, headers = {}) {
 
     const text = await resp.text();
 
+    // parse master playlist resolutions
     const matches = [
       ...text.matchAll(
         /RESOLUTION=(\d+)x(\d+)/g
@@ -247,6 +251,7 @@ async function detectM3U8Quality(url, headers = {}) {
     let highest = 0;
 
     for (const m of matches) {
+
       const h = parseInt(m[2]);
 
       if (h > highest) {
@@ -269,6 +274,7 @@ async function detectM3U8Quality(url, headers = {}) {
 // =======================
 
 async function detectFileSize(url, headers = {}) {
+
   try {
 
     const resp = await fetch(url, {
@@ -278,16 +284,20 @@ async function detectFileSize(url, headers = {}) {
       redirect: "follow"
     });
 
-    const size = resp.headers.get("content-length");
+    const size =
+      resp.headers.get("content-length");
 
     if (!size) return null;
 
     const bytes = parseInt(size);
 
     if (bytes >= 1024 * 1024 * 1024) {
+
       return (
-        (bytes / (1024 * 1024 * 1024)).toFixed(1) +
-        "GB"
+        (
+          bytes /
+          (1024 * 1024 * 1024)
+        ).toFixed(1) + "GB"
       );
     }
 
@@ -301,27 +311,40 @@ async function detectFileSize(url, headers = {}) {
 }
 
 // =======================
-// URL META EXTRACTOR
+// URL META
 // =======================
 
 function extractMetadataFromUrl(url) {
-  const decoded = decodeURIComponent(url);
+
+  const decoded =
+    decodeURIComponent(url);
 
   return {
-    quality: extractQuality(decoded),
-    meta: parseExtraMetadata(decoded)
+    quality:
+      extractQuality(decoded),
+
+    meta:
+      parseExtraMetadata(decoded)
   };
 }
 
 // =======================
-// PACKED JS UNPACKER
+// JS UNPACKER
 // =======================
 
 function unpackJS(p, a, c, k) {
+
   while (c--) {
+
     if (k[c]) {
+
       p = p.replace(
-        new RegExp("\\b" + c.toString(a) + "\\b", "g"),
+        new RegExp(
+          "\\b" +
+          c.toString(a) +
+          "\\b",
+          "g"
+        ),
         k[c]
       );
     }
@@ -341,7 +364,8 @@ async function extractDirectM3u8(playerUrl) {
     const resp = await fetch(playerUrl, {
       headers: {
         ...HEADERS,
-        Referer: "https://m4uplay.store/"
+        Referer:
+          "https://m4uplay.store/"
       },
       skipSizeCheck: true
     });
@@ -364,7 +388,8 @@ async function extractDirectM3u8(playerUrl) {
       )?.[0];
 
       if (rel) {
-        m3u8 = "https://m4uplay.store" + rel;
+        m3u8 =
+          "https://m4uplay.store" + rel;
       }
     }
 
@@ -400,7 +425,8 @@ async function extractDirectM3u8(playerUrl) {
           )?.[0];
 
           if (rel) {
-            m3u8 = "https://m4uplay.store" + rel;
+            m3u8 =
+              "https://m4uplay.store" + rel;
           }
         }
       }
@@ -415,7 +441,7 @@ async function extractDirectM3u8(playerUrl) {
 
   } catch (e) {
     console.error(
-      "[Movies4u] Player parsing failed:",
+      "[Movies4u] Player direct parsing failed:",
       e
     );
   }
@@ -436,7 +462,8 @@ async function getStreams(
 
   try {
 
-    const BASE_URL = await getBaseUrl();
+    const BASE_URL =
+      await getBaseUrl();
 
     // TMDB
     const tmdbUrl =
@@ -476,21 +503,26 @@ async function getStreams(
       }
     );
 
-    const searchHtml = await searchResp.text();
+    const searchHtml =
+      await searchResp.text();
 
-    const $ = cheerio.load(searchHtml);
+    const $ =
+      cheerio.load(searchHtml);
 
     const results = [];
 
     $("article").each((i, el) => {
 
       const a = $(el)
-        .find("h2 a, h3 a, a[rel='bookmark']")
+        .find(
+          "h2 a, h3 a, a[rel='bookmark']"
+        )
         .first();
 
       let href = a.attr("href");
 
-      const name = a.text().trim();
+      const name =
+        a.text().trim();
 
       if (href && name) {
 
@@ -529,13 +561,16 @@ async function getStreams(
       }
     );
 
-    const pageHtml = await pageResp.text();
+    const pageHtml =
+      await pageResp.text();
 
-    const $page = cheerio.load(pageHtml);
+    const $page =
+      cheerio.load(pageHtml);
 
     const rawStreamsList = [];
 
-    const siteTitleContext = match.name;
+    const siteTitleContext =
+      match.name;
 
     // =======================
     // DIRECT PLAYER LINKS
@@ -547,7 +582,8 @@ async function getStreams(
       "a.btn.btn-zip, a[href*='m4uplay.store']"
     ).each((i, el) => {
 
-      const href = $(el).attr("href");
+      const href =
+        $(el).attr("href");
 
       const textContext =
         $(el).text() || "";
@@ -568,17 +604,20 @@ async function getStreams(
     for (const item of directWatchLinks) {
 
       const directM3u8 =
-        await extractDirectM3u8(item.href);
+        await extractDirectM3u8(
+          item.href
+        );
 
       if (directM3u8) {
 
-        let quality = extractQuality(
-          item.text +
-          " " +
-          item.href +
-          " " +
-          siteTitleContext
-        );
+        let quality =
+          extractQuality(
+            item.text +
+            " " +
+            item.href +
+            " " +
+            siteTitleContext
+          );
 
         const meta =
           parseExtraMetadata(
@@ -613,13 +652,16 @@ async function getStreams(
           );
 
         rawStreamsList.push({
-          server: "Player Direct",
+
+          server:
+            "Player Direct",
 
           quality:
             quality !== "Unknown"
               ? quality
               : (
-                  urlMeta.quality !== "Unknown"
+                  urlMeta.quality !==
+                  "Unknown"
                     ? urlMeta.quality
                     : (
                         detectedQuality ||
@@ -631,13 +673,15 @@ async function getStreams(
             ...meta,
             ...urlMeta.meta,
 
+            // FIXED
             size:
               detectedSize ||
               urlMeta.meta.size ||
               meta.size
           },
 
-          url: directM3u8,
+          url:
+            directM3u8,
 
           headers: {
             Referer:
@@ -667,7 +711,9 @@ async function getStreams(
 
       if (
         href.includes("m4ulinks.com") &&
-        text.toLowerCase().includes("download")
+        text
+          .toLowerCase()
+          .includes("download links")
       ) {
 
         if (
@@ -675,6 +721,7 @@ async function getStreams(
             p => p.href === href
           )
         ) {
+
           uniqueRedirectPages.push({
             href,
             parentText: text
@@ -729,7 +776,8 @@ async function getStreams(
                 localAnchor.attr("href") || "";
 
               contextText +=
-                " " + localAnchor.text();
+                " " +
+                localAnchor.text();
             }
           }
 
@@ -821,7 +869,10 @@ async function getStreams(
                   }
                 );
 
-              if (quality === "Unknown") {
+              if (
+                quality === "Unknown"
+              ) {
+
                 quality =
                   extractQuality(
                     target.href +
@@ -832,13 +883,15 @@ async function getStreams(
 
               rawStreamsList.push({
 
-                server: "M4U Player",
+                server:
+                  "M4U Player",
 
                 quality:
                   quality !== "Unknown"
                     ? quality
                     : (
-                        urlMeta.quality !== "Unknown"
+                        urlMeta.quality !==
+                        "Unknown"
                           ? urlMeta.quality
                           : (
                               detectedQuality ||
@@ -850,13 +903,15 @@ async function getStreams(
                   ...meta,
                   ...urlMeta.meta,
 
+                  // FIXED
                   size:
                     detectedSize ||
                     urlMeta.meta.size ||
                     meta.size
                 },
 
-                url: directM3u8,
+                url:
+                  directM3u8,
 
                 headers: {
                   Referer:
@@ -898,6 +953,7 @@ async function getStreams(
               if (
                 finalQuality === "Unknown"
               ) {
+
                 finalQuality =
                   quality !== "Unknown"
                     ? quality
@@ -927,7 +983,8 @@ async function getStreams(
                   ),
 
                 quality:
-                  urlMeta.quality !== "Unknown"
+                  urlMeta.quality !==
+                  "Unknown"
                     ? urlMeta.quality
                     : finalQuality,
 
@@ -945,10 +1002,12 @@ async function getStreams(
                       innerMeta.size !== "N/A"
                         ? innerMeta.size
                         : (
-                            urlMeta.meta.size !== "N/A"
+                            urlMeta.meta.size !==
+                            "N/A"
                               ? urlMeta.meta.size
                               : (
-                                  meta.size !== "N/A"
+                                  meta.size !==
+                                  "N/A"
                                     ? meta.size
                                     : "1.4GB"
                                 )
@@ -962,7 +1021,8 @@ async function getStreams(
                     innerMeta.extras
                 },
 
-                url: linkItem.url,
+                url:
+                  linkItem.url,
 
                 headers: {
                   "User-Agent":
@@ -990,6 +1050,7 @@ async function getStreams(
     };
 
     rawStreamsList.sort((a, b) => {
+
       return (
         (qualityWeights[b.quality] || 0) -
         (qualityWeights[a.quality] || 0)

@@ -269,38 +269,54 @@ async function detectM3U8Quality(url, headers = {}) {
   return null;
 }
 
-async function detectRealQuality(url, fallback = "1080p") {
+    async function detectRealQuality(url, fallback = "1080p") {
 
   try {
 
-    const decoded = decodeURIComponent(url).toLowerCase();
+    const decoded =
+      decodeURIComponent(url);
 
-    // 1. Filename quality
-    const fromUrl = extractQuality(decoded);
+    // STRICT filename parsing ONLY
+    const filenameMatch = decoded.match(
+      /(?:2160p|1080p|720p|480p|360p)/i
+    );
 
-    if (fromUrl !== "Unknown") {
-      return fromUrl;
+    if (filenameMatch) {
+
+      return extractQuality(
+        filenameMatch[0]
+      );
     }
 
-    // 2. Resolution patterns
-    if (
-      decoded.includes("2160") ||
-      decoded.includes("4k")
-    ) {
-      return "4K";
+    // REAL filesize heuristic
+    const size =
+      await detectFileSize(url);
+
+    if (size) {
+
+      const value =
+        parseFloat(size);
+
+      if (!isNaN(value)) {
+
+        const gb =
+          size.toUpperCase().includes("MB")
+            ? value / 1024
+            : value;
+
+        // MUCH BETTER RANGES
+        if (gb >= 15) return "4K";
+        if (gb >= 3.5) return "1080p";
+        if (gb >= 1.2) return "720p";
+        if (gb >= 0.45) return "480p";
+        return "360p";
+      }
     }
 
-    if (decoded.includes("1080")) {
-      return "1080p";
-    }
+  } catch (_) {}
 
-    if (decoded.includes("720")) {
-      return "720p";
-    }
-
-    if (decoded.includes("480")) {
-      return "480p";
-    }
+  return fallback || "720p";
+}
 
     // 3. Filesize heuristic
     const size = await detectFileSize(url);

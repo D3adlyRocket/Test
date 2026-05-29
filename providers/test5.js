@@ -1,5 +1,5 @@
 // movies4u.js  
-// Fixed Nuvio-compatible Movies4u provider with Custom 4-Line Layout  
+// Fixed Nuvio-compatible Movies4u provider with Cloud Header Probing
   
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";  
 const FALLBACK_URL = "https://new1.movies4u.finance";  
@@ -49,7 +49,6 @@ async function parseM3U8Manifest(url, customHeaders = {}) {
     if (text.includes("RESOLUTION=")) {
       const resolutions = text.match(/RESOLUTION=\d+x(\d+)/g);
       if (resolutions) {
-        // Grab the highest resolution available in the master manifest file
         const heights = resolutions.map(r => parseInt(r.split('x')[1])).sort((a, b) => b - a);
         const topHeight = heights[0];
         if (topHeight >= 2160) return "4K";
@@ -69,13 +68,13 @@ async function parseM3U8Manifest(url, customHeaders = {}) {
 async function getRealFilenameQuality(url, customHeaders = {}) {
   try {
     const resp = await fetch(url, {
-      method: "HEAD",
-      headers: customHeaders,
+      method: "GET", // Changed to GET to ensure content-disposition strings populate fully from cloud endpoints
+      headers: { ...customHeaders, Range: "bytes=0-100" }, // Smart byte-range pinning to prevent downloading the file
       skipSizeCheck: true,
       redirect: "follow"
     });
     
-    // Look at the Content-Disposition header where servers store the real file name
+    // Check both content-disposition and attachment layout responses
     const disposition = resp.headers.get("content-disposition") || "";
     if (disposition.includes("filename=")) {
       const filename = disposition.split("filename=")[1].replace(/['"]/g, "");
@@ -83,7 +82,7 @@ async function getRealFilenameQuality(url, customHeaders = {}) {
       if (quality !== "Unknown") return quality;
     }
     
-    // Fallback to reading the final redirected URL string line
+    // Check final URL context pathing
     const finalUrl = resp.url || url;
     const urlQuality = extractQuality(decodeURIComponent(finalUrl));
     if (urlQuality !== "Unknown") return urlQuality;
@@ -95,21 +94,21 @@ async function getRealFilenameQuality(url, customHeaders = {}) {
  * MASTER WATERFALL: Zero Guesswork Resolution Mapper
  */
 async function accurateQualityDetector(url, fallbackText = "", headers = {}) {
-  // If it's a playlist stream, inspect the stream lines
+  // 1. If it's a playlist stream, inspect raw stream configurations
   if (url.includes(".m3u8") || url.includes("master.txt")) {
     const m3u8Quality = await parseM3U8Manifest(url, headers);
     if (m3u8Quality) return m3u8Quality;
   }
   
-  // If it's a direct mp4/mkv download path, ping the headers for the real file name
+  // 2. Ping storage node connection headers directly for real filenames
   const realFileQuality = await getRealFilenameQuality(url, headers);
   if (realFileQuality) return realFileQuality;
 
-  // Fallback to the link context string text only if network routes completely timeout
+  // 3. Fallback to extracting textual layout tokens
   const textQuality = extractQuality(fallbackText);
   if (textQuality !== "Unknown") return textQuality;
 
-  return "1080p"; // absolute fallback safe-default
+  return "1080p"; 
 }
 
 // Helper to extract tech properties from titles/labels
@@ -306,7 +305,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         const meta = parseExtraMetadata(contextStr);
         const playerHeaders = { Referer: "https://m4uplay.store/" };
         
-        // Exact non-guessing verification
         const verifiedQuality = await accurateQualityDetector(directM3u8, contextStr, playerHeaders);
         const detectedSize = await detectFileSize(directM3u8, playerHeaders);
 
@@ -335,7 +333,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
               const elementText = nextNode.text() || "";
               if (href.includes("m4ulinks.com") && elementText.toLowerCase().includes("download links")) {
                 if (!uniqueDownloadPages.some(p => p.href === href)) {
-                  uniqueRedirectPages.push({ href, parentText: elementText }); // Note: uniqueDownloadPages push handled safely below
                   uniqueDownloadPages.push({ href, parentText: elementText });
                 }
               }

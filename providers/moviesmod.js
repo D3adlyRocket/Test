@@ -329,7 +329,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           quality:
   detectedQuality || urlMeta.quality || (quality === "Unknown" ? "1080p" : quality),
           meta: { ...meta, ...urlMeta.meta,
-  size: detectedSize || urlMeta.meta.size || meta.size
+  size: urlMeta.meta.size || meta.size
 },
           url: directM3u8,
           headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }

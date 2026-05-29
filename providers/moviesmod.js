@@ -117,44 +117,13 @@ async function resolveAllHubCloudLinks(hubCloudUrl) {
  */
 async function detectM3U8Quality(url, headers = {}) {
   try {
-    // PRIORITY 1 → filename/url itself
-    const fromUrl = extractQuality(url);
+
+    // ONLY use filename/url
+    const fromUrl = extractQuality(decodeURIComponent(url));
 
     if (fromUrl !== "Unknown") {
       return fromUrl;
     }
-
-    const resp = await fetch(url, {
-      headers,
-      skipSizeCheck: true
-    });
-
-    const text = await resp.text();
-
-    // PRIORITY 2 → exact stream height matches
-    const matches = [...text.matchAll(/RESOLUTION=\d+x(\d+)/gi)]
-      .map(m => parseInt(m[1]))
-      .filter(Boolean);
-
-    if (!matches.length) return null;
-
-    // Instead of taking max quality blindly,
-    // choose the MOST COMMON quality in playlist
-    const counts = {};
-
-    for (const r of matches) {
-      counts[r] = (counts[r] || 0) + 1;
-    }
-
-    const mostCommon = Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])[0][0];
-
-    const height = parseInt(mostCommon);
-
-    if (height >= 2160) return "4K";
-    if (height >= 1080) return "1080p";
-    if (height >= 720) return "720p";
-    if (height >= 480) return "480p";
 
   } catch (_) {}
 

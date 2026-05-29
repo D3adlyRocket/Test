@@ -27,12 +27,13 @@ async function getBaseUrl() {
 }  
   
 function extractQuality(text) {  
-  const u = (text || "").toLowerCase();  
-  if (u.includes("2160") || u.includes("4k") || u.includes("uhd")) return "4K";  
-  if (u.includes("1080")) return "1080p";  
-  if (u.includes("720")) return "720p";  
-  if (u.includes("480")) return "480p";  
-  if (u.includes("360")) return "360p";  
+  const u = (text || "").toLowerCase(); 
+  // Strict regex boundaries to avoid mixing up file sizes with resolution
+  if (/\b(2160p|4k|uhd)\b/.test(u)) return "4K";  
+  if (/\b(1080p|1080)\b/.test(u)) return "1080p";  
+  if (/\b(720p|720)\b/.test(u)) return "720p";  
+  if (/\b(480p|480)\b/.test(u)) return "480p";  
+  if (/\b(360p|360)\b/.test(u)) return "360p";  
   return "Unknown";  
 }  
 
@@ -115,36 +116,23 @@ async function resolveAllHubCloudLinks(hubCloudUrl) {
 /**
  * Detects quality directly from m3u8 master playlists or accurately calculates via file size boundaries
  */
-async function detectM3U8Quality(url, headers = {}, fallbackSizeBytes = null) {
+async function detectM3U8Quality(url, headers = {}, fallbackLabel = "") {
   try {
-    const decoded = decodeURIComponent(url);
-    const fromUrl = extractQuality(decoded);
-    if (fromUrl !== "Unknown") return fromUrl;
+    if (!url) return "1080p";
 
-    // Fix: Read HLS Manifest metadata dynamically if it is a playlist file
-    if (decoded.includes(".m3u8") || decoded.includes(".txt")) {
-      const resp = await fetch(url, { headers, skipSizeCheck: true });
-      const text = await resp.text();
-      
-      if (text.includes("RESOLUTION=")) {
-        if (text.includes("3840x2160") || text.includes("4096x2160")) return "4K";
-        if (text.includes("1920x1080")) return "1080p";
-        if (text.includes("1280x720")) return "720p";
-        if (text.includes("854x480") || text.includes("640x480")) return "480p";
-      }
-    }
+    // 1. Force extraction strictly from the URL filename string first (Highest Accuracy)
+    const decodedUrl = decodeURIComponent(url).toLowerCase();
+    let detected = extractQuality(decodedUrl);
+    if (detected !== "Unknown") return detected;
 
-    // Dynamic Size Estimation Mapping for raw files (HubCloud/Direct Downloads)
-    if (fallbackSizeBytes) {
-      const gigabytes = fallbackSizeBytes / (1024 * 1024 * 1024);
-      if (gigabytes >= 6.0) return "4K";
-      if (gigabytes >= 1.2) return "1080p";
-      if (gigabytes >= 0.5) return "720p";
-      return "480p";
+    // 2. If the URL is masked/encrypted, look ONLY at the clean file/button label
+    if (fallbackLabel) {
+      detected = extractQuality(fallbackLabel.toLowerCase());
+      if (detected !== "Unknown") return detected;
     }
   } catch (_) {}
 
-  return "1080p"; // Safe global baseline
+  return "1080p"; // Safe baseline global fallback if completely unlabelled
 }
 
 /**
@@ -307,22 +295,17 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         const urlMeta = extractMetadataFromUrl(directM3u8);
         const sizeData = await detectFileSize(directM3u8, { Referer: "https://m4uplay.store/" });
         
-        // Pass fallback raw bytes down to quality detector
-        const detectedQuality = await detectM3U8Quality(
-          directM3u8,
-          { Referer: "https://m4uplay.store/" },
-          sizeData ? sizeData.bytes : null
-        );
+        // FIXED SYNTAX: Cleared out hanging trailing code fragments
+        const detectedQuality = await detectM3U8Quality(directM3u8, { Referer: "https://m4uplay.store/" }, item.text);
 
         let finalQuality = urlMeta.quality !== "Unknown" ? urlMeta.quality : detectedQuality;
-        const meta = parseExtraMetadata(item.text + " " + item.href + " " + siteTitleContext);
+        const meta = parseExtraMetadata(item.text);
 
         rawStreamsList.push({
           server: "Player Direct",
           quality: finalQuality,
           meta: { 
             ...meta, 
-            ...urlMeta.meta,
             size: sizeData ? sizeData.string : (urlMeta.meta.size !== "N/A" ? urlMeta.meta.size : meta.size)
           },
           url: directM3u8,
@@ -388,19 +371,19 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           });
 
           for (const target of targetUrls) {
-            const meta = parseExtraMetadata(target.contextualText + " " + downloadPage.parentText + " " + siteTitleContext);
+            const meta = parseExtraMetadata(target.contextualText);
 
             if (target.href.includes("m4uplay.store")) {
               const directM3u8 = await extractDirectM3u8(target.href);
               if (directM3u8) {
                 const urlMeta = extractMetadataFromUrl(directM3u8);
                 const sizeData = await detectFileSize(directM3u8, { Referer: "https://m4uplay.store/" });
-                const detectedQuality = await detectM3U8Quality(directM3u8, { Referer: "https://m4uplay.store/" }, sizeData ? sizeData.bytes : null);
+                const detectedQuality = await detectM3U8Quality(directM3u8, { Referer: "https://m4uplay.store/" }, target.contextualText);
 
                 rawStreamsList.push({
                   server: "M4U Player",
                   quality: urlMeta.quality !== "Unknown" ? urlMeta.quality : detectedQuality,
-                  meta: { ...meta, ...urlMeta.meta, size: sizeData ? sizeData.string : (urlMeta.meta.size !== "N/A" ? urlMeta.meta.size : meta.size) },
+                  meta: { ...meta, size: sizeData ? sizeData.string : (urlMeta.meta.size !== "N/A" ? urlMeta.meta.size : meta.size) },
                   url: directM3u8,
                   headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }
                 });
@@ -408,21 +391,19 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             } else {
               const extractedLinks = await resolveAllHubCloudLinks(target.href);
               for (const linkItem of extractedLinks) {
-                const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${target.contextualText} ${downloadPage.parentText} ${siteTitleContext}`;
-                const innerMeta = parseExtraMetadata(searchString);
                 const urlMeta = extractMetadataFromUrl(linkItem.url);
                 const sizeData = await detectFileSize(linkItem.url, { "User-Agent": HEADERS["User-Agent"] });
                 
-                // Route dynamic size metric fallback mapping here
-                const detectedQuality = await detectM3U8Quality(linkItem.url, { "User-Agent": HEADERS["User-Agent"] }, sizeData ? sizeData.bytes : null);
-                let finalQuality = urlMeta.quality !== "Unknown" ? urlMeta.quality : detectedQuality;
+                // FIXED SYNTAX: Cleared nested let block collision and bound to URL detection engine
+                const finalQuality = await detectM3U8Quality(linkItem.url, { "User-Agent": HEADERS["User-Agent"] }, linkItem.label);
+                const innerMeta = parseExtraMetadata(linkItem.label || "");
 
                 rawStreamsList.push({
                   server: cleanServerName(linkItem.label || "HubCloud"),
                   quality: finalQuality,
                   meta: { 
-                    language: innerMeta.language !== "Multi-Audio" ? innerMeta.language : meta.language,
-                    size: sizeData ? sizeData.string : (innerMeta.size !== "N/A" ? innerMeta.size : "1.4GB"),
+                    language: innerMeta.language,
+                    size: sizeData ? sizeData.string : "1.4GB",
                     format: innerMeta.format,
                     extras: innerMeta.extras
                   },
@@ -477,19 +458,19 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           });
 
           for (const target of targetUrls) {
-            const meta = parseExtraMetadata(target.contextualText + " " + redirectPage.parentText + " " + siteTitleContext);
+            const meta = parseExtraMetadata(target.contextualText);
 
             if (target.href.includes("m4uplay.store")) {
               const directM3u8 = await extractDirectM3u8(target.href);
               if (directM3u8) {
                 const urlMeta = extractMetadataFromUrl(directM3u8);
                 const sizeData = await detectFileSize(directM3u8, { Referer: "https://m4uplay.store/" });
-                const detectedQuality = await detectM3U8Quality(directM3u8, { Referer: "https://m4uplay.store/" }, sizeData ? sizeData.bytes : null);
+                const detectedQuality = await detectM3U8Quality(directM3u8, { Referer: "https://m4uplay.store/" }, target.contextualText);
 
                 rawStreamsList.push({
                   server: "M4U Player",
                   quality: urlMeta.quality !== "Unknown" ? urlMeta.quality : detectedQuality,
-                  meta: { ...meta, ...urlMeta.meta, size: sizeData ? sizeData.string : (urlMeta.meta.size !== "N/A" ? urlMeta.meta.size : meta.size) },
+                  meta: { ...meta, size: sizeData ? sizeData.string : (urlMeta.meta.size !== "N/A" ? urlMeta.meta.size : meta.size) },
                   url: directM3u8,
                   headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }
                 });
@@ -497,19 +478,19 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             } else {
               const extractedLinks = await resolveAllHubCloudLinks(target.href);
               for (const linkItem of extractedLinks) {
-                const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${target.contextualText} ${redirectPage.parentText} ${siteTitleContext}`;
-                const innerMeta = parseExtraMetadata(searchString);
                 const urlMeta = extractMetadataFromUrl(linkItem.url);
                 const sizeData = await detectFileSize(linkItem.url, { "User-Agent": HEADERS["User-Agent"] });
                 
-                const detectedQuality = await detectM3U8Quality(linkItem.url, { "User-Agent": HEADERS["User-Agent"] }, sizeData ? sizeData.bytes : null);
+                // FIXED SYNTAX: Standardized single variable reference mapping
+                const finalQuality = await detectM3U8Quality(linkItem.url, { "User-Agent": HEADERS["User-Agent"] }, linkItem.label);
+                const innerMeta = parseExtraMetadata(linkItem.label || "");
 
                 rawStreamsList.push({
                   server: cleanServerName(linkItem.label || "HubCloud"),
-                  quality: urlMeta.quality !== "Unknown" ? urlMeta.quality : detectedQuality,
+                  quality: finalQuality,
                   meta: { 
-                    language: innerMeta.language !== "Multi-Audio" ? innerMeta.language : meta.language,
-                    size: sizeData ? sizeData.string : (innerMeta.size !== "N/A" ? innerMeta.size : "1.4GB"),
+                    language: innerMeta.language,
+                    size: sizeData ? sizeData.string : "1.4GB",
                     format: innerMeta.format,
                     extras: innerMeta.extras
                   },

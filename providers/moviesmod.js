@@ -47,12 +47,42 @@ async function resolveAllHubCloudLinks(hubCloudUrl) {
     });
     const data = await resp.json();
     if (data && data.links && data.links.length > 0) {
-      return data.links; // Returns array of objects: { label: "...", url: "..." }
+      return data.links;
     }
   } catch (err) {
     console.error("[Movies4u] HubCloud resolution failed:", err);
   }
   return [];
+}
+
+/**
+ * Directly parses internal m4uplay player pages to recover raw streaming playlists
+ */
+async function extractDirectM3u8(playerUrl) {
+  try {
+    const resp = await fetch(playerUrl, {
+      headers: { ...HEADERS, Referer: "https://m4uplay.store/" },
+      skipSizeCheck: true
+    });
+    const html = await resp.text();
+    
+    // 1. Direct regex signature check
+    let match = html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] || 
+                html.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
+                
+    // 2. Relative file fallback path check
+    if (!match) {
+      const rel = html.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
+      if (rel) match = "https://m4uplay.store" + rel;
+    }
+    
+    if (match) {
+      return match.replace("master.txt", "master.m3u8");
+    }
+  } catch (e) {
+    console.error("[Movies4u] Direct player parsing failed:", e);
+  }
+  return null;
 }
   
 // =======================  
@@ -112,7 +142,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       // ─── SERIES PROCESSING BRANCH ───
       const uniqueDownloadPages = [];
       
-      // Collect every matching download page variant for this season
       $page("h4").each((i, el) => {
         const headingText = $(el).text().toLowerCase();
         const seasonMatch = headingText.match(/season\s*0*(\d+)/i);
@@ -123,9 +152,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             if (nextNode[0].name === "a") {
               const href = nextNode.attr("href") || "";
               if (href.includes("m4ulinks.com") && nextNode.text().toLowerCase().includes("download links")) {
-                if (!uniqueDownloadPages.includes(href)) {
-                  uniqueDownloadPages.push(href);
-                }
+                if (!uniqueDownloadPages.includes(href)) uniqueDownloadPages.push(href);
               }
             }
             nextNode = nextNode.next();
@@ -133,16 +160,14 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         }
       });
 
-      // Loop over every download page variant discovered sequentially
       for (const downloadPage of uniqueDownloadPages) {
         try {
           const epPageResp = await fetch(downloadPage, { headers: HEADERS, skipSizeCheck: true });
           const epPageHtml = await epPageResp.text();
           const $epPage = cheerio.load(epPageHtml);
           
-          const hubCloudUrls = [];
+          const targetUrls = [];
 
-          // Look for the header matching our exact episode number
           $epPage("h5, h4, h3").each((i, el) => {
             const text = $(el).text().toLowerCase();
             const epMatch = text.match(/episodes?\s*[:\-]?\s*0*(\d+)/i);
@@ -152,8 +177,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
               while (nextNode.length && !["h3", "h4", "h5"].includes(nextNode[0].name)) {
                 if (nextNode[0].name === "a") {
                   const href = nextNode.attr("href") || "";
-                  if (href.includes("hubcloud") || href.includes("hub-cloud")) {
-                    if (!hubCloudUrls.includes(href)) hubCloudUrls.push(href);
+                  if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4uplay.store")) {
+                    if (!targetUrls.includes(href)) targetUrls.push(href);
                   }
                 }
                 nextNode = nextNode.next();
@@ -161,18 +186,31 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             }
           });
 
-          // Correctly await the multi-link extractor inside the series loop
-          for (const hubUrl of hubCloudUrls) {
-            const extractedLinks = await resolveAllHubCloudLinks(hubUrl);
-            for (const linkItem of extractedLinks) {
-              streams.push({
-                name: `Movies4u (Series) - ${linkItem.label || 'Direct'}`,
-                title: `${title} - S${season || 1}E${episode || 1}`,
-                quality: extractQuality(downloadPage),
-                url: linkItem.url,
-                headers: { "User-Agent": HEADERS["User-Agent"] },
-                subtitles: []
-              });
+          for (const rawUrl of targetUrls) {
+            if (rawUrl.includes("m4uplay.store")) {
+              const directM3u8 = await extractDirectM3u8(rawUrl);
+              if (directM3u8) {
+                streams.push({
+                  name: "Movies4u (Series) - Player Direct",
+                  title: `${title} - S${season || 1}E${episode || 1}`,
+                  quality: extractQuality(downloadPage),
+                  url: directM3u8,
+                  headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] },
+                  subtitles: []
+                });
+              }
+            } else {
+              const extractedLinks = await resolveAllHubCloudLinks(rawUrl);
+              for (const linkItem of extractedLinks) {
+                streams.push({
+                  name: `Movies4u (Series) - ${linkItem.label || 'Direct'}`,
+                  title: `${title} - S${season || 1}E${episode || 1}`,
+                  quality: extractQuality(downloadPage),
+                  url: linkItem.url,
+                  headers: { "User-Agent": HEADERS["User-Agent"] },
+                  subtitles: []
+                });
+              }
             }
           }
         } catch (_) {}
@@ -187,9 +225,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         const href = $(el).attr("href") || "";
         const text = $(el).text().toLowerCase();
         if (href.includes("m4ulinks.com") && text.includes("download links")) {
-          if (!uniqueRedirectPages.includes(href)) {
-            uniqueRedirectPages.push(href);
-          }
+          if (!uniqueRedirectPages.includes(href)) uniqueRedirectPages.push(href);
         }
       });
 
@@ -199,25 +235,39 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           const innerHtml = await innerResp.text();
           const $inner = cheerio.load(innerHtml);
           
-          const hubCloudUrls = [];
+          const targetUrls = [];
           $inner("a[href]").each((i, el) => {
             const href = $(el).attr("href") || "";
-            if (href.includes("hubcloud") || href.includes("hub-cloud")) {
-              if (!hubCloudUrls.includes(href)) hubCloudUrls.push(href);
+            if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4uplay.store")) {
+              if (!targetUrls.includes(href)) targetUrls.push(href);
             }
           });
 
-          for (const hubUrl of hubCloudUrls) {
-            const extractedLinks = await resolveAllHubCloudLinks(hubUrl);
-            for (const linkItem of extractedLinks) {
-              streams.push({
-                name: `Movies4u - ${linkItem.label || 'Direct'}`,
-                title: `${title}`,
-                quality: extractQuality(redirectPage),
-                url: linkItem.url,
-                headers: { "User-Agent": HEADERS["User-Agent"] },
-                subtitles: []
-              });
+          for (const rawUrl of targetUrls) {
+            if (rawUrl.includes("m4uplay.store")) {
+              const directM3u8 = await extractDirectM3u8(rawUrl);
+              if (directM3u8) {
+                streams.push({
+                  name: "Movies4u - Player Direct",
+                  title: `${title}`,
+                  quality: extractQuality(redirectPage),
+                  url: directM3u8,
+                  headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] },
+                  subtitles: []
+                });
+              }
+            } else {
+              const extractedLinks = await resolveAllHubCloudLinks(rawUrl);
+              for (const linkItem of extractedLinks) {
+                streams.push({
+                  name: `Movies4u - ${linkItem.label || 'Direct'}`,
+                  title: `${title}`,
+                  quality: extractQuality(redirectPage),
+                  url: linkItem.url,
+                  headers: { "User-Agent": HEADERS["User-Agent"] },
+                  subtitles: []
+                });
+              }
             }
           }
         } catch (_) {}

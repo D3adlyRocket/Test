@@ -1,5 +1,5 @@
 // movies4u.js  
-// Fixed Nuvio-compatible Movies4u provider (FIXED QUALITY SYSTEM)
+// FIXED: Stable stream extraction + corrected quality labeling (no pipeline break)
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new1.movies4u.finance";
@@ -16,6 +16,7 @@ let cachedBaseUrl = null;
 
 async function getBaseUrl() {
   if (cachedBaseUrl) return cachedBaseUrl;
+
   try {
     const resp = await fetch(DOMAINS_URL, { skipSizeCheck: true });
     const data = await resp.json();
@@ -23,11 +24,12 @@ async function getBaseUrl() {
   } catch (_) {
     cachedBaseUrl = FALLBACK_URL;
   }
+
   return cachedBaseUrl;
 }
 
 /**
- * ONLY text-based quality detection (SAFE SOURCE)
+ * ONLY SAFE QUALITY DETECTION (TEXT ONLY)
  */
 function extractQuality(text) {
   const u = (text || "").toLowerCase();
@@ -42,7 +44,7 @@ function extractQuality(text) {
 }
 
 /**
- * FIXED: single source of truth for resolution
+ * FIXED: unified resolver (prevents random overrides)
  */
 function resolveQuality(...sources) {
   for (const s of sources) {
@@ -77,6 +79,7 @@ function parseExtraMetadata(text) {
 
 function cleanServerName(serverText) {
   if (!serverText) return "HubCloud";
+
   let clean = serverText.toLowerCase();
 
   if (clean.includes("fsl")) return "FSL Server";
@@ -86,6 +89,9 @@ function cleanServerName(serverText) {
   return "HubCloud Server";
 }
 
+/**
+ * HubCloud resolver (UNCHANGED)
+ */
 async function resolveAllHubCloudLinks(hubCloudUrl) {
   try {
     const apiURL = `${HUB_CLOUD_API}/api/extract?url=${encodeURIComponent(hubCloudUrl)}`;
@@ -93,6 +99,7 @@ async function resolveAllHubCloudLinks(hubCloudUrl) {
       headers: { Accept: "application/json" },
       skipSizeCheck: true
     });
+
     const data = await resp.json();
     return data?.links || [];
   } catch {
@@ -100,6 +107,10 @@ async function resolveAllHubCloudLinks(hubCloudUrl) {
   }
 }
 
+/**
+ * DO NOT rely on playlist or CDN for quality
+ * ONLY used for stream extraction (unchanged logic)
+ */
 async function extractDirectM3u8(playerUrl) {
   try {
     const resp = await fetch(playerUrl, {
@@ -113,14 +124,21 @@ async function extractDirectM3u8(playerUrl) {
       html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
       html.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
 
-    if (!m3u8) return null;
+    if (!m3u8) {
+      const rel = html.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
+      if (rel) m3u8 = "https://m4uplay.store" + rel;
+    }
 
-    return m3u8.replace("master.txt", "master.m3u8");
+    return m3u8 ? m3u8.replace("master.txt", "master.m3u8") : null;
+
   } catch {
     return null;
   }
 }
 
+/**
+ * MAIN
+ */
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   try {
     const BASE_URL = await getBaseUrl();
@@ -131,7 +149,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    const releaseYear = (mediaInfo.release_date || mediaInfo.first_air_date || "").split("-")[0] || "N/A";
+    const releaseYear =
+      (mediaInfo.release_date || mediaInfo.first_air_date || "").split("-")[0] || "N/A";
+
     const runTime = mediaInfo.runtime ? `${mediaInfo.runtime} min` : "N/A";
 
     const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {
@@ -169,7 +189,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     $page("a[href*='m4uplay.store']").each((_, el) => {
       directWatchLinks.push({
         href: $(el).attr("href"),
-        text: $(el).text()
+        text: $(el).text() || ""
       });
     });
 
@@ -177,15 +197,15 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       const directM3u8 = await extractDirectM3u8(item.href);
       if (!directM3u8) continue;
 
+      // ONLY TEXT SOURCES FOR QUALITY
       const quality = resolveQuality(
         item.text,
-        item.href,
         match.name
       );
 
       rawStreamsList.push({
         server: "Player Direct",
-        quality: quality === "Unknown" ? "1080p" : quality,
+        quality: quality !== "Unknown" ? quality : "1080p",
         meta: parseExtraMetadata(item.text + match.name),
         url: directM3u8,
         headers: {
@@ -226,7 +246,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     });
 
   } catch (e) {
-    console.error("[Movies4u FIXED ERROR]", e);
+    console.error("[Movies4u FIXED]", e);
     return [];
   }
 }

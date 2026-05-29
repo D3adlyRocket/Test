@@ -345,8 +345,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
   rawStreamsList.push({
           server: "Player Direct",
-          quality:
-  detectedQuality || urlMeta.quality || (quality === "Unknown" ? "1080p" : quality),
+          quality: quality !== "Unknown" ? quality: (urlMeta.quality !== "Unknown" ? urlMeta.quality: (detectedQuality || "1080p")
+      ),
           meta: { ...meta, ...urlMeta.meta,
   size: urlMeta.meta.size || meta.size
 },
@@ -444,7 +444,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
   }
                 rawStreamsList.push({
                   server: "M4U Player",
-                  quality: detectedQuality || urlMeta.quality || (quality === "Unknown" ? "1080p" : quality),
+                  quality: quality !== "Unknown" ? quality: (urlMeta.quality !== "Unknown" ? urlMeta.quality: (detectedQuality || "1080p")
+      ),
                   meta: { ...meta, ...urlMeta.meta, size: detectedSize || urlMeta.meta.size || meta.size
 },
                   url: directM3u8,
@@ -560,7 +561,14 @@ const detectedSize = await detectFileSize(
   }
                 rawStreamsList.push({
                   server: "M4U Player",
-                  quality: detectedQuality || urlMeta.quality || (quality === "Unknown" ? "1080p" : quality),
+                  quality:
+  quality !== "Unknown"
+    ? quality
+    : (
+        urlMeta.quality !== "Unknown"
+          ? urlMeta.quality
+          : (detectedQuality || "1080p")
+      ),
                   meta: { ...meta, ...urlMeta.meta, size: urlMeta.meta.size || meta.size
 },
                   url: directM3u8,

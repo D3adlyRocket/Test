@@ -1,939 +1,591 @@
-var __defProp = Object.defineProperty;
-var __defProps = Object.defineProperties;
-var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
-var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __spreadValues = (a, b) => {
-  for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop))
-      __defNormalProp(a, prop, b[prop]);
-  if (__getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
-    }
-  return a;
-};
-var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+/**
+ * Pomfy - Provider com fingerprint fixo
+ * Fluxo: api.pomfy.stream -> statusToken -> /api/play-token -> 9n8o.com -> challenge -> playback -> M3U8
+ */
+
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
+      try { step(generator.next(value)); } catch (e) { reject(e); }
     };
     var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
+      try { step(generator.throw(value)); } catch (e) { reject(e); }
     };
     var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
     step((generator = generator.apply(__this, __arguments)).next());
   });
 };
-const cheerio = require("cheerio-without-node-native");
-console.log("[MoviesMod] Using cheerio-without-node-native for DOM parsing");
-function escapeRegExp(string) {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// ==============================================
+// CONSTANTS
+// ==============================================
+
+const API_POMFY = "https://api.pomfy.stream";
+const TMDB_API_KEY = "3644dd4950b67cd8067b8772de576d6b";
+const TMDB_BASE_URL = "https://api.themoviedb.org/3";
+
+// Cookie (pode precisar ser atualizado)
+const COOKIE = "cf_clearance=FY8zyQybVu2kflZRPEY.MK6_U4tb6fhgsHFcqL8ADrw-1778869729-1.2.1.1-QEpMO3YW7Bw5towDJ0vt.qryy45W8_ZNcfiIwZVFH8VxGfccA92JLE.AijYDUhFSQvlcvBCYFOIQBfR7AiAU62Z2oi.LcbauCXoBKFn7PZgFIctmHdbwAw1PEX6Cd3KSIE4iYDAek732vCD0AKZpj356_o087ffIzRotI1NaRK8w99XVw.9feR25y8bUDv3zRKAwmZOmWCc4EJ2Gl.t9G4av0mgASGgZCiBrikohLj0kWfe8ZZVyx2cimdouLH1CBth.AiPugowBvs4Ta0omNyc8qCD09QTfKAiOF7EGrY8J7XXyRC9M_ejoQplmjOoDFUo7d5qFqqWG.OsRZWzPVg";
+
+const USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Mobile Safari/537.36";
+
+const DEBUG = true;
+function log(step, message, data = null) {
+  if (!DEBUG) return;
+  const timestamp = new Date().toISOString().split('T')[1].slice(0, 12);
+  console.log(`[${timestamp}] [${step}] ${message}`);
+  if (data !== null && typeof data === 'object') {
+    console.log(`[${timestamp}] [${step}] └─ ${JSON.stringify(data, null, 2).substring(0, 300)}`);
+  } else if (data !== null) {
+    console.log(`[${timestamp}] [${step}] └─ ${data}`);
+  }
 }
-const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-const FALLBACK_DOMAIN = "https://moviesmod.farm";
-const DOMAIN_CACHE_TTL = 4 * 60 * 60 * 1e3;
-let moviesModDomain = FALLBACK_DOMAIN;
-let domainCacheTimestamp = 0;
-function getMoviesModDomain() {
-  return __async(this, null, function* () {
-    const now = Date.now();
-    if (now - domainCacheTimestamp < DOMAIN_CACHE_TTL) {
-      return moviesModDomain;
-    }
-    try {
-      console.log("[MoviesMod] Fetching latest domain...");
-      const response = yield fetch("https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json", {
-        method: "GET",
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      });
-      if (response.ok) {
-        const data = yield response.json();
-        if (data && data.moviesmod) {
-          moviesModDomain = data.moviesmod;
-          domainCacheTimestamp = now;
-          console.log(`[MoviesMod] Updated domain to: ${moviesModDomain}`);
-        }
+
+// ==============================================
+// BASE64 MANUAL
+// ==============================================
+
+const BASE64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+function base64ToBytes(base64) {
+  let b64 = base64.replace(/-/g, '+').replace(/_/g, '/');
+  while (b64.length % 4 !== 0) b64 += '=';
+  const lookup = new Uint8Array(256).fill(255);
+  for (let i = 0; i < 64; i++) lookup[BASE64_CHARS.charCodeAt(i)] = i;
+  const len = b64.length;
+  let outputLen = (len * 3) >> 2;
+  if (b64[len - 1] === '=') outputLen--;
+  if (b64[len - 2] === '=') outputLen--;
+  const bytes = new Uint8Array(outputLen);
+  let byteIdx = 0;
+  for (let i = 0; i < len; i += 4) {
+    const a = lookup[b64.charCodeAt(i)];
+    const b = lookup[b64.charCodeAt(i + 1)];
+    const c = lookup[b64.charCodeAt(i + 2)];
+    const d = lookup[b64.charCodeAt(i + 3)];
+    if (byteIdx < outputLen) bytes[byteIdx++] = (a << 2) | (b >> 4);
+    if (byteIdx < outputLen) bytes[byteIdx++] = ((b & 0x0f) << 4) | (c >> 2);
+    if (byteIdx < outputLen) bytes[byteIdx++] = ((c & 0x03) << 6) | d;
+  }
+  return bytes;
+}
+
+function bytesToBase64(bytes) {
+  let result = '';
+  const len = bytes.length;
+  for (let i = 0; i < len; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < len ? bytes[i + 1] : 0;
+    const b2 = i + 2 < len ? bytes[i + 2] : 0;
+    result += BASE64_CHARS[b0 >> 2];
+    result += BASE64_CHARS[((b0 & 0x03) << 4) | (b1 >> 4)];
+    result += i + 1 < len ? BASE64_CHARS[((b1 & 0x0f) << 2) | (b2 >> 6)] : '=';
+    result += i + 2 < len ? BASE64_CHARS[b2 & 0x3f] : '=';
+  }
+  return result;
+}
+
+function utf8BytesToString(bytes) {
+  let str = '';
+  let i = 0;
+  while (i < bytes.length) {
+    const byte = bytes[i];
+    if (byte < 0x80) { str += String.fromCharCode(byte); i += 1; }
+    else if ((byte & 0xe0) === 0xc0) { str += String.fromCharCode(((byte & 0x1f) << 6) | (bytes[i + 1] & 0x3f)); i += 2; }
+    else if ((byte & 0xf0) === 0xe0) { str += String.fromCharCode(((byte & 0x0f) << 12) | ((bytes[i + 1] & 0x3f) << 6) | (bytes[i + 2] & 0x3f)); i += 3; }
+    else if ((byte & 0xf8) === 0xf0) {
+      const cp = ((byte & 0x07) << 18) | ((bytes[i + 1] & 0x3f) << 12) | ((bytes[i + 2] & 0x3f) << 6) | (bytes[i + 3] & 0x3f);
+      const hi = Math.floor((cp - 0x10000) / 0x400) + 0xd800;
+      const lo = ((cp - 0x10000) % 0x400) + 0xdc00;
+      str += String.fromCharCode(hi, lo);
+      i += 4;
+    } else { i += 1; }
+  }
+  return str;
+}
+
+function stringToUtf8Bytes(str) {
+  const bytes = [];
+  for (let i = 0; i < str.length; i++) {
+    let cp = str.charCodeAt(i);
+    if (cp >= 0xd800 && cp <= 0xdbff && i + 1 < str.length) {
+      const lo = str.charCodeAt(i + 1);
+      if (lo >= 0xdc00 && lo <= 0xdfff) {
+        cp = 0x10000 + (cp - 0xd800) * 0x400 + (lo - 0xdc00);
+        i++;
       }
-    } catch (error) {
-      console.error(`[MoviesMod] Failed to fetch latest domain: ${error.message}`);
     }
-    return moviesModDomain;
-  });
+    if (cp < 0x80) { bytes.push(cp); }
+    else if (cp < 0x800) { bytes.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f)); }
+    else if (cp < 0x10000) { bytes.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f)); }
+    else { bytes.push(0xf0 | (cp >> 18), 0x80 | ((cp >> 12) & 0x3f), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f)); }
+  }
+  return new Uint8Array(bytes);
 }
-function makeRequest(_0) {
-  return __async(this, arguments, function* (url, options = {}) {
-    const defaultHeaders = {
-      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.5",
-      "Accept-Encoding": "gzip, deflate",
-      "Connection": "keep-alive",
-      "Upgrade-Insecure-Requests": "1"
+
+// ==============================================
+// AES-256-GCM MANUAL
+// ==============================================
+
+const SBOX = [
+  0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76,
+  0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0,
+  0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15,
+  0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75,
+  0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84,
+  0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf,
+  0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8,
+  0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2,
+  0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73,
+  0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb,
+  0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79,
+  0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08,
+  0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a,
+  0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e,
+  0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf,
+  0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16
+];
+
+const RCON = [0x00, 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36];
+
+class AES256GCM_Manual {
+  constructor(key) { this.roundKeys = this._expandKey(key); }
+  
+  _expandKey(key) {
+    let w = new Uint32Array(60);
+    for (let i = 0; i < 8; i++) { w[i] = (key[i * 4] << 24) | (key[i * 4 + 1] << 16) | (key[i * 4 + 2] << 8) | key[i * 4 + 3]; }
+    for (let i = 8; i < 60; i++) {
+      let temp = w[i - 1];
+      if (i % 8 === 0) {
+        temp = ((temp << 8) | (temp >>> 24)) >>> 0;
+        temp = (SBOX[temp >>> 24] << 24) | (SBOX[(temp >>> 16) & 0xff] << 16) | (SBOX[(temp >>> 8) & 0xff] << 8) | SBOX[temp & 0xff];
+        temp ^= (RCON[i / 8] << 24) >>> 0;
+      } else if (i % 8 === 4) {
+        temp = (SBOX[temp >>> 24] << 24) | (SBOX[(temp >>> 16) & 0xff] << 16) | (SBOX[(temp >>> 8) & 0xff] << 8) | SBOX[temp & 0xff];
+      }
+      w[i] = (w[i - 8] ^ temp) >>> 0;
+    }
+    return w;
+  }
+  
+  _galoisMult(a, b) {
+    let p = 0;
+    for (let i = 0; i < 8; i++) {
+      if (b & 1) p ^= a;
+      let hiBitSet = a & 0x80;
+      a = (a << 1) & 0xff;
+      if (hiBitSet) a ^= 0x1b;
+      b >>= 1;
+    }
+    return p;
+  }
+  
+  _encryptBlock(block) {
+    let state = Array.from({ length: 4 }, (_, r) => Array.from({ length: 4 }, (_, c) => block[r + c * 4]));
+    const addRoundKey = (s, rkIdx) => {
+      for (let c = 0; c < 4; c++) {
+        let rk = this.roundKeys[rkIdx * 4 + c];
+        for (let r = 0; r < 4; r++) { s[r][c] ^= (rk >>> (24 - 8 * r)) & 0xff; }
+      }
     };
-    const response = yield fetch(url, __spreadProps(__spreadValues({}, options), {
-      headers: __spreadValues(__spreadValues({}, defaultHeaders), options.headers)
-    }));
-    if ((response.status === 403 || response.status === 503) && typeof Cloudflare !== "undefined" && Cloudflare.solve) {
-      console.log(`[MoviesMod] Cloudflare challenge detected for ${url}, requesting solver`);
-      const solved = yield Cloudflare.solve(url);
-      const retryHeaders = __spreadValues(__spreadValues({}, defaultHeaders), options.headers);
-      if (solved && solved.Cookie)
-        retryHeaders.Cookie = solved.Cookie;
-      if (solved && solved["User-Agent"])
-        retryHeaders["User-Agent"] = solved["User-Agent"];
-      const retry = yield fetch(url, __spreadProps(__spreadValues({}, options), { headers: retryHeaders }));
-      if (!retry.ok) {
-        throw new Error(`HTTP ${retry.status}: ${retry.statusText}`);
+    addRoundKey(state, 0);
+    for (let round = 1; round < 14; round++) {
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) state[r][c] = SBOX[state[r][c]];
+      let row1 = state[1], row2 = state[2], row3 = state[3];
+      state[1] = [row1[1], row1[2], row1[3], row1[0]];
+      state[2] = [row2[2], row2[3], row2[0], row2[1]];
+      state[3] = [row3[3], row3[0], row3[1], row3[2]];
+      for (let c = 0; c < 4; c++) {
+        let s0 = state[0][c], s1 = state[1][c], s2 = state[2][c], s3 = state[3][c];
+        state[0][c] = this._galoisMult(0x02, s0) ^ this._galoisMult(0x03, s1) ^ s2 ^ s3;
+        state[1][c] = s0 ^ this._galoisMult(0x02, s1) ^ this._galoisMult(0x03, s2) ^ s3;
+        state[2][c] = s0 ^ s1 ^ this._galoisMult(0x02, s2) ^ this._galoisMult(0x03, s3);
+        state[3][c] = this._galoisMult(0x03, s0) ^ s1 ^ s2 ^ this._galoisMult(0x02, s3);
       }
-      return retry;
+      addRoundKey(state, round);
     }
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    return response;
-  });
-}
-function extractQuality(text) {
-  if (!text)
-    return "Unknown";
-  const qualityMatch = text.match(/(480p|720p|1080p|2160p|4k)/i);
-  if (qualityMatch) {
-    return qualityMatch[1];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) state[r][c] = SBOX[state[r][c]];
+    let row1 = state[1], row2 = state[2], row3 = state[3];
+    state[1] = [row1[1], row1[2], row1[3], row1[0]];
+    state[2] = [row2[2], row2[3], row2[0], row2[1]];
+    state[3] = [row3[3], row3[0], row3[1], row3[2]];
+    addRoundKey(state, 14);
+    let res = new Uint8Array(16);
+    for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) res[c * 4 + r] = state[r][c];
+    return res;
   }
-  const cleanMatch = text.match(/(480p|720p|1080p|2160p|4k)[^)]*\)/i);
-  if (cleanMatch) {
-    return cleanMatch[0];
-  }
-  return "Unknown";
-}
-function parseQualityForSort(qualityString) {
-  if (!qualityString)
-    return 0;
-  const match = qualityString.match(/(\d{3,4})p/i);
-  return match ? parseInt(match[1], 10) : 0;
-}
-function getTechDetails(qualityString) {
-  if (!qualityString)
-    return [];
-  const details = [];
-  const lowerText = qualityString.toLowerCase();
-  if (lowerText.includes("10bit"))
-    details.push("10-bit");
-  if (lowerText.includes("hevc") || lowerText.includes("x265"))
-    details.push("HEVC");
-  if (lowerText.includes("hdr"))
-    details.push("HDR");
-  return details;
-}
-function findBestMatch(mainString, targetStrings) {
-  if (!targetStrings || targetStrings.length === 0) {
-    return { bestMatch: { target: "", rating: 0 }, bestMatchIndex: -1 };
-  }
-  const ratings = targetStrings.map((target) => {
-    if (!target)
-      return 0;
-    const main = mainString.toLowerCase();
-    const targ = target.toLowerCase();
-    if (main === targ)
-      return 1;
-    if (targ.includes(main) || main.includes(targ))
-      return 0.8;
-    const mainWords = main.split(/\s+/);
-    const targWords = targ.split(/\s+/);
-    let matches = 0;
-    for (const word of mainWords) {
-      if (word.length > 2 && targWords.some((tw) => tw.includes(word) || word.includes(tw))) {
-        matches++;
+  
+  decrypt(iv, ciphertext) {
+    let counter = new Uint8Array(16);
+    counter.set(iv);
+    counter[15] = 2;
+    let plaintext = new Uint8Array(ciphertext.length);
+    for (let i = 0; i < ciphertext.length; i += 16) {
+      let keystream = this._encryptBlock(counter);
+      for (let j = 0; j < 16 && (i + j) < ciphertext.length; j++) { plaintext[i + j] = ciphertext[i + j] ^ keystream[j]; }
+      for (let j = 15; j >= 12; j--) {
+        counter[j]++;
+        if (counter[j] !== 0) break;
       }
     }
-    return matches / Math.max(mainWords.length, targWords.length);
-  });
-  const bestRating = Math.max(...ratings);
-  const bestIndex = ratings.indexOf(bestRating);
-  return {
-    bestMatch: { target: targetStrings[bestIndex], rating: bestRating },
-    bestMatchIndex: bestIndex
+    return utf8BytesToString(plaintext);
+  }
+}
+
+// ==============================================
+// FUNÇÕES AUXILIARES
+// ==============================================
+
+// FINGERPRINT FIXO (que funcionava nos códigos antigos)
+function generateFingerprint() {
+  const viewerId = "bed4fadd25c8dcdcaced26e318c3be5a";
+  const deviceId = "b69c7e41fe010d4445b827dd95aa89fc";
+  const timestamp = Math.floor(Date.now() / 1000);
+  const payload = {
+    viewer_id: viewerId,
+    device_id: deviceId,
+    confidence: 0.93,
+    iat: timestamp,
+    exp: timestamp + 600
   };
+  const token = bytesToBase64(stringToUtf8Bytes(JSON.stringify(payload)));
+  return { token, viewer_id: viewerId, device_id: deviceId, confidence: 0.93 };
 }
-function searchMoviesMod(query) {
-  return __async(this, null, function* () {
-    try {
-      const baseUrl = yield getMoviesModDomain();
-      const searchUrl = `${baseUrl}/?s=${encodeURIComponent(query)}`;
-      console.log(`[MoviesMod] Searching: ${searchUrl}`);
-      const response = yield makeRequest(searchUrl);
-      const html = yield response.text();
-      const $ = cheerio.load(html);
-      const results = [];
-      $(".latestPost").each((i, element) => {
-        const linkElement = $(element).find("a");
-        const title = linkElement.attr("title");
-        const url = linkElement.attr("href");
-        if (title && url) {
-          results.push({ title, url });
-        }
-      });
-      console.log(`[MoviesMod] Found ${results.length} search results`);
-      return results;
-    } catch (error) {
-      console.error(`[MoviesMod] Error searching: ${error.message}`);
-      return [];
-    }
-  });
-}
-function extractDownloadLinks(moviePageUrl) {
-  return __async(this, null, function* () {
-    try {
-      const response = yield makeRequest(moviePageUrl);
-      const html = yield response.text();
-      const $ = cheerio.load(html);
-      const links = [];
-      const contentBox = $(".thecontent");
-      const headers = contentBox.find('h3:contains("Season"), h4');
-      headers.each((i, el) => {
-        const header = $(el);
-        const headerText = header.text().trim();
-        const blockContent = header.nextUntil("h3, h4");
-        if (header.is("h3") && headerText.toLowerCase().includes("season")) {
-          const linkElements = blockContent.find("a").filter((i2, el2) => {
-            const text = $(el2).text().trim().toLowerCase();
-            return text.includes("episode links") && !text.includes("batch");
-          });
-          linkElements.each((j, linkEl) => {
-            const buttonText = $(linkEl).text().trim();
-            const linkUrl = $(linkEl).attr("href");
-            if (linkUrl) {
-              links.push({
-                quality: `${headerText} - ${buttonText}`,
-                url: linkUrl
-              });
-            }
-          });
-        } else if (header.is("h4")) {
-          const linkElement = blockContent.find("a.maxbutton-download-links, .maxbutton").first();
-          if (linkElement.length > 0) {
-            const link = linkElement.attr("href");
-            const cleanQuality = extractQuality(headerText);
-            if (link && cleanQuality) {
-              links.push({
-                quality: cleanQuality,
-                url: link
-              });
-            }
-          }
-        }
-      });
-      console.log(`[MoviesMod] Extracted ${links.length} download links`);
-      return links;
-    } catch (error) {
-      console.error(`[MoviesMod] Error extracting download links: ${error.message}`);
-      return [];
-    }
-  });
-}
-function resolveIntermediateLink(initialUrl, refererUrl, quality) {
-  return __async(this, null, function* () {
-    try {
-      const urlObject = new URL(initialUrl);
-      if (urlObject.hostname.includes("links.modpro.blog") || urlObject.hostname.includes("posts.modpro.blog")) {
-        const response = yield makeRequest(initialUrl, { headers: { "Referer": refererUrl } });
-        const html = yield response.text();
-        const $ = cheerio.load(html);
-        const finalLinks = [];
-        $('.entry-content a[href*="driveseed.org"], .entry-content a[href*="tech.unblockedgames.world"], .entry-content a[href*="tech.creativeexpressionsblog.com"], .entry-content a[href*="tech.examzculture.in"]').each((i, el) => {
-          const link = $(el).attr("href");
-          const text = $(el).text().trim();
-          if (link && text && !text.toLowerCase().includes("batch")) {
-            finalLinks.push({
-              server: text.replace(/\s+/g, " "),
-              url: link
-            });
-          }
-        });
-        if (finalLinks.length === 0) {
-          $('a[href*="driveseed.org"], a[href*="tech.unblockedgames.world"], a[href*="tech.creativeexpressionsblog.com"], a[href*="tech.examzculture.in"]').each((i, el) => {
-            const link = $(el).attr("href");
-            const text = $(el).text().trim();
-            if (link && text && !text.toLowerCase().includes("batch")) {
-              finalLinks.push({
-                server: text.replace(/\s+/g, " ") || "Download Link",
-                url: link
-              });
-            }
-          });
-        }
-        console.log(`[MoviesMod] Found ${finalLinks.length} links from ${urlObject.hostname}`);
-        return finalLinks;
-      } else if (urlObject.hostname.includes("episodes.modpro.blog")) {
-        const response = yield makeRequest(initialUrl, { headers: { "Referer": refererUrl } });
-        const html = yield response.text();
-        const $ = cheerio.load(html);
-        const finalLinks = [];
-        $("h3").each((i, el) => {
-          const headerText = $(el).text().trim();
-          const episodeMatch = headerText.match(/Episode\s+(\d+)/i);
-          if (episodeMatch) {
-            const episodeNum = episodeMatch[1];
-            const linkElement = $(el).find("a").first();
-            if (linkElement.length > 0) {
-              const link = linkElement.attr("href");
-              if (link) {
-                finalLinks.push({
-                  server: `Episode ${episodeNum}`,
-                  url: link
-                });
-              }
-            }
-          }
-        });
-        console.log(`[MoviesMod] Found ${finalLinks.length} episode links from episodes.modpro.blog`);
-        return finalLinks;
-      } else if (urlObject.hostname.includes("modrefer.in")) {
-        const encodedUrl = urlObject.searchParams.get("url");
-        if (!encodedUrl) {
-          console.error("[MoviesMod] Could not find encoded URL in modrefer.in link.");
-          return [];
-        }
-        const decodedUrl = atob(encodedUrl);
-        console.log(`[MoviesMod] Decoded modrefer URL: ${decodedUrl}`);
-        const response = yield makeRequest(decodedUrl, {
-          headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            "Referer": refererUrl
-          }
-        });
-        const html = yield response.text();
-        const $ = cheerio.load(html);
-        const finalLinks = [];
-        console.log(`[MoviesMod] Page title: ${$("title").text()}`);
-        console.log(`[MoviesMod] Total links on page: ${$("a").length}`);
-        console.log(`[MoviesMod] HTML length: ${html.length} characters`);
-        $(".timed-content-client_show_0_5_0 a").each((i, el) => {
-          const link = $(el).attr("href");
-          const text = $(el).text().trim();
-          if (link) {
-            finalLinks.push({
-              server: text,
-              url: link
-            });
-          }
-        });
-        if (finalLinks.length === 0) {
-          console.log(`[MoviesMod] No timed content found, looking for direct links...`);
-          $("a").each((i, el) => {
-            const link = $(el).attr("href");
-            const text = $(el).text().trim();
-            if (link && (link.includes("driveseed.org") || link.includes("tech.unblockedgames.world") || link.includes("tech.examzculture.in") || link.includes("tech.creativeexpressionsblog.com") || link.includes("tech.examdegree.site"))) {
-              console.log(`[MoviesMod] Found direct link: ${text} -> ${link}`);
-              finalLinks.push({
-                server: text || "Download Link",
-                url: link
-              });
-            }
-          });
-        }
-        if (finalLinks.length === 0) {
-          console.log(`[MoviesMod] Looking for alternative download patterns...`);
-          $('button, .download-btn, .btn, [class*="download"], [class*="btn"]').each((i, el) => {
-            const $el = $(el);
-            const link = $el.attr("href") || $el.attr("data-href") || $el.find("a").attr("href");
-            const text = $el.text().trim();
-            if (link && (link.includes("driveseed.org") || link.includes("tech.unblockedgames.world") || link.includes("tech.examzculture.in") || link.includes("tech.creativeexpressionsblog.com") || link.includes("tech.examdegree.site"))) {
-              console.log(`[MoviesMod] Found alternative link: ${text} -> ${link}`);
-              finalLinks.push({
-                server: text || "Alternative Download",
-                url: link
-              });
-            }
-          });
-        }
-        console.log(`[MoviesMod] Found ${finalLinks.length} total links`);
-        return finalLinks;
-      }
-      return [];
-    } catch (error) {
-      console.error(`[MoviesMod] Error resolving intermediate link: ${error.message}`);
-      return [];
-    }
-  });
-}
-function resolveTechUnblockedLink(sidUrl) {
-  return __async(this, null, function* () {
-    console.log(`[MoviesMod] Resolving SID link: ${sidUrl}`);
-    try {
-      const response = yield makeRequest(sidUrl);
-      const html = yield response.text();
-      const $ = cheerio.load(html);
-      const initialForm = $("#landing");
-      const wp_http_step1 = initialForm.find('input[name="_wp_http"]').val();
-      const action_url_step1 = initialForm.attr("action");
-      if (!wp_http_step1 || !action_url_step1) {
-        console.error("  [SID] Error: Could not find _wp_http in initial form.");
-        return null;
-      }
-      const step1Data = new URLSearchParams({ "_wp_http": wp_http_step1 });
-      const responseStep1 = yield makeRequest(action_url_step1, {
-        method: "POST",
-        headers: {
-          "Referer": sidUrl,
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: step1Data.toString()
-      });
-      const html2 = yield responseStep1.text();
-      const $2 = cheerio.load(html2);
-      const verificationForm = $2("#landing");
-      const action_url_step2 = verificationForm.attr("action");
-      const wp_http2 = verificationForm.find('input[name="_wp_http2"]').val();
-      const token = verificationForm.find('input[name="token"]').val();
-      if (!action_url_step2) {
-        console.error("  [SID] Error: Could not find verification form.");
-        return null;
-      }
-      const step2Data = new URLSearchParams({ "_wp_http2": wp_http2, "token": token });
-      const responseStep2 = yield makeRequest(action_url_step2, {
-        method: "POST",
-        headers: {
-          "Referer": responseStep1.url,
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: step2Data.toString()
-      });
-      const finalHtml = yield responseStep2.text();
-      let finalLinkPath = null;
-      let cookieName = null;
-      let cookieValue = null;
-      const cookieMatch = finalHtml.match(/s_343\('([^']+)',\s*'([^']+)'/);
-      const linkMatch = finalHtml.match(/c\.setAttribute\("href",\s*"([^"]+)"\)/);
-      if (cookieMatch) {
-        cookieName = cookieMatch[1].trim();
-        cookieValue = cookieMatch[2].trim();
-      }
-      if (linkMatch) {
-        finalLinkPath = linkMatch[1].trim();
-      }
-      if (!finalLinkPath || !cookieName || !cookieValue) {
-        console.error("  [SID] Error: Could not extract dynamic cookie/link from JS.");
-        return null;
-      }
-      const { origin } = new URL(sidUrl);
-      const finalUrl = new URL(finalLinkPath, origin).href;
-      const finalResponse = yield makeRequest(finalUrl, {
-        headers: {
-          "Referer": responseStep2.url,
-          "Cookie": `${cookieName}=${cookieValue}`
-        }
-      });
-      const metaHtml = yield finalResponse.text();
-      const $3 = cheerio.load(metaHtml);
-      const metaRefresh = $3('meta[http-equiv="refresh"]');
-      if (metaRefresh.length > 0) {
-        const content = metaRefresh.attr("content");
-        const urlMatch = content.match(/url=(.*)/i);
-        if (urlMatch && urlMatch[1]) {
-          const driveleechUrl = urlMatch[1].replace(/"/g, "").replace(/'/g, "");
-          console.log(`  [SID] SUCCESS! Resolved Driveleech URL: ${driveleechUrl}`);
-          return driveleechUrl;
-        }
-      }
-      console.error("  [SID] Error: Could not find meta refresh tag with Driveleech URL.");
-      return null;
-    } catch (error) {
-      console.error(`  [SID] Error during SID resolution: ${error.message}`);
-      return null;
-    }
-  });
-}
-function resolveDriveseedLink(driveseedUrl) {
-  return __async(this, null, function* () {
-    try {
-      const response = yield makeRequest(driveseedUrl, {
-        headers: {
-          "Referer": "https://links.modpro.blog/"
-        }
-      });
-      const html = yield response.text();
-      const redirectMatch = html.match(/window\.location\.replace\("([^"]+)"\)/);
-      if (redirectMatch && redirectMatch[1]) {
-        const finalPath = redirectMatch[1];
-        const finalUrl = `https://driveseed.org${finalPath}`;
-        const finalResponse = yield makeRequest(finalUrl, {
-          headers: {
-            "Referer": driveseedUrl
-          }
-        });
-        const finalHtml = yield finalResponse.text();
-        const $ = cheerio.load(finalHtml);
-        const downloadOptions = [];
-        let size = null;
-        let fileName = null;
-        $("ul.list-group li").each((i, el) => {
-          const text = $(el).text();
-          if (text.includes("Size :")) {
-            size = text.split(":")[1].trim();
-          } else if (text.includes("Name :")) {
-            fileName = text.split(":")[1].trim();
-          }
-        });
-        const resumeCloudLink = $('a:contains("Resume Cloud")').attr("href");
-        if (resumeCloudLink) {
-          downloadOptions.push({
-            title: "Resume Cloud",
-            type: "resume",
-            url: `https://driveseed.org${resumeCloudLink}`,
-            priority: 1
-          });
-        }
-        const workerSeedLink = $('a:contains("Resume Worker Bot")').attr("href");
-        if (workerSeedLink) {
-          downloadOptions.push({
-            title: "Resume Worker Bot",
-            type: "worker",
-            url: workerSeedLink,
-            priority: 2
-          });
-        }
-        $('a[href*="/download/"]').each((i, el) => {
-          const href = $(el).attr("href");
-          const text = $(el).text().trim();
-          if (href && text && !downloadOptions.some((opt) => opt.url === href)) {
-            downloadOptions.push({
-              title: text,
-              type: "generic",
-              url: href.startsWith("http") ? href : `https://driveseed.org${href}`,
-              priority: 4
-            });
-          }
-        });
-        const instantDownloadLink = $('a:contains("Instant Download")').attr("href");
-        if (instantDownloadLink) {
-          downloadOptions.push({
-            title: "Instant Download",
-            type: "instant",
-            url: instantDownloadLink,
-            priority: 3
-          });
-        }
-        downloadOptions.sort((a, b) => a.priority - b.priority);
-        return { downloadOptions, size, fileName };
-      }
-      return { downloadOptions: [], size: null, fileName: null };
-    } catch (error) {
-      console.error(`[MoviesMod] Error resolving Driveseed link: ${error.message}`);
-      return { downloadOptions: [], size: null, fileName: null };
-    }
-  });
-}
-function resolveResumeCloudLink(resumeUrl) {
-  return __async(this, null, function* () {
-    try {
-      const response = yield makeRequest(resumeUrl, {
-        headers: {
-          "Referer": "https://driveseed.org/"
-        }
-      });
-      const html = yield response.text();
-      const $ = cheerio.load(html);
-      const downloadLink = $('a:contains("Cloud Resume Download")').attr("href");
-      return downloadLink || null;
-    } catch (error) {
-      console.error(`[MoviesMod] Error resolving Resume Cloud link: ${error.message}`);
-      return null;
-    }
-  });
-}
-function resolveVideoSeedLink(videoSeedUrl) {
-  return __async(this, null, function* () {
-    try {
-      const urlParams = new URLSearchParams(new URL(videoSeedUrl).search);
-      const keys = urlParams.get("url");
-      if (keys) {
-        const apiUrl = `${new URL(videoSeedUrl).origin}/api`;
-        const formData = new URLSearchParams();
-        formData.append("keys", keys);
-        const apiResponse = yield fetch(apiUrl, {
-          method: "POST",
-          body: formData,
-          headers: {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "x-token": new URL(videoSeedUrl).hostname,
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-          }
-        });
-        if (apiResponse.ok) {
-          const responseData = yield apiResponse.json();
-          if (responseData && responseData.url) {
-            return responseData.url;
-          }
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error(`[MoviesMod] Error resolving VideoSeed link: ${error.message}`);
-      return null;
-    }
-  });
-}
-function validateVideoUrl(url, timeout = 1e4) {
-  return __async(this, null, function* () {
-    try {
-      console.log(`[MoviesMod] Validating URL: ${url.substring(0, 100)}...`);
-      const response = yield fetch(url, {
-        method: "HEAD",
-        headers: {
-          "Range": "bytes=0-1",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        }
-      });
-      if (response.ok || response.status === 206) {
-        console.log(`[MoviesMod] \u2713 URL validation successful (${response.status})`);
-        return true;
-      } else {
-        console.log(`[MoviesMod] \u2717 URL validation failed with status: ${response.status}`);
-        return false;
-      }
-    } catch (error) {
-      console.log(`[MoviesMod] \u2717 URL validation failed: ${error.message}`);
-      return false;
-    }
-  });
-}
-function processDownloadLink(link, selectedResult, mediaType, episodeNum) {
-  return __async(this, null, function* () {
-    var _a;
-    try {
-      console.log(`[MoviesMod] Processing quality: ${link.quality}`);
-      const finalLinks = yield resolveIntermediateLink(link.url, selectedResult.url, link.quality);
-      if (!finalLinks || finalLinks.length === 0) {
-        console.log(`[MoviesMod] No final links found for ${link.quality}`);
-        return null;
-      }
-      let targetLinks = finalLinks;
-      if ((mediaType === "tv" || mediaType === "series") && episodeNum !== null) {
-        targetLinks = finalLinks.filter((targetLink) => {
-          const serverName = targetLink.server.toLowerCase();
-          const episodePatterns = [
-            new RegExp(`episode\\s+${episodeNum}\\b`, "i"),
-            new RegExp(`ep\\s+${episodeNum}\\b`, "i"),
-            new RegExp(`e${episodeNum}\\b`, "i"),
-            new RegExp(`\\b${episodeNum}\\b`)
-          ];
-          return episodePatterns.some((pattern) => pattern.test(serverName));
-        });
-        if (targetLinks.length === 0) {
-          console.log(`[MoviesMod] No episode ${episodeNum} found for ${link.quality}`);
-          return null;
-        }
-      }
-      for (const targetLink of targetLinks) {
-        try {
-          let currentUrl = targetLink.url;
-          if (currentUrl && (currentUrl.includes("tech.unblockedgames.world") || currentUrl.includes("tech.creativeexpressionsblog.com") || currentUrl.includes("tech.examzculture.in") || currentUrl.includes("tech.examdegree.site"))) {
-            console.log(`[MoviesMod] Resolving SID link: ${targetLink.server}`);
-            const resolvedUrl = yield resolveTechUnblockedLink(currentUrl);
-            if (!resolvedUrl) {
-              console.log(`[MoviesMod] Failed to resolve SID link for ${targetLink.server}`);
-              continue;
-            }
-            if (resolvedUrl.includes("report-broken-links") || resolvedUrl.includes("moviesmod.wiki")) {
-              console.log(`[MoviesMod] Skipping broken link report page for ${targetLink.server}`);
-              continue;
-            }
-            currentUrl = resolvedUrl;
-          }
-          if (currentUrl && currentUrl.includes("driveseed.org")) {
-            const { downloadOptions, size, fileName } = yield resolveDriveseedLink(currentUrl);
-            if (!downloadOptions || downloadOptions.length === 0) {
-              console.log(`[MoviesMod] No download options found for ${targetLink.server} - ${currentUrl}`);
-              continue;
-            }
-            let finalDownloadUrl = null;
-            let usedMethod = null;
-            for (const option of downloadOptions) {
-              try {
-                console.log(`[MoviesMod] Trying ${option.title} for ${link.quality}...`);
-                if (option.type === "resume" || option.type === "worker") {
-                  finalDownloadUrl = yield resolveResumeCloudLink(option.url);
-                } else if (option.type === "instant") {
-                  finalDownloadUrl = yield resolveVideoSeedLink(option.url);
-                } else if (option.type === "generic") {
-                  finalDownloadUrl = option.url;
-                }
-                if (finalDownloadUrl) {
-                  if (typeof URL_VALIDATION_ENABLED !== "undefined" && !URL_VALIDATION_ENABLED) {
-                    usedMethod = option.title;
-                    console.log(`[MoviesMod] \u2713 URL validation disabled, accepting ${usedMethod} result`);
-                    break;
-                  }
-                  const isValid = yield validateVideoUrl(finalDownloadUrl);
-                  if (isValid) {
-                    usedMethod = option.title;
-                    console.log(`[MoviesMod] \u2713 Successfully resolved using ${usedMethod}`);
-                    break;
-                  } else {
-                    console.log(`[MoviesMod] \u2717 ${option.title} returned invalid URL`);
-                    finalDownloadUrl = null;
-                  }
-                }
-              } catch (error) {
-                console.log(`[MoviesMod] \u2717 ${option.title} failed: ${error.message}`);
-              }
-            }
-            if (finalDownloadUrl) {
-              const actualQuality = extractQuality(link.quality);
-              const sizeInfo = size || ((_a = link.quality.match(/\[([^\]]+)\]/)) == null ? void 0 : _a[1]);
-              const cleanFileName = fileName ? fileName.replace(/\.[^/.]+$/, "").replace(/[._]/g, " ") : `Stream from ${link.quality}`;
-              const techDetails = getTechDetails(link.quality);
-              const techDetailsString = techDetails.length > 0 ? ` \u2022 ${techDetails.join(" \u2022 ")}` : "";
-              return {
-                name: `MoviesMod`,
-                title: `${cleanFileName}
-${sizeInfo || ""}${techDetailsString}`,
-                url: finalDownloadUrl,
-                quality: actualQuality,
-                size: sizeInfo,
-                fileName,
-                type: "direct"
-              };
-            }
-          }
-        } catch (error) {
-          console.error(`[MoviesMod] Error processing target link: ${error.message}`);
-        }
-      }
-      return null;
-    } catch (error) {
-      console.error(`[MoviesMod] Error processing quality ${link.quality}: ${error.message}`);
-      return null;
-    }
-  });
-}
-function getStreams(tmdbId, mediaType = "movie", seasonNum = null, episodeNum = null) {
-  return __async(this, null, function* () {
-    var _a, _b;
-    console.log(`[MoviesMod] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}${seasonNum ? `, S${seasonNum}E${episodeNum}` : ""}`);
-    try {
-      const tmdbUrl = `https://api.themoviedb.org/3/${mediaType === "tv" ? "tv" : "movie"}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
-      const tmdbResponse = yield makeRequest(tmdbUrl);
-      const tmdbData = yield tmdbResponse.json();
-      const title = mediaType === "tv" ? tmdbData.name : tmdbData.title;
-      const year = mediaType === "tv" ? (_a = tmdbData.first_air_date) == null ? void 0 : _a.substring(0, 4) : (_b = tmdbData.release_date) == null ? void 0 : _b.substring(0, 4);
-      const imdbId = tmdbData.external_ids ? tmdbData.external_ids.imdb_id : null;
-      
-      if (!title) {
-        throw new Error("Could not extract title from TMDB response");
-      }
-      console.log(`[MoviesMod] TMDB Info: "${title}" (${year}) [IMDB: ${imdbId || 'N/A'}]`);
-      
-      let searchResults = [];
-      let selectedResult = null;
-      
-      if (imdbId) {
-        const imdbQuery = mediaType === "tv" && seasonNum ? `${imdbId} Season ${seasonNum}` : imdbId;
-        console.log(`[MoviesMod] Trying IMDB ID search first: ${imdbQuery}`);
-        searchResults = yield searchMoviesMod(imdbQuery);
-        if (searchResults.length > 0) {
-            console.log(`[MoviesMod] Found match using IMDB ID: ${searchResults[0].title}`);
-            selectedResult = searchResults[0];
-        }
-      }
 
-      if (!selectedResult) {
-        console.log(`[MoviesMod] Falling back to title search for: ${title}`);
-        const titleQuery = mediaType === "tv" && seasonNum ? `${title} Season ${seasonNum}` : title;
-        searchResults = yield searchMoviesMod(titleQuery);
-        if (searchResults.length === 0) {
-          // If title+season fails, try just title
-          searchResults = yield searchMoviesMod(title);
-        }
-        
-        if (searchResults.length === 0) {
-          console.log(`[MoviesMod] No search results found`);
-          return [];
-        }
-        
-        const titles = searchResults.map((r) => r.title);
-        const bestMatch = findBestMatch(title, titles);
-        console.log(`[MoviesMod] Best match for "${title}" is "${bestMatch.bestMatch.target}" with a rating of ${bestMatch.bestMatch.rating.toFixed(2)}`);
-        
-        if (bestMatch.bestMatch.rating > 0.3) {
-          selectedResult = searchResults[bestMatch.bestMatchIndex];
-          if (mediaType === "movie" && year) {
-            if (!selectedResult.title.includes(year)) {
-              console.warn(`[MoviesMod] Title match found, but year mismatch. Matched: "${selectedResult.title}", Expected year: ${year}. Discarding match.`);
-              selectedResult = null;
-            }
-          }
-        }
-        
-        if (!selectedResult) {
-          console.log("[MoviesMod] Similarity match failed. Trying stricter search...");
-          const titleRegex = new RegExp(`\\b${escapeRegExp(title.toLowerCase())}\\b`);
-          if (mediaType === "movie") {
-            selectedResult = searchResults.find(
-              (r) => titleRegex.test(r.title.toLowerCase()) && (!year || r.title.includes(year))
-            );
-          } else {
-            selectedResult = searchResults.find(
-              (r) => titleRegex.test(r.title.toLowerCase()) && r.title.toLowerCase().includes("season")
-            );
-          }
-        }
-      }
+function decryptPlayback(playback) {
+  log("DECRYPT", "Iniciando descriptografia AES-256-GCM");
+  try {
+    const iv = base64ToBytes(playback.iv);
+    const key1 = base64ToBytes(playback.key_parts[0]);
+    const key2 = base64ToBytes(playback.key_parts[1]);
+    const key = new Uint8Array(key1.length + key2.length);
+    key.set(key1, 0);
+    key.set(key2, key1.length);
+    
+    const encryptedData = base64ToBytes(playback.payload);
+    const ciphertext = encryptedData.slice(0, -16);
+    const cipher = new AES256GCM_Manual(key);
+    const decrypted = cipher.decrypt(iv, ciphertext);
+    const videoData = JSON.parse(decrypted);
+    
+    let m3u8Url = videoData.url || 
+                  (videoData.sources && videoData.sources[0] && videoData.sources[0].url) || 
+                  (videoData.data && videoData.data.sources && videoData.data.sources[0].url);
+    
+    if (m3u8Url) {
+      log("DECRYPT", `Sucesso! URL obtida: ${m3u8Url.substring(0, 100)}...`);
+      return { success: true, url: m3u8Url.replace(/\\u0026/g, '&') };
+    }
+    return { success: false, error: "URL não encontrada" };
+  } catch (e) { 
+    log("DECRYPT", `Erro: ${e.message}`);
+    return { success: false, error: e.message };
+  }
+}
 
-      if (!selectedResult) {
-        console.log(`[MoviesMod] No suitable search result found for "${title} (${year})"`);
-        return [];
-      }
-      console.log(`[MoviesMod] Selected: ${selectedResult.title}`);
-      const downloadLinks = yield extractDownloadLinks(selectedResult.url);
-      if (downloadLinks.length === 0) {
-        console.log(`[MoviesMod] No download links found`);
-        return [];
-      }
-      let relevantLinks = downloadLinks;
-      if ((mediaType === "tv" || mediaType === "series") && seasonNum !== null) {
-        relevantLinks = downloadLinks.filter(
-          (link) => link.quality.toLowerCase().includes(`season ${seasonNum}`) || link.quality.toLowerCase().includes(`s${seasonNum}`)
-        );
-      }
-      relevantLinks = relevantLinks.filter((link) => !link.quality.toLowerCase().includes("480p"));
-      console.log(`[MoviesMod] ${relevantLinks.length} links remaining after 480p filter.`);
-      if (relevantLinks.length === 0) {
-        console.log(`[MoviesMod] No relevant links found after filtering`);
-        return [];
-      }
-      const streamPromises = relevantLinks.map((link) => __async(this, null, function* () {
-        var _a2;
-        try {
-          const finalLinks = yield resolveIntermediateLink(link.url, selectedResult.url, link.quality);
-          if (!finalLinks || finalLinks.length === 0) {
-            console.log(`[MoviesMod] No final links found for ${link.quality}`);
-            return null;
-          }
-          const processedStreams = [];
-          for (const targetLink of finalLinks) {
-            let currentUrl = targetLink.url;
-            const isEpisodeLink = targetLink.server && targetLink.server.toLowerCase().includes("episode");
-            console.log(`[MoviesMod] Processing link: server="${targetLink.server}", isEpisodeLink=${isEpisodeLink}, url=${targetLink.url.substring(0, 50)}...`);
-            if (currentUrl.includes("tech.unblockedgames.world") || currentUrl.includes("tech.creativeexpressionsblog.com") || currentUrl.includes("tech.examzculture.in")) {
-              const resolvedUrl = yield resolveTechUnblockedLink(currentUrl);
-              if (!resolvedUrl)
-                continue;
-              currentUrl = resolvedUrl;
-            }
-            if (currentUrl && currentUrl.includes("driveseed.org")) {
-              console.log(`[MoviesMod] Processing driveseed URL: ${currentUrl.substring(0, 80)}...`);
-              const driveseedInfo = yield resolveDriveseedLink(currentUrl);
-              console.log(`[MoviesMod] Driveseed info: ${driveseedInfo ? `options=${((_a2 = driveseedInfo.downloadOptions) == null ? void 0 : _a2.length) || 0}` : "null"}`);
-              if (driveseedInfo && driveseedInfo.downloadOptions && driveseedInfo.downloadOptions.length > 0) {
-                console.log(`[MoviesMod] Download options available: ${driveseedInfo.downloadOptions.map((opt) => `${opt.type}: ${opt.title}`).join(", ")}`);
-                const sortedOptions = driveseedInfo.downloadOptions.sort((a, b) => a.priority - b.priority);
-                let finalDownloadUrl = null;
-                let usedMethod = null;
-                for (const option of sortedOptions) {
-                  console.log(`[MoviesMod] Trying ${option.title} (${option.type}) for ${link.quality}...`);
-                  if (option.type === "resume" || option.type === "worker") {
-                    finalDownloadUrl = yield resolveResumeCloudLink(option.url);
-                    console.log(`[MoviesMod] Resume/Worker result: ${finalDownloadUrl ? "got URL" : "null"}`);
-                  } else if (option.type === "instant") {
-                    finalDownloadUrl = yield resolveVideoSeedLink(option.url);
-                    console.log(`[MoviesMod] Instant API result: ${finalDownloadUrl ? "got URL" : "null"}`);
-                    if (!finalDownloadUrl) {
-                      finalDownloadUrl = option.url;
-                      console.log(`[MoviesMod] Instant fallback: using URL directly`);
-                    }
-                  } else if (option.type === "generic") {
-                    finalDownloadUrl = option.url;
-                    console.log(`[MoviesMod] Generic result: using URL directly`);
-                  }
-                  if (finalDownloadUrl) {
-                    const isValid = yield validateVideoUrl(finalDownloadUrl);
-                    if (isValid) {
-                      usedMethod = option.title;
-                      console.log(`[MoviesMod] \u2713 Successfully resolved using ${usedMethod}`);
-                      break;
-                    } else {
-                      console.log(`[MoviesMod] \u2717 ${option.title} returned invalid URL`);
-                      finalDownloadUrl = null;
-                    }
-                  }
-                }
-                if (finalDownloadUrl) {
-                  console.log(`[MoviesMod] URL validation: SUCCESS`);
-                  if (isEpisodeLink && episodeNum !== null) {
-                    const episodeFromServer = targetLink.server.match(/Episode\s+(\d+)/i);
-                    console.log(`[MoviesMod] Episode filtering: server="${targetLink.server}", requested episode=${episodeNum}, found episode=${episodeFromServer ? episodeFromServer[1] : "none"}`);
-                    if (episodeFromServer && parseInt(episodeFromServer[1]) !== episodeNum) {
-                      console.log(`[MoviesMod] Skipping episode ${episodeFromServer[1]} (not episode ${episodeNum})`);
-                      continue;
-                    } else if (episodeFromServer && parseInt(episodeFromServer[1]) === episodeNum) {
-                      console.log(`[MoviesMod] Processing episode ${episodeNum} - continuing...`);
-                    }
-                  }
-                  const mediaTitle = mediaType === "tv" && seasonNum && episodeNum ? `${selectedResult.title} S${seasonNum.toString().padStart(2, "0")}E${episodeNum.toString().padStart(2, "0")}` : selectedResult.title;
-                  processedStreams.push({
-                    name: `MoviesMod ${targetLink.server || ""} - ${link.quality}`.trim(),
-                    title: mediaTitle,
-                    url: finalDownloadUrl,
-                    quality: link.quality,
-                    size: driveseedInfo.size || "Unknown",
-                    headers: {
-                      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                      "Referer": "https://driveseed.org/"
-                    },
-                    provider: "moviesmod"
-                  });
-                  break;
-                }
-              }
+async function detectRealQuality(videoUrl, headers) {
+  try {
+    const rangeHeaders = { ...headers, "Range": "bytes=0-5242880" };
+    const response = await fetch(videoUrl, { headers: rangeHeaders });
+    if (!response.ok) return 1080;
+    
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    let quality = 0;
+    
+    for (let i = 0; i < bytes.length - 20; i++) {
+      if (bytes[i] === 0x74 && bytes[i+1] === 0x6B && bytes[i+2] === 0x68 && bytes[i+3] === 0x64) {
+        for (let offset = 48; offset <= 80; offset++) {
+          if (i + offset + 8 <= bytes.length) {
+            const widthFixed = ((bytes[i+offset] << 24) | (bytes[i+offset+1] << 16) | (bytes[i+offset+2] << 8) | bytes[i+offset+3]);
+            const heightFixed = ((bytes[i+offset+4] << 24) | (bytes[i+offset+5] << 16) | (bytes[i+offset+6] << 8) | bytes[i+offset+7]);
+            const width = Math.round(widthFixed / 65536.0);
+            const height = Math.round(heightFixed / 65536.0);
+            
+            if (width >= 640 && width <= 7680 && height >= 360 && height <= 4320) {
+              const pixels = width * height;
+              quality = (pixels >= 6000000) ? 2160 :
+                       (pixels >= 1400000) ? 1080 :
+                       (pixels >= 700000)  ? 720 : 480;
+              break;
             }
           }
-          const result = processedStreams.length > 0 ? processedStreams[0] : null;
-          console.log(`[MoviesMod] Returning ${result ? "stream" : "null"} for ${link.quality}`);
-          return result;
-        } catch (error) {
-          console.error(`[MoviesMod] Error processing link ${link.quality}: ${error.message}`);
-          return null;
         }
-      }));
-      const rawStreams = yield Promise.all(streamPromises);
-      console.log(`[MoviesMod] Raw streams before filtering: ${rawStreams.length}`);
-      rawStreams.forEach((stream, i) => {
-        console.log(`  [${i}] ${stream ? "VALID" : "NULL"}`);
-      });
-      const streams = rawStreams.filter(Boolean);
-      console.log(`[MoviesMod] Streams after null filtering: ${streams.length}`);
-      streams.sort((a, b) => {
-        const qualityA = parseQualityForSort(a.quality);
-        const qualityB = parseQualityForSort(b.quality);
-        return qualityB - qualityA;
-      });
-      console.log(`[MoviesMod] Successfully processed ${streams.length} streams`);
-      return streams;
-    } catch (error) {
-      console.error(`[MoviesMod] Error in getStreams: ${error.message}`);
+        if (quality) break;
+      }
+    }
+    
+    if (quality === 0) {
+      const urlMatch = videoUrl.match(/(\d{3,4})p/i);
+      quality = urlMatch ? parseInt(urlMatch[1]) : 1080;
+    }
+    
+    return quality;
+  } catch (error) {
+    return 1080;
+  }
+}
+
+function isImdbId(id) {
+  return typeof id === "string" && id.toLowerCase().startsWith("tt");
+}
+
+async function convertImdbToTmdb(imdbId, mediaType) {
+  try {
+    const url = `${TMDB_BASE_URL}/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+    const response = await fetch(url, { 
+      headers: { 
+        "User-Agent": USER_AGENT, 
+        "Accept": "application/json" 
+      } 
+    });
+    if (!response.ok) return { success: false, error: `HTTP ${response.status}` };
+    const data = await response.json();
+    const results = mediaType === "tv" ? (data.tv_results || []) : (data.movie_results || []);
+    if (results && results.length > 0) {
+      return { success: true, tmdbId: results[0].id };
+    }
+    return { success: false, error: "Nenhum resultado encontrado" };
+  } catch (error) { 
+    return { success: false, error: error.message };
+  }
+}
+
+// ==============================================
+// FUNÇÃO PRINCIPAL getStreams
+// ==============================================
+
+async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
+  log("START", `═══════════════════════════════════════════════════════════`);
+  log("START", `INICIANDO getStreams`);
+  log("START", `Parâmetros: tmdbId=${tmdbId}, type=${mediaType}, season=${season}, episode=${episode}`);
+  
+  let finalTmdbId = tmdbId;
+
+  if (isImdbId(tmdbId)) {
+    const conversion = await convertImdbToTmdb(tmdbId, mediaType);
+    if (conversion.success) {
+      finalTmdbId = conversion.tmdbId;
+    } else {
+      log("START", "Falha na conversão IMDb");
       return [];
     }
-  });
+  } else if (typeof tmdbId === "string" && !isNaN(parseInt(tmdbId))) {
+    finalTmdbId = parseInt(tmdbId);
+  }
+
+  const seasonNum = mediaType === "movie" ? 1 : (season || 1);
+  const episodeNum = mediaType === "movie" ? 1 : (episode || 1);
+  log("START", `Parâmetros finais: season=${seasonNum}, episode=${episodeNum}`);
+
+  try {
+    // ========== PASSO 1: Acessar api.pomfy.stream ==========
+    const mediaTypeParam = mediaType === "tv" ? "serie" : "filme";
+    const apiUrl = `${API_POMFY}/${mediaTypeParam}/${finalTmdbId}/${seasonNum}/${episodeNum}`;
+    
+    log("STEP1", `🌐 Acessando: ${apiUrl}`);
+    
+    const apiHeaders = {
+      "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+      "accept-language": "pt-BR,pt;q=0.9",
+      "cookie": COOKIE,
+      "referer": `https://pomfy.online/assistir/${finalTmdbId}?tipo=${mediaTypeParam}&temporada=${seasonNum}&episodio=${episodeNum}`,
+      "sec-ch-ua": '"Chromium";v="127", "Not)A;Brand";v="99", "Microsoft Edge Simulate";v="127", "Lemur";v="127"',
+      "sec-ch-ua-mobile": "?1",
+      "sec-ch-ua-platform": '"Android"',
+      "sec-fetch-dest": "iframe",
+      "sec-fetch-mode": "navigate",
+      "sec-fetch-site": "cross-site",
+      "sec-fetch-user": "?1",
+      "upgrade-insecure-requests": "1",
+      "user-agent": USER_AGENT
+    };
+    
+    const response = await fetch(apiUrl, { headers: apiHeaders });
+    log("STEP1", `📡 HTTP Status: ${response.status}`);
+    
+    if (!response.ok) {
+      log("STEP1", `❌ Falha HTTP ${response.status}`);
+      return [];
+    }
+    
+    const html = await response.text();
+    log("STEP1", `📄 HTML recebido: ${html.length} bytes`);
+    
+    // ========== PASSO 2: Extrair statusToken e byseId ==========
+    const statusTokenMatch = html.match(/const statusToken="([^"]+)"/);
+    if (!statusTokenMatch) {
+      log("STEP2", `❌ statusToken NÃO encontrado`);
+      return [];
+    }
+    
+    const statusToken = statusTokenMatch[1];
+    const byseId = statusToken.split('.')[0];
+    log("STEP2", `✅ byseId=${byseId}`);
+    log("STEP2", `🔑 statusToken: ${statusToken.substring(0, 60)}...`);
+    
+    // ========== PASSO 3: Chamar /api/play-token (opcional, para referer) ==========
+    const playTokenUrl = `${API_POMFY}/api/play-token?t=${statusToken}`;
+    log("STEP3", `🌐 Play-token: ${playTokenUrl}`);
+    
+    const playTokenResponse = await fetch(playTokenUrl, {
+      headers: {
+        "accept": "*/*",
+        "cookie": COOKIE,
+        "referer": apiUrl,
+        "user-agent": USER_AGENT
+      }
+    });
+    
+    let embedPageUrl = null;
+    if (playTokenResponse.ok) {
+      const playTokenData = await playTokenResponse.json();
+      embedPageUrl = playTokenData.url;
+      log("STEP3", `✅ Embed URL: ${embedPageUrl}`);
+    } else {
+      log("STEP3", `⚠️ Play-token falhou: ${playTokenResponse.status}, continuando...`);
+    }
+    
+    // ========== PASSO 4: Acessar 9n8o.com (usando /fu2/ ou /gtg/) ==========
+    // Tenta primeiro /fu2/ (que funcionou no curl)
+    let playerUrl = `https://9n8o.com/fu2/${byseId}`;
+    log("STEP4", `🌐 Acessando player: ${playerUrl}`);
+    
+    let playerResponse = await fetch(playerUrl, {
+      headers: {
+        "accept": "text/html,application/xhtml+xml",
+        "referer": embedPageUrl || apiUrl,
+        "user-agent": USER_AGENT,
+        "cookie": COOKIE,
+        "sec-fetch-dest": "iframe"
+      }
+    });
+    
+    // Se /fu2/ falhar, tenta /gtg/
+    if (!playerResponse.ok) {
+      log("STEP4", `⚠️ /fu2/ falhou (${playerResponse.status}), tentando /gtg/...`);
+      playerUrl = `https://9n8o.com/gtg/${byseId}`;
+      playerResponse = await fetch(playerUrl, {
+        headers: {
+          "accept": "text/html,application/xhtml+xml",
+          "referer": embedPageUrl || apiUrl,
+          "user-agent": USER_AGENT,
+          "cookie": COOKIE,
+          "sec-fetch-dest": "iframe"
+        }
+      });
+    }
+    
+    if (!playerResponse.ok) {
+      log("STEP4", `❌ Player falhou: ${playerResponse.status}`);
+      return [];
+    }
+    
+    log("STEP4", `✅ Player carregado: ${playerUrl}`);
+    
+    // ========== PASSO 5: Challenge ==========
+    const challengeUrl = "https://9n8o.com/api/videos/access/challenge";
+    log("STEP5", `🔐 Challenge: ${challengeUrl}`);
+    
+    try {
+      const challengeResponse = await fetch(challengeUrl, {
+        method: 'POST',
+        headers: {
+          "accept": "*/*",
+          "origin": "https://9n8o.com",
+          "referer": playerUrl,
+          "user-agent": USER_AGENT
+        }
+      });
+      log("STEP5", `✅ Challenge HTTP: ${challengeResponse.status}`);
+    } catch (err) {
+      log("STEP5", `⚠️ Challenge ignorado: ${err.message}`);
+    }
+    
+    // ========== PASSO 6: Playback com fingerprint FIXO ==========
+    const fingerprint = generateFingerprint();
+    log("STEP6", `🔑 Fingerprint fixo: ${fingerprint.viewer_id}`);
+    
+    const playbackUrl = `https://9n8o.com/api/videos/${byseId}/embed/playback`;
+    log("STEP6", `🎬 Playback: ${playbackUrl}`);
+    
+    const playbackResponse = await fetch(playbackUrl, {
+      method: "POST",
+      headers: {
+        "accept": "*/*",
+        "content-type": "application/json",
+        "origin": "https://9n8o.com",
+        "referer": playerUrl,
+        "user-agent": USER_AGENT,
+        "x-embed-origin": "api.pomfy.stream",
+        "x-embed-parent": embedPageUrl || apiUrl,
+        "x-embed-referer": apiUrl
+      },
+      body: JSON.stringify({ fingerprint })
+    });
+    
+    log("STEP6", `📡 Playback HTTP: ${playbackResponse.status}`);
+    
+    if (!playbackResponse.ok) {
+      log("STEP6", `❌ Playback falhou: ${playbackResponse.status}`);
+      // Tenta obter o corpo do erro para debug
+      try {
+        const errorText = await playbackResponse.text();
+        log("STEP6", `📦 Erro: ${errorText.substring(0, 200)}`);
+      } catch(e) {}
+      return [];
+    }
+    
+    const playbackData = await playbackResponse.json();
+    log("STEP6", `📦 Playback response recebida`);
+    
+    if (!playbackData.playback) {
+      log("STEP6", `❌ Sem playback na resposta`);
+      return [];
+    }
+    
+    // ========== PASSO 7: Descriptografar ==========
+    const decryptResult = decryptPlayback(playbackData.playback);
+    if (!decryptResult.success) {
+      log("STEP7", `❌ Descriptografia falhou: ${decryptResult.error}`);
+      return [];
+    }
+    
+    const m3u8Url = decryptResult.url;
+    log("STEP7", `✅ M3U8 obtido: ${m3u8Url.substring(0, 100)}...`);
+    
+    // ========== PASSO 8: Qualidade ==========
+    const streamHeaders = {
+      "User-Agent": USER_AGENT,
+      "Referer": playerUrl,
+      "Accept": "*/*"
+    };
+    
+    const realQuality = await detectRealQuality(m3u8Url, streamHeaders);
+    
+    const title = mediaType === "movie"
+      ? `Filme ${finalTmdbId} - ${realQuality}p`
+      : `S${seasonNum.toString().padStart(2, "0")}E${episodeNum.toString().padStart(2, "0")} - ${realQuality}p`;
+
+    log("END", `═══════════════════════════════════════════════════════════`);
+    log("END", `🎉 SUCESSO! Stream encontrado!`);
+    log("END", `📺 Título: ${title}`);
+    log("END", `🎬 Qualidade: ${realQuality}p`);
+    log("END", `🔗 URL: ${m3u8Url.substring(0, 150)}...`);
+    log("END", `═══════════════════════════════════════════════════════════`);
+
+    return [{
+      name: title,
+      title: title,
+      url: m3u8Url,
+      quality: realQuality,
+      headers: streamHeaders
+    }];
+
+  } catch (error) {
+    log("ERROR", `❌ Exceção: ${error.message}`);
+    log("ERROR", error.stack || "");
+    return [];
+  }
 }
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getStreams };
-} else {
-  global.getStreams = getStreams;
-}
+
+module.exports = { getStreams };

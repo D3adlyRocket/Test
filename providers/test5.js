@@ -29,7 +29,6 @@ async function getBaseUrl() {
 function extractQuality(text) {  
   const u = (text || "").toLowerCase(); 
   
-  // Strict regex that ignores resolution numbers if they are part of a file size (e.g., 1080mb, 720gb)
   if (/\b(2160p|4k|uhd)\b/.test(u)) return "4K";  
   if (/\b(1080p|1080)(?!(?:\s*gb|\s*mb|\s*b))\b/.test(u)) return "1080p";  
   if (/\b(720p|720)(?!(?:\s*gb|\s*mb|\s*b))\b/.test(u)) return "720p";  
@@ -38,16 +37,13 @@ function extractQuality(text) {
   return "Unknown";  
 }  
 
-// Helper to extract tech properties from titles/labels
 function parseExtraMetadata(text) {
   const norm = (text || "").toUpperCase();
   
-  // 1. Languages
   let lang = "Multi-Audio"; 
   if (norm.includes("DUAL")) lang = "Multi Audio";
   if (norm.includes("ENGLISH") && !norm.includes("HINDI")) lang = "English";
   
-  // 2. Sizes (Upgraded matching patterns for various web environments)
   const sizeMatch = norm.match(/(\d+(?:\.\d+)?\s*[MGB]B)/i);
   let size = sizeMatch ? sizeMatch[0].replace(/\s+/g, "") : "N/A";
   
@@ -56,13 +52,11 @@ function parseExtraMetadata(text) {
     if (backupMatch) size = backupMatch[1] + "GB";
   }
   
-  // 3. Formats & Codecs
   let format = "MKV";
   if (norm.includes("MP4")) format = "MP4";
   if (norm.includes("HEVC") || norm.includes("X265") || norm.includes("H265")) format += " (x265)";
   else if (norm.includes("X264") || norm.includes("H264")) format += " (x264)";
 
-  // 4. Extra Features
   const extras = [];
   if (norm.includes("HDR")) extras.push("HDR");
   if (norm.includes("DOLBY") || norm.includes("DV") || norm.includes("VISION") || norm.includes("ATMOS") || norm.includes("DD5")) extras.push("Dolby Vision/5.1");
@@ -77,9 +71,6 @@ function parseExtraMetadata(text) {
   };
 }
 
-/**
- * Cleans up messy raw HubCloud server text strings into readable output like [FSL Server]
- */
 function cleanServerName(serverText) {
   if (!serverText) return "HubCloud";
   let clean = serverText.toLowerCase();
@@ -94,9 +85,6 @@ function cleanServerName(serverText) {
   return clean.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') + " Server";
 }
 
-/**
- * Uses the external Vercel Extractor API to get direct FSL/CDN download links
- */
 async function resolveAllHubCloudLinks(hubCloudUrl) {
   try {
     const apiURL = `${HUB_CLOUD_API}/api/extract?url=${encodeURIComponent(hubCloudUrl)}`;
@@ -115,30 +103,43 @@ async function resolveAllHubCloudLinks(hubCloudUrl) {
 }
 
 /**
- * Detects quality directly from URL filenames or specific button labels
+ * Advanced Dynamic Quality Identifier
+ * Uses a text -> runtime/filesize ratio mapping to ensure large 1080p files are never mapped to 4K
  */
-async function detectM3U8Quality(url, headers = {}, fallbackLabel = "") {
+async function detectDynamicQuality(url, headers = {}, fallbackLabel = "", runtimeMinutes = 120) {
   try {
     if (!url) return "1080p";
 
-    // 1. Force extraction strictly from the URL filename string first (Highest Accuracy)
+    // 1. Strict textual checks first
     const decodedUrl = decodeURIComponent(url).toLowerCase();
     let detected = extractQuality(decodedUrl);
     if (detected !== "Unknown") return detected;
 
-    // 2. If the URL is masked/encrypted, look ONLY at the clean file/button label
     if (fallbackLabel) {
       detected = extractQuality(fallbackLabel.toLowerCase());
       if (detected !== "Unknown") return detected;
     }
+
+    // 2. Mathematical Check: Fallback to Runtime Bitrate Footprint
+    const sizeData = await detectFileSize(url, headers);
+    if (sizeData && sizeData.bytes) {
+      const totalGB = sizeData.bytes / (1024 * 1024 * 1024);
+      const minutes = parseInt(runtimeMinutes) || 120;
+      const hours = minutes / 60;
+      
+      // Calculate GB used per hour of runtime
+      const gbPerHour = totalGB / hours;
+
+      if (gbPerHour >= 6.5) return "4K";             // 4K streams consume massive hourly space
+      if (gbPerHour >= 0.95) return "1080p";         // Covers 1.2GB up to heavy 6GB+ files for long films
+      if (gbPerHour >= 0.35) return "720p";          // Safe zone for compressed 720p files
+      return "480p";
+    }
   } catch (_) {}
 
-  return "1080p"; // Safe baseline global fallback if completely unlabelled
+  return "1080p"; 
 }
 
-/**
- * Detects real file size using content-length header and returns raw bytes alongside readable format
- */
 async function detectFileSize(url, headers = {}) {
   try {
     const resp = await fetch(url, {
@@ -166,9 +167,6 @@ async function detectFileSize(url, headers = {}) {
   return null;
 }
 
-/**
- * Extract metadata from filenames/URLs
- */
 function extractMetadataFromUrl(url) {
   const decoded = decodeURIComponent(url);
 
@@ -178,9 +176,6 @@ function extractMetadataFromUrl(url) {
   };
 }
 
-/**
- * Unpacks Dean Edwards p.a.c.k.e.d JS code blocks natively
- */
 function unpackJS(p, a, c, k) {  
   while (c--) {  
     if (k[c]) {  
@@ -190,9 +185,6 @@ function unpackJS(p, a, c, k) {
   return p;  
 }
 
-/**
- * Scrapes direct player host configurations from m4uplay player instances
- */
 async function extractDirectM3u8(playerUrl) {
   try {
     const resp = await fetch(playerUrl, {
@@ -239,7 +231,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
   try {  
     const BASE_URL = await getBaseUrl();  
   
-    // 1. Fetch Title via TMDB
+    // 1. Fetch Title & Accurate Runtime via TMDB
+    let searchRuntime = 120;
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;  
     const mediaInfo = await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();  
     const title = mediaInfo.title || mediaInfo.name;  
@@ -247,6 +240,12 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
   
     const releaseYear = (mediaInfo.release_date || mediaInfo.first_air_date || "").split("-")[0] || "N/A";
     const runTime = mediaInfo.runtime ? `${mediaInfo.runtime} min` : "N/A";
+    
+    if (mediaType === "movie" && mediaInfo.runtime) {
+      searchRuntime = parseInt(mediaInfo.runtime);
+    } else if (mediaType === "series") {
+      searchRuntime = (mediaInfo.episode_run_time && mediaInfo.episode_run_time[0]) ? parseInt(mediaInfo.episode_run_time[0]) : 45;
+    }
 
     // 2. Search on Movies4u base site
     const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {  
@@ -295,7 +294,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         const urlMeta = extractMetadataFromUrl(directM3u8);
         const sizeData = await detectFileSize(directM3u8, { Referer: "https://m4uplay.store/" });
         
-        const detectedQuality = await detectM3U8Quality(directM3u8, { Referer: "https://m4uplay.store/" }, item.text);
+        const detectedQuality = await detectDynamicQuality(directM3u8, { Referer: "https://m4uplay.store/" }, item.text, searchRuntime);
         let finalQuality = urlMeta.quality !== "Unknown" ? urlMeta.quality : detectedQuality;
         
         const meta = parseExtraMetadata(item.text);
@@ -313,7 +312,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       }
     }
 
-    // ─── OPTION B: INDEX REDIRECT PAGES ───
+    // ─── OPTION B: INDEX REDIRECT PAGES (SERIES) ───
     if (mediaType === "series" || match.href.includes("/tvshows/") || match.href.includes("/series/")) {
       
       const uniqueDownloadPages = [];
@@ -377,7 +376,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
               if (directM3u8) {
                 const urlMeta = extractMetadataFromUrl(directM3u8);
                 const sizeData = await detectFileSize(directM3u8, { Referer: "https://m4uplay.store/" });
-                const detectedQuality = await detectM3U8Quality(directM3u8, { Referer: "https://m4uplay.store/" }, target.contextualText);
+                const detectedQuality = await detectDynamicQuality(directM3u8, { Referer: "https://m4uplay.store/" }, target.contextualText, searchRuntime);
 
                 rawStreamsList.push({
                   server: "M4U Player",
@@ -392,8 +391,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
               for (const linkItem of extractedLinks) {
                 const sizeData = await detectFileSize(linkItem.url, { "User-Agent": HEADERS["User-Agent"] });
                 
-                // ISOLATED RESOLUTION MAPPING
-                const finalQuality = await detectM3U8Quality(linkItem.url, { "User-Agent": HEADERS["User-Agent"] }, linkItem.label);
+                const finalQuality = await detectDynamicQuality(linkItem.url, { "User-Agent": HEADERS["User-Agent"] }, linkItem.label, searchRuntime);
                 const innerMeta = parseExtraMetadata(linkItem.label || "");
 
                 rawStreamsList.push({
@@ -415,7 +413,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       }
 
     } else {
-      
+      // ─── OPTION C: INDEX REDIRECT PAGES (MOVIES) ───
       const uniqueRedirectPages = [];
       $page("a[href]").each((i, el) => {
         const href = $(el).attr("href") || "";
@@ -463,7 +461,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
               if (directM3u8) {
                 const urlMeta = extractMetadataFromUrl(directM3u8);
                 const sizeData = await detectFileSize(directM3u8, { Referer: "https://m4uplay.store/" });
-                const detectedQuality = await detectM3U8Quality(directM3u8, { Referer: "https://m4uplay.store/" }, target.contextualText);
+                const detectedQuality = await detectDynamicQuality(directM3u8, { Referer: "https://m4uplay.store/" }, target.contextualText, searchRuntime);
 
                 rawStreamsList.push({
                   server: "M4U Player",
@@ -478,8 +476,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
               for (const linkItem of extractedLinks) {
                 const sizeData = await detectFileSize(linkItem.url, { "User-Agent": HEADERS["User-Agent"] });
                 
-                // ISOLATED RESOLUTION MAPPING
-                const finalQuality = await detectM3U8Quality(linkItem.url, { "User-Agent": HEADERS["User-Agent"] }, linkItem.label);
+                const finalQuality = await detectDynamicQuality(linkItem.url, { "User-Agent": HEADERS["User-Agent"] }, linkItem.label, searchRuntime);
                 const innerMeta = parseExtraMetadata(linkItem.label || "");
 
                 rawStreamsList.push({
@@ -501,13 +498,13 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       }
     }
 
-    // ─── STRICT CORRECTED SORTING LOGIC (High Quality Array Descending) ───
+    // ─── STREAM SORTING LOGIC ───
     const qualityWeights = { "4K": 100, "1080p": 50, "720p": 25, "480p": 10, "360p": 5, "Unknown": 0 };
     rawStreamsList.sort((a, b) => {
       return (qualityWeights[b.quality] || 0) - (qualityWeights[a.quality] || 0);
     });
 
-    // ─── FINAL OUTPUT FORMATTING WITH CLEAN [FSL Server] HEADERS ───
+    // ─── FINAL OUTPUT FORMATTING ───
     const finalStreams = rawStreamsList.map(stream => {
       const epInfo = (mediaType === "series") ? ` - S${season || 1}E${episode || 1}` : "";
       

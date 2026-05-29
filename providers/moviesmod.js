@@ -204,7 +204,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     for (const playerUrl of directWatchLinks) {
       const directM3u8 = await extractDirectM3u8(playerUrl);
       if (directM3u8) {
-        const quality = extractQuality(playerUrl + " " + directM3u8);
+        let quality = extractQuality(playerUrl + " " + directM3u8);
         const meta = parseExtraMetadata(playerUrl);
         
         rawStreamsList.push({
@@ -265,12 +265,13 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           });
 
           for (const rawUrl of targetUrls) {
-            const quality = extractQuality(downloadPage);
+            let quality = extractQuality(downloadPage);
             const meta = parseExtraMetadata(downloadPage);
 
             if (rawUrl.includes("m4uplay.store")) {
               const directM3u8 = await extractDirectM3u8(rawUrl);
               if (directM3u8) {
+                if (quality === "Unknown") quality = extractQuality(rawUrl + " " + directM3u8);
                 rawStreamsList.push({
                   server: "M4U Player",
                   quality: quality,
@@ -282,11 +283,19 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             } else {
               const extractedLinks = await resolveAllHubCloudLinks(rawUrl);
               for (const linkItem of extractedLinks) {
-                const innerMeta = parseExtraMetadata(linkItem.label || downloadPage);
+                // Read metadata and size straight out of the Hubcloud Label or URL if downloadPage is missing it
+                const innerMeta = parseExtraMetadata(linkItem.label || linkItem.url || downloadPage);
+                let finalQuality = quality === "Unknown" ? extractQuality(linkItem.label || linkItem.url) : quality;
+                
                 rawStreamsList.push({
-                  server: linkItem.label || "HubCloud",
-                  quality: quality,
-                  meta: { ...meta, ...innerMeta },
+                  server: linkItem.label ? linkItem.label.split("-")[0].trim() : "HubCloud",
+                  quality: finalQuality,
+                  meta: { 
+                    language: innerMeta.language !== "Hindi-English" ? innerMeta.language : meta.language,
+                    size: innerMeta.size !== "N/A" ? innerMeta.size : meta.size,
+                    format: innerMeta.format,
+                    extras: innerMeta.extras
+                  },
                   url: linkItem.url,
                   headers: { "User-Agent": HEADERS["User-Agent"] }
                 });
@@ -322,12 +331,13 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           });
 
           for (const rawUrl of targetUrls) {
-            const quality = extractQuality(redirectPage);
+            let quality = extractQuality(redirectPage);
             const meta = parseExtraMetadata(redirectPage);
 
             if (rawUrl.includes("m4uplay.store")) {
               const directM3u8 = await extractDirectM3u8(rawUrl);
               if (directM3u8) {
+                if (quality === "Unknown") quality = extractQuality(rawUrl + " " + directM3u8);
                 rawStreamsList.push({
                   server: "M4U Player",
                   quality: quality,
@@ -339,11 +349,19 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             } else {
               const extractedLinks = await resolveAllHubCloudLinks(rawUrl);
               for (const linkItem of extractedLinks) {
-                const innerMeta = parseExtraMetadata(linkItem.label || redirectPage);
+                // Read metadata and size straight out of the Hubcloud Label or URL if redirectPage is missing it
+                const innerMeta = parseExtraMetadata(linkItem.label || linkItem.url || redirectPage);
+                let finalQuality = quality === "Unknown" ? extractQuality(linkItem.label || linkItem.url) : quality;
+
                 rawStreamsList.push({
-                  server: linkItem.label || "HubCloud",
-                  quality: quality,
-                  meta: { ...meta, ...innerMeta },
+                  server: linkItem.label ? linkItem.label.split("-")[0].trim() : "HubCloud",
+                  quality: finalQuality,
+                  meta: { 
+                    language: innerMeta.language !== "Hindi-English" ? innerMeta.language : meta.language,
+                    size: innerMeta.size !== "N/A" ? innerMeta.size : meta.size,
+                    format: innerMeta.format,
+                    extras: innerMeta.extras
+                  },
                   url: linkItem.url,
                   headers: { "User-Agent": HEADERS["User-Agent"] }
                 });
@@ -358,13 +376,13 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const qualityWeights = { "4K": 5, "1080p": 4, "720p": 3, "480p": 2, "360p": 1, "Unknown": 0 };
     rawStreamsList.sort((a, b) => (qualityWeights[b.quality] || 0) - (qualityWeights[a.quality] || 0));
 
-    // ─── FINAL OUTPUT FORMATTING ───
+    // ─── FINAL OUTPUT FORMATTING WITH ICON LAYOUT ───
     const finalStreams = rawStreamsList.map(stream => {
       const epInfo = (mediaType === "series") ? ` - S${season || 1}E${episode || 1}` : "";
       
       return {
         name: `Movies4u | ${stream.quality} | [${stream.server}]`,
-        title: `🎬 ${title}${epInfo} - ${releaseYear}\n${stream.quality} | ${stream.meta.language} | ${stream.meta.size}\n${stream.meta.format} | ${runTime} | ${stream.meta.extras}`,
+        title: `🎬 ${title}${epInfo} - ${releaseYear}\n⚡ ${stream.quality} | 🌍 ${stream.meta.language} | 💾 ${stream.meta.size}\n🎞️ ${stream.meta.format} | ⏱️ ${runTime} | 🛠️ ${stream.meta.extras}`,
         quality: stream.quality,
         url: stream.url,
         headers: stream.headers,

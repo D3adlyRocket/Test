@@ -298,13 +298,39 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     for (const item of directWatchLinks) {
       const directM3u8 = await extractDirectM3u8(item.href);
       if (directM3u8) {
-        let quality = extractQuality(item.text + " " + item.href + " " + siteTitleContext);
-        const meta = parseExtraMetadata(item.text + " " + item.href + " " + siteTitleContext);
-        
-        rawStreamsList.push({
+
+  let quality = extractQuality(item.text + " " + item.href + " " + siteTitleContext);
+
+  const meta = parseExtraMetadata(
+    item.text + " " + item.href + " " + siteTitleContext
+  );
+
+  // NEW: Extract from actual URL
+  const urlMeta = extractMetadataFromUrl(directM3u8);
+
+  // NEW: Detect real stream quality
+  const detectedQuality = await detectM3U8Quality(
+    directM3u8,
+    {
+      Referer: "https://m4uplay.store/"
+    }
+  );
+
+  // NEW: Detect actual file size
+  const detectedSize = await detectFileSize(
+    directM3u8,
+    {
+      Referer: "https://m4uplay.store/"
+    }
+  );
+
+  rawStreamsList.push({
           server: "Player Direct",
-          quality: quality === "Unknown" ? "1080p" : quality,
-          meta: meta,
+          quality:
+  detectedQuality || urlMeta.quality || (quality === "Unknown" ? "1080p" : quality),
+          meta: { ...meta, ...urlMeta.meta,
+  size: detectedSize || urlMeta.meta.size || meta.size
+},
           url: directM3u8,
           headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }
         });

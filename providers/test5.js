@@ -1,5 +1,5 @@
 // movies4u.js  
-// Fixed Nuvio-compatible Movies4u provider with Cloud Header Probing
+// Nuvio-compatible Movies4u provider with Local Text-Block Mapping Layout  
   
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";  
 const FALLBACK_URL = "https://new1.movies4u.finance";  
@@ -39,79 +39,7 @@ function extractQuality(text) {
   return "Unknown";  
 }  
 
-/**
- * METHOD 1: Reads live M3U8 streaming playlists for exact width/height resolution configurations
- */
-async function parseM3U8Manifest(url, customHeaders = {}) {
-  try {
-    const resp = await fetch(url, { method: "GET", headers: customHeaders, skipSizeCheck: true });
-    const text = await resp.text();
-    if (text.includes("RESOLUTION=")) {
-      const resolutions = text.match(/RESOLUTION=\d+x(\d+)/g);
-      if (resolutions) {
-        const heights = resolutions.map(r => parseInt(r.split('x')[1])).sort((a, b) => b - a);
-        const topHeight = heights[0];
-        if (topHeight >= 2160) return "4K";
-        if (topHeight >= 1080) return "1080p";
-        if (topHeight >= 720) return "720p";
-        if (topHeight >= 480) return "480p";
-        if (topHeight >= 360) return "360p";
-      }
-    }
-  } catch (_) {}
-  return null;
-}
-
-/**
- * METHOD 2: Follows redirect headers to grab the true file server attachment filename 
- */
-async function getRealFilenameQuality(url, customHeaders = {}) {
-  try {
-    const resp = await fetch(url, {
-      method: "GET", // Changed to GET to ensure content-disposition strings populate fully from cloud endpoints
-      headers: { ...customHeaders, Range: "bytes=0-100" }, // Smart byte-range pinning to prevent downloading the file
-      skipSizeCheck: true,
-      redirect: "follow"
-    });
-    
-    // Check both content-disposition and attachment layout responses
-    const disposition = resp.headers.get("content-disposition") || "";
-    if (disposition.includes("filename=")) {
-      const filename = disposition.split("filename=")[1].replace(/['"]/g, "");
-      const quality = extractQuality(filename);
-      if (quality !== "Unknown") return quality;
-    }
-    
-    // Check final URL context pathing
-    const finalUrl = resp.url || url;
-    const urlQuality = extractQuality(decodeURIComponent(finalUrl));
-    if (urlQuality !== "Unknown") return urlQuality;
-  } catch (_) {}
-  return null;
-}
-
-/**
- * MASTER WATERFALL: Zero Guesswork Resolution Mapper
- */
-async function accurateQualityDetector(url, fallbackText = "", headers = {}) {
-  // 1. If it's a playlist stream, inspect raw stream configurations
-  if (url.includes(".m3u8") || url.includes("master.txt")) {
-    const m3u8Quality = await parseM3U8Manifest(url, headers);
-    if (m3u8Quality) return m3u8Quality;
-  }
-  
-  // 2. Ping storage node connection headers directly for real filenames
-  const realFileQuality = await getRealFilenameQuality(url, headers);
-  if (realFileQuality) return realFileQuality;
-
-  // 3. Fallback to extracting textual layout tokens
-  const textQuality = extractQuality(fallbackText);
-  if (textQuality !== "Unknown") return textQuality;
-
-  return "1080p"; 
-}
-
-// Helper to extract tech properties from titles/labels
+// Helper to extract tech properties directly from mapped local link text structures
 function parseExtraMetadata(text) {
   const norm = (text || "").toUpperCase();
   
@@ -175,25 +103,6 @@ async function resolveAllHubCloudLinks(hubCloudUrl) {
     console.error("[Movies4u] HubCloud resolution failed:", err);
   }
   return [];
-}
-
-async function detectFileSize(url, headers = {}) {
-  try {
-    const resp = await fetch(url, {
-      method: "HEAD",
-      headers,
-      skipSizeCheck: true,
-      redirect: "follow"
-    });
-    const size = resp.headers.get("content-length");
-    if (!size) return null;
-    const bytes = parseInt(size);
-    if (bytes >= 1024 * 1024 * 1024) {
-      return (bytes / (1024 * 1024 * 1024)).toFixed(1) + "GB";
-    }
-    return Math.round(bytes / (1024 * 1024)) + "MB";
-  } catch (_) {}
-  return null;
 }
 
 function unpackJS(p, a, c, k) {  
@@ -286,235 +195,146 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const $page = cheerio.load(pageHtml);  
   
     const rawStreamsList = [];
-    const siteTitleContext = match.name;
 
-    // ─── OPTION A: CAPTURE DIRECT PLUGINS FROM MAIN BODY ───
-    const directWatchLinks = [];
+    // ─── OPTION A: DIRECT STREAMS FROM PAGE BODY ───
     $page("a.btn.btn-zip, a[href*='m4uplay.store']").each((i, el) => {
-      const href = $(el).attr("href");
-      const textContext = $(el).text() || "";
-      if (href && !directWatchLinks.some(item => item.href === href)) {
-        directWatchLinks.push({ href, text: textContext });
+      const href = $page(el).attr("href");
+      // Find the heading right above this link to map resolution details locally
+      let parentText = $page(el).closest('p, div').prevAll('h1,h2,h3,h4,h5,p').first().text() || "";
+      let elementText = $page(el).text() || "";
+      let combinedContext = elementText + " " + parentText;
+
+      if (href) {
+        rawStreamsList.push({
+          type: "direct_m3u8",
+          url: href,
+          context: combinedContext
+        });
       }
     });
 
-    for (const item of directWatchLinks) {
-      const directM3u8 = await extractDirectM3u8(item.href);
-      if (directM3u8) {
-        const contextStr = item.text + " " + item.href + " " + siteTitleContext;
-        const meta = parseExtraMetadata(contextStr);
-        const playerHeaders = { Referer: "https://m4uplay.store/" };
+    // ─── OPTION B & C: MULTI-RESOLUTION LANDING REDIRECT PAGES ───
+    const structuralRedirectBlocks = [];
+    
+    // Look for heading blocks on the landing page (e.g., "Download Mario Movie [720p]")
+    $page("h1, h2, h3, h4, h5, p").each((i, el) => {
+      const blockText = $page(el).text();
+      
+      // Look inside the immediate elements following this resolution tag
+      let siblingNode = $page(el).next();
+      let limit = 0;
+      
+      while (siblingNode.length && limit < 4) {
+        const foundLink = siblingNode.find("a[href*='m4ulinks.com']").first().attr("href") || 
+                          (siblingNode[0].name === "a" && siblingNode.attr("href").includes("m4ulinks.com") ? siblingNode.attr("href") : "");
         
-        const verifiedQuality = await accurateQualityDetector(directM3u8, contextStr, playerHeaders);
-        const detectedSize = await detectFileSize(directM3u8, playerHeaders);
+        if (foundLink) {
+          if (!structuralRedirectBlocks.some(b => b.href === foundLink)) {
+            structuralRedirectBlocks.push({
+              href: foundLink,
+              mappedContext: blockText // We save the exact block text containing the resolution and size!
+            });
+          }
+        }
+        siblingNode = siblingNode.next();
+        limit++;
+      }
+    });
 
-        rawStreamsList.push({
-          server: "Player Direct",
-          quality: verifiedQuality,
-          meta: { ...meta, size: detectedSize || meta.size || "N/A" },
-          url: directM3u8,
-          headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }
+    // Fallback if structured headers aren't parsed neatly
+    if (structuralRedirectBlocks.length === 0) {
+      $page("a[href*='m4ulinks.com']").each((i, el) => {
+        const href = $page(el).attr("href");
+        const parentText = $page(el).parent().text() || "";
+        const surroundingText = $page(el).closest('div, p').text() || "";
+        structuralRedirectBlocks.push({
+          href: href,
+          mappedContext: parentText + " " + surroundingText
         });
-      }
+      });
     }
 
-    // ─── OPTION B: INDEX TV REDIRECT PAGES ───
-    if (mediaType === "series" || match.href.includes("/tvshows/") || match.href.includes("/series/")) {
-      const uniqueDownloadPages = [];
-      $page("h4").each((i, el) => {
-        const headingText = $(el).text().toLowerCase();
-        const seasonMatch = headingText.match(/season\s*0*(\d+)/i);
+    // Process the mapped blocks
+    for (const block of structuralRedirectBlocks) {
+      try {
+        // Only crawl relevant episode links if looking for a series
+        if (mediaType === "series") {
+          const seasonLower = block.mappedContext.toLowerCase();
+          const sMatch = seasonLower.match(/season\s*0*(\d+)/i);
+          if (sMatch && parseInt(sMatch[1]) !== (season || 1)) continue;
+        }
+
+        const innerResp = await fetch(block.href, { headers: HEADERS, skipSizeCheck: true });
+        const innerHtml = await innerResp.text();
+        const $inner = cheerio.load(innerHtml);
         
-        if (seasonMatch && parseInt(seasonMatch[1]) === (season || 1)) {
-          let nextNode = $(el).next();
-          while (nextNode.length && !["h2", "h3", "h4"].includes(nextNode[0].name)) {
-            if (nextNode[0].name === "a") {
-              const href = nextNode.attr("href") || "";
-              const elementText = nextNode.text() || "";
-              if (href.includes("m4ulinks.com") && elementText.toLowerCase().includes("download links")) {
-                if (!uniqueDownloadPages.some(p => p.href === href)) {
-                  uniqueDownloadPages.push({ href, parentText: elementText });
-                }
-              }
+        const collectedEndpoints = [];
+        $inner("a[href*='hubcloud'], a[href*='hub-cloud'], a[href*='m4uplay.store']").each((i, el) => {
+          const targetHref = $inner(el).attr("href");
+          const itemText = $inner(el).text() || "";
+          if (targetHref && !collectedEndpoints.some(e => e.href === targetHref)) {
+            collectedEndpoints.push({ href: targetHref, label: itemText });
+          }
+        });
+
+        for (const endpoint of collectedEndpoints) {
+          // Carry the mapped block text down to the final links
+          const finalMappedString = endpoint.label + " " + block.mappedContext;
+
+          if (endpoint.href.includes("m4uplay.store")) {
+            const directM3u8 = await extractDirectM3u8(endpoint.href);
+            if (directM3u8) {
+              const meta = parseExtraMetadata(finalMappedString);
+              let detectedQuality = extractQuality(finalMappedString);
+              if (detectedQuality === "Unknown") detectedQuality = "1080p";
+
+              rawStreamsList.push({
+                server: "M4U Player",
+                quality: detectedQuality,
+                meta: meta,
+                url: directM3u8,
+                headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }
+              });
             }
-            nextNode = nextNode.next();
+          } else {
+            // It's a HubCloud link—extract the direct download nodes
+            const cloudLinks = await resolveAllHubCloudLinks(endpoint.href);
+            for (const linkItem of cloudLinks) {
+              const contextualSearchString = linkItem.label + " " + finalMappedString;
+              const meta = parseExtraMetadata(contextualSearchString);
+              let detectedQuality = extractQuality(contextualSearchString);
+              if (detectedQuality === "Unknown") detectedQuality = "1080p";
+
+              rawStreamsList.push({
+                server: cleanServerName(linkItem.label || "HubCloud"),
+                quality: detectedQuality,
+                meta: meta,
+                url: linkItem.url,
+                headers: { "User-Agent": HEADERS["User-Agent"] }
+              });
+            }
           }
         }
-      });
+      } catch (_) {}
+    }
 
-      for (const downloadPage of uniqueDownloadPages) {
-        try {
-          const epPageResp = await fetch(downloadPage.href, { headers: HEADERS, skipSizeCheck: true });
-          const epPageHtml = await epPageResp.text();
-          const $epPage = cheerio.load(epPageHtml);
-          
-          const targetUrls = [];
-          $epPage("h5, h4, h3").each((i, el) => {
-            const headingText = $(el).text();
-            const textLower = headingText.toLowerCase();
-            const epMatch = textLower.match(/episodes?\s*[:\-]?\s*0*(\d+)/i);
-            
-            if (epMatch && parseInt(epMatch[1]) === (episode || 1)) {
-              let nextNode = $(el).next();
-              while (nextNode.length && !["h3", "h4", "h5"].includes(nextNode[0].name)) {
-                if (nextNode[0].name === "a") {
-                  const href = nextNode.attr("href") || "";
-                  const linkText = nextNode.text() || "";
-                  const contextualText = headingText + " " + linkText;
-                  
-                  if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4uplay.store")) {
-                    if (!targetUrls.some(t => t.href === href)) {
-                      targetUrls.push({ href, contextualText });
-                    }
-                  }
-                }
-                nextNode = nextNode.next();
-              }
-            }
-          });
+    // Filter duplicates and map outputs
+    const uniquelyMappedOutputs = [];
+    const absoluteTrackers = new Set();
 
-          for (const target of targetUrls) {
-            const contextStr = target.contextualText + " " + downloadPage.parentText + " " + siteTitleContext;
-            const meta = parseExtraMetadata(contextStr);
-
-            if (target.href.includes("m4uplay.store")) {
-              const directM3u8 = await extractDirectM3u8(target.href);
-              if (directM3u8) {
-                const playerHeaders = { Referer: "https://m4uplay.store/" };
-                const verifiedQuality = await accurateQualityDetector(directM3u8, contextStr, playerHeaders);
-                const detectedSize = await detectFileSize(directM3u8, playerHeaders);
-
-                rawStreamsList.push({
-                  server: "M4U Player",
-                  quality: verifiedQuality,
-                  meta: { ...meta, size: detectedSize || meta.size || "N/A" },
-                  url: directM3u8,
-                  headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }
-                });
-              }
-            } else {
-              const extractedLinks = await resolveAllHubCloudLinks(target.href);
-              for (const linkItem of extractedLinks) {
-                const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${contextStr}`;
-                const innerMeta = parseExtraMetadata(searchString);
-                const cloudHeaders = { "User-Agent": HEADERS["User-Agent"] };
-                
-                const verifiedQuality = await accurateQualityDetector(linkItem.url, searchString, cloudHeaders);
-                const detectedSize = await detectFileSize(linkItem.url, cloudHeaders);
-
-                rawStreamsList.push({
-                  server: cleanServerName(linkItem.label || "HubCloud"),
-                  quality: verifiedQuality,
-                  meta: { 
-                    language: innerMeta.language !== "Multi-Audio" ? innerMeta.language : meta.language,
-                    size: detectedSize || (innerMeta.size !== "N/A" ? innerMeta.size : "N/A"),
-                    format: innerMeta.format,
-                    extras: innerMeta.extras
-                  },
-                  url: linkItem.url,
-                  headers: cloudHeaders
-                });
-              }
-            }
-          }
-        } catch (_) {}
-      }
-
-    } else {
-      // ─── OPTION C: INDEX MOVIE REDIRECT PAGES ───
-      const uniqueRedirectPages = [];
-      $page("a[href]").each((i, el) => {
-        const href = $(el).attr("href") || "";
-        const text = $(el).text() || "";
-        if (href.includes("m4ulinks.com") && text.toLowerCase().includes("download links")) {
-          if (!uniqueRedirectPages.some(p => p.href === href)) {
-            uniqueRedirectPages.push({ href, parentText: text });
-          }
-        }
-      });
-
-      for (const redirectPage of uniqueRedirectPages) {
-        try {
-          const innerResp = await fetch(redirectPage.href, { headers: HEADERS, skipSizeCheck: true });
-          const innerHtml = await innerResp.text();
-          const $inner = cheerio.load(innerHtml);
-          
-          const targetUrls = [];
-          $inner("h1, h2, h3, h4, h5, h6, p, a.btn, a[href]").each((i, el) => {
-            const currentElement = $(el);
-            let href = currentElement.attr("href") || "";
-            let contextText = currentElement.text() || "";
-
-            if (!href) {
-              const localAnchor = currentElement.find("a[href]").first();
-              if (localAnchor.length) {
-                href = localAnchor.attr("href") || "";
-                contextText += " " + localAnchor.text();
-              }
-            }
-
-            if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4uplay.store")) {
-              if (!targetUrls.some(t => t.href === href)) {
-                const nearText = currentElement.parent().text() || "";
-                targetUrls.push({ href, contextualText: contextText + " " + nearText });
-              }
-            }
-          });
-
-          for (const target of targetUrls) {
-            const contextStr = target.contextualText + " " + redirectPage.parentText + " " + siteTitleContext;
-            const meta = parseExtraMetadata(contextStr);
-
-            if (target.href.includes("m4uplay.store")) {
-              const directM3u8 = await extractDirectM3u8(target.href);
-              if (directM3u8) {
-                const playerHeaders = { Referer: "https://m4uplay.store/" };
-                const verifiedQuality = await accurateQualityDetector(directM3u8, contextStr, playerHeaders);
-                const detectedSize = await detectFileSize(directM3u8, playerHeaders);
-
-                rawStreamsList.push({
-                  server: "M4U Player",
-                  quality: verifiedQuality,
-                  meta: { ...meta, size: detectedSize || meta.size || "N/A" },
-                  url: directM3u8,
-                  headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }
-                });
-              }
-            } else {
-              const extractedLinks = await resolveAllHubCloudLinks(target.href);
-              for (const linkItem of extractedLinks) {
-                const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${contextStr}`;
-                const innerMeta = parseExtraMetadata(searchString);
-                const cloudHeaders = { "User-Agent": HEADERS["User-Agent"] };
-                
-                const verifiedQuality = await accurateQualityDetector(linkItem.url, searchString, cloudHeaders);
-                const detectedSize = await detectFileSize(linkItem.url, cloudHeaders);
-
-                rawStreamsList.push({
-                  server: cleanServerName(linkItem.label || "HubCloud"),
-                  quality: verifiedQuality,
-                  meta: { 
-                    language: innerMeta.language !== "Multi-Audio" ? innerMeta.language : meta.language,
-                    size: detectedSize || (innerMeta.size !== "N/A" ? innerMeta.size : "N/A"),
-                    format: innerMeta.format,
-                    extras: innerMeta.extras
-                  },
-                  url: linkItem.url,
-                  headers: cloudHeaders
-                });
-              }
-            }
-          }
-        } catch (_) {}
+    for (const item of rawStreamsList) {
+      if (item.url && !absoluteTrackers.has(item.url)) {
+        absoluteTrackers.add(item.url);
+        uniquelyMappedOutputs.push(item);
       }
     }
 
-    // Sort High Quality Descending
+    // Sort Quality descending
     const qualityWeights = { "4K": 100, "1080p": 50, "720p": 25, "480p": 10, "360p": 5, "Unknown": 0 };
-    rawStreamsList.sort((a, b) => (qualityWeights[b.quality] || 0) - (qualityWeights[a.quality] || 0));
+    uniquelyMappedOutputs.sort((a, b) => (qualityWeights[b.quality] || 0) - (qualityWeights[a.quality] || 0));
 
-    // Final Nuvio Engine Stream Mapper
-    return rawStreamsList.map(stream => {
+    // Map straight to layout
+    return uniquelyMappedOutputs.map(stream => {
       const epInfo = (mediaType === "series") ? ` - S${season || 1}E${episode || 1}` : "";
       return {
         name: `Movies4u | ${stream.quality} | [${stream.server}]`,

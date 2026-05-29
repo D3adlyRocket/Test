@@ -449,7 +449,7 @@ const detectedSize = await detectFileSize(
 );
                 rawStreamsList.push({
                   server: cleanServerName(linkItem.label || "HubCloud"),
-                  quality: urlMeta.quality !== "Unknown" urlMeta.quality : finalQuality,
+                  quality: urlMeta.quality !== "Unknown" ? urlMeta.quality : finalQuality,
                   meta: { 
                     language: innerMeta.language !== "Hindi-English" ? innerMeta.language : meta.language,
                     size:

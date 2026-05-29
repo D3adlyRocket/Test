@@ -439,7 +439,14 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
                 const innerMeta = parseExtraMetadata(searchString);
                 let finalQuality = extractQuality(searchString);
                 if (finalQuality === "Unknown") finalQuality = quality !== "Unknown" ? quality : "1080p";
-                
+                const urlMeta = extractMetadataFromUrl(linkItem.url);
+
+const detectedSize = await detectFileSize(
+  linkItem.url,
+  {
+    "User-Agent": HEADERS["User-Agent"]
+  }
+);
                 rawStreamsList.push({
                   server: cleanServerName(linkItem.label || "HubCloud"),
                   quality: finalQuality,

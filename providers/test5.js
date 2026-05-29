@@ -1,5 +1,7 @@
-// movies4u.js  
-// FIXED: Stable stream extraction + corrected quality labeling (no pipeline break)
+// movies4u.js
+// Fixed Nuvio-compatible Movies4u provider (stable + corrected quality handling)
+
+const cheerio = require("cheerio");
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new1.movies4u.finance";
@@ -7,13 +9,15 @@ const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const HUB_CLOUD_API = "https://hc-zf3c.vercel.app";
 
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "User-Agent":
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
   "Referer": FALLBACK_URL,
   "Cookie": "xla=s4t"
 };
 
 let cachedBaseUrl = null;
 
+/* ---------------- BASE URL ---------------- */
 async function getBaseUrl() {
   if (cachedBaseUrl) return cachedBaseUrl;
 
@@ -21,18 +25,16 @@ async function getBaseUrl() {
     const resp = await fetch(DOMAINS_URL, { skipSizeCheck: true });
     const data = await resp.json();
     cachedBaseUrl = data.movies4u || data.movies4uhd || FALLBACK_URL;
-  } catch (_) {
+  } catch {
     cachedBaseUrl = FALLBACK_URL;
   }
 
   return cachedBaseUrl;
 }
 
-/**
- * ONLY SAFE QUALITY DETECTION (TEXT ONLY)
- */
-function extractQuality(text) {
-  const u = (text || "").toLowerCase();
+/* ---------------- QUALITY DETECTION ---------------- */
+function extractQuality(text = "") {
+  const u = text.toLowerCase();
 
   if (u.includes("2160") || u.includes("4k") || u.includes("uhd")) return "4K";
   if (u.includes("1080")) return "1080p";
@@ -43,19 +45,9 @@ function extractQuality(text) {
   return "Unknown";
 }
 
-/**
- * FIXED: unified resolver (prevents random overrides)
- */
-function resolveQuality(...sources) {
-  for (const s of sources) {
-    const q = extractQuality(s);
-    if (q !== "Unknown") return q;
-  }
-  return "Unknown";
-}
-
-function parseExtraMetadata(text) {
-  const norm = (text || "").toUpperCase();
+/* ---------------- METADATA ---------------- */
+function parseExtraMetadata(text = "") {
+  const norm = text.toUpperCase();
 
   let lang = "Multi-Audio";
   if (norm.includes("DUAL")) lang = "Multi Audio";
@@ -64,42 +56,57 @@ function parseExtraMetadata(text) {
   const sizeMatch = norm.match(/(\d+(?:\.\d+)?\s*[MGB]B)/i);
   let size = sizeMatch ? sizeMatch[0].replace(/\s+/g, "") : "N/A";
 
+  if (size === "N/A") {
+    const backupMatch = norm.match(/(\d+\.\d+)\s?G/);
+    if (backupMatch) size = backupMatch[1] + "GB";
+  }
+
   let format = "MKV";
   if (norm.includes("MP4")) format = "MP4";
-  if (norm.includes("HEVC") || norm.includes("X265")) format += " (x265)";
-  else if (norm.includes("X264")) format += " (x264)";
+  if (norm.includes("HEVC") || norm.includes("H265") || norm.includes("X265"))
+    format += " (x265)";
+  else if (norm.includes("H264") || norm.includes("X264")) format += " (x264)";
+
+  const extras = [];
+  if (norm.includes("HDR")) extras.push("HDR");
+  if (norm.includes("ATMOS") || norm.includes("DOLBY")) extras.push("Dolby");
+  if (norm.includes("10BIT")) extras.push("10-Bit");
+  if (norm.includes("REMUX")) extras.push("Remux");
 
   return {
     language: lang,
     size,
     format,
-    extras: "Standard Dynamic Range"
+    extras: extras.length ? extras.join(" | ") : "Standard"
   };
 }
 
-function cleanServerName(serverText) {
-  if (!serverText) return "HubCloud";
+/* ---------------- QUALITY FIX (IMPORTANT PART) ---------------- */
+function resolveBestQuality({ detected, url, text }) {
+  // priority order (FIXES YOUR ISSUE)
+  return (
+    detected ||
+    extractQuality(url) ||
+    extractQuality(text) ||
+    "1080p"
+  );
+}
 
+/* ---------------- HUB CLOUD ---------------- */
+function cleanServerName(serverText = "") {
   let clean = serverText.toLowerCase();
 
-  if (clean.includes("fsl")) return "FSL Server";
+  if (clean.includes("fsl") || clean.includes("fast")) return "FSL Server";
   if (clean.includes("pixel")) return "PixelDrain";
   if (clean.includes("drive")) return "Cloud Drive";
 
   return "HubCloud Server";
 }
 
-/**
- * HubCloud resolver (UNCHANGED)
- */
-async function resolveAllHubCloudLinks(hubCloudUrl) {
+async function resolveAllHubCloudLinks(url) {
   try {
-    const apiURL = `${HUB_CLOUD_API}/api/extract?url=${encodeURIComponent(hubCloudUrl)}`;
-    const resp = await fetch(apiURL, {
-      headers: { Accept: "application/json" },
-      skipSizeCheck: true
-    });
-
+    const api = `${HUB_CLOUD_API}/api/extract?url=${encodeURIComponent(url)}`;
+    const resp = await fetch(api, { headers: { Accept: "application/json" } });
     const data = await resp.json();
     return data?.links || [];
   } catch {
@@ -107,15 +114,11 @@ async function resolveAllHubCloudLinks(hubCloudUrl) {
   }
 }
 
-/**
- * DO NOT rely on playlist or CDN for quality
- * ONLY used for stream extraction (unchanged logic)
- */
-async function extractDirectM3u8(playerUrl) {
+/* ---------------- DIRECT M3U8 ---------------- */
+async function extractDirectM3u8(url) {
   try {
-    const resp = await fetch(playerUrl, {
-      headers: { ...HEADERS, Referer: "https://m4uplay.store/" },
-      skipSizeCheck: true
+    const resp = await fetch(url, {
+      headers: { ...HEADERS, Referer: "https://m4uplay.store/" }
     });
 
     const html = await resp.text();
@@ -124,21 +127,13 @@ async function extractDirectM3u8(playerUrl) {
       html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] ||
       html.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
 
-    if (!m3u8) {
-      const rel = html.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
-      if (rel) m3u8 = "https://m4uplay.store" + rel;
-    }
+    if (m3u8) return m3u8.replace("master.txt", "master.m3u8");
+  } catch {}
 
-    return m3u8 ? m3u8.replace("master.txt", "master.m3u8") : null;
-
-  } catch {
-    return null;
-  }
+  return null;
 }
 
-/**
- * MAIN
- */
+/* ---------------- STREAM ROUTER ---------------- */
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   try {
     const BASE_URL = await getBaseUrl();
@@ -149,65 +144,39 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    const releaseYear =
-      (mediaInfo.release_date || mediaInfo.first_air_date || "").split("-")[0] || "N/A";
+    const year = (mediaInfo.release_date || mediaInfo.first_air_date || "").split("-")[0];
 
-    const runTime = mediaInfo.runtime ? `${mediaInfo.runtime} min` : "N/A";
+    const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`);
+    const $ = cheerio.load(await searchResp.text());
 
-    const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {
-      headers: HEADERS
+    const first = $("article a").first().attr("href");
+    if (!first) return [];
+
+    const pageResp = await fetch(first);
+    const $page = cheerio.load(await pageResp.text());
+
+    const streams = [];
+
+    const links = [];
+    $page("a[href*='m4uplay']").each((_, el) => {
+      links.push($(el).attr("href"));
     });
 
-    const searchHtml = await searchResp.text();
-    const $ = cheerio.load(searchHtml);
+    for (const link of links) {
+      const direct = await extractDirectM3u8(link);
+      if (!direct) continue;
 
-    const results = [];
+      const detectedQuality = extractQuality(direct);
 
-    $("article").each((_, el) => {
-      const a = $(el).find("a").first();
-      const href = a.attr("href");
-      const name = a.text().trim();
-
-      if (href && name) {
-        results.push({ href, name });
-      }
-    });
-
-    const match =
-      results.find(r => r.name.toLowerCase().includes(title.toLowerCase())) ||
-      results[0];
-
-    if (!match) return [];
-
-    const pageResp = await fetch(match.href, { headers: HEADERS });
-    const pageHtml = await pageResp.text();
-    const $page = cheerio.load(pageHtml);
-
-    const rawStreamsList = [];
-
-    const directWatchLinks = [];
-    $page("a[href*='m4uplay.store']").each((_, el) => {
-      directWatchLinks.push({
-        href: $(el).attr("href"),
-        text: $(el).text() || ""
-      });
-    });
-
-    for (const item of directWatchLinks) {
-      const directM3u8 = await extractDirectM3u8(item.href);
-      if (!directM3u8) continue;
-
-      // ONLY TEXT SOURCES FOR QUALITY
-      const quality = resolveQuality(
-        item.text,
-        match.name
-      );
-
-      rawStreamsList.push({
+      streams.push({
         server: "Player Direct",
-        quality: quality !== "Unknown" ? quality : "1080p",
-        meta: parseExtraMetadata(item.text + match.name),
-        url: directM3u8,
+        quality: resolveBestQuality({
+          detected: detectedQuality,
+          url: direct,
+          text: title
+        }),
+        meta: parseExtraMetadata(title),
+        url: direct,
         headers: {
           Referer: "https://m4uplay.store/",
           Origin: "https://m4uplay.store",
@@ -216,37 +185,17 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       });
     }
 
-    const qualityWeights = {
-      "4K": 100,
-      "1080p": 50,
-      "720p": 25,
-      "480p": 10,
-      "360p": 5,
-      "Unknown": 0
-    };
-
-    rawStreamsList.sort(
-      (a, b) =>
-        (qualityWeights[b.quality] || 0) - (qualityWeights[a.quality] || 0)
-    );
-
-    return rawStreamsList.map(stream => {
-      const epInfo = mediaType === "series" ? ` - S${season || 1}E${episode || 1}` : "";
-
-      return {
-        name: `Movies4u | ${stream.quality} | [${stream.server}]`,
-        title: `🎬 ${title}${epInfo} - ${releaseYear}
-⚡ ${stream.quality} | 🌍 ${stream.meta.language} | 💾 ${stream.meta.size}
-🎞️ ${stream.meta.format} | ⏱️ ${runTime}`,
-        quality: stream.quality,
-        url: stream.url,
-        headers: stream.headers,
-        subtitles: []
-      };
-    });
+    return streams.map(s => ({
+      name: `Movies4u | ${s.quality} | [${s.server}]`,
+      title: `${title} - ${year}\n${s.quality} | ${s.meta.language} | ${s.meta.size}`,
+      url: s.url,
+      headers: s.headers,
+      quality: s.quality,
+      subtitles: []
+    }));
 
   } catch (e) {
-    console.error("[Movies4u FIXED]", e);
+    console.error("[Movies4u ERROR]", e);
     return [];
   }
 }

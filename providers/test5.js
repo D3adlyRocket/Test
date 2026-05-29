@@ -269,6 +269,61 @@ async function detectM3U8Quality(url, headers = {}) {
   return null;
 }
 
+async function detectRealQuality(url, fallback = "1080p") {
+
+  try {
+
+    const decoded = decodeURIComponent(url).toLowerCase();
+
+    // 1. Filename quality
+    const fromUrl = extractQuality(decoded);
+
+    if (fromUrl !== "Unknown") {
+      return fromUrl;
+    }
+
+    // 2. Resolution patterns
+    if (
+      decoded.includes("2160") ||
+      decoded.includes("4k")
+    ) {
+      return "4K";
+    }
+
+    if (decoded.includes("1080")) {
+      return "1080p";
+    }
+
+    if (decoded.includes("720")) {
+      return "720p";
+    }
+
+    if (decoded.includes("480")) {
+      return "480p";
+    }
+
+    // 3. Filesize heuristic
+    const size = await detectFileSize(url);
+
+    if (size) {
+
+      const gb =
+        parseFloat(size);
+
+      if (!isNaN(gb)) {
+
+        if (gb >= 12) return "4K";
+        if (gb >= 3) return "1080p";
+        if (gb >= 1.2) return "720p";
+        if (gb >= 0.5) return "480p";
+      }
+    }
+
+  } catch (_) {}
+
+  return fallback || "1080p";
+}
+
 // =======================
 // FILE SIZE DETECTOR
 // =======================
@@ -982,11 +1037,7 @@ async function getStreams(
                     "HubCloud"
                   ),
 
-                quality:
-                  urlMeta.quality !==
-                  "Unknown"
-                    ? urlMeta.quality
-                    : finalQuality,
+                quality: await detectRealQuality(linkItem.url, finalQuality),
 
                 meta: {
 

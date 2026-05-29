@@ -38,7 +38,8 @@ function extractQuality(text) {
 /**
  * Uses the external Vercel Extractor API to get direct FSL/CDN download links
  */
-async function resolveHubCloud(hubCloudUrl) {
+// Add this helper function to extract all available links from the API response
+async function resolveAllHubCloudLinks(hubCloudUrl) {
   try {
     const apiURL = `${HUB_CLOUD_API}/api/extract?url=${encodeURIComponent(hubCloudUrl)}`;
     const resp = await fetch(apiURL, {
@@ -46,31 +47,33 @@ async function resolveHubCloud(hubCloudUrl) {
       skipSizeCheck: true
     });
     const data = await resp.json();
+    
+    // Return ALL links found by the extractor, not just the first one
     if (data && data.links && data.links.length > 0) {
-      // Return the first valid resolved FSL/direct stream asset
-      return data.links[0].url;
+      return data.links; // Returns array of objects: { label: "...", url: "..." }
     }
   } catch (err) {
     console.error("[Movies4u] HubCloud resolution failed:", err);
   }
-  return null;
+  return [];
 }
   
 // =======================  
 // NUVIO EXPORT STREAM ROUTER
 // =======================  
   
+// Update the main getStreams implementation inside your module:
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {  
   try {  
     const BASE_URL = await getBaseUrl();  
   
-    // 1. Fetch TMDB details to get accurate Title
+    // 1. TMDB Details
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;  
     const mediaInfo = await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();  
     const title = mediaInfo.title || mediaInfo.name;  
     if (!title) return [];  
   
-    // 2. Search on Movies4u base site
+    // 2. Search
     const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {  
       headers: HEADERS,  
       skipSizeCheck: true  
@@ -93,8 +96,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     });  
   
     if (!results.length) return [];  
-  
-    // Fall back to first result if explicit name match misses
     const match = results.find(r => r.name.toLowerCase().includes(title.toLowerCase())) || results[0];  
     if (!match) return [];  
   
@@ -108,26 +109,25 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
   
     const streams = [];
 
-    // Check whether we are treating this context as a Movie or a TV Show
     if (mediaType === "series" || match.href.includes("/tvshows/") || match.href.includes("/series/")) {
       
       // ─── SERIES PROCESSING BRANCH ───
-      let targetDownloadPage = null;
+      const uniqueDownloadPages = [];
       
-      // Locate the H4 node related to our target Season
+      // Collect every matching download page variant for this season
       $page("h4").each((i, el) => {
         const headingText = $(el).text().toLowerCase();
         const seasonMatch = headingText.match(/season\s*0*(\d+)/i);
         
         if (seasonMatch && parseInt(seasonMatch[1]) === (season || 1)) {
-          // Find next matching sibling link that points to m4ulinks
           let nextNode = $(el).next();
           while (nextNode.length && !["h2", "h3", "h4"].includes(nextNode[0].name)) {
             if (nextNode[0].name === "a") {
               const href = nextNode.attr("href") || "";
               if (href.includes("m4ulinks.com") && nextNode.text().toLowerCase().includes("download links")) {
-                targetDownloadPage = href;
-                break;
+                if (!uniqueDownloadPages.includes(href)) {
+                  uniqueDownloadPages.push(href);
+                }
               }
             }
             nextNode = nextNode.next();
@@ -135,55 +135,57 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         }
       });
 
-      if (!targetDownloadPage) return [];
+      // Loop over every download page variant discovered
+      for (const downloadPage of uniqueDownloadPages) {
+        try {
+          const epPageResp = await fetch(downloadPage, { headers: HEADERS, skipSizeCheck: true });
+          const epPageHtml = await epPageResp.text();
+          const $epPage = cheerio.load(epPageHtml);
+          
+          // Match targeted episode
+          $epPage("h5, h4, h3").each((i, el) => {
+            const text = $(el).text().toLowerCase();
+            const epMatch = text.match(/episodes?\s*[:\-]?\s*0*(\d+)/i);
+            
+            if (epMatch && parseInt(epMatch[1]) === (episode || 1)) {
+              let nextNode = $(el).next();
+              while (nextNode.length && !["h3", "h4", "h5"].includes(nextNode[0].name)) {
+                if (nextNode[0].name === "a") {
+                  const href = nextNode.attr("href") || "";
+                  if (href.includes("hubcloud") || href.includes("hub-cloud")) {
+                    
+                    // Call the modified extractor that handles multiple sub-links
+                    resolveAllHubCloudLinks(href).then(extractedLinks => {
+                      for (const linkItem of extractedLinks) {
+                        streams.push({
+                          name: `Movies4u (Series) - ${linkItem.label || 'Direct'}`,
+                          title: `${title} - S${season || 1}E${episode || 1}`,
+                          quality: extractQuality(downloadPage),
+                          url: linkItem.url,
+                          headers: { "User-Agent": HEADERS["User-Agent"] },
+                          subtitles: []
+                        });
+                      }
+                    }).catch(() => {});
 
-      // Fetch internal Episode/Hubcloud collection page
-      const epPageResp = await fetch(targetDownloadPage, { headers: HEADERS, skipSizeCheck: true });
-      const epPageHtml = await epPageResp.text();
-      const $epPage = cheerio.load(epPageHtml);
-      
-      let hubCloudUrl = null;
-
-      // Look for the header matching our exact episode number (e.g., Episode 1, Episode 02)
-      $epPage("h5, h4, h3").each((i, el) => {
-        const text = $(el).text().toLowerCase();
-        const epMatch = text.match(/episodes?\s*[:\-]?\s*0*(\d+)/i);
-        
-        if (epMatch && parseInt(epMatch[1]) === (episode || 1)) {
-          let nextNode = $(el).next();
-          while (nextNode.length && !["h3", "h4", "h5"].includes(nextNode[0].name)) {
-            if (nextNode[0].name === "a") {
-              const href = nextNode.attr("href") || "";
-              if (href.includes("hubcloud") || href.includes("hub-cloud")) {
-                hubCloudUrl = href;
-                break;
+                  }
+                }
+                nextNode = nextNode.next();
               }
             }
-            nextNode = nextNode.next();
-          }
-        }
-      });
-
-      if (hubCloudUrl) {
-        const finalStreamUrl = await resolveHubCloud(hubCloudUrl);
-        if (finalStreamUrl) {
-          streams.push({
-            name: "Movies4u (Series)",
-            title: `${title} - S${season || 1}E${episode || 1}`,
-            quality: extractQuality(targetDownloadPage),
-            url: finalStreamUrl,
-            headers: { "User-Agent": HEADERS["User-Agent"] },
-            subtitles: []
           });
-        }
+        } catch (_) {}
       }
+
+      // Small delay block to allow async extraction tasks to bundle back up
+      await new Promise(resolve => setTimeout(resolve, 1500));
 
     } else {
       
       // ─── MOVIE PROCESSING BRANCH ───
       const uniqueRedirectPages = [];
 
-      // Extract raw direct m4ulinks from post body matching download criteria
+      // Extract every distinct redirect link available on the post body
       $page("a[href]").each((i, el) => {
         const href = $(el).attr("href") || "";
         const text = $(el).text().toLowerCase();
@@ -194,29 +196,30 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         }
       });
 
-      // Parse found link elements to gather HubCloud nodes
-      for (const redirectPage of uniqueRedirectPages.slice(0, 3)) {
+      // No more .slice(0, 3) constraints here: processing everything available
+      for (const redirectPage of uniqueRedirectPages) {
         try {
           const innerResp = await fetch(redirectPage, { headers: HEADERS, skipSizeCheck: true });
           const innerHtml = await innerResp.text();
           const $inner = cheerio.load(innerHtml);
           
-          let hubCloudUrl = null;
+          const hubCloudUrls = [];
           $inner("a[href]").each((i, el) => {
             const href = $(el).attr("href") || "";
             if (href.includes("hubcloud") || href.includes("hub-cloud")) {
-              hubCloudUrl = href;
+              if (!hubCloudUrls.includes(href)) hubCloudUrls.push(href);
             }
           });
 
-          if (hubCloudUrl) {
-            const finalStreamUrl = await resolveHubCloud(hubCloudUrl);
-            if (finalStreamUrl) {
+          // Extract streams from every single HubCloud endpoint present on the mirror index
+          for (const hubUrl of hubCloudUrls) {
+            const extractedLinks = await resolveAllHubCloudLinks(hubUrl);
+            for (const linkItem of extractedLinks) {
               streams.push({
-                name: "Movies4u",
+                name: `Movies4u - ${linkItem.label || 'Direct'}`,
                 title: `${title}`,
-                quality: extractQuality(redirectPage),
-                url: finalStreamUrl,
+                quality: extractQuality(redirectPage), // Accurately parses quality context out of target page URL text
+                url: linkItem.url,
                 headers: { "User-Agent": HEADERS["User-Agent"] },
                 subtitles: []
               });
@@ -232,7 +235,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     console.error("[Movies4u Code Error]", e);  
     return [];  
   }  
-}  
+}
   
 // =======================  
 // REQUIRED FOR NUVIO  

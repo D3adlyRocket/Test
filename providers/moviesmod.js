@@ -452,15 +452,7 @@ const detectedSize = await detectFileSize(
                   quality: urlMeta.quality !== "Unknown" ? urlMeta.quality : finalQuality,
                   meta: { 
                     language: innerMeta.language !== "Hindi-English" ? innerMeta.language : meta.language,
-                    size:
-  detectedSize ||
-  (innerMeta.size !== "N/A"
-    ? innerMeta.size
-    : (urlMeta.meta.size !== "N/A"
-      ? urlMeta.meta.size
-      : (meta.size !== "N/A"
-        ? meta.size
-        : "1.4GB"))), ? innerMeta.size : (meta.size !== "N/A" ? meta.size : "1.4GB"),
+                    size: detectedSize || (innerMeta.size !== "N/A" ? innerMeta.size : (urlMeta.meta.size !== "N/A" ? urlMeta.meta.sizen: (meta.size !== "N/A" ? meta.size : "1.4GB"))),
                     format: innerMeta.format,
                     extras: innerMeta.extras
                   },
@@ -550,7 +542,7 @@ const detectedSize = await detectFileSize(
                 rawStreamsList.push({
                   server: "M4U Player",
                   quality: detectedQuality || urlMeta.quality || (quality === "Unknown" ? "1080p" : quality),
-                  meta: { ...meta, ...urlMeta.meta, size: detectedSize || urlMeta.meta.size || meta.size
+                  meta: { ...meta, ...urlMeta.meta, size: urlMeta.meta.size || meta.size
 },
                   url: directM3u8,
                   headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }

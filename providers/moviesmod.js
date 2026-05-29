@@ -175,12 +175,20 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             if (epMatch && parseInt(epMatch[1]) === (episode || 1)) {
               let nextNode = $(el).next();
               while (nextNode.length && !["h3", "h4", "h5"].includes(nextNode[0].name)) {
-                if (nextNode[0].name === "a") {
-                  const href = nextNode.attr("href") || "";
-                  if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4uplay.store")) {
+                // Check all attributes of elements inside the episode section
+                nextNode.find('*').addBack().each((_, child) => {
+                  const htmlString = $epPage(child).html() || "";
+                  
+                  // Regex match for m4uplay player URLs
+                  const m4uMatches = htmlString.match(/https?:\/\/m4uplay\.store\/file\/[^\s"'<>]+/g) || [];
+                  m4uMatches.forEach(url => { if (!targetUrls.includes(url)) targetUrls.push(url); });
+                  
+                  // Look at normal href tags for HubCloud mirrors
+                  const href = $epPage(child).attr("href") || "";
+                  if (href.includes("hubcloud") || href.includes("hub-cloud")) {
                     if (!targetUrls.includes(href)) targetUrls.push(href);
                   }
-                }
+                });
                 nextNode = nextNode.next();
               }
             }
@@ -233,12 +241,18 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         try {
           const innerResp = await fetch(redirectPage, { headers: HEADERS, skipSizeCheck: true });
           const innerHtml = await innerResp.text();
-          const $inner = cheerio.load(innerHtml);
           
           const targetUrls = [];
+          
+          // Use full-page regex parsing on the inner HTML to intercept player links completely
+          const m4uMatches = innerHtml.match(/https?:\/\/m4uplay\.store\/file\/[^\s"'<>]+/g) || [];
+          m4uMatches.forEach(url => { if (!targetUrls.includes(url)) targetUrls.push(url); });
+          
+          // Parse standard anchors for remaining HubCloud options
+          const $inner = cheerio.load(innerHtml);
           $inner("a[href]").each((i, el) => {
             const href = $(el).attr("href") || "";
-            if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4uplay.store")) {
+            if (href.includes("hubcloud") || href.includes("hub-cloud")) {
               if (!targetUrls.includes(href)) targetUrls.push(href);
             }
           });

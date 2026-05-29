@@ -41,8 +41,8 @@ function parseExtraMetadata(text) {
   const norm = (text || "").toUpperCase();
   
   // 1. Languages
-  let lang = "Hindi-English"; 
-  if (norm.includes("DUAL")) lang = "Dual Audio";
+  let lang = "Multi-Audio"; 
+  if (norm.includes("DUAL")) lang = "Multi Audio";
   if (norm.includes("ENGLISH") && !norm.includes("HINDI")) lang = "English";
   
   // 2. Sizes (Upgraded matching patterns for various web environments)
@@ -117,6 +117,13 @@ async function resolveAllHubCloudLinks(hubCloudUrl) {
  */
 async function detectM3U8Quality(url, headers = {}) {
   try {
+    // PRIORITY 1 → filename/url itself
+    const fromUrl = extractQuality(url);
+
+    if (fromUrl !== "Unknown") {
+      return fromUrl;
+    }
+
     const resp = await fetch(url, {
       headers,
       skipSizeCheck: true
@@ -124,18 +131,30 @@ async function detectM3U8Quality(url, headers = {}) {
 
     const text = await resp.text();
 
-    const resolutions = [...text.matchAll(/RESOLUTION=\d+x(\d+)/gi)]
+    // PRIORITY 2 → exact stream height matches
+    const matches = [...text.matchAll(/RESOLUTION=\d+x(\d+)/gi)]
       .map(m => parseInt(m[1]))
       .filter(Boolean);
 
-    if (!resolutions.length) return null;
+    if (!matches.length) return null;
 
-    const maxRes = Math.max(...resolutions);
+    // Instead of taking max quality blindly,
+    // choose the MOST COMMON quality in playlist
+    const counts = {};
 
-    if (maxRes >= 2160) return "4K";
-    if (maxRes >= 1080) return "1080p";
-    if (maxRes >= 720) return "720p";
-    if (maxRes >= 480) return "480p";
+    for (const r of matches) {
+      counts[r] = (counts[r] || 0) + 1;
+    }
+
+    const mostCommon = Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])[0][0];
+
+    const height = parseInt(mostCommon);
+
+    if (height >= 2160) return "4K";
+    if (height >= 1080) return "1080p";
+    if (height >= 720) return "720p";
+    if (height >= 480) return "480p";
 
   } catch (_) {}
 
@@ -451,7 +470,7 @@ const detectedSize = await detectFileSize(
                   server: cleanServerName(linkItem.label || "HubCloud"),
                   quality: urlMeta.quality !== "Unknown" ? urlMeta.quality : finalQuality,
                   meta: { 
-                    language: innerMeta.language !== "Hindi-English" ? innerMeta.language : meta.language,
+                    language: innerMeta.language !== "Multi-Audio" ? innerMeta.language : meta.language,
                     size: detectedSize || (innerMeta.size !== "N/A" ? innerMeta.size : (urlMeta.meta.size !== "N/A" ? urlMeta.meta.size: (meta.size !== "N/A" ? meta.size : "1.4GB"))),
                     format: innerMeta.format,
                     extras: innerMeta.extras
@@ -567,7 +586,7 @@ const detectedSize = await detectFileSize(
                   server: cleanServerName(linkItem.label || "HubCloud"),
                   quality: urlMeta.quality !== "Unknown" ? urlMeta.quality : finalQuality,
                   meta: { 
-                    language: innerMeta.language !== "Hindi-English" ? innerMeta.language : meta.language,
+                    language: innerMeta.language !== "Multi-Audio" ? innerMeta.language : meta.language,
                     size: detectedSize || (innerMeta.size !== "N/A" ? innerMeta.size : (urlMeta.meta.size !== "N/A" ? urlMeta.meta.size : (meta.size !== "N/A" ? meta.size : "1.4GB"))),
                     format: innerMeta.format,
                     extras: innerMeta.extras

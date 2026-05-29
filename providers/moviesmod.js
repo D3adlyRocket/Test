@@ -212,28 +212,27 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const $page = cheerio.load(pageHtml);  
   
     const rawStreamsList = [];
-
-    // Fallback context from site title header if page elements lack labels
     const siteTitleContext = match.name;
 
     // ─── OPTION A: CAPTURE DIRECT PLUGINS FROM MAIN BODY ───
     const directWatchLinks = [];
     $page("a.btn.btn-zip, a[href*='m4uplay.store']").each((i, el) => {
       const href = $(el).attr("href");
-      if (href && !directWatchLinks.includes(href)) {
-        directWatchLinks.push(href);
+      const textContext = $(el).text() || "";
+      if (href && !directWatchLinks.some(item => item.href === href)) {
+        directWatchLinks.push({ href, text: textContext });
       }
     });
 
-    for (const playerUrl of directWatchLinks) {
-      const directM3u8 = await extractDirectM3u8(playerUrl);
+    for (const item of directWatchLinks) {
+      const directM3u8 = await extractDirectM3u8(item.href);
       if (directM3u8) {
-        let quality = extractQuality(playerUrl + " " + directM3u8 + " " + siteTitleContext);
-        const meta = parseExtraMetadata(playerUrl + " " + siteTitleContext);
+        let quality = extractQuality(item.text + " " + item.href + " " + siteTitleContext);
+        const meta = parseExtraMetadata(item.text + " " + item.href + " " + siteTitleContext);
         
         rawStreamsList.push({
           server: "Player Direct",
-          quality: quality === "Unknown" ? "1080p" : quality, // Default player standard baseline
+          quality: quality === "Unknown" ? "1080p" : quality,
           meta: meta,
           url: directM3u8,
           headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }
@@ -254,8 +253,11 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           while (nextNode.length && !["h2", "h3", "h4"].includes(nextNode[0].name)) {
             if (nextNode[0].name === "a") {
               const href = nextNode.attr("href") || "";
-              if (href.includes("m4ulinks.com") && nextNode.text().toLowerCase().includes("download links")) {
-                if (!uniqueDownloadPages.includes(href)) uniqueDownloadPages.push(href);
+              const elementText = nextNode.text() || "";
+              if (href.includes("m4ulinks.com") && elementText.toLowerCase().includes("download links")) {
+                if (!uniqueDownloadPages.some(p => p.href === href)) {
+                  uniqueDownloadPages.push({ href, parentText: elementText });
+                }
               }
             }
             nextNode = nextNode.next();
@@ -265,22 +267,29 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
       for (const downloadPage of uniqueDownloadPages) {
         try {
-          const epPageResp = await fetch(downloadPage, { headers: HEADERS, skipSizeCheck: true });
+          const epPageResp = await fetch(downloadPage.href, { headers: HEADERS, skipSizeCheck: true });
           const epPageHtml = await epPageResp.text();
           const $epPage = cheerio.load(epPageHtml);
           
           const targetUrls = [];
           $epPage("h5, h4, h3").each((i, el) => {
-            const text = $(el).text().toLowerCase();
-            const epMatch = text.match(/episodes?\s*[:\-]?\s*0*(\d+)/i);
+            const headingText = $(el).text();
+            const textLower = headingText.toLowerCase();
+            const epMatch = textLower.match(/episodes?\s*[:\-]?\s*0*(\d+)/i);
             
             if (epMatch && parseInt(epMatch[1]) === (episode || 1)) {
               let nextNode = $(el).next();
               while (nextNode.length && !["h3", "h4", "h5"].includes(nextNode[0].name)) {
                 if (nextNode[0].name === "a") {
                   const href = nextNode.attr("href") || "";
+                  const linkText = nextNode.text() || "";
+                  // Capture surrounding content block details (like resolution info embedded inside headers/paragraphs)
+                  const contextualText = headingText + " " + linkText;
+                  
                   if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4uplay.store")) {
-                    if (!targetUrls.includes(href)) targetUrls.push(href);
+                    if (!targetUrls.some(t => t.href === href)) {
+                      targetUrls.push({ href, contextualText });
+                    }
                   }
                 }
                 nextNode = nextNode.next();
@@ -288,14 +297,14 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             }
           });
 
-          for (const rawUrl of targetUrls) {
-            let quality = extractQuality(downloadPage + " " + rawUrl + " " + siteTitleContext);
-            const meta = parseExtraMetadata(downloadPage + " " + rawUrl + " " + siteTitleContext);
+          for (const target of targetUrls) {
+            let quality = extractQuality(target.contextualText + " " + downloadPage.parentText + " " + siteTitleContext);
+            const meta = parseExtraMetadata(target.contextualText + " " + downloadPage.parentText + " " + siteTitleContext);
 
-            if (rawUrl.includes("m4uplay.store")) {
-              const directM3u8 = await extractDirectM3u8(rawUrl);
+            if (target.href.includes("m4uplay.store")) {
+              const directM3u8 = await extractDirectM3u8(target.href);
               if (directM3u8) {
-                if (quality === "Unknown") quality = extractQuality(rawUrl + " " + directM3u8);
+                if (quality === "Unknown") quality = extractQuality(target.href + " " + directM3u8);
                 rawStreamsList.push({
                   server: "M4U Player",
                   quality: quality === "Unknown" ? "1080p" : quality,
@@ -305,9 +314,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
                 });
               }
             } else {
-              const extractedLinks = await resolveAllHubCloudLinks(rawUrl);
+              const extractedLinks = await resolveAllHubCloudLinks(target.href);
               for (const linkItem of extractedLinks) {
-                const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${downloadPage} ${siteTitleContext}`;
+                const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${target.contextualText} ${downloadPage.parentText} ${siteTitleContext}`;
                 const innerMeta = parseExtraMetadata(searchString);
                 let finalQuality = extractQuality(searchString);
                 if (finalQuality === "Unknown") finalQuality = quality !== "Unknown" ? quality : "1080p";
@@ -335,34 +344,54 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       const uniqueRedirectPages = [];
       $page("a[href]").each((i, el) => {
         const href = $(el).attr("href") || "";
-        const text = $(el).text().toLowerCase();
-        if (href.includes("m4ulinks.com") && text.includes("download links")) {
-          if (!uniqueRedirectPages.includes(href)) uniqueRedirectPages.push(href);
+        const text = $(el).text() || "";
+        if (href.includes("m4ulinks.com") && text.toLowerCase().includes("download links")) {
+          if (!uniqueRedirectPages.some(p => p.href === href)) {
+            uniqueRedirectPages.push({ href, parentText: text });
+          }
         }
       });
 
       for (const redirectPage of uniqueRedirectPages) {
         try {
-          const innerResp = await fetch(redirectPage, { headers: HEADERS, skipSizeCheck: true });
+          const innerResp = await fetch(redirectPage.href, { headers: HEADERS, skipSizeCheck: true });
           const innerHtml = await innerResp.text();
           const $inner = cheerio.load(innerHtml);
           
           const targetUrls = [];
-          $inner("a[href]").each((i, el) => {
-            const href = $(el).attr("href") || "";
+          // Search for structured buttons/headers containing resolution details
+          $inner("h1, h2, h3, h4, h5, h6, p, a.btn, a[href]").each((i, el) => {
+            const currentElement = $(el);
+            let href = currentElement.attr("href") || "";
+            let contextText = currentElement.text() || "";
+
+            // If it's a structural container (like an h4 pointing to a block of download buttons), 
+            // merge it with downstream child nodes or button text
+            if (!href) {
+              const localAnchor = currentElement.find("a[href]").first();
+              if (localAnchor.length) {
+                href = localAnchor.attr("href") || "";
+                contextText += " " + localAnchor.text();
+              }
+            }
+
             if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4uplay.store")) {
-              if (!targetUrls.includes(href)) targetUrls.push(href);
+              if (!targetUrls.some(t => t.href === href)) {
+                // Look around the DOM tree slightly for size tags (e.g., text directly matching size expressions)
+                const nearText = currentElement.parent().text() || "";
+                targetUrls.push({ href, contextualText: contextText + " " + nearText });
+              }
             }
           });
 
-          for (const rawUrl of targetUrls) {
-            let quality = extractQuality(redirectPage + " " + rawUrl + " " + siteTitleContext);
-            const meta = parseExtraMetadata(redirectPage + " " + rawUrl + " " + siteTitleContext);
+          for (const target of targetUrls) {
+            let quality = extractQuality(target.contextualText + " " + redirectPage.parentText + " " + siteTitleContext);
+            const meta = parseExtraMetadata(target.contextualText + " " + redirectPage.parentText + " " + siteTitleContext);
 
-            if (rawUrl.includes("m4uplay.store")) {
-              const directM3u8 = await extractDirectM3u8(rawUrl);
+            if (target.href.includes("m4uplay.store")) {
+              const directM3u8 = await extractDirectM3u8(target.href);
               if (directM3u8) {
-                if (quality === "Unknown") quality = extractQuality(rawUrl + " " + directM3u8);
+                if (quality === "Unknown") quality = extractQuality(target.href + " " + directM3u8 + " " + target.contextualText);
                 rawStreamsList.push({
                   server: "M4U Player",
                   quality: quality === "Unknown" ? "1080p" : quality,
@@ -372,9 +401,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
                 });
               }
             } else {
-              const extractedLinks = await resolveAllHubCloudLinks(rawUrl);
+              const extractedLinks = await resolveAllHubCloudLinks(target.href);
               for (const linkItem of extractedLinks) {
-                const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${redirectPage} ${siteTitleContext}`;
+                const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${target.contextualText} ${redirectPage.parentText} ${siteTitleContext}`;
                 const innerMeta = parseExtraMetadata(searchString);
                 let finalQuality = extractQuality(searchString);
                 if (finalQuality === "Unknown") finalQuality = quality !== "Unknown" ? quality : "1080p";

@@ -404,8 +404,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
                 if (quality === "Unknown") quality = extractQuality(target.href + " " + directM3u8);
                 rawStreamsList.push({
                   server: "M4U Player",
-                  quality: quality === "Unknown" ? "1080p" : quality,
-                  meta: meta,
+                  quality: detectedQuality || urlMeta.quality || (quality === "Unknown" ? "1080p" : quality),
+                  meta: { ...meta, ...urlMeta.meta, size: detectedSize || urlMeta.meta.size || meta.size
+},
                   url: directM3u8,
                   headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }
                 });
@@ -491,8 +492,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
                 if (quality === "Unknown") quality = extractQuality(target.href + " " + directM3u8 + " " + target.contextualText);
                 rawStreamsList.push({
                   server: "M4U Player",
-                  quality: quality === "Unknown" ? "1080p" : quality,
-                  meta: meta,
+                  quality: detectedQuality || urlMeta.quality || (quality === "Unknown" ? "1080p" : quality),
+                  meta: { ...meta, ...urlMeta.meta, size: detectedSize || urlMeta.meta.size || meta.size
+},
                   url: directM3u8,
                   headers: { Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store", "User-Agent": HEADERS["User-Agent"] }
                 });
@@ -504,13 +506,20 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
                 const innerMeta = parseExtraMetadata(searchString);
                 let finalQuality = extractQuality(searchString);
                 if (finalQuality === "Unknown") finalQuality = quality !== "Unknown" ? quality : "1080p";
+              const urlMeta = extractMetadataFromUrl(linkItem.url);
 
+              const detectedSize = await detectFileSize(
+                linkItem.url,
+  {
+                "User-Agent": HEADERS["User-Agent"]
+  }
+);
                 rawStreamsList.push({
                   server: cleanServerName(linkItem.label || "HubCloud"),
-                  quality: finalQuality,
+                  quality: urlMeta.quality !== "Unknown" ? urlMeta.quality : finalQuality,
                   meta: { 
                     language: innerMeta.language !== "Hindi-English" ? innerMeta.language : meta.language,
-                    size: innerMeta.size !== "N/A" ? innerMeta.size : (meta.size !== "N/A" ? meta.size : "2.1GB"),
+                    size: detectedSize || (innerMeta.size !== "N/A" ? innerMeta.size : (urlMeta.meta.size !== "N/A" ? urlMeta.meta.size : (meta.size !== "N/A" ? meta.size : "1.4GB"))),
                     format: innerMeta.format,
                     extras: innerMeta.extras
                   },

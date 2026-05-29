@@ -113,6 +113,77 @@ async function resolveAllHubCloudLinks(hubCloudUrl) {
 }
 
 /**
+ * Detects quality directly from m3u8 master playlists
+ */
+async function detectM3U8Quality(url, headers = {}) {
+  try {
+    const resp = await fetch(url, {
+      headers,
+      skipSizeCheck: true
+    });
+
+    const text = await resp.text();
+
+    const resolutions = [...text.matchAll(/RESOLUTION=\d+x(\d+)/gi)]
+      .map(m => parseInt(m[1]))
+      .filter(Boolean);
+
+    if (!resolutions.length) return null;
+
+    const maxRes = Math.max(...resolutions);
+
+    if (maxRes >= 2160) return "4K";
+    if (maxRes >= 1080) return "1080p";
+    if (maxRes >= 720) return "720p";
+    if (maxRes >= 480) return "480p";
+
+  } catch (_) {}
+
+  return null;
+}
+
+/**
+ * Detects real file size using content-length header
+ */
+async function detectFileSize(url, headers = {}) {
+  try {
+    const resp = await fetch(url, {
+      method: "HEAD",
+      headers,
+      skipSizeCheck: true,
+      redirect: "follow"
+    });
+
+    const size = resp.headers.get("content-length");
+
+    if (!size) return null;
+
+    const bytes = parseInt(size);
+
+    if (bytes >= 1024 * 1024 * 1024) {
+      return (bytes / (1024 * 1024 * 1024)).toFixed(1) + "GB";
+    }
+
+    return Math.round(bytes / (1024 * 1024)) + "MB";
+
+  } catch (_) {}
+
+  return null;
+}
+
+/**
+ * Extract metadata from filenames/URLs
+ */
+function extractMetadataFromUrl(url) {
+  const decoded = decodeURIComponent(url);
+
+  return {
+    quality: extractQuality(decoded),
+    meta: parseExtraMetadata(decoded)
+  };
+}
+
+/**
  * Unpacks Dean Edwards p.a.c.k.e.d JS code blocks natively
  */
 function unpackJS(p, a, c, k) {  

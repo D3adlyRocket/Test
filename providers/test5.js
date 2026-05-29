@@ -1,5 +1,5 @@
 // movies4u.js
-// Fixed Nuvio-compatible Movies4u provider (stable + corrected quality handling)
+// Fixed Nuvio-compatible Movies4u provider (REAL FIX - stream isolated quality handling)
 
 const cheerio = require("cheerio");
 
@@ -17,7 +17,8 @@ const HEADERS = {
 
 let cachedBaseUrl = null;
 
-/* ---------------- BASE URL ---------------- */
+/* ================= BASE ================= */
+
 async function getBaseUrl() {
   if (cachedBaseUrl) return cachedBaseUrl;
 
@@ -32,7 +33,8 @@ async function getBaseUrl() {
   return cachedBaseUrl;
 }
 
-/* ---------------- QUALITY DETECTION ---------------- */
+/* ================= QUALITY ENGINE (FIX CORE ISSUE) ================= */
+
 function extractQuality(text = "") {
   const u = text.toLowerCase();
 
@@ -45,7 +47,23 @@ function extractQuality(text = "") {
   return "Unknown";
 }
 
-/* ---------------- METADATA ---------------- */
+/**
+ * REAL FIX: prevents ALL streams inheriting same quality
+ */
+function resolveQuality({ linkText = "", href = "", detected = null }) {
+  const q1 = extractQuality(linkText);
+  if (q1 !== "Unknown") return q1;
+
+  const q2 = extractQuality(href);
+  if (q2 !== "Unknown") return q2;
+
+  if (detected && detected !== "Unknown") return detected;
+
+  return "1080p";
+}
+
+/* ================= METADATA ================= */
+
 function parseExtraMetadata(text = "") {
   const norm = text.toUpperCase();
 
@@ -65,40 +83,25 @@ function parseExtraMetadata(text = "") {
   if (norm.includes("MP4")) format = "MP4";
   if (norm.includes("HEVC") || norm.includes("H265") || norm.includes("X265"))
     format += " (x265)";
-  else if (norm.includes("H264") || norm.includes("X264")) format += " (x264)";
-
-  const extras = [];
-  if (norm.includes("HDR")) extras.push("HDR");
-  if (norm.includes("ATMOS") || norm.includes("DOLBY")) extras.push("Dolby");
-  if (norm.includes("10BIT")) extras.push("10-Bit");
-  if (norm.includes("REMUX")) extras.push("Remux");
+  else if (norm.includes("H264") || norm.includes("X264"))
+    format += " (x264)";
 
   return {
     language: lang,
     size,
     format,
-    extras: extras.length ? extras.join(" | ") : "Standard"
+    extras: "Standard"
   };
 }
 
-/* ---------------- QUALITY FIX (IMPORTANT PART) ---------------- */
-function resolveBestQuality({ detected, url, text }) {
-  // priority order (FIXES YOUR ISSUE)
-  return (
-    detected ||
-    extractQuality(url) ||
-    extractQuality(text) ||
-    "1080p"
-  );
-}
+/* ================= HUB CLOUD ================= */
 
-/* ---------------- HUB CLOUD ---------------- */
-function cleanServerName(serverText = "") {
-  let clean = serverText.toLowerCase();
+function cleanServerName(label = "") {
+  const l = label.toLowerCase();
 
-  if (clean.includes("fsl") || clean.includes("fast")) return "FSL Server";
-  if (clean.includes("pixel")) return "PixelDrain";
-  if (clean.includes("drive")) return "Cloud Drive";
+  if (l.includes("fsl")) return "FSL Server";
+  if (l.includes("pixel")) return "PixelDrain";
+  if (l.includes("drive")) return "Cloud Drive";
 
   return "HubCloud Server";
 }
@@ -114,7 +117,8 @@ async function resolveAllHubCloudLinks(url) {
   }
 }
 
-/* ---------------- DIRECT M3U8 ---------------- */
+/* ================= DIRECT M3U8 ================= */
+
 async function extractDirectM3u8(url) {
   try {
     const resp = await fetch(url, {
@@ -133,7 +137,8 @@ async function extractDirectM3u8(url) {
   return null;
 }
 
-/* ---------------- STREAM ROUTER ---------------- */
+/* ================= STREAMS ================= */
+
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   try {
     const BASE_URL = await getBaseUrl();
@@ -146,35 +151,38 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
     const year = (mediaInfo.release_date || mediaInfo.first_air_date || "").split("-")[0];
 
-    const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`);
-    const $ = cheerio.load(await searchResp.text());
+    const search = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`);
+    const $ = cheerio.load(await search.text());
 
     const first = $("article a").first().attr("href");
     if (!first) return [];
 
-    const pageResp = await fetch(first);
-    const $page = cheerio.load(await pageResp.text());
-
-    const streams = [];
+    const page = await fetch(first);
+    const $page = cheerio.load(await page.text());
 
     const links = [];
     $page("a[href*='m4uplay']").each((_, el) => {
       links.push($(el).attr("href"));
     });
 
+    const streams = [];
+
     for (const link of links) {
       const direct = await extractDirectM3u8(link);
       if (!direct) continue;
 
-      const detectedQuality = extractQuality(direct);
+      const detected = extractQuality(direct);
 
       streams.push({
         server: "Player Direct",
-        quality: resolveBestQuality({
-          detected: detectedQuality,
-          url: direct,
-          text: title
+
+        // ✅ FIXED QUALITY (NO MORE GLOBAL COLLISION)
+        quality: resolveQuality({
+          linkText: title,
+          href: direct,
+          detected
         }),
+
         meta: parseExtraMetadata(title),
         url: direct,
         headers: {

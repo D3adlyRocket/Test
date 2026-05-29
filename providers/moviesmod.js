@@ -28,7 +28,7 @@ async function getBaseUrl() {
   
 function extractQuality(text) {  
   const u = (text || "").toLowerCase();  
-  if (u.includes("2160") || u.includes("4k")) return "4K";  
+  if (u.includes("2160") || u.includes("4k") || u.includes("uhd")) return "4K";  
   if (u.includes("1080")) return "1080p";  
   if (u.includes("720")) return "720p";  
   if (u.includes("480")) return "480p";  
@@ -45,9 +45,15 @@ function parseExtraMetadata(text) {
   if (norm.includes("DUAL")) lang = "Dual Audio";
   if (norm.includes("ENGLISH") && !norm.includes("HINDI")) lang = "English";
   
-  // 2. Sizes (Improved regex to match formats like "1.2GB", "700MB", "2 GB" without getting lost)
+  // 2. Sizes (Enhanced fallback parsing for hidden size blocks)
   const sizeMatch = norm.match(/(\d+(?:\.\d+)?\s*[MGB]B)/i);
-  const size = sizeMatch ? sizeMatch[0].replace(/\s+/g, "") : "N/A";
+  let size = sizeMatch ? sizeMatch[0].replace(/\s+/g, "") : "N/A";
+  
+  // Try matching plain text numbers if they are explicitly surrounded by file indicators
+  if (size === "N/A") {
+    const backupSizeMatch = norm.match(/GB_|\s(\d+\.\d+)GB/i);
+    if (backupSizeMatch) size = backupSizeMatch[1] + "GB";
+  }
   
   // 3. Formats & Codecs
   let format = "MKV";
@@ -58,7 +64,7 @@ function parseExtraMetadata(text) {
   // 4. Extra Features
   const extras = [];
   if (norm.includes("HDR")) extras.push("HDR");
-  if (norm.includes("DOLBY") || norm.includes("ATMOS") || norm.includes("DD5")) extras.push("Dolby 5.1");
+  if (norm.includes("DOLBY") || norm.includes("DV") || norm.includes("VISION") || norm.includes("ATMOS") || norm.includes("DD5")) extras.push("Dolby Vision/5.1");
   if (norm.includes("10BIT")) extras.push("10-Bit");
   if (norm.includes("REMUX")) extras.push("Remux");
   
@@ -77,16 +83,15 @@ function cleanServerName(serverText) {
   if (!serverText) return "HubCloud";
   let clean = serverText.toLowerCase();
   
-  // Remove wrapper syntax words commonly passed by scraper lists
-  clean = clean.replace(/download|links?|button|\s+/gi, " ").trim();
-  clean = clean.replace(/[\[\]\(\)]/g, "").trim(); // Strip brackets/parentheses inside string
-  
-  if (clean.includes("fsl")) return "FSL Server";
+  if (clean.includes("fsl") || clean.includes("fast")) return "FSL Server";
   if (clean.includes("pixel")) return "PixelDrain";
-  if (clean.includes("drive")) return "Cloud Drive";
+  if (clean.includes("drive") || clean.includes("gdrive")) return "Cloud Drive";
   
-  // Fallback Capitalization
-  return clean.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+  // Strip common packaging text wrappers
+  clean = clean.replace(/download|links?|button|server|\s+/gi, " ").trim();
+  clean = clean.replace(/[\[\]\(\)]/g, "").trim(); 
+  
+  return clean.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ') + " Server";
 }
 
 /**
@@ -224,7 +229,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       const directM3u8 = await extractDirectM3u8(playerUrl);
       if (directM3u8) {
         let quality = extractQuality(playerUrl + " " + directM3u8);
-        const meta = parseExtraMetadata(playerUrl);
+        const meta = parseExtraMetadata(playerUrl + " " + directM3u8);
         
         rawStreamsList.push({
           server: "Player Direct",
@@ -302,6 +307,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             } else {
               const extractedLinks = await resolveAllHubCloudLinks(rawUrl);
               for (const linkItem of extractedLinks) {
+                // Read straight from final video object parameters to override text missing errors
                 const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${downloadPage}`;
                 const innerMeta = parseExtraMetadata(searchString);
                 let finalQuality = extractQuality(searchString);
@@ -369,6 +375,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             } else {
               const extractedLinks = await resolveAllHubCloudLinks(rawUrl);
               for (const linkItem of extractedLinks) {
+                // Read straight from final video object parameters to override text missing errors
                 const searchString = `${linkItem.label || ""} ${linkItem.url || ""} ${redirectPage}`;
                 const innerMeta = parseExtraMetadata(searchString);
                 let finalQuality = extractQuality(searchString);
@@ -393,11 +400,11 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       }
     }
 
-    // ─── SORTING LOGIC (2160p -> 1080p -> 720p -> 480p) ───
+    // ─── SORTING LOGIC (Force 4K/2160p to top perfectly) ───
     const qualityWeights = { "4K": 5, "1080p": 4, "720p": 3, "480p": 2, "360p": 1, "Unknown": 0 };
     rawStreamsList.sort((a, b) => (qualityWeights[b.quality] || 0) - (qualityWeights[a.quality] || 0));
 
-    // ─── FINAL OUTPUT FORMATTING WITH ICON LAYOUT ───
+    // ─── FINAL OUTPUT FORMATTING WITH CLEAN [FSL Server] HEADERS ───
     const finalStreams = rawStreamsList.map(stream => {
       const epInfo = (mediaType === "series") ? ` - S${season || 1}E${episode || 1}` : "";
       

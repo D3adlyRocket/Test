@@ -452,7 +452,7 @@ const detectedSize = await detectFileSize(
                   quality: urlMeta.quality !== "Unknown" ? urlMeta.quality : finalQuality,
                   meta: { 
                     language: innerMeta.language !== "Hindi-English" ? innerMeta.language : meta.language,
-                    size: detectedSize || (innerMeta.size !== "N/A" ? innerMeta.size : (urlMeta.meta.size !== "N/A" ? urlMeta.meta.sizen: (meta.size !== "N/A" ? meta.size : "1.4GB"))),
+                    size: detectedSize || (innerMeta.size !== "N/A" ? innerMeta.size : (urlMeta.meta.size !== "N/A" ? urlMeta.meta.size: (meta.size !== "N/A" ? meta.size : "1.4GB"))),
                     format: innerMeta.format,
                     extras: innerMeta.extras
                   },

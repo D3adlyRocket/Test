@@ -318,28 +318,6 @@ async function detectM3U8Quality(url, headers = {}) {
   return fallback || "720p";
 }
 
-    // 3. Filesize heuristic
-    const size = await detectFileSize(url);
-
-    if (size) {
-
-      const gb =
-        parseFloat(size);
-
-      if (!isNaN(gb)) {
-
-        if (gb >= 12) return "4K";
-        if (gb >= 3) return "1080p";
-        if (gb >= 1.2) return "720p";
-        if (gb >= 0.5) return "480p";
-      }
-    }
-
-  } catch (_) {}
-
-  return fallback || "1080p";
-}
-
 // =======================
 // FILE SIZE DETECTOR
 // =======================

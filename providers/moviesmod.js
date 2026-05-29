@@ -401,7 +401,28 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             if (target.href.includes("m4uplay.store")) {
               const directM3u8 = await extractDirectM3u8(target.href);
               if (directM3u8) {
-                if (quality === "Unknown") quality = extractQuality(target.href + " " + directM3u8);
+
+  const urlMeta = extractMetadataFromUrl(directM3u8);
+
+  const detectedQuality = await detectM3U8Quality(
+    directM3u8,
+    {
+      Referer: "https://m4uplay.store/"
+    }
+  );
+
+  const detectedSize = await detectFileSize(
+    directM3u8,
+    {
+      Referer: "https://m4uplay.store/"
+    }
+  );
+
+  if (quality === "Unknown") {
+    quality = extractQuality(
+      target.href + " " + directM3u8
+    );
+  }
                 rawStreamsList.push({
                   server: "M4U Player",
                   quality: detectedQuality || urlMeta.quality || (quality === "Unknown" ? "1080p" : quality),
@@ -489,7 +510,28 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             if (target.href.includes("m4uplay.store")) {
               const directM3u8 = await extractDirectM3u8(target.href);
               if (directM3u8) {
-                if (quality === "Unknown") quality = extractQuality(target.href + " " + directM3u8 + " " + target.contextualText);
+
+  const urlMeta = extractMetadataFromUrl(directM3u8);
+
+  const detectedQuality = await detectM3U8Quality(
+    directM3u8,
+    {
+      Referer: "https://m4uplay.store/"
+    }
+  );
+
+  const detectedSize = await detectFileSize(
+    directM3u8,
+    {
+      Referer: "https://m4uplay.store/"
+    }
+  );
+
+  if (quality === "Unknown") {
+    quality = extractQuality(
+      target.href + " " + directM3u8
+    );
+  }
                 rawStreamsList.push({
                   server: "M4U Player",
                   quality: detectedQuality || urlMeta.quality || (quality === "Unknown" ? "1080p" : quality),

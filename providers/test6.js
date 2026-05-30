@@ -1,255 +1,140 @@
-// MovieBox Global Scraper for Nuvio
-// Supports all languages (English, Hindi, Tamil, Telugu, etc.)
-// Uses h5-api.aoneroom.com with X-Client-Token + Referer auth
+const cheerio = require('cheerio-without-node-native');
+// dudefilms.js
+// DudeFilms - Hindi/Bollywood/South Indian movie & series site (dudefilms.sarl)
+// Search: /page/1/?s={query}
+// Download links: a.maxbutton → redirect pages with more maxbutton links → final stream URLs
+// Uses Cinemeta for metadata enhancement
 
-var API = "https://h5-api.aoneroom.com";
-var TMDB_KEY = 'd131017ccc6e5462a81c9304d21476de';
-var TMDB_URL = 'https://api.themoviedb.org/3';
-var SITE = 'https://themoviebox.org';
+const BASE_URL = "https://dudefilms.sarl";
+const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
+const CINEMETA_URL = "https://v3-cinemeta.strem.io/meta";
+const HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+  "Referer": `${BASE_URL}/`
+};
 
-function genToken() {
-    var ts = Math.floor(Date.now() / 1000).toString();
-    var rev = ts.split('').reverse().join('');
-    var hash = CryptoJS.MD5(rev).toString(CryptoJS.enc.Hex);
-    return ts + '.' + hash;
+function extractQuality(url) {
+  const u = (url || "").toLowerCase();
+  if (u.includes("2160p") || u.includes("4k")) return "4K";
+  if (u.includes("1080p")) return "1080p";
+  if (u.includes("720p")) return "720p";
+  if (u.includes("480p")) return "480p";
+  return "Unknown";
 }
 
-function baseHdrs(extra) {
-    var h = {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-        'Origin': SITE,
-        'Referer': SITE + '/',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'x-client-info': '{"timezone":"Asia/Calcutta"}',
-        'x-request-lang': 'en',
-        'X-Client-Token': genToken()
-    };
-    if (extra) { for (var k in extra) h[k] = extra[k]; }
-    return h;
-}
+async function getStreams(tmdbId, mediaType, season, episode) {
+  try {
+    // 1. Get title from TMDB
+    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const mediaInfo = await (await fetch(tmdbUrl)).json();
+    const title = mediaInfo.title || mediaInfo.name;
+    if (!title) return [];
 
-function apiCall(method, url, body, extraHdrs) {
-    var opts = { method: method, headers: baseHdrs(extraHdrs) };
-    if (body) opts.body = JSON.stringify(body);
-    return fetch(url, opts).then(function(r) {
-        return r.text().then(function(txt) {
-            if (!r.ok) return null;
-            try { return JSON.parse(txt); } catch(e) { return txt; }
-        });
-    }).catch(function() { return null; });
-}
+    // 2. Search
+    const searchUrl = `${BASE_URL}/page/1/?s=${encodeURIComponent(title)}`;
+    const searchHtml = await (await fetch(searchUrl, { headers: HEADERS})).text();
+    const $ = cheerio.load(searchHtml);
 
-function getTmdb(tmdbId, type) {
-    var mt = (type === 'series' || type === 'tv') ? 'tv' : 'movie';
-    return fetch(TMDB_URL + '/' + mt + '/' + tmdbId + '?api_key=' + TMDB_KEY).then(function(r) {
-        return r.json();
-    }).then(function(d) {
-        return {
-            title: mt === 'movie' ? (d.title || d.original_title) : (d.name || d.original_name),
-            year: (d.release_date || d.first_air_date || '').substring(0, 4),
-            mediaType: mt
-        };
-    }).catch(function() { return null; });
-}
-
-function normTitle(s) {
-    if (!s) return "";
-    return s.replace(/\[.*?\]/g, " ").replace(/\(.*?\)/g, " ")
-        .replace(/\b(dub|dubbed|hd|4k|hindi|tamil|telugu)\b/gi, " ")
-        .replace(/\b(dual audio)\b/gi, " ")
-        .trim().toLowerCase().replace(/:/g, " ")
-        .replace(/[^\w\s]/g, " ").replace(/\s+/g, " ");
-}
-
-function extractLang(title) {
-    if (!title) return "Original";
-    var m = title.match(/\[([^\]]+)\]/);
-    if (m) {
-        var lang = m[1].trim();
-        if (lang.toLowerCase().indexOf('dub') >= 0) return lang;
-        return lang + ' Dub';
-    }
-    return "Original";
-}
-
-function baseTitle(title) {
-    if (!title) return "";
-    return title.replace(/\s*S\d+(?:-S?\d+)*$/i, "").replace(/\s*\[.*?\]\s*/g, " ").trim();
-}
-
-function searchBox(query) {
-    return apiCall('POST', API + '/wefeed-h5api-bff/subject/search', {
-        keyword: query, page: 1, perPage: 28, subjectType: 0
-    }).then(function(res) {
-        return (res && res.data && res.data.items) || [];
-    });
-}
-
-function findMatches(items, tmdbTitle, tmdbYear, mediaType) {
-    var norm = normTitle(tmdbTitle);
-    var target = mediaType === 'movie' ? 1 : 2;
-    var results = [];
-    var seen = {};
-
-    for (var i = 0; i < items.length; i++) {
-        var it = items[i];
-        if (it.subjectType !== target) continue;
-        if (seen[it.subjectId]) continue;
-
-        var bt = baseTitle(it.title);
-        var nt = normTitle(bt);
-        var yr = it.year || (it.releaseDate ? it.releaseDate.substring(0, 4) : null);
-
-        var score = 0;
-        if (nt === norm) score += 50;
-        else if (nt.indexOf(norm) >= 0 || norm.indexOf(nt) >= 0) score += 15;
-        if (tmdbYear && yr && tmdbYear == yr) score += 35;
-
-        if (score >= 40) {
-            seen[it.subjectId] = true;
-            results.push({
-                id: it.subjectId,
-                lang: extractLang(it.title),
-                dp: it.detailPath || '',
-                title: it.title
-            });
-        }
-    }
-
-    results.sort(function(a, b) {
-        if (a.lang === "Original") return -1;
-        if (b.lang === "Original") return 1;
-        return 0;
+    const results = [];
+    $("div.simple-grid-grid-post").each((i, el) => {
+      const href = $("h3 a", el).attr("href");
+      const t = $("h3", el).text().trim();
+      if (href) results.push({ title: t, url: href });
     });
 
-    return results;
-}
+    if (!results.length) return [];
 
-function getDownloads(subjectId, se, ep, detailPath) {
-    var url = API + '/wefeed-h5api-bff/subject/download?subjectId=' + subjectId;
-    if (se != null) url += '&se=' + se;
-    if (ep != null) url += '&ep=' + ep;
-    return apiCall('GET', url, null, {
-        'Referer': SITE + '/watch/' + detailPath
-    }).then(function(res) {
-        return (res && res.data && res.data.downloads) || [];
-    });
-}
+    const isTV = mediaType === "tv";
+    const lcTitle = title.toLowerCase();
+    let match = results.find(r => r.title.toLowerCase().includes(lcTitle));
+    if (!match) match = results[0];
 
-function getDetail(detailPath) {
-    return apiCall('GET', API + '/wefeed-h5api-bff/detail?detailPath=' + detailPath);
-}
+    const pageUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
 
-function buildStreams(downloads, lang) {
-    var seen = {};
-    var result = [];
-    for (var i = 0; i < downloads.length; i++) {
-        var dl = downloads[i];
-        if (!dl.url || seen[dl.url]) continue;
-        seen[dl.url] = true;
-        var qual = (dl.resolution || 'Auto') + 'p';
-        var ft = null;
-        var u = dl.url.toLowerCase();
-        if (u.indexOf('.m3u8') >= 0) ft = 'hls';
-        else if (u.indexOf('.mp4') >= 0 || u.indexOf('.mkv') >= 0) ft = 'video';
-        var nameParts = ['MovieBox'];
-        if (lang && lang !== 'Original') nameParts.push(lang);
-        nameParts.push(qual);
-        result.push({
-            name: nameParts.join(' | '),
-            title: qual,
-            url: dl.url,
-            quality: qual,
-            type: ft,
-            headers: { 'Referer': SITE + '/', 'Origin': SITE },
-            provider: 'moviebox'
-        });
-    }
-    return result;
-}
+    // 3. Load show page
+    const pageHtml = await (await fetch(pageUrl, { headers: HEADERS})).text();
+    const $page = cheerio.load(pageHtml);
 
-function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
-    if (seasonNum == null) seasonNum = 1;
-    if (episodeNum == null) episodeNum = 1;
+    const streams = [];
 
-    return getTmdb(tmdbId, mediaType).then(function(details) {
-        if (!details) return [];
+    if (isTV) {
+      // Find season headers (h4 with "Season N") then follow links to episode pages
+      let found = false;
+      const h4s = $page("h4").toArray();
 
-        return searchBox(details.title).then(function(items) {
-            var matches = findMatches(items, details.title, details.year, details.mediaType);
+      for (const h4 of h4s) {
+        if (found) break;
+        const h4Text = $page(h4).text();
+        const seasonMatch = h4Text.match(/\bSeason\s*(\d+)\b/i);
+        if (!seasonMatch || parseInt(seasonMatch[1]) !== season) continue;
 
-            if (matches.length === 0) {
-                var words = details.title.split(' ');
-                if (words.length > 3) {
-                    return searchBox(words.slice(0, 3).join(' ')).then(function(items2) {
-                        var m2 = findMatches(items2, details.title, details.year, details.mediaType);
-                        return processMatches(m2, details, seasonNum, episodeNum);
-                    });
-                }
-                return [];
-            }
+        let sibling = $page(h4).next();
+        while (sibling.length && sibling.prop("tagName") === "P") {
+          const seasonButtons = sibling.find("a.maxbutton").toArray();
+          for (const btn of seasonButtons) {
+            if (found) break;
+            const seasonPageUrl = $page(btn).attr("href");
+            if (!seasonPageUrl) continue;
 
-            return processMatches(matches, details, seasonNum, episodeNum);
-        });
-    });
-}
+            try {
+              const seasonPageHtml = await (await fetch(seasonPageUrl, { headers: HEADERS})).text();
+              const $seasonPage = cheerio.load(seasonPageHtml);
 
-function processMatches(matches, details, seasonNum, episodeNum) {
-    var isTv = details.mediaType === 'tv';
-    var se = isTv ? (parseInt(seasonNum, 10) || 1) : 0;
-    var ep = isTv ? (parseInt(episodeNum, 10) || 1) : 0;
+              const epButtons = $seasonPage("a.maxbutton-ep").toArray();
+              for (const epBtn of epButtons) {
+                const epText = $seasonPage(epBtn).text();
+                const epMatch = epText.match(/(?:Episode|Ep|E)\s*(\d+)/i);
+                if (!epMatch || parseInt(epMatch[1]) !== episode) continue;
 
-    var seenIds = {};
-    var unique = [];
-    for (var i = 0; i < matches.length; i++) {
-        if (!seenIds[matches[i].id]) {
-            seenIds[matches[i].id] = true;
-            unique.push(matches[i]);
-        }
-    }
+                const epUrl = $seasonPage(epBtn).attr("href");
+                if (!epUrl) continue;
 
-    var promises = unique.map(function(m) {
-        if (isTv) {
-            return getDetail(m.dp).then(function(detailRes) {
-                var resource = detailRes && detailRes.data && detailRes.data.resource;
-                var useSe = se;
-                var useEp = ep;
-                if (resource && resource.seasons) {
-                    for (var j = 0; j < resource.seasons.length; j++) {
-                        if (resource.seasons[j].se == se) {
-                            if (resource.seasons[j].maxEp > 0 && ep > resource.seasons[j].maxEp) {
-                                useEp = resource.seasons[j].maxEp;
-                            }
-                            break;
-                        }
-                    }
-                }
-                return getDownloads(m.id, useSe, useEp, m.dp).then(function(dls) {
-                    return buildStreams(dls, m.lang);
+                // This URL is a final stream link
+                streams.push({
+                  url: epUrl,
+                  quality: extractQuality(epUrl),
+                  title: `DudeFilms [S${season}E${episode}]`,
+                  subtitles: []
                 });
-            });
+                found = true;
+                break;
+              }
+            } catch (e) {}
+          }
+          sibling = sibling.next();
         }
-        return getDownloads(m.id, 0, 0, m.dp).then(function(dls) {
-            return buildStreams(dls, m.lang);
-        });
-    });
+      }
+    } else {
+      // Movie: follow a.maxbutton links
+      const maxButtons = $page("a.maxbutton").toArray();
+      for (const btn of maxButtons) {
+        try {
+          const btnUrl = $page(btn).attr("href");
+          if (!btnUrl) continue;
+          const btnHtml = await (await fetch(btnUrl, { headers: HEADERS})).text();
+          const $btn = cheerio.load(btnHtml);
+          $btn("a.maxbutton").each((i, a) => {
+            const href = $btn(a).attr("href");
+            if (href && href.startsWith("http")) {
+              streams.push({
+                url: href,
+                quality: extractQuality(href),
+                title: `DudeFilms`,
+                subtitles: []
+              });
+            }
+          });
+        } catch (e) {}
+      }
+    }
 
-    return Promise.all(promises).then(function(results) {
-        var all = [];
-        for (var i = 0; i < results.length; i++) {
-            all = all.concat(results[i]);
-        }
-        all.sort(function(a, b) {
-            var qa = parseInt(a.quality) || 0;
-            var qb = parseInt(b.quality) || 0;
-            if (qb !== qa) return qb - qa;
-            var la = a.name.indexOf('Original') >= 0 ? 0 : 1;
-            var lb = b.name.indexOf('Original') >= 0 ? 0 : 1;
-            return la - lb;
-        });
-        return all;
-    });
+    return streams;
+  } catch (e) {
+    console.error("[DudeFilms]", e);
+    return [];
+  }
 }
 
-module.exports = { getStreams: getStreams };
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams };
+}

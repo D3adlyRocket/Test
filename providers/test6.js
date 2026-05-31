@@ -1,206 +1,189 @@
-const cheerio = require("cheerio-without-node-native");
+// torrastream.js
+// Provider: TorraStream
+// Torrent-based streaming using Torrentio Stremio addon + IMDB ID lookup
+// Returns magnet links and direct stream URLs from Torrentio/ThePirateBay/TorrentsDB
 
-// OnePace provider
-const BASE_URL = "https://onepace.co";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
+const TORRENTIO_API = "https://torrentio.strem.fun";
+const THEPIRATEBAY_API = "https://thepiratebay-plus.strem.fun";
+const TORRENTSDB_API = "https://torrentsdb.com";
+const TRACKER_LIST_URL = "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt";
 
 const HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
-  Referer: BASE_URL + "/",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "application/json"
 };
 
-async function getStreams(tmdbId, mediaType, season, episode) {
+function extractQuality(str) {
+  const u = (str || '').toLowerCase();
+  if (u.includes('2160p') || u.includes('4k')) return '4K';
+  if (u.includes('1080p')) return '1080p';
+  if (u.includes('720p')) return '720p';
+  if (u.includes('480p')) return '480p';
+  return 'Unknown';
+}
+
+async function getTrackers() {
   try {
-    // 1. TMDB fetch
-    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    const mediaInfo = await (await fetch(tmdbUrl, { headers: HEADERS })).json();
-
-    const title = mediaInfo.title || mediaInfo.name || "";
-    if (!title) return [];
-
-    // (optional safety only — not strict)
-    if (!title.toLowerCase().includes("one piece")) {
-      return [];
-    }
-
-    // 2. Load OnePace page
-    const seriesUrl = `${BASE_URL}/series/one-pace-english-sub/`;
-    const doc = cheerio.load(
-      await (await fetch(seriesUrl, { headers: HEADERS })).text()
-    );
-
-    const streams = [];
-    const seasonBoxes = doc("div.seasons.aa-crd > div.seasons-bx").toArray();
-
-    let episodeLinks = [];
-
-    // 3. Find episode
-    if (season && episode) {
-      for (const box of seasonBoxes) {
-        const $box = doc(box);
-        const epItems = $box.find("ul.seasons-lst.anm-a li").toArray();
-
-        for (const ep of epItems) {
-          const $ep = doc(ep);
-          const spanText = $ep.find("h3.title > span").text().trim();
-
-          const sMatch = spanText.match(/S(\d+)/);
-          const eMatch = spanText.match(/E(\d+)/);
-
-          if (sMatch && eMatch) {
-            const epSeason = parseInt(sMatch[1]);
-            const epEp = parseInt(eMatch[1]);
-
-            if (epSeason === parseInt(season) && epEp === parseInt(episode)) {
-              const href = $ep.find("a").attr("href");
-              if (href) episodeLinks.push(href);
-              break;
-            }
-          }
-        }
-
-        if (episodeLinks.length) break;
-      }
-    }
-
-    // fallback
-    if (!episodeLinks.length && seasonBoxes.length) {
-      const first = doc("ul.seasons-lst.anm-a li")
-        .first()
-        .find("a")
-        .attr("href");
-
-      if (first) episodeLinks.push(first);
-    }
-
-    // 4. Extract streams
-    for (const epUrl of episodeLinks) {
-      const fullUrl = epUrl.startsWith("http")
-        ? epUrl
-        : BASE_URL + epUrl;
-
-      const epHtml = await (
-        await fetch(fullUrl, { headers: HEADERS })
-      ).text();
-
-      const epDoc = cheerio.load(epHtml);
-
-      const bodyClass = epDoc("body").attr("class") || "";
-      const termMatch = bodyClass.match(/(?:term|postid)-(\d+)/);
-
-      if (!termMatch) continue;
-
-      const term = termMatch[1];
-
-      for (let i = 0; i <= 7; i++) {
-        try {
-          const iframeUrl = `${BASE_URL}/?trdekho=${i}&trid=${term}&trtype=2`;
-
-          const iframeHtml = await (
-            await fetch(iframeUrl, { headers: HEADERS })
-          ).text();
-
-          const iframeDoc = cheerio.load(iframeHtml);
-
-          let src = iframeDoc("iframe").attr("src");
-          if (!src) continue;
-
-          // fix relative URLs
-          if (src.startsWith("//")) src = "https:" + src;
-          if (src.startsWith("/")) src = BASE_URL + src;
-
-          // timeout fetch (safe)
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 10000);
-
-          let finalHtml = "";
-
-          try {
-            finalHtml = await (
-              await fetch(src, {
-                headers: {
-                  ...HEADERS,
-                  Referer: iframeUrl,
-                },
-                signal: controller.signal,
-              })
-            ).text();
-          } catch (e) {
-            clearTimeout(timeout);
-            continue;
-          }
-
-          clearTimeout(timeout);
-
-          // extract direct links (optional)
-          let videoUrl = null;
-
-          let match = finalHtml.match(
-            /https?:\/\/[^"' ]+\.m3u8[^"' ]*/i
-          );
-          if (match) videoUrl = match[0];
-
-          if (!videoUrl) {
-            match = finalHtml.match(/https?:\/\/[^"' ]+\.mp4[^"' ]*/i);
-            if (match) videoUrl = match[0];
-          }
-
-          if (!videoUrl) {
-            match = finalHtml.match(
-              /file\s*:\s*["']([^"']+)["']/i
-            );
-            if (match) videoUrl = match[1];
-          }
-
-          // IMPORTANT fallback (restored working behavior)
-          if (!videoUrl) {
-            videoUrl = src;
-          }
-
-          if (!videoUrl || !videoUrl.startsWith("http")) continue;
-
-          // skip junk
-          if (
-            videoUrl.includes(".jpg") ||
-            videoUrl.includes(".png") ||
-            videoUrl.includes(".gif") ||
-            videoUrl.includes("about:blank")
-          ) {
-            continue;
-          }
-
-          // avoid duplicates
-          if (streams.some((s) => s.url === videoUrl)) continue;
-
-          streams.push({
-            name: "OnePace",
-            url: videoUrl,
-            title: `OnePace Server ${i + 1}`,
-            quality: "HD",
-            subtitles: [],
-            behaviorHints: {
-              notWebReady: true,
-              proxyHeaders: {
-                request: {
-                  ...HEADERS,
-                },
-              },
-            },
-          });
-        } catch (e) {
-          console.log("Server error", i, e);
-        }
-      }
-    }
-
-    return streams;
+    const text = await (await fetch(TRACKER_LIST_URL)).text();
+    return text.split('\n')
+      .filter((l, i) => i % 2 === 0 && l.trim())
+      .slice(0, 10);
   } catch (e) {
-    console.error("[OnePace]", e);
     return [];
   }
 }
 
-if (typeof module !== "undefined" && module.exports) {
+function buildMagnet(infoHash, trackers, sources) {
+  if (!infoHash) return '';
+  const sourceTrackers = (sources || [])
+    .filter(s => s.startsWith('tracker:'))
+    .map(s => s.replace('tracker:', ''))
+    .filter(Boolean);
+
+  const allTrackers = [...sourceTrackers, ...trackers];
+  const trStr = allTrackers.map(t => `&tr=${encodeURIComponent(t)}`).join('');
+  return `magnet:?xt=urn:btih:${infoHash}${trStr}`;
+}
+
+async function invokeTorrentio(imdbId, season, episode) {
+  try {
+    const url = season != null
+      ? `${TORRENTIO_API}/stream/series/${imdbId}:${season}:${episode}.json`
+      : `${TORRENTIO_API}/stream/movie/${imdbId}.json`;
+
+    const res = await (await fetch(url, { headers: HEADERS})).json();
+    if (!res || !res.streams) return [];
+
+    const trackers = await getTrackers();
+    return res.streams.map(stream => {
+      const qualityMatch = (stream.title || '').match(/(2160p|1080p|720p)/i);
+      const quality = qualityMatch ? qualityMatch[1] : 'Unknown';
+      const seeder = (stream.title || '').match(/👤\s*(\d+)/)?.[1] || '0';
+      const magnet = buildMagnet(stream.infoHash, trackers, stream.sources || []);
+      const title = `Torrentio | ${quality} | Seeders: ${seeder}`;
+      return {
+        name: "TorraStream",
+        url: magnet,
+        quality: extractQuality(quality),
+        title,
+        subtitles: [],
+        behaviorHints: {
+          notWebReady: true,
+          proxyHeaders: {
+            request: Object.assign({}, HEADERS)
+          }
+        }
+      };
+    }).filter(s => s.url);
+  } catch (e) {
+    return [];
+  }
+}
+
+async function invokeThePirateBay(imdbId, season, episode) {
+  try {
+    const url = season != null
+      ? `${THEPIRATEBAY_API}/stream/series/${imdbId}:${season}:${episode}.json`
+      : `${THEPIRATEBAY_API}/stream/movie/${imdbId}.json`;
+
+    const res = await (await fetch(url, { headers: HEADERS})).json();
+    if (!res || !res.streams) return [];
+
+    const trackers = await getTrackers();
+    return res.streams.map(stream => {
+      const magnet = buildMagnet(stream.infoHash, trackers, []);
+      const quality = extractQuality(stream.title || '');
+      return {
+        name: "TorraStream",
+        url: magnet,
+        quality,
+        title: `ThePirateBay | ${stream.title || ''}`,
+        subtitles: [],
+        behaviorHints: {
+          notWebReady: true,
+          proxyHeaders: {
+            request: Object.assign({}, HEADERS)
+          }
+        }
+      };
+    }).filter(s => s.url);
+  } catch (e) {
+    return [];
+  }
+}
+
+async function invokeTorrentsDB(imdbId, season, episode) {
+  try {
+    const url = season != null
+      ? `${TORRENTSDB_API}/stream/series/${imdbId}:${season}:${episode}.json`
+      : `${TORRENTSDB_API}/stream/movie/${imdbId}.json`;
+
+    const res = await (await fetch(url, { headers: HEADERS})).json();
+    if (!res || !res.streams) return [];
+
+    return res.streams.map(stream => {
+      const title = stream.title || '';
+      const qualityMatch = title.match(/(2160p|1080p|720p)/i);
+      const quality = qualityMatch ? qualityMatch[1] : 'Unknown';
+      const seeder = title.match(/👤\s*(\d+)/)?.[1] || '0';
+      const magnet = buildMagnet(stream.infoHash, [], stream.sources || []);
+      return {
+        name: "TorraStream",
+        url: magnet,
+        quality: extractQuality(quality),
+        title: `TorrentsDB | ${quality} | Seeders: ${seeder}`,
+        subtitles: [],
+        behaviorHints: {
+          notWebReady: true,
+          proxyHeaders: {
+            request: Object.assign({}, HEADERS)
+          }
+        }
+      };
+    }).filter(s => s.url);
+  } catch (e) {
+    return [];
+  }
+}
+
+async function getImdbId(tmdbId, mediaType) {
+  try {
+    const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+    const res = await (await fetch(url)).json();
+    return res.external_ids?.imdb_id || res.imdb_id || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function getStreams(tmdbId, mediaType, season, episode) {
+  try {
+    // 1. Get IMDB ID from TMDB
+    const imdbId = await getImdbId(tmdbId, mediaType);
+    if (!imdbId) return [];
+
+    const isTV = mediaType === 'tv';
+    const s = isTV ? season : null;
+    const e = isTV ? episode : null;
+
+    // 2. Query multiple torrent sources in parallel
+    const [torrentioStreams, tpbStreams, torrentsDbStreams] = await Promise.all([
+      invokeTorrentio(imdbId, s, e),
+      invokeThePirateBay(imdbId, s, e),
+      invokeTorrentsDB(imdbId, s, e)
+    ]);
+
+    // 3. Combine and return (limit to 15)
+    const allStreams = [...torrentioStreams, ...tpbStreams, ...torrentsDbStreams];
+    return allStreams.slice(0, 15);
+
+  } catch (e) {
+    console.error('[TorraStream]', e);
+    return [];
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
   module.exports = { getStreams };
 }

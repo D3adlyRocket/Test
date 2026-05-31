@@ -178,7 +178,9 @@ if (!videoUrl) {
 }
 
       // Skip invalid URLs
-      if (
+if (!videoUrl.startsWith("http")) continue;
+
+if (
   videoUrl.includes(".jpg") ||
   videoUrl.includes(".jpeg") ||
   videoUrl.includes(".png") ||

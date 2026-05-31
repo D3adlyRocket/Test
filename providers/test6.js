@@ -29,8 +29,6 @@ if (!title.toLowerCase().includes("one piece")) {
 
     // 3. Find the arc matching the current season
     const streams = [];
-    let arcHref = null;
-    let termId = null;
 
     // Each season-bx block represents one arc
     const seasonBoxes = doc("div.seasons.aa-crd > div.seasons-bx").toArray();
@@ -166,14 +164,26 @@ clearTimeout(timeout);
         }
       }
 
-      // fallback to iframe source itself
-      if (!videoUrl) {
-        videoUrl = src;
-      }
+      // fallback to iframe source itself ONLY if likely playable
+if (!videoUrl) {
+  if (
+    src.includes(".m3u8") ||
+    src.includes(".mp4") ||
+    src.includes("embed")
+  ) {
+    videoUrl = src;
+  } else {
+    continue;
+  }
+}
 
       // Skip invalid URLs
-      if (!videoUrl.startsWith("http")) continue;
-      if (videoUrl.includes(".jpg") || videoUrl.includes(".png") || videoUrl.includes("about:blank")
+      if (
+  videoUrl.includes(".jpg") ||
+  videoUrl.includes(".jpeg") ||
+  videoUrl.includes(".png") ||
+  videoUrl.includes(".gif") ||
+  videoUrl.includes("about:blank")
 ) continue;
 
       // Prevent duplicate links

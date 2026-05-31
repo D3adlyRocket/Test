@@ -153,6 +153,9 @@ for (const epUrl of episodeLinks) {
       // Skip invalid URLs
       if (!videoUrl.startsWith("http")) continue;
 
+      // Prevent duplicate links
+      if (streams.some(s => s.url === videoUrl)) continue;
+      
       streams.push({
         name: "OnePace",
         title: `OnePace Server ${i + 1}`,
@@ -164,10 +167,10 @@ for (const epUrl of episodeLinks) {
         behaviorHints: {
           proxyHeaders: {
             request: {
-              "User-Agent": HEADERS["User-Agent"],
-              "Referer": src,
-              "Origin": new URL(src).origin
-            }
+            "User-Agent": HEADERS["User-Agent"],
+            "Referer": videoUrl,
+            "Origin": new URL(videoUrl).origin
+          }
           }
         }
       });

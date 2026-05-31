@@ -1,137 +1,175 @@
 const cheerio = require('cheerio-without-node-native');
-// dudefilms.js
-// DudeFilms - Hindi/Bollywood/South Indian movie & series site (dudefilms.sarl)
-// Search: /page/1/?s={query}
-// Download links: a.maxbutton → redirect pages with more maxbutton links → final stream URLs
-// Uses Cinemeta for metadata enhancement
+// onepace.js
+// OnePace provider — scrapes https://onepace.co for One Pace anime arcs (sub & dub)
+// Searches by arc name, then iterates over up to 8 iframe slots per episode
 
-const BASE_URL = "https://dudefilms.sarl";
+const BASE_URL = "https://onepace.co";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-const CINEMETA_URL = "https://v3-cinemeta.strem.io/meta";
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-  "Referer": `${BASE_URL}/`
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
+  "Referer": BASE_URL + "/"
 };
-
-function extractQuality(url) {
-  const u = (url || "").toLowerCase();
-  if (u.includes("2160p") || u.includes("4k")) return "4K";
-  if (u.includes("1080p")) return "1080p";
-  if (u.includes("720p")) return "720p";
-  if (u.includes("480p")) return "480p";
-  return "Unknown";
-}
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // 1. Get title from TMDB
+    // 1. Get TMDB info (title)
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    const mediaInfo = await (await fetch(tmdbUrl)).json();
+    const mediaInfo = await (await fetch(tmdbUrl, { headers: HEADERS})).json();
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Search
-    const searchUrl = `${BASE_URL}/page/1/?s=${encodeURIComponent(title)}`;
-    const searchHtml = await (await fetch(searchUrl, { headers: HEADERS})).text();
-    const $ = cheerio.load(searchHtml);
+    // 2. Determine if searching sub or dub series
+    const seriesUrl = `${BASE_URL}/series/one-pace-english-sub/`;
+    const doc = cheerio.load(await (await fetch(seriesUrl, { headers: HEADERS})).text());
 
-    const results = [];
-    $("div.simple-grid-grid-post").each((i, el) => {
-      const href = $("h3 a", el).attr("href");
-      const t = $("h3", el).text().trim();
-      if (href) results.push({ title: t, url: href });
-    });
-
-    if (!results.length) return [];
-
-    const isTV = mediaType === "tv";
-    const lcTitle = title.toLowerCase();
-    let match = results.find(r => r.title.toLowerCase().includes(lcTitle));
-    if (!match) match = results[0];
-
-    const pageUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
-
-    // 3. Load show page
-    const pageHtml = await (await fetch(pageUrl, { headers: HEADERS})).text();
-    const $page = cheerio.load(pageHtml);
-
+    // 3. Find the arc matching the current season
     const streams = [];
+    let arcHref = null;
+    let termId = null;
 
-    if (isTV) {
-      // Find season headers (h4 with "Season N") then follow links to episode pages
-      let found = false;
-      const h4s = $page("h4").toArray();
+    // Each season-bx block represents one arc
+    const seasonBoxes = doc("div.seasons.aa-crd > div.seasons-bx").toArray();
 
-      for (const h4 of h4s) {
-        if (found) break;
-        const h4Text = $page(h4).text();
-        const seasonMatch = h4Text.match(/\bSeason\s*(\d+)\b/i);
-        if (!seasonMatch || parseInt(seasonMatch[1]) !== season) continue;
-
-        let sibling = $page(h4).next();
-        while (sibling.length && sibling.prop("tagName") === "P") {
-          const seasonButtons = sibling.find("a.maxbutton").toArray();
-          for (const btn of seasonButtons) {
-            if (found) break;
-            const seasonPageUrl = $page(btn).attr("href");
-            if (!seasonPageUrl) continue;
-
-            try {
-              const seasonPageHtml = await (await fetch(seasonPageUrl, { headers: HEADERS})).text();
-              const $seasonPage = cheerio.load(seasonPageHtml);
-
-              const epButtons = $seasonPage("a.maxbutton-ep").toArray();
-              for (const epBtn of epButtons) {
-                const epText = $seasonPage(epBtn).text();
-                const epMatch = epText.match(/(?:Episode|Ep|E)\s*(\d+)/i);
-                if (!epMatch || parseInt(epMatch[1]) !== episode) continue;
-
-                const epUrl = $seasonPage(epBtn).attr("href");
-                if (!epUrl) continue;
-
-                // This URL is a final stream link
-                streams.push({
-                  url: epUrl,
-                  quality: extractQuality(epUrl),
-                  title: `DudeFilms [S${season}E${episode}]`,
-                  subtitles: []
-                });
-                found = true;
-                break;
-              }
-            } catch (e) {}
-          }
-          sibling = sibling.next();
-        }
-      }
-    } else {
-      // Movie: follow a.maxbutton links
-      const maxButtons = $page("a.maxbutton").toArray();
-      for (const btn of maxButtons) {
-        try {
-          const btnUrl = $page(btn).attr("href");
-          if (!btnUrl) continue;
-          const btnHtml = await (await fetch(btnUrl, { headers: HEADERS})).text();
-          const $btn = cheerio.load(btnHtml);
-          $btn("a.maxbutton").each((i, a) => {
-            const href = $btn(a).attr("href");
-            if (href && href.startsWith("http")) {
-              streams.push({
-                url: href,
-                quality: extractQuality(href),
-                title: `DudeFilms`,
-                subtitles: []
-              });
+    // Try to find episode link by season number
+    let episodeLinks = [];
+    if (season && episode) {
+      for (const box of seasonBoxes) {
+        const $box = doc(box);
+        // seasons are listed numerically; look for one matching our season
+        const epItems = $box.find("ul.seasons-lst.anm-a li").toArray();
+        // The season number is in span text like S1-E1
+        for (const ep of epItems) {
+          const $ep = doc(ep);
+          const spanText = $ep.find("h3.title > span").text().trim();
+          const sMatch = spanText.match(/S(\d+)/);
+          const eMatch = spanText.match(/E(\d+)/);
+          if (sMatch && eMatch) {
+            const epSeason = parseInt(sMatch[1]);
+            const epEp = parseInt(eMatch[1]);
+            if (epSeason === parseInt(season) && epEp === parseInt(episode)) {
+              const href = $ep.find("a").attr("href");
+              if (href) episodeLinks.push(href);
+              break;
             }
-          });
-        } catch (e) {}
+          }
+        }
+        if (episodeLinks.length > 0) break;
       }
     }
 
-    return streams;
-  } catch (e) {
-    console.error("[DudeFilms]", e);
-    return [];
+    // If no direct match, fall back to first episode of first arc
+    if (episodeLinks.length === 0 && seasonBoxes.length > 0) {
+      const firstArcEps = doc("ul.seasons-lst.anm-a li").first().find("a").attr("href");
+      if (firstArcEps) episodeLinks.push(firstArcEps);
+    }
+
+    // 4. For each episode URL, extract streams
+for (const epUrl of episodeLinks) {
+  const fullUrl = epUrl.startsWith("http")
+    ? epUrl
+    : BASE_URL + epUrl;
+
+  const epHtml = await (
+    await fetch(fullUrl, { headers: HEADERS })
+  ).text();
+
+  const epDoc = cheerio.load(epHtml);
+
+  const bodyClass = epDoc("body").attr("class") || "";
+  const termMatch = bodyClass.match(/(?:term|postid)-(\d+)/);
+
+  if (!termMatch) continue;
+
+  const term = termMatch[1];
+
+  for (let i = 0; i <= 7; i++) {
+    try {
+      const iframeUrl =
+        `${BASE_URL}/?trdekho=${i}&trid=${term}&trtype=2`;
+
+      const iframeHtml = await (
+        await fetch(iframeUrl, { headers: HEADERS })
+      ).text();
+
+      const iframeDoc = cheerio.load(iframeHtml);
+
+      let src = iframeDoc("iframe").attr("src");
+
+      if (!src) continue;
+
+      // Handle relative URLs
+      if (src.startsWith("//")) {
+        src = "https:" + src;
+      } else if (src.startsWith("/")) {
+        src = BASE_URL + src;
+      }
+
+      // Fetch nested iframe page
+      const nestedHtml = await (
+        await fetch(src, {
+          headers: {
+            ...HEADERS,
+            Referer: iframeUrl
+          }
+        })
+      ).text();
+
+      // Try extracting direct m3u8/mp4
+      let videoUrl = null;
+
+      // m3u8
+      let match =
+        nestedHtml.match(/https?:\/\/[^"' ]+\.m3u8[^"' ]*/i);
+
+      if (match) {
+        videoUrl = match[0];
+      }
+
+      // mp4 fallback
+      if (!videoUrl) {
+        match =
+          nestedHtml.match(/https?:\/\/[^"' ]+\.mp4[^"' ]*/i);
+
+        if (match) {
+          videoUrl = match[0];
+        }
+      }
+
+      // jwplayer/file fallback
+      if (!videoUrl) {
+        match =
+          nestedHtml.match(/file\s*:\s*["']([^"']+)["']/i);
+
+        if (match) {
+          videoUrl = match[1];
+        }
+      }
+
+      // fallback to iframe source itself
+      if (!videoUrl) {
+        videoUrl = src;
+      }
+
+      streams.push({
+        name: "OnePace",
+        title: `OnePace Server ${i + 1}`,
+        url: videoUrl,
+        quality: "HD",
+        subtitles: [],
+        behaviorHints: {
+          proxyHeaders: {
+            request: {
+              "User-Agent": HEADERS["User-Agent"],
+              "Referer": src,
+              "Origin": new URL(src).origin
+            }
+          }
+        }
+      });
+
+    } catch (e) {
+      console.log("Server error", i, e);
+    }
   }
 }
 

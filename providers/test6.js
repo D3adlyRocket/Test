@@ -110,22 +110,28 @@ for (const epUrl of episodeLinks) {
       }
 
       // Fetch nested iframe page
-      // Better timeout safety
 const controller = new AbortController();
 
 const timeout = setTimeout(() => {
   controller.abort();
 }, 10000);
 
-const nestedHtml = await (
-  await fetch(src, {
-    headers: {
-      ...HEADERS,
-      Referer: iframeUrl
-    },
-    signal: controller.signal
-  })
-).text();
+let nestedHtml = "";
+
+try {
+  nestedHtml = await (
+    await fetch(src, {
+      headers: {
+        ...HEADERS,
+        Referer: iframeUrl
+      },
+      signal: controller.signal
+    })
+  ).text();
+} catch (err) {
+  clearTimeout(timeout);
+  continue;
+}
 
 clearTimeout(timeout);
 

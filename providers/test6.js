@@ -150,11 +150,16 @@ for (const epUrl of episodeLinks) {
         videoUrl = src;
       }
 
+      // Skip invalid URLs
+      if (!videoUrl.startsWith("http")) continue;
+
       streams.push({
         name: "OnePace",
         title: `OnePace Server ${i + 1}`,
         url: videoUrl,
-        quality: "HD",
+        quality: videoUrl.includes("1080") ? "1080p"
+  : videoUrl.includes("720") ? "720p"
+  : "HD",
         subtitles: [],
         behaviorHints: {
           proxyHeaders: {
@@ -170,6 +175,14 @@ for (const epUrl of episodeLinks) {
     } catch (e) {
       console.log("Server error", i, e);
     }
+  }
+}
+
+return streams;
+
+  } catch (e) {
+    console.error("[OnePace]", e);
+    return [];
   }
 }
 

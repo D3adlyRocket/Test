@@ -15,8 +15,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     // 1. Get TMDB info (title)
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl, { headers: HEADERS})).json();
-    const title = mediaInfo.title || mediaInfo.name;
-    if (!title) return [];
+    const title = mediaInfo.title ||
+  mediaInfo.name ||
+  "";
+
+if (!title.toLowerCase().includes("one piece")) {
+  return [];
+}
 
     // 2. Determine if searching sub or dub series
     const seriesUrl = `${BASE_URL}/series/one-pace-english-sub/`;
@@ -105,14 +110,24 @@ for (const epUrl of episodeLinks) {
       }
 
       // Fetch nested iframe page
-      const nestedHtml = await (
-        await fetch(src, {
-          headers: {
-            ...HEADERS,
-            Referer: iframeUrl
-          }
-        })
-      ).text();
+      // Better timeout safety
+const controller = new AbortController();
+
+const timeout = setTimeout(() => {
+  controller.abort();
+}, 10000);
+
+const nestedHtml = await (
+  await fetch(src, {
+    headers: {
+      ...HEADERS,
+      Referer: iframeUrl
+    },
+    signal: controller.signal
+  })
+).text();
+
+clearTimeout(timeout);
 
       // Try extracting direct m3u8/mp4
       let videoUrl = null;
@@ -152,6 +167,8 @@ for (const epUrl of episodeLinks) {
 
       // Skip invalid URLs
       if (!videoUrl.startsWith("http")) continue;
+      if (videoUrl.includes(".jpg") || videoUrl.includes(".png") || videoUrl.includes("about:blank")
+) continue;
 
       // Prevent duplicate links
       if (streams.some(s => s.url === videoUrl)) continue;

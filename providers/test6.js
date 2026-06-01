@@ -84,7 +84,7 @@ function getTMDBDetails(tmdbId, mediaType) {
 }
 
 // src/lordflix/index.js
-var SERVERS = ["Berlin", "Tokyo", "Bogota", "Oslo", "Luna", "LordFlix", "Sakura", "Rio", "Ativa"];
+var SERVERS = ["Multi", "Tokyo", "Bogota", "Oslo", "Luna", "LordFlix", "Sakura", "Rio", "Ativa"];
 function encodeQuote(str) {
   return encodeURIComponent(str).replace(/%20/g, "+").replace(/\+/g, "%20");
 }

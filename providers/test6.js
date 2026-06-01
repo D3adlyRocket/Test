@@ -1,120 +1,147 @@
-const cheerio = require('cheerio-without-node-native');
-
-const BASE_URL = "https://onepace.co";
-const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
-  "Referer": BASE_URL + "/",
-  "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8"
+/**
+ * lordflix - Built from src/lordflix/
+ * Generated: 2026-05-10T22:46:01.988Z
+ */
+var __defProp = Object.defineProperty;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
 };
 
-async function getStreams(tmdbId, mediaType, season, episode) {
-  try {
+// src/lordflix/constants.js
+var HEADERS = {
+  "Accept": "*/*",
+  "Origin": "https://lordflix.org",
+  "Referer": "https://lordflix.org/",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36"
+};
+var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var TMDB_BASE_URL = "https://api.themoviedb.org/3";
+var LORDFLIX_API = "https://snowhouse.lordflix.club";
+var MULTI_DECRYPT_API = "https://enc-dec.app/api";
+
+// src/lordflix/utils.js
+function fetchText(_0) {
+  return __async(this, arguments, function* (url, options = {}) {
+    const response = yield fetch(url, __spreadValues({ headers: __spreadValues(__spreadValues({}, HEADERS), options.headers || {}) }, options));
+    if (!response.ok)
+      throw new Error(`HTTP error ${response.status}`);
+    return yield response.text();
+  });
+}
+function fetchJson(_0) {
+  return __async(this, arguments, function* (url, options = {}) {
+    const raw = yield fetchText(url, options);
+    return JSON.parse(raw);
+  });
+}
+function getTMDBDetails(tmdbId, mediaType) {
+  return __async(this, null, function* () {
+    var _a, _b;
+    const endpoint = mediaType === "tv" ? "tv" : "movie";
+    const url = `${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+    const response = yield fetch(url, { headers: { "Accept": "application/json" } });
+    if (!response.ok)
+      throw new Error(`TMDB API error`);
+    const data = yield response.json();
+    return {
+      title: mediaType === "tv" ? data.name : data.title,
+      year: ((_a = mediaType === "tv" ? data.first_air_date : data.release_date) == null ? void 0 : _a.split("-")[0]) || null,
+      imdbId: ((_b = data.external_ids) == null ? void 0 : _b.imdb_id) || null
+    };
+  });
+}
+
+// src/lordflix/index.js
+var SERVERS = ["Berlin", "Tokyo", "Bogota", "Oslo", "Luna", "LordFlix", "Sakura", "Rio", "Ativa"];
+function encodeQuote(str) {
+  return encodeURIComponent(str).replace(/%20/g, "+").replace(/\+/g, "%20");
+}
+function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
+  return __async(this, null, function* () {
     const streams = [];
-
-    // 1. Build the target episode page URL
-    const targetUrl = `${BASE_URL}/episode/one-pace-english-sub-${season}x${episode}/`;
-    console.log(`[OnePace] Fetching primary page: ${targetUrl}`);
-    
-    const response = await fetch(targetUrl, { headers: HEADERS });
-    if (!response.ok) {
-      console.log(`[OnePace] Page not found directly. Checking fallback routing...`);
-    }
-
-    const epHtml = await response.text();
-    const epDoc = cheerio.load(epHtml);
-
-    // 2. Extract the Internal Term ID dynamically
-    const bodyClass = epDoc("body").attr("class") || "";
-    const termMatch = bodyClass.match(/(?:term|postid)-(\d+)/);
-    
-    // If regex fails, we can hardcode fallback checking or use a default if available
-    let term = termMatch ? termMatch[1] : null;
-    
-    // Hardcoded fallback safety mechanism based on your manual log validation (e.g., 1169)
-    if (!term && epHtml.includes('1169')) {
-      term = '1169';
-    }
-
-    if (!term) {
-      console.log("[OnePace] Could not resolve internal ID system.");
-      return [];
-    }
-
-    console.log(`[OnePace] Found target ID: ${term}. Processing server wrappers...`);
-
-    // 3. Loop through the exact wrapper links you provided
-    // We fetch the wrapper directly to uncover the hidden video layer inside
-    for (let i = 0; i <= 2; i++) {
-      try {
-        const wrapperUrl = `${BASE_URL}/?trdekho=${i}&trid=${term}&trtype=2`;
-        console.log(`[OnePace] Deep scanning wrapper server [${i}]: ${wrapperUrl}`);
-
-        const wrapperResponse = await fetch(wrapperUrl, { 
-          headers: {
-            ...HEADERS,
-            "Referer": targetUrl // Tells the server we came from the episode page
-          } 
-        });
-
-        if (!wrapperResponse.ok) continue;
-
-        const wrapperHtml = await wrapperResponse.text();
-        const wrapperDoc = cheerio.load(wrapperHtml);
-        
-        let realStreamUrl = null;
-
-        // Strategy A: Find the raw source iframe inside the wrapper page
-        wrapperDoc('iframe').each((_, el) => {
-          const src = wrapperDoc(el).attr('src');
-          if (src && (src.includes('cdn') || src.includes('.top') || src.includes('player'))) {
-            realStreamUrl = src;
+    try {
+      const info = yield getTMDBDetails(tmdbId, mediaType);
+      if (!info.title || !info.imdbId)
+        return streams;
+      const typeParam = mediaType === "tv" ? "series" : "movie";
+      const titleEnc = encodeQuote(info.title);
+      yield Promise.all(SERVERS.map((server) => __async(this, null, function* () {
+        try {
+          let serverUrl = `${LORDFLIX_API}/?title=${titleEnc}&type=${typeParam}&year=${info.year || ""}&imdb=${info.imdbId}&tmdb=${tmdbId}&server=${server}`;
+          if (mediaType === "tv")
+            serverUrl += `&season=${seasonNum}&episode=${episodeNum}`;
+          const encBridgeUrl = `${MULTI_DECRYPT_API}/enc-lordflix?url=${encodeQuote(serverUrl)}`;
+          const encBridgeJson = yield fetchJson(encBridgeUrl);
+          if (!encBridgeJson || encBridgeJson.status !== 200 || !encBridgeJson.result)
+            return;
+          const proxyEncUrl = encBridgeJson.result.url;
+          const signature = encBridgeJson.result.sign;
+          if (!proxyEncUrl || !signature)
+            return;
+          const remoteEncData = yield fetchText(proxyEncUrl);
+          const decResponse = yield fetch(`${MULTI_DECRYPT_API}/dec-lordflix`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: remoteEncData, sign: signature })
+          });
+          if (!decResponse.ok)
+            return;
+          const finalJson = yield decResponse.json();
+          if (!finalJson || finalJson.status !== 200 || !finalJson.result || finalJson.result.error)
+            return;
+          const streamList = finalJson.result.stream;
+          if (!streamList || !Array.isArray(streamList) || streamList.length === 0)
+            return;
+          const topStream = streamList[0];
+          if (topStream.type === "hls" && topStream.playlist) {
+            streams.push({
+              name: `Lordflix[${server}]`,
+              title: `Lordflix[${server}]`,
+              url: topStream.playlist,
+              quality: "Auto",
+              type: "m3u8",
+              headers: HEADERS
+            });
           }
-        });
-
-        // Strategy B: If hidden in scripts inside the wrapper (Screenshot 1000141074.jpg logic)
-        if (!realStreamUrl) {
-          wrapperDoc('script').each((_, el) => {
-            const scriptContent = wrapperDoc(el).html();
-            if (scriptContent && (scriptContent.includes('cdn') || scriptContent.includes('.top'))) {
-              const match = scriptContent.match(/https?:\/\/[^\s"'`<>]+(?:cdn|top)[^\s"'`<>]+/);
-              if (match) realStreamUrl = match[0];
-            }
-          });
+        } catch (e) {
         }
-
-        // 4. If we successfully extracted the true backend CDN, package it!
-        if (realStreamUrl) {
-          console.log(`[OnePace] Successfully extracted live stream asset: ${realStreamUrl}`);
-          streams.push({
-            name: "OnePace",
-            url: realStreamUrl,
-            quality: "Auto",
-            title: `Server ${i + 1}`,
-            behaviorHints: {
-              notWebReady: false, // Marking false tells your player this is a real video link, not an HTML page
-              proxyHeaders: {
-                request: {
-                  "User-Agent": HEADERS["User-Agent"],
-                  "Referer": wrapperUrl, // Crucial: Satisfies the protection block shown in your CDN screenshot
-                  "Origin": BASE_URL
-                }
-              }
-            }
-          });
-        }
-      } catch (innerError) {
-        console.error(`[OnePace] Error processing server slot ${i}:`, innerError.message);
-      }
+      })));
+    } catch (err) {
+      console.error(`[Lordflix] Main Error:`, err.message);
     }
-
     return streams;
-  } catch (e) {
-    console.error("[OnePace Engine Error]", e);
-    return [];
-  }
+  });
 }
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
-}
+module.exports = { getStreams };

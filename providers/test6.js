@@ -1,88 +1,61 @@
-// animecloud.js
-// AnimeCloud / FireAni provider for Nuvio
+const cheerio = require("cheerio-without-node-native");
 
-const cheerio = require("cheerio");
+// ============================================================
+// AnimeCloud / FireAni provider for Nuvio
+// ============================================================
 
 const BASE_URL = "https://fireani.me";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
 const HEADERS = {
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  "Referer": `${BASE_URL}/`,
-  "Origin": BASE_URL
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+  Referer: `${BASE_URL}/`,
+  Origin: BASE_URL,
+  Accept: "*/*"
 };
 
-// ======================
-// QUALITY DETECTION
-// ======================
+function extractQuality(text = "") {
+  const t = text.toLowerCase();
 
-function extractQuality(text) {
-  const u = (text || "").toLowerCase();
+  if (t.includes("2160") || t.includes("4k")) return "4K";
+  if (t.includes("1080")) return "1080p";
+  if (t.includes("720")) return "720p";
+  if (t.includes("480")) return "480p";
 
-  if (u.includes("2160") || u.includes("4k")) return "4K";
-  if (u.includes("1440")) return "1440p";
-  if (u.includes("1080")) return "1080p";
-  if (u.includes("720")) return "720p";
-  if (u.includes("480")) return "480p";
-  if (u.includes("360")) return "360p";
-
-  return "1080p";
+  return "HD";
 }
 
-// ======================
-// EXTRACT M3U8
-// ======================
+async function safeJson(url) {
+  try {
+    const res = await fetch(url, {
+      headers: HEADERS,
+      redirect: "follow",
+      skipSizeCheck: true
+    });
 
-function extractM3U8(html) {
-  if (!html) return null;
-
-  // direct m3u8
-  let m3u8 =
-    html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
-
-  if (m3u8) return m3u8;
-
-  // master.txt
-  m3u8 =
-    html.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
-
-  if (m3u8) {
-    return m3u8.replace("master.txt", "master.m3u8");
+    return await res.json();
+  } catch (_) {
+    return null;
   }
+}
 
-  // relative stream path
-  const rel =
-    html.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
+async function safeText(url, referer = BASE_URL + "/") {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        ...HEADERS,
+        Referer: referer
+      },
+      redirect: "follow",
+      skipSizeCheck: true
+    });
 
-  if (rel) {
-    return ("https://m4uplay.store" + rel)
-      .replace("master.txt", "master.m3u8");
+    return await res.text();
+  } catch (_) {
+    return "";
   }
-
-  return null;
 }
-
-// ======================
-// FETCH HTML
-// ======================
-
-async function fetchHtml(url, referer = BASE_URL + "/") {
-  const resp = await fetch(url, {
-    headers: {
-      ...HEADERS,
-      Referer: referer
-    },
-    redirect: "follow",
-    skipSizeCheck: true
-  });
-
-  return await resp.text();
-}
-
-// ======================
-// MAIN
-// ======================
 
 async function getStreams(
   tmdbId,
@@ -90,231 +63,259 @@ async function getStreams(
   season = 1,
   episode = 1
 ) {
-
   try {
-
-    // ======================
-    // TMDB LOOKUP
-    // ======================
+    // ============================================================
+    // TMDB
+    // ============================================================
 
     const tmdbUrl =
       `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
 
-    const mediaInfo =
-      await (await fetch(tmdbUrl, {
+    const mediaInfo = await (
+      await fetch(tmdbUrl, {
         skipSizeCheck: true
-      })).json();
+      })
+    ).json();
 
     const title =
-      mediaInfo.title ||
-      mediaInfo.name;
+      mediaInfo.name ||
+      mediaInfo.title;
 
     if (!title) return [];
 
-    // ======================
-    // SEARCH API
-    // ======================
+    // ============================================================
+    // SEARCH
+    // ============================================================
 
     const searchUrl =
       `${BASE_URL}/api/anime/search?q=${encodeURIComponent(title)}`;
 
-    const searchRes =
-      await (await fetch(searchUrl, {
-        headers: HEADERS,
-        skipSizeCheck: true
-      })).json();
+    const searchData = await safeJson(searchUrl);
 
     const results =
-      searchRes?.data || [];
+      searchData?.data ||
+      searchData ||
+      [];
 
-    if (!results.length) {
-      console.log("[AnimeCloud] No search results");
+    if (!Array.isArray(results) || !results.length) {
+      console.log("[AnimeCloud] no search results");
       return [];
     }
 
-    // ======================
+    // ============================================================
     // BEST MATCH
-    // ======================
+    // ============================================================
 
-    const best =
-      results.find(r =>
-        (r.title || r.name || "")
+    const match =
+      results.find(x =>
+        (x.title || "")
           .toLowerCase()
           .includes(title.toLowerCase())
       ) || results[0];
 
-    const slug = best?.slug;
+    const slug = match?.slug;
 
     if (!slug) {
-      console.log("[AnimeCloud] No slug found");
+      console.log("[AnimeCloud] no slug");
       return [];
     }
 
-    // ======================
-    // DETERMINE SEASON
-    // ======================
+    // ============================================================
+    // SEASON / EPISODE
+    // ============================================================
 
-    const targetSeason =
-      mediaType === "movie"
-        ? 0
-        : parseInt(season || 1);
+    const targetSeason = season || 1;
+    const targetEpisode = episode || 1;
 
-    const targetEpisode =
-      parseInt(episode || 1);
+    const epApi =
+      `${BASE_URL}/api/anime/episode?slug=${slug}&season=${encodeURIComponent(targetSeason)}&episode=${targetEpisode}`;
 
-    let seasonQuery =
-      targetSeason === 0
-        ? "Filme"
-        : String(targetSeason);
-
-    // ======================
-    // EPISODE API
-    // ======================
-
-    const epUrl =
-      `${BASE_URL}/api/anime/episode?slug=${slug}&season=${encodeURIComponent(seasonQuery)}&episode=${targetEpisode}`;
-
-    const epRes =
-      await (await fetch(epUrl, {
-        headers: HEADERS,
-        skipSizeCheck: true
-      })).json();
+    const epData = await safeJson(epApi);
 
     const episodeLinks =
-      epRes?.data?.anime_episode_links || [];
+      epData?.data?.anime_episode_links ||
+      [];
 
     if (!episodeLinks.length) {
-      console.log("[AnimeCloud] No episode links");
+      console.log("[AnimeCloud] no episode links");
       return [];
     }
-
-    // ======================
-    // STREAM EXTRACTION
-    // ======================
 
     const streams = [];
 
-    for (const link of episodeLinks) {
+    // ============================================================
+    // EXTRACT
+    // ============================================================
 
+    for (const item of episodeLinks) {
       try {
-
-        const href = link?.link;
-        const lang =
-          (link?.lang || "Unknown").toUpperCase();
+        const href = item?.link;
 
         if (!href) continue;
 
-        console.log("[AnimeCloud] Processing:", href);
+        const lang =
+          item?.lang?.toUpperCase() ||
+          "SUB";
 
-        // ======================
-        // FETCH PAGE
-        // ======================
+        // ========================================================
+        // OPEN PLAYER PAGE
+        // ========================================================
 
-        const pageHtml =
-          await fetchHtml(href, BASE_URL + "/");
+        const html = await safeText(
+          href,
+          `${BASE_URL}/`
+        );
 
-        let m3u8 =
-          extractM3U8(pageHtml);
+        if (!html) continue;
 
-        // ======================
-        // IFRAME EXTRACTION
-        // ======================
+        // ========================================================
+        // DIRECT M3U8
+        // ========================================================
 
-        if (!m3u8) {
+        let stream =
+          html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
 
-          const $ = cheerio.load(pageHtml);
+        // ========================================================
+        // FIREANI PROXY STREAM
+        // ========================================================
 
-          const iframeSrc =
+        if (!stream) {
+          const proxyMatch =
+            html.match(/\/proxy\/nocache\/[a-zA-Z0-9\-\/._]+master\.m3u8/i);
+
+          if (proxyMatch) {
+            stream = BASE_URL + proxyMatch[0];
+          }
+        }
+
+        // ========================================================
+        // MASTER TS FALLBACK
+        // ========================================================
+
+        if (!stream) {
+          const tsMatch =
+            html.match(/\/proxy\/nocache\/[a-zA-Z0-9\-\/._]+master\d+\.ts/i);
+
+          if (tsMatch) {
+            stream = BASE_URL + tsMatch[0];
+          }
+        }
+
+        // ========================================================
+        // FILE:
+        // ========================================================
+
+        if (!stream) {
+          const fileMatch =
+            html.match(/file:\s*["']([^"']+)["']/i);
+
+          if (fileMatch) {
+            stream = fileMatch[1];
+          }
+        }
+
+        // ========================================================
+        // SOURCES:
+        // ========================================================
+
+        if (!stream) {
+          const sourceMatch =
+            html.match(/sources:\s*\[\s*\{\s*file:\s*["']([^"']+)/i);
+
+          if (sourceMatch) {
+            stream = sourceMatch[1];
+          }
+        }
+
+        // ========================================================
+        // IFRAME FALLBACK
+        // ========================================================
+
+        if (!stream) {
+          const $ = cheerio.load(html);
+
+          const iframe =
             $("iframe").attr("src") ||
             $("iframe").attr("data-src");
 
-          if (iframeSrc) {
-
+          if (iframe) {
             const iframeUrl =
-              iframeSrc.startsWith("http")
-                ? iframeSrc
-                : new URL(iframeSrc, href).href;
+              iframe.startsWith("http")
+                ? iframe
+                : BASE_URL + iframe;
 
-            console.log("[AnimeCloud] iframe:", iframeUrl);
+            const iframeHtml = await safeText(
+              iframeUrl,
+              href
+            );
 
-            try {
+            stream =
+              iframeHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
 
-              const iframeHtml =
-                await fetchHtml(iframeUrl, href);
+            // proxy inside iframe
+            if (!stream) {
+              const proxyMatch =
+                iframeHtml.match(/\/proxy\/nocache\/[a-zA-Z0-9\-\/._]+master\.m3u8/i);
 
-              m3u8 =
-                extractM3U8(iframeHtml);
-
-            } catch (e) {
-              console.log("[AnimeCloud iframe ERROR]", e.message);
+              if (proxyMatch) {
+                stream = BASE_URL + proxyMatch[0];
+              }
             }
           }
         }
 
-        // ======================
-        // FINAL STREAM
-        // ======================
+        // ========================================================
+        // FINAL
+        // ========================================================
 
-        if (m3u8) {
-
-          streams.push({
-            name: "AnimeCloud",
-
-            title:
-              `AnimeCloud [${lang}] ${extractQuality(m3u8)}`,
-
-            quality:
-              extractQuality(m3u8),
-
-            url: m3u8,
-
-            headers: {
-              Referer: `${BASE_URL}/`,
-              Origin: BASE_URL,
-              "User-Agent": HEADERS["User-Agent"]
-            },
-
-            subtitles: []
-          });
-
-          console.log("[AnimeCloud] Stream found");
+        if (!stream) {
+          console.log("[AnimeCloud] no stream extracted");
+          continue;
         }
 
+        streams.push({
+          name: "AnimeCloud",
+
+          title:
+            `AnimeCloud [${lang}] ${extractQuality(stream)}`,
+
+          quality: extractQuality(stream),
+
+          url: stream,
+
+          headers: {
+            Referer: `${BASE_URL}/`,
+            Origin: BASE_URL,
+            "User-Agent": HEADERS["User-Agent"]
+          },
+
+          subtitles: []
+        });
+
       } catch (e) {
-        console.log("[AnimeCloud Stream ERROR]", e.message);
+        console.log("[AnimeCloud stream error]", e.message);
       }
     }
 
-    // ======================
-    // REMOVE DUPLICATES
-    // ======================
+    // ============================================================
+    // DEDUPE
+    // ============================================================
 
-    const unique = [];
-    const seen = new Set();
-
-    for (const s of streams) {
-
-      if (!seen.has(s.url)) {
-        seen.add(s.url);
-        unique.push(s);
-      }
-    }
-
-    console.log(`[AnimeCloud] Final streams: ${unique.length}`);
-
-    return unique;
+    return [
+      ...new Map(
+        streams.map(x => [x.url, x])
+      ).values()
+    ];
 
   } catch (e) {
-
-    console.log("[AnimeCloud ERROR]", e.message);
-
+    console.log("[AnimeCloud fatal]", e.message);
     return [];
   }
 }
 
-// ======================
-// EXPORT
-// ======================
+// ============================================================
+// REQUIRED FOR NUVIO
+// ============================================================
 
 module.exports = {
   getStreams

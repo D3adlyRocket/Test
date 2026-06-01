@@ -1,322 +1,149 @@
 const cheerio = require("cheerio-without-node-native");
 
-// ============================================================
-// AnimeCloud / FireAni provider for Nuvio
-// ============================================================
-
-const BASE_URL = "https://fireani.me";
+const BASE_URL = "https://animekhor.org";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
 const HEADERS = {
   "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-  Referer: `${BASE_URL}/`,
-  Origin: BASE_URL,
-  Accept: "*/*"
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+  "Referer": BASE_URL + "/",
 };
 
-function extractQuality(text = "") {
-  const t = text.toLowerCase();
-
-  if (t.includes("2160") || t.includes("4k")) return "4K";
-  if (t.includes("1080")) return "1080p";
-  if (t.includes("720")) return "720p";
-  if (t.includes("480")) return "480p";
-
-  return "HD";
-}
-
-async function safeJson(url) {
+// safer base64 decode for Node/Nuvio
+function decodeBase64(str) {
   try {
-    const res = await fetch(url, {
-      headers: HEADERS,
-      redirect: "follow",
-      skipSizeCheck: true
-    });
-
-    return await res.json();
-  } catch (_) {
-    return null;
-  }
-}
-
-async function safeText(url, referer = BASE_URL + "/") {
-  try {
-    const res = await fetch(url, {
-      headers: {
-        ...HEADERS,
-        Referer: referer
-      },
-      redirect: "follow",
-      skipSizeCheck: true
-    });
-
-    return await res.text();
-  } catch (_) {
+    return Buffer.from(str, "base64").toString("utf-8");
+  } catch {
     return "";
   }
 }
 
-async function getStreams(
-  tmdbId,
-  mediaType = "tv",
-  season = 1,
-  episode = 1
-) {
+function absolutize(url) {
+  if (!url) return null;
+  if (url.startsWith("//")) return "https:" + url;
+  if (url.startsWith("/")) return BASE_URL + url;
+  if (url.startsWith("http")) return url;
+  return BASE_URL + "/" + url;
+}
+
+async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // ============================================================
-    // TMDB
-    // ============================================================
+    // 1. TMDB fetch
+    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const mediaInfo = await (await fetch(tmdbUrl)).json();
 
-    const tmdbUrl =
-      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-
-    const mediaInfo = await (
-      await fetch(tmdbUrl, {
-        skipSizeCheck: true
-      })
-    ).json();
-
-    const title =
-      mediaInfo.name ||
-      mediaInfo.title;
-
+    const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // ============================================================
-    // SEARCH
-    // ============================================================
+    // 2. Search
+    const searchUrl = `${BASE_URL}/?s=${encodeURIComponent(title)}`;
+    const searchHtml = await (await fetch(searchUrl, { headers: HEADERS })).text();
+    const $ = cheerio.load(searchHtml);
 
-    const searchUrl =
-      `${BASE_URL}/api/anime/search?q=${encodeURIComponent(title)}`;
+    let itemUrl = null;
 
-    const searchData = await safeJson(searchUrl);
+    $("article, div.bs, div.listupd article").each((_, el) => {
+      if (itemUrl) return;
+      const href = $(el).find("a").attr("href");
+      if (href) itemUrl = absolutize(href);
+    });
 
-    const results =
-      searchData?.data ||
-      searchData ||
-      [];
+    if (!itemUrl) return [];
 
-    if (!Array.isArray(results) || !results.length) {
-      console.log("[AnimeCloud] no search results");
-      return [];
-    }
+    // 3. Anime page
+    const animeHtml = await (await fetch(itemUrl, { headers: HEADERS })).text();
+    const $2 = cheerio.load(animeHtml);
 
-    // ============================================================
-    // BEST MATCH
-    // ============================================================
+    const isMovie = ($2(".spe").text() || "").toLowerCase().includes("movie");
 
-    const match =
-      results.find(x =>
-        (x.title || "")
-          .toLowerCase()
-          .includes(title.toLowerCase())
-      ) || results[0];
+    let episodeUrl = null;
 
-    const slug = match?.slug;
+    if (isMovie) {
+      episodeUrl =
+        absolutize($2(".eplister li a").attr("href")) || itemUrl;
+    } else {
+      const epListUrl =
+        absolutize($2(".eplister li a").first().attr("href"));
 
-    if (!slug) {
-      console.log("[AnimeCloud] no slug");
-      return [];
-    }
+      if (!epListUrl) return [];
 
-    // ============================================================
-    // SEASON / EPISODE
-    // ============================================================
+      const epHtml = await (await fetch(epListUrl, { headers: HEADERS })).text();
+      const $3 = cheerio.load(epHtml);
 
-    const targetSeason = season || 1;
-    const targetEpisode = episode || 1;
+      const targetEp = Number(episode || 1);
 
-    const epApi =
-      `${BASE_URL}/api/anime/episode?slug=${slug}&season=${encodeURIComponent(targetSeason)}&episode=${targetEpisode}`;
+      $3(".episodelist li, .eplister ul li, ul li").each((_, el) => {
+        const text = $3(el).text();
+        const href = $3(el).find("a").attr("href");
 
-    const epData = await safeJson(epApi);
+        const match = text.match(/(\d+)/);
+        const epNum = match ? Number(match[1]) : null;
 
-    const episodeLinks =
-      epData?.data?.anime_episode_links ||
-      [];
-
-    if (!episodeLinks.length) {
-      console.log("[AnimeCloud] no episode links");
-      return [];
-    }
-
-    const streams = [];
-
-    // ============================================================
-    // EXTRACT
-    // ============================================================
-
-    for (const item of episodeLinks) {
-      try {
-        const href = item?.link;
-
-        if (!href) continue;
-
-        const lang =
-          item?.lang?.toUpperCase() ||
-          "SUB";
-
-        // ========================================================
-        // OPEN PLAYER PAGE
-        // ========================================================
-
-        const html = await safeText(
-          href,
-          `${BASE_URL}/`
-        );
-
-        if (!html) continue;
-
-        // ========================================================
-        // DIRECT M3U8
-        // ========================================================
-
-        let stream =
-          html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
-
-        // ========================================================
-        // FIREANI PROXY STREAM
-        // ========================================================
-
-        if (!stream) {
-          const proxyMatch =
-            html.match(/\/proxy\/nocache\/[a-zA-Z0-9\-\/._]+master\.m3u8/i);
-
-          if (proxyMatch) {
-            stream = BASE_URL + proxyMatch[0];
-          }
+        if (!episodeUrl && epNum === targetEp && href) {
+          episodeUrl = absolutize(href);
         }
+      });
 
-        // ========================================================
-        // MASTER TS FALLBACK
-        // ========================================================
-
-        if (!stream) {
-          const tsMatch =
-            html.match(/\/proxy\/nocache\/[a-zA-Z0-9\-\/._]+master\d+\.ts/i);
-
-          if (tsMatch) {
-            stream = BASE_URL + tsMatch[0];
-          }
-        }
-
-        // ========================================================
-        // FILE:
-        // ========================================================
-
-        if (!stream) {
-          const fileMatch =
-            html.match(/file:\s*["']([^"']+)["']/i);
-
-          if (fileMatch) {
-            stream = fileMatch[1];
-          }
-        }
-
-        // ========================================================
-        // SOURCES:
-        // ========================================================
-
-        if (!stream) {
-          const sourceMatch =
-            html.match(/sources:\s*\[\s*\{\s*file:\s*["']([^"']+)/i);
-
-          if (sourceMatch) {
-            stream = sourceMatch[1];
-          }
-        }
-
-        // ========================================================
-        // IFRAME FALLBACK
-        // ========================================================
-
-        if (!stream) {
-          const $ = cheerio.load(html);
-
-          const iframe =
-            $("iframe").attr("src") ||
-            $("iframe").attr("data-src");
-
-          if (iframe) {
-            const iframeUrl =
-              iframe.startsWith("http")
-                ? iframe
-                : BASE_URL + iframe;
-
-            const iframeHtml = await safeText(
-              iframeUrl,
-              href
-            );
-
-            stream =
-              iframeHtml.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0];
-
-            // proxy inside iframe
-            if (!stream) {
-              const proxyMatch =
-                iframeHtml.match(/\/proxy\/nocache\/[a-zA-Z0-9\-\/._]+master\.m3u8/i);
-
-              if (proxyMatch) {
-                stream = BASE_URL + proxyMatch[0];
-              }
-            }
-          }
-        }
-
-        // ========================================================
-        // FINAL
-        // ========================================================
-
-        if (!stream) {
-          console.log("[AnimeCloud] no stream extracted");
-          continue;
-        }
-
-        streams.push({
-          name: "AnimeCloud",
-
-          title:
-            `AnimeCloud [${lang}] ${extractQuality(stream)}`,
-
-          quality: extractQuality(stream),
-
-          url: stream,
-
-          headers: {
-            Referer: `${BASE_URL}/`,
-            Origin: BASE_URL,
-            "User-Agent": HEADERS["User-Agent"]
-          },
-
-          subtitles: []
-        });
-
-      } catch (e) {
-        console.log("[AnimeCloud stream error]", e.message);
+      if (!episodeUrl) {
+        const fallback = $3("li a").first().attr("href");
+        if (fallback) episodeUrl = absolutize(fallback);
       }
     }
 
-    // ============================================================
-    // DEDUPE
-    // ============================================================
+    if (!episodeUrl) return [];
 
-    return [
-      ...new Map(
-        streams.map(x => [x.url, x])
-      ).values()
-    ];
+    // 4. Episode page
+    const epHtml = await (await fetch(episodeUrl, { headers: HEADERS })).text();
+    const $4 = cheerio.load(epHtml);
 
-  } catch (e) {
-    console.log("[AnimeCloud fatal]", e.message);
+    const streams = [];
+
+    // multiple fallback patterns
+    const options = $4(".mobius option, select option, option");
+
+    options.each((_, option) => {
+      let raw =
+        $4(option).attr("value") ||
+        $4(option).attr("data-src") ||
+        "";
+
+      if (!raw) return;
+
+      let decoded = "";
+
+      // try base64 decode first
+      if (raw.length > 20) {
+        decoded = decodeBase64(raw);
+      }
+
+      // fallback: treat raw as direct URL
+      let urlMatch =
+        decoded.match(/src=["']([^"']+)["']/i) ||
+        raw.match(/https?:\/\/[^"']+/);
+
+      let url = urlMatch?.[1] || urlMatch?.[0];
+
+      if (!url) return;
+
+      url = absolutize(url);
+
+      if (url) {
+        streams.push({
+          url,
+          quality: "Unknown",
+          title: "Animekhor",
+          subtitles: []
+        });
+      }
+    });
+
+    return streams;
+  } catch (err) {
+    console.error("[Animekhor ERROR]", err.message || err);
     return [];
   }
 }
 
-// ============================================================
-// REQUIRED FOR NUVIO
-// ============================================================
-
-module.exports = {
-  getStreams
-};
+if (typeof module !== "undefined") {
+  module.exports = { getStreams };
+}

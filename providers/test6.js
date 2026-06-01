@@ -1,189 +1,185 @@
-// torrastream.js
-// Provider: TorraStream
-// Torrent-based streaming using Torrentio Stremio addon + IMDB ID lookup
-// Returns magnet links and direct stream URLs from Torrentio/ThePirateBay/TorrentsDB
-
-const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-const TORRENTIO_API = "https://torrentio.strem.fun";
-const THEPIRATEBAY_API = "https://thepiratebay-plus.strem.fun";
-const TORRENTSDB_API = "https://torrentsdb.com";
-const TRACKER_LIST_URL = "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt";
-
-const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Accept": "application/json"
+/**
+ * torrentio - Built from src/torrentio/
+ * Generated: 2026-05-31T21:31:18.383Z
+ */
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
 };
 
-function extractQuality(str) {
-  const u = (str || '').toLowerCase();
-  if (u.includes('2160p') || u.includes('4k')) return '4K';
-  if (u.includes('1080p')) return '1080p';
-  if (u.includes('720p')) return '720p';
-  if (u.includes('480p')) return '480p';
-  return 'Unknown';
-}
+// src/torrentio/http.js
+var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
+var LANGUAGE_SETTINGS = "language=english";
+var TORRENTIO_API = "https://torrentio.strem.fun/" + LANGUAGE_SETTINGS;
+var TRACKERS = [
+  "udp://tracker.opentrackr.org:1337/announce",
+  "udp://open.stealth.si:80/announce",
+  "udp://tracker.torrent.eu.org:451/announce",
+  "udp://exodus.desync.com:6969/announce"
+];
+var HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+  "Accept": "application/json, text/plain, */*"
+};
 
-async function getTrackers() {
-  try {
-    const text = await (await fetch(TRACKER_LIST_URL)).text();
-    return text.split('\n')
-      .filter((l, i) => i % 2 === 0 && l.trim())
-      .slice(0, 10);
-  } catch (e) {
-    return [];
-  }
-}
-
-function buildMagnet(infoHash, trackers, sources) {
-  if (!infoHash) return '';
-  const sourceTrackers = (sources || [])
-    .filter(s => s.startsWith('tracker:'))
-    .map(s => s.replace('tracker:', ''))
-    .filter(Boolean);
-
-  const allTrackers = [...sourceTrackers, ...trackers];
-  const trStr = allTrackers.map(t => `&tr=${encodeURIComponent(t)}`).join('');
-  return `magnet:?xt=urn:btih:${infoHash}${trStr}`;
-}
-
-async function invokeTorrentio(imdbId, season, episode) {
-  try {
-    const url = season != null
-      ? `${TORRENTIO_API}/stream/series/${imdbId}:${season}:${episode}.json`
-      : `${TORRENTIO_API}/stream/movie/${imdbId}.json`;
-
-    const res = await (await fetch(url, { headers: HEADERS})).json();
-    if (!res || !res.streams) return [];
-
-    const trackers = await getTrackers();
-    return res.streams.map(stream => {
-      const qualityMatch = (stream.title || '').match(/(2160p|1080p|720p)/i);
-      const quality = qualityMatch ? qualityMatch[1] : 'Unknown';
-      const seeder = (stream.title || '').match(/👤\s*(\d+)/)?.[1] || '0';
-      const magnet = buildMagnet(stream.infoHash, trackers, stream.sources || []);
-      const title = `Torrentio | ${quality} | Seeders: ${seeder}`;
-      return {
-        name: "TorraStream",
-        url: magnet,
-        quality: extractQuality(quality),
-        title,
-        subtitles: [],
-        behaviorHints: {
-          notWebReady: true,
-          proxyHeaders: {
-            request: Object.assign({}, HEADERS)
-          }
+// src/torrentio/extractor.js
+var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
+function extractStreams(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    var _a;
+    try {
+      const imdbId = yield getImdbId(tmdbId, mediaType);
+      if (!imdbId) {
+        console.log("[TORRENTIO] IMDB ID not found");
+        return [];
+      }
+      const isTv = season != null && episode != null;
+      const url = isTv ? TORRENTIO_API + "/stream/series/" + imdbId + ":" + season + ":" + episode + ".json" : TORRENTIO_API + "/stream/movie/" + imdbId + ".json";
+      console.log("[TORRENTIO] Fetching:", url);
+      const response = yield fetch(url, { headers: HEADERS });
+      const body = yield response.json();
+      if (!body || !body.streams) {
+        console.log("[TORRENTIO] No streams");
+        return [];
+      }
+      const results = [];
+      for (const stream of body.streams.slice(0, 15)) {
+        try {
+          const title = stream.title || "";
+          const titleLower = title.toLowerCase();
+          const quality = extractQuality(title);
+          const seeders = ((_a = title.match(/👤\s*(\d+)/)) != null ? _a : [])[1] || "?";
+          const magnet = buildMagnet(stream.infoHash);
+          if (!magnet)
+            continue;
+          if (!stream.title.toLowerCase().includes("ita"))
+            continue;
+          const formattedStream = streamFormat(stream);
+          results.push(formattedStream);
+        } catch (e) {
+          console.log("errore", e);
         }
-      };
-    }).filter(s => s.url);
-  } catch (e) {
-    return [];
-  }
+      }
+      return results;
+    } catch (e) {
+      console.error("[TORRENTIO] Error extracting streams:", e);
+      return [];
+    }
+  });
+}
+function streamFormat(stream) {
+  const name = stream.name || "TorrentIO Stream";
+  const title = stream.name || "";
+  const infoHash = stream.infoHash || "";
+  const description = stream.title;
+  const behaviorHints = stream.behaviorHints || {};
+  const url = buildMagnet(infoHash);
+  return {
+    name,
+    title,
+    description,
+    url,
+    infoHash,
+    addonName: "TorrentIO Plugin",
+    isInstalledAddonStream: true,
+    // Should trigger local debrid resolution in Nuvio
+    needsLocalDebridResolve: true,
+    // Should trigger local debrid resolution in Nuvio
+    behaviorHints
+  };
+}
+function buildMagnet(infoHash) {
+  if (!infoHash)
+    return "";
+  const trackerParams = TRACKERS.map((t) => "&tr=" + encodeURIComponent(t)).join("");
+  return "magnet:?xt=urn:btih:" + infoHash + trackerParams;
+}
+function extractQuality(title = "") {
+  const t = title.toLowerCase();
+  if (t.includes("2160p") || t.includes("4k"))
+    return "4K";
+  if (t.includes("1080p"))
+    return "1080p";
+  if (t.includes("720p"))
+    return "720p";
+  if (t.includes("480p"))
+    return "480p";
+  return "Unknown";
+}
+function getImdbId(tmdbId, mediaType) {
+  return __async(this, null, function* () {
+    try {
+      const normalizedType = mediaType.toLowerCase() === "tv" ? "tv" : "movie";
+      const findUrl = `https://api.themoviedb.org/3/${normalizedType}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
+      const response = yield fetch(findUrl);
+      console.log(response);
+      if (!response.ok)
+        return null;
+      const data = yield response.json();
+      console.log(data);
+      if (!data)
+        return null;
+      return data.imdb_id || null;
+    } catch (e) {
+      console.error("[TORRENTIO] Error fetching IMDB ID:", e);
+    }
+  });
 }
 
-async function invokeThePirateBay(imdbId, season, episode) {
-  try {
-    const url = season != null
-      ? `${THEPIRATEBAY_API}/stream/series/${imdbId}:${season}:${episode}.json`
-      : `${THEPIRATEBAY_API}/stream/movie/${imdbId}.json`;
-
-    const res = await (await fetch(url, { headers: HEADERS})).json();
-    if (!res || !res.streams) return [];
-
-    const trackers = await getTrackers();
-    return res.streams.map(stream => {
-      const magnet = buildMagnet(stream.infoHash, trackers, []);
-      const quality = extractQuality(stream.title || '');
-      return {
-        name: "TorraStream",
-        url: magnet,
-        quality,
-        title: `ThePirateBay | ${stream.title || ''}`,
-        subtitles: [],
-        behaviorHints: {
-          notWebReady: true,
-          proxyHeaders: {
-            request: Object.assign({}, HEADERS)
-          }
-        }
-      };
-    }).filter(s => s.url);
-  } catch (e) {
-    return [];
-  }
+// src/torrentio/index.js
+function getStreams(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      console.log(`[TorrentIO] Request: ${mediaType} ${tmdbId}`);
+      const imdbId = yield getImdbId(tmdbId, mediaType);
+      if (!imdbId) {
+        console.log("[TORRENTIO] IMDB ID not found");
+        return [];
+      }
+      const streams = yield extractStreams(tmdbId, mediaType, season, episode);
+      return streams;
+    } catch (error) {
+      console.error(`[TorrentIO] Error: ${error.message}`);
+      return [];
+    }
+  });
 }
-
-async function invokeTorrentsDB(imdbId, season, episode) {
-  try {
-    const url = season != null
-      ? `${TORRENTSDB_API}/stream/series/${imdbId}:${season}:${episode}.json`
-      : `${TORRENTSDB_API}/stream/movie/${imdbId}.json`;
-
-    const res = await (await fetch(url, { headers: HEADERS})).json();
-    if (!res || !res.streams) return [];
-
-    return res.streams.map(stream => {
-      const title = stream.title || '';
-      const qualityMatch = title.match(/(2160p|1080p|720p)/i);
-      const quality = qualityMatch ? qualityMatch[1] : 'Unknown';
-      const seeder = title.match(/👤\s*(\d+)/)?.[1] || '0';
-      const magnet = buildMagnet(stream.infoHash, [], stream.sources || []);
-      return {
-        name: "TorraStream",
-        url: magnet,
-        quality: extractQuality(quality),
-        title: `TorrentsDB | ${quality} | Seeders: ${seeder}`,
-        subtitles: [],
-        behaviorHints: {
-          notWebReady: true,
-          proxyHeaders: {
-            request: Object.assign({}, HEADERS)
-          }
-        }
-      };
-    }).filter(s => s.url);
-  } catch (e) {
-    return [];
-  }
-}
-
-async function getImdbId(tmdbId, mediaType) {
-  try {
-    const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
-    const res = await (await fetch(url)).json();
-    return res.external_ids?.imdb_id || res.imdb_id || null;
-  } catch (e) {
-    return null;
-  }
-}
-
-async function getStreams(tmdbId, mediaType, season, episode) {
-  try {
-    // 1. Get IMDB ID from TMDB
-    const imdbId = await getImdbId(tmdbId, mediaType);
-    if (!imdbId) return [];
-
-    const isTV = mediaType === 'tv';
-    const s = isTV ? season : null;
-    const e = isTV ? episode : null;
-
-    // 2. Query multiple torrent sources in parallel
-    const [torrentioStreams, tpbStreams, torrentsDbStreams] = await Promise.all([
-      invokeTorrentio(imdbId, s, e),
-      invokeThePirateBay(imdbId, s, e),
-      invokeTorrentsDB(imdbId, s, e)
-    ]);
-
-    // 3. Combine and return (limit to 15)
-    const allStreams = [...torrentioStreams, ...tpbStreams, ...torrentsDbStreams];
-    return allStreams.slice(0, 15);
-
-  } catch (e) {
-    console.error('[TorraStream]', e);
-    return [];
-  }
-}
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
-}
+module.exports = { getStreams };

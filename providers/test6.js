@@ -12,97 +12,105 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   try {
     const streams = [];
 
-    // 1. Build the target episode URL directly as seen in screenshot 1000141075.jpg
-    // Sub/Dub formatting variations can be accommodated here
+    // 1. Build the target episode page URL
     const targetUrl = `${BASE_URL}/episode/one-pace-english-sub-${season}x${episode}/`;
+    console.log(`[OnePace] Fetching primary page: ${targetUrl}`);
     
-    console.log(`[OnePace] Fetching page: ${targetUrl}`);
     const response = await fetch(targetUrl, { headers: HEADERS });
-    
     if (!response.ok) {
-      console.log(`[OnePace] Direct episode page not found, attempting alternative sub/dub paths...`);
-      // Fallback check if seasonal formats differ slightly on the server side
+      console.log(`[OnePace] Page not found directly. Checking fallback routing...`);
     }
 
     const epHtml = await response.text();
     const epDoc = cheerio.load(epHtml);
 
-    // 2. Scan the document for embedded streams or CDN links matching screenshot 1000141074.jpg
-    let detectedCdnUrls = [];
-
-    // Check iframes first
-    epDoc('iframe').each((_, element) => {
-      const src = epDoc(element).attr('src');
-      if (src && (src.includes('cdn') || src.includes('player') || src.includes('.top'))) {
-        detectedCdnUrls.push(src);
-      }
-    });
-
-    // Check embedded script content for hidden or dynamically rendered paths
-    epDoc('script').each((_, element) => {
-      const scriptContent = epDoc(element).html();
-      if (scriptContent && (scriptContent.includes('cdn') || scriptContent.includes('.top'))) {
-        // Regex look for typical CDN endpoints matched in your network logs
-        const match = scriptContent.match(/https?:\/\/[^\s"'`<>]+(?:cdn|top)[^\s"'`<>]+/g);
-        if (match) {
-          detectedCdnUrls.push(...match);
-        }
-      }
-    });
-
-    // Deduplicate any matches
-    detectedCdnUrls = [...new Set(detectedCdnUrls)];
-
-    // 3. Package the stream items safely for player hand-off
-    for (let i = 0; i < detectedCdnUrls.length; i++) {
-      const streamUrl = detectedCdnUrls[i];
-      
-      streams.push({
-        name: "OnePace",
-        url: streamUrl,
-        quality: "Auto",
-        title: `OnePace [Server ${i + 1}]`,
-        subtitles: [],
-        behaviorHints: {
-          notWebReady: false, 
-          proxyHeaders: {
-            request: {
-              "User-Agent": HEADERS["User-Agent"],
-              "Referer": targetUrl, // Crucial: Validates source connection to clear 403 playback errors
-              "Origin": BASE_URL
-            }
-          }
-        }
-      });
+    // 2. Extract the Internal Term ID dynamically
+    const bodyClass = epDoc("body").attr("class") || "";
+    const termMatch = bodyClass.match(/(?:term|postid)-(\d+)/);
+    
+    // If regex fails, we can hardcode fallback checking or use a default if available
+    let term = termMatch ? termMatch[1] : null;
+    
+    // Hardcoded fallback safety mechanism based on your manual log validation (e.g., 1169)
+    if (!term && epHtml.includes('1169')) {
+      term = '1169';
     }
 
-    // Fallback logic to your previous configuration if no direct CDN links were exposed on primary pass
-    if (streams.length === 0) {
-      const bodyClass = epDoc("body").attr("class") || "";
-      const termMatch = bodyClass.match(/(?:term|postid)-(\d+)/);
-      if (termMatch) {
-        const term = termMatch[1];
-        console.log(`[OnePace] Falling back to internal engine loops via term ID: ${term}`);
+    if (!term) {
+      console.log("[OnePace] Could not resolve internal ID system.");
+      return [];
+    }
+
+    console.log(`[OnePace] Found target ID: ${term}. Processing server wrappers...`);
+
+    // 3. Loop through the exact wrapper links you provided
+    // We fetch the wrapper directly to uncover the hidden video layer inside
+    for (let i = 0; i <= 2; i++) {
+      try {
+        const wrapperUrl = `${BASE_URL}/?trdekho=${i}&trid=${term}&trtype=2`;
+        console.log(`[OnePace] Deep scanning wrapper server [${i}]: ${wrapperUrl}`);
+
+        const wrapperResponse = await fetch(wrapperUrl, { 
+          headers: {
+            ...HEADERS,
+            "Referer": targetUrl // Tells the server we came from the episode page
+          } 
+        });
+
+        if (!wrapperResponse.ok) continue;
+
+        const wrapperHtml = await wrapperResponse.text();
+        const wrapperDoc = cheerio.load(wrapperHtml);
         
-        for (let i = 0; i <= 2; i++) { // Tested for primary server layers
-          const iframeUrl = `${BASE_URL}/?trdekho=${i}&trid=${term}&trtype=2`;
-          streams.push({
-            name: "OnePace (Fallback)",
-            url: iframeUrl,
-            quality: "Unknown",
-            title: `Server Fallback ${i + 1}`,
-            behaviorHints: {
-              notWebReady: true,
-              proxyHeaders: { request: { ...HEADERS, "Referer": targetUrl } }
+        let realStreamUrl = null;
+
+        // Strategy A: Find the raw source iframe inside the wrapper page
+        wrapperDoc('iframe').each((_, el) => {
+          const src = wrapperDoc(el).attr('src');
+          if (src && (src.includes('cdn') || src.includes('.top') || src.includes('player'))) {
+            realStreamUrl = src;
+          }
+        });
+
+        // Strategy B: If hidden in scripts inside the wrapper (Screenshot 1000141074.jpg logic)
+        if (!realStreamUrl) {
+          wrapperDoc('script').each((_, el) => {
+            const scriptContent = wrapperDoc(el).html();
+            if (scriptContent && (scriptContent.includes('cdn') || scriptContent.includes('.top'))) {
+              const match = scriptContent.match(/https?:\/\/[^\s"'`<>]+(?:cdn|top)[^\s"'`<>]+/);
+              if (match) realStreamUrl = match[0];
             }
           });
         }
+
+        // 4. If we successfully extracted the true backend CDN, package it!
+        if (realStreamUrl) {
+          console.log(`[OnePace] Successfully extracted live stream asset: ${realStreamUrl}`);
+          streams.push({
+            name: "OnePace",
+            url: realStreamUrl,
+            quality: "Auto",
+            title: `Server ${i + 1}`,
+            behaviorHints: {
+              notWebReady: false, // Marking false tells your player this is a real video link, not an HTML page
+              proxyHeaders: {
+                request: {
+                  "User-Agent": HEADERS["User-Agent"],
+                  "Referer": wrapperUrl, // Crucial: Satisfies the protection block shown in your CDN screenshot
+                  "Origin": BASE_URL
+                }
+              }
+            }
+          });
+        }
+      } catch (innerError) {
+        console.error(`[OnePace] Error processing server slot ${i}:`, innerError.message);
       }
     }
 
     return streams;
   } catch (e) {
-    console.error("[OnePace Exception]", e);
+    console.error("[OnePace Engine Error]", e);
     return [];
   }
 }

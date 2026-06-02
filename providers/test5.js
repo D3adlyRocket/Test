@@ -267,75 +267,92 @@ if (episodeLinks.length === 0 && allEpisodes.length > 0) {
         const term = termMatch[1];
 
         // =====================================================
-        // Iterate iframe servers
-        // =====================================================
+// Extract ALL iframes directly from episode page
+// =====================================================
 
-        for (let i = 0; i <= 7; i++) {
+const iframeSources = [];
 
-          try {
+// Main iframe embeds
+epDoc("iframe").each((_, frame) => {
 
-            const iframeUrl =
-              `${BASE_URL}/?trdekho=${i}&trid=${term}&trtype=2`;
+  let src = epDoc(frame).attr("src");
 
-            const iframeRes = await safeFetch(iframeUrl, {
-              headers: HEADERS
-            });
+  if (!src) return;
 
-            if (!iframeRes) continue;
+  if (!src.startsWith("http")) {
+    src = new URL(src, BASE_URL).href;
+  }
 
-            const iframeHtml = await iframeRes.text();
+  iframeSources.push(src);
+});
 
-            const iframeDoc = cheerio.load(iframeHtml);
+// Video source URLs inside scripts
+epHtml.match(/https?:\/\/[^"' ]+/g)?.forEach(url => {
 
-            let src =
-              iframeDoc("iframe").attr("src");
+  if (
+    url.includes("embed") ||
+    url.includes("player") ||
+    url.includes("turbosplayer") ||
+    url.includes(".m3u8")
+  ) {
+    iframeSources.push(url);
+  }
+});
 
-            if (!src) continue;
+// Remove duplicates
+const uniqueFrames = [...new Set(iframeSources)];
 
-            if (!src.startsWith("http")) {
-              src = new URL(src, BASE_URL).href;
-            }
+console.log(
+  "[OnePace] Found iframe sources:",
+  uniqueFrames.length
+);
 
-            // Resolve actual m3u8
-            const resolved = await resolveStream(src);
+// Resolve each iframe
+for (let i = 0; i < uniqueFrames.length; i++) {
 
-            if (!resolved || !resolved.url) continue;
+  try {
 
-            streams.push({
-              name: "OnePace",
-              title: `OnePace Server ${i + 1}`,
-              url: resolved.url,
-              quality: "1080p",
-              type: "hls",
-              subtitles: [],
+    const src = uniqueFrames[i];
 
-              behaviorHints: {
-                notWebReady: false,
+    const resolved = await resolveStream(src);
 
-                proxyHeaders: {
-                  request: {
-                    "User-Agent":
-                      HEADERS["User-Agent"],
+    if (!resolved?.url) continue;
 
-                    "Referer":
-                      resolved.referer,
+    console.log(
+      "[OnePace] Resolved:",
+      resolved.url
+    );
 
-                    "Origin":
-                      resolved.origin
-                  }
-                }
-              }
-            });
+    streams.push({
+      name: "OnePace",
+      title: `OnePace Server ${i + 1}`,
+      url: resolved.url,
+      quality: "1080p",
+      type: "hls",
+      subtitles: [],
 
-          } catch (err) {
-            console.log("[iframe server error]", err);
+      behaviorHints: {
+        notWebReady: false,
+
+        proxyHeaders: {
+          request: {
+            "User-Agent":
+              HEADERS["User-Agent"],
+
+            "Referer":
+              resolved.referer,
+
+            "Origin":
+              resolved.origin
           }
         }
-
-      } catch (err) {
-        console.log("[episode error]", err);
       }
-    }
+    });
+
+  } catch (err) {
+    console.log("[resolve error]", err);
+  }
+}
 
     // =========================================================
     // Remove duplicates

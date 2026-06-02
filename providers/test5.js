@@ -1,7 +1,7 @@
-const cheerio = require('cheerio-without-node-native');
+const cheerio = require("cheerio-without-node-native");
 
 // ============================================================
-// OnePace Provider (FIXED - stable version)
+// OnePace Provider (FINAL FIXED VERSION)
 // ============================================================
 
 const BASE_URL = "https://onepace.co";
@@ -26,7 +26,7 @@ async function safeFetch(url, options = {}) {
 }
 
 // ============================================================
-// Extract m3u8 from HTML
+// Extract m3u8 (robust)
 // ============================================================
 
 function extractM3U8(html) {
@@ -40,7 +40,7 @@ function extractM3U8(html) {
 }
 
 // ============================================================
-// Resolve embed page → m3u8
+// Resolve embed → stream
 // ============================================================
 
 async function resolveEmbed(url, referer) {
@@ -73,7 +73,7 @@ async function resolveEmbed(url, referer) {
 }
 
 // ============================================================
-// Main function
+// MAIN FUNCTION
 // ============================================================
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -98,7 +98,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const doc = cheerio.load(seriesHtml);
 
     // ========================================================
-    // Build episode list (ORDER IS IMPORTANT)
+    // Build episode list (ORDERED)
     // ========================================================
 
     const episodes = [];
@@ -117,14 +117,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     if (!episodes.length) return [];
 
-    console.log("[OnePace] Episodes found:", episodes.length);
+    console.log("[OnePace] Episodes:", episodes.length);
 
     // ========================================================
-    // Select episode correctly
+    // Select correct episode
     // ========================================================
 
     const epIndex = Math.max(0, parseInt(episode || 1) - 1);
-
     const selected = episodes[epIndex] || episodes[0];
 
     const epUrl = selected.href.startsWith("http")
@@ -144,26 +143,26 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     if (!epRes) return [];
 
     const epHtml = await epRes.text();
-
     const epDoc = cheerio.load(epHtml);
 
     // ========================================================
-    // IMPORTANT: keep original OnePace server system
+    // CRITICAL: keep original OnePace server system
     // ========================================================
 
     const bodyClass = epDoc("body").attr("class") || "";
     const termMatch = bodyClass.match(/(?:term|postid)-(\d+)/);
 
-    if (!termMatch) {
-      console.log("[OnePace] Missing term ID");
-      return [];
-    }
+    if (!termMatch) return [];
 
     const term = termMatch[1];
 
+    console.log("[OnePace] Term:", term);
+
     // ========================================================
-    // Try servers (THIS is what makes episodes different)
+    // SERVER LOOP (FIXED CORE ISSUE)
     // ========================================================
+
+    const seenHosts = new Set();
 
     for (let i = 0; i <= 7; i++) {
 
@@ -191,12 +190,19 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
 
         // ====================================================
-        // FIX: resolve per-server embed properly
+        // Resolve embed
         // ====================================================
 
         const resolved = await resolveEmbed(src, iframeUrl);
 
         if (!resolved?.url) continue;
+
+        const host = new URL(resolved.url).host;
+
+        // 🔥 IMPORTANT: prevent duplicate CDN streams
+        if (seenHosts.has(host)) continue;
+
+        seenHosts.add(host);
 
         streams.push({
           name: "OnePace",
@@ -224,22 +230,22 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
 
     // ========================================================
-    // Remove duplicates
+    // Final dedupe (extra safety)
     // ========================================================
 
-    const unique = [];
+    const final = [];
     const seen = new Set();
 
     for (const s of streams) {
       if (!seen.has(s.url)) {
         seen.add(s.url);
-        unique.push(s);
+        final.push(s);
       }
     }
 
-    console.log("[OnePace] Final streams:", unique.length);
+    console.log("[OnePace] Final streams:", final.length);
 
-    return unique;
+    return final;
 
   } catch (e) {
     console.log("[OnePace fatal]", e);

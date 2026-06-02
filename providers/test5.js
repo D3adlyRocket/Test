@@ -156,60 +156,66 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const streams = [];
 
-    // =========================================================
-    // Find episode links
-    // =========================================================
+// =========================================================
+// Find episode links
+// =========================================================
 
-    let episodeLinks = [];
+let episodeLinks = [];
 
-    const seasonBoxes =
-      doc("div.seasons.aa-crd > div.seasons-bx").toArray();
+const allEpisodes = [];
 
-    if (season && episode) {
+doc("ul.seasons-lst.anm-a li").each((_, el) => {
 
-      for (const box of seasonBoxes) {
+  const $el = doc(el);
 
-        const $box = doc(box);
+  const href = $el.find("a").attr("href");
 
-        const epItems =
-          $box.find("ul.seasons-lst.anm-a li").toArray();
+  const title =
+    $el.find("h3.title").text().trim() ||
+    $el.text().trim();
 
-        for (const ep of epItems) {
+  if (href) {
 
-          const $ep = doc(ep);
+    allEpisodes.push({
+      href,
+      title
+    });
+  }
+});
 
-          const spanText =
-            $ep.find("h3.title > span").text().trim();
+// Debug logging
+console.log(
+  "[OnePace] Total episodes:",
+  allEpisodes.length
+);
 
-          const sMatch = spanText.match(/S(\d+)/i);
-          const eMatch = spanText.match(/E(\d+)/i);
+// Match by episode index instead
+if (episode && allEpisodes.length > 0) {
 
-          if (sMatch && eMatch) {
+  const epIndex = parseInt(episode) - 1;
 
-            const epSeason = parseInt(sMatch[1]);
-            const epNumber = parseInt(eMatch[1]);
+  if (allEpisodes[epIndex]) {
 
-            if (
-              epSeason === parseInt(season) &&
-              epNumber === parseInt(episode)
-            ) {
+    episodeLinks.push(
+      allEpisodes[epIndex].href
+    );
 
-              const href = $ep.find("a").attr("href");
+    console.log(
+      "[OnePace] Selected:",
+      allEpisodes[epIndex].title
+    );
+  }
+}
 
-              if (href) {
-                episodeLinks.push(href);
-              }
+// Final fallback
+if (episodeLinks.length === 0 && allEpisodes.length > 0) {
 
-              break;
-            }
-          }
-        }
+  episodeLinks.push(allEpisodes[0].href);
 
-        if (episodeLinks.length > 0) {
-          break;
-        }
-      }
-    }
+  console.log(
+    "[OnePace] Using fallback episode"
+  );
+}
 
     // =========================================================
     // Fallback first episode

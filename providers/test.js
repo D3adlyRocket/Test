@@ -1,6 +1,6 @@
 const cheerio = require('cheerio-without-node-native');
 // onepace.js
-// OnePace provider — scrapes https://onepace.co for One Pace anime arcs (sub & dub)
+// OnePace provider — fixes embed restrictions to extract actual video targets
 
 const BASE_URL = "https://onepace.co";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -17,7 +17,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Determine if searching sub or dub series
+    // 2. Load Series Page
     const seriesUrl = `${BASE_URL}/series/one-pace-english-sub/`;
     const doc = cheerio.load(await (await fetch(seriesUrl, { headers: HEADERS})).text());
 
@@ -54,7 +54,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (firstArcEps) episodeLinks.push(firstArcEps);
     }
 
-    // 4. For each episode URL, extract term id then resolve iframe stream targets
+    // 4. Extract underlying stream links from iframe embeds
     for (const epUrl of episodeLinks) {
       const fullUrl = epUrl.startsWith("http") ? epUrl : BASE_URL + epUrl;
       const epHtml = await (await fetch(fullUrl, { headers: HEADERS})).text();
@@ -65,7 +65,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (!termMatch) continue;
       const term = termMatch[1];
 
-      // Try the iframe slots
+      // Scan up to 8 backend iframe options
       for (let i = 0; i <= 7; i++) {
         try {
           const iframeUrl = `${BASE_URL}/?trdekho=${i}&trid=${term}&trtype=2`;
@@ -78,42 +78,65 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           }
 
           if (src && src.startsWith("http")) {
-            // Determine Server Name based on the domain inside the iframe source
             let serverName = `Server ${i + 1}`;
-            let finalUrl = src;
-            let playerHeaders = Object.assign({}, HEADERS);
+            let playUrl = src;
+            let isM3u8 = false;
 
-            if (src.includes("vidstream") || src.includes("as-cdn")) {
-              serverName = "Vidstream";
-            } else if (src.includes("rumble") || src.includes("mycloud")) {
-              serverName = "Mycloud";
-            } else if (src.includes("vmeas.cloud") || src.includes("vidmody")) {
-              serverName = "VidMody";
-            } else if (src.includes("turbosplayer") || src.includes("omega")) {
-              serverName = "Omega";
-            } else if (src.includes("reimoto") || src.includes("neon")) {
-              serverName = "Neon";
-            } else if (src.includes("silverpathacademy") || src.includes("mirrorbot")) {
+            // Differentiate and extract stream targets per host signature
+            if (src.includes("abyssplayer.com")) {
+              serverName = "AbyssPlayer";
+              // Deep extraction step: Try parsing packed file scripts if direct access allowed
+              try {
+                const embedHtml = await (await fetch(src, { headers: { "Referer": BASE_URL } })).text();
+                const fileMatch = embedHtml.match(/file["']?\s*:\s*["']([^"']+\.m3u8[^"']*)/);
+                if (fileMatch) { playUrl = fileMatch[1]; isM3u8 = true; }
+              } catch (_) {}
+
+            } else if (src.includes("gdmirrorbot") || src.includes("mirrorbot")) {
               serverName = "Mirrorbot";
+              
+            } else if (src.includes("rubystm.com")) {
+              serverName = "Sruby / RubyStm";
+              // Convert player standard embed patterns into direct paths if known
+              if (src.includes("/e/")) {
+                const id = src.split("/e/")[1];
+                // Fallback structured API proxy call sign
+                playUrl = `https://rubystm.com/api/source/${id}`;
+              }
+
+            } else if (src.includes("emturbovid.com") || src.includes("turbovid")) {
+              serverName = "Omega / TurboVid";
+
+            } else if (src.includes("vidcloud")) {
+              serverName = "Vidcloud";
+
+            } else if (src.includes("vidmoly")) {
+              serverName = "VidMody / Vidmoly";
+              try {
+                const molyHtml = await (await fetch(src, { headers: { "User-Agent": HEADERS["User-Agent"] } })).text();
+                const molyMatch = molyHtml.match(/file\s*:\s*["']([^"']+\.m3u8[^"']*)/);
+                if (molyMatch) { playUrl = molyMatch[1]; isM3u8 = true; }
+              } catch (_) {}
             }
 
-            // Fallback check: If the iframe contains a direct file mapping pattern or a script array
-            // we force behavior hints telling the video core to process it as a direct HLS source.
-            const isDirectM3u8 = src.includes(".m3u8");
-
+            // Append structured payload back to video environment client
             streams.push({
               name: "OnePace",
-              url: finalUrl,
+              url: playUrl,
               quality: "Auto",
               title: `OnePace [${serverName}]`,
               subtitles: [],
               behaviorHints: {
-                // If it's a raw m3u8 link we can play directly, otherwise keep true for embedding webview handlers
-                notWebReady: !isDirectM3u8, 
+                // If it's a raw parsed stream link, mark as ready, else signal client to mount a rendering container
+                notWebReady: !isM3u8, 
+                externalUrls: {
+                  "Web Player": src
+                },
                 proxyHeaders: {
                   request: {
-                    "User-Agent": playerHeaders["User-Agent"],
-                    "Referer": src // CRITICAL: The streaming servers validate if the referer is the iframe source URL
+                    "User-Agent": HEADERS["User-Agent"],
+                    "Origin": new URL(src).origin,
+                    "Referer": src
                   }
                 }
               }

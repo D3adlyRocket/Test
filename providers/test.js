@@ -1,7 +1,7 @@
 const cheerio = require('cheerio-without-node-native');
 
 // Production Configurations matched against working Kotlin client parameters
-const BASE_URL = "https://onepace.me"; 
+const BASE_URL = "https://onepace.co"; 
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",

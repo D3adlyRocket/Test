@@ -1,26 +1,20 @@
-const cheerio = require('cheerio-without-node-native');
+const cheerio = require("cheerio-without-node-native");
 
 // ============================================================
 // OnePace Provider for Nuvio
-// Scrapes https://onepace.co
-// Resolves direct .m3u8 streams from embeds
 // ============================================================
 
 const BASE_URL = "https://onepace.co";
 
-const TMDB_API_KEY =
-  "1865f43a0549ca50d341dd9ab8b29f49";
-
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-
   "Referer": BASE_URL + "/",
   "Origin": BASE_URL
 };
 
 // ============================================================
-// Safe fetch
+// Safe Fetch
 // ============================================================
 
 async function safeFetch(url, options = {}) {
@@ -29,111 +23,134 @@ async function safeFetch(url, options = {}) {
 
     return await fetch(url, options);
 
-  } catch (e) {
+  } catch (err) {
 
-    console.log("[safeFetch error]", e);
+    console.log("[Fetch Error]", err);
 
     return null;
   }
 }
 
 // ============================================================
-// Extract m3u8 from HTML
+// Extract m3u8
 // ============================================================
 
 function extractM3U8(html) {
 
   if (!html) return null;
 
-  const regexes = [
+  // Direct m3u8
+  const direct =
+    html.match(
+      /https?:\/\/[^"' ]+\.m3u8[^"' ]*/i
+    );
 
-    /https?:\/\/[^"' ]+\.m3u8[^"' ]*/gi,
+  if (direct?.[0]) {
+    return direct[0];
+  }
 
-    /file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i,
+  // JWPlayer style
+  const jw =
+    html.match(
+      /file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i
+    );
 
-    /source\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i,
+  if (jw?.[1]) {
+    return jw[1];
+  }
 
-    /src\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i
-  ];
+  // Source style
+  const source =
+    html.match(
+      /source\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i
+    );
 
-  for (const regex of regexes) {
-
-    const match = html.match(regex);
-
-    if (match) {
-
-      return match[1] || match[0];
-    }
+  if (source?.[1]) {
+    return source[1];
   }
 
   // Turbosplayer fallback
-  const turboMatch = html.match(
-    /https?:\/\/[^"' ]+\/file\/[a-f0-9-]+\/master\.m3u8/i
-  );
+  const turbo =
+    html.match(
+      /https?:\/\/[^"' ]+\/file\/[a-f0-9-]+\/master\.m3u8/i
+    );
 
-  if (turboMatch) {
-
-    return turboMatch[0];
+  if (turbo?.[0]) {
+    return turbo[0];
   }
 
   return null;
 }
 
 // ============================================================
-// Resolve embed pages
+// Resolve embeds
 // ============================================================
 
-async function resolveStream(embedUrl) {
+async function resolveStream(url) {
 
   try {
 
-    const res = await safeFetch(embedUrl, {
-      headers: {
-        ...HEADERS,
-        Referer: BASE_URL + "/"
-      }
+    // Direct m3u8
+    if (url.includes(".m3u8")) {
+
+      return {
+        url,
+        referer: BASE_URL + "/",
+        origin: BASE_URL
+      };
+    }
+
+    const res = await safeFetch(url, {
+      headers: HEADERS
     });
 
     if (!res) return null;
 
     const html = await res.text();
 
-    // Direct extraction
+    // Extract direct stream
     let m3u8 = extractM3U8(html);
 
     // Nested iframe
     if (!m3u8) {
 
-      const iframeMatch = html.match(
-        /<iframe[^>]+src=["']([^"']+)["']/i
-      );
+      const iframe =
+        html.match(
+          /<iframe[^>]+src=["']([^"']+)["']/i
+        );
 
-      if (iframeMatch?.[1]) {
+      if (iframe?.[1]) {
 
-        const nestedUrl =
-          iframeMatch[1].startsWith("http")
-            ? iframeMatch[1]
-            : new URL(
-                iframeMatch[1],
-                embedUrl
-              ).href;
+        let nested =
+          iframe[1];
 
-        const nestedRes = await safeFetch(
-          nestedUrl,
-          {
+        if (
+          !nested.startsWith("http")
+        ) {
+
+          nested = new URL(
+            nested,
+            url
+          ).href;
+        }
+
+        const nestedRes =
+          await safeFetch(nested, {
             headers: {
               ...HEADERS,
-              Referer: embedUrl
+              Referer: url
             }
-          }
-        );
+          });
 
         if (nestedRes) {
 
           const nestedHtml =
             await nestedRes.text();
 
-          m3u8 = extractM3U8(nestedHtml);
+          m3u8 =
+            extractM3U8(
+              nestedHtml
+            );
         }
       }
     }
@@ -142,20 +159,23 @@ async function resolveStream(embedUrl) {
 
     return {
       url: m3u8,
-      referer: embedUrl,
-      origin: new URL(embedUrl).origin
+      referer: url,
+      origin: new URL(url).origin
     };
 
-  } catch (e) {
+  } catch (err) {
 
-    console.log("[resolveStream error]", e);
+    console.log(
+      "[Resolve Error]",
+      err
+    );
 
     return null;
   }
 }
 
 // ============================================================
-// Main stream resolver
+// Main
 // ============================================================
 
 async function getStreams(
@@ -170,144 +190,105 @@ async function getStreams(
     const streams = [];
 
     // ========================================================
-    // TMDB lookup
+    // Open One Pace page
     // ========================================================
 
-    const tmdbUrl =
-      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const seriesRes =
+      await safeFetch(
+        `${BASE_URL}/series/one-pace-english-sub/`,
+        {
+          headers: HEADERS
+        }
+      );
 
-    const tmdbRes = await safeFetch(
-      tmdbUrl,
-      {
-        headers: HEADERS
-      }
-    );
+    if (!seriesRes) {
+      return [];
+    }
 
-    if (!tmdbRes) return [];
-
-    const mediaInfo =
-      await tmdbRes.json();
-
-    const title =
-      mediaInfo.title ||
-      mediaInfo.name;
-
-    if (!title) return [];
-
-    console.log(
-      "[OnePace] TMDB Title:",
-      title
-    );
-
-    // ========================================================
-    // Load One Pace page
-    // ========================================================
-
-    const seriesUrl =
-      `${BASE_URL}/series/one-pace-english-sub/`;
-
-    const seriesRes = await safeFetch(
-      seriesUrl,
-      {
-        headers: HEADERS
-      }
-    );
-
-    if (!seriesRes) return [];
-
-    const seriesHtml =
+    const html =
       await seriesRes.text();
 
     const doc =
-      cheerio.load(seriesHtml);
+      cheerio.load(html);
 
     // ========================================================
-    // Build episode list
+    // Collect episode links
     // ========================================================
 
-    const allEpisodes = [];
+    const episodes = [];
 
-    doc("ul.seasons-lst.anm-a li").each(
-      (_, el) => {
+    doc(
+      "ul.seasons-lst.anm-a li"
+    ).each((_, el) => {
 
-        const $el = doc(el);
+      const href =
+        doc(el)
+          .find("a")
+          .attr("href");
 
-        const href =
-          $el.find("a").attr("href");
+      const title =
+        doc(el)
+          .text()
+          .trim();
 
-        const epTitle =
-          $el.find("h3.title")
-            .text()
-            .trim() ||
-          $el.text().trim();
+      if (href) {
 
-        if (href) {
-
-          allEpisodes.push({
-            href,
-            title: epTitle
-          });
-        }
+        episodes.push({
+          href,
+          title
+        });
       }
-    );
+    });
 
     console.log(
-      "[OnePace] Episodes found:",
-      allEpisodes.length
+      "[OnePace] Episodes:",
+      episodes.length
     );
 
-    if (allEpisodes.length === 0) {
-
+    if (!episodes.length) {
       return [];
     }
 
     // ========================================================
-    // Match episode
+    // Pick episode
     // ========================================================
 
-    let selectedEpisode = null;
+    const epNum =
+      parseInt(episode || 1);
 
-    if (
-      episode &&
-      allEpisodes[
-        parseInt(episode) - 1
-      ]
-    ) {
-
-      selectedEpisode =
-        allEpisodes[
-          parseInt(episode) - 1
-        ];
-
-    } else {
-
-      selectedEpisode =
-        allEpisodes[0];
-    }
+    const selected =
+      episodes[
+        Math.max(0, epNum - 1)
+      ] || episodes[0];
 
     console.log(
       "[OnePace] Selected:",
-      selectedEpisode.title
+      selected.title
     );
+
+    const epUrl =
+      selected.href.startsWith(
+        "http"
+      )
+        ? selected.href
+        : BASE_URL +
+          selected.href;
 
     // ========================================================
     // Open episode page
     // ========================================================
 
-    const fullEpisodeUrl =
-      selectedEpisode.href.startsWith("http")
-        ? selectedEpisode.href
-        : BASE_URL +
-          selectedEpisode.href;
+    const epRes =
+      await safeFetch(
+        epUrl,
+        {
+          headers: HEADERS
+        }
+      );
 
-    const epRes = await safeFetch(
-      fullEpisodeUrl,
-      {
-        headers: HEADERS
-      }
-    );
-
-    if (!epRes) return [];
+    if (!epRes) {
+      return [];
+    }
 
     const epHtml =
       await epRes.text();
@@ -316,144 +297,128 @@ async function getStreams(
       cheerio.load(epHtml);
 
     // ========================================================
-    // Extract iframe/player sources
+    // Find possible player URLs
     // ========================================================
 
-    const iframeSources = [];
+    const urls = [];
 
-    // Standard iframes
+    // iframe src
     epDoc("iframe").each(
-      (_, frame) => {
+      (_, el) => {
 
-        let src =
-          epDoc(frame).attr("src");
+        const src =
+          epDoc(el).attr("src");
 
-        if (!src) return;
-
-        if (!src.startsWith("http")) {
-
-          src = new URL(
-            src,
-            BASE_URL
-          ).href;
+        if (src) {
+          urls.push(src);
         }
-
-        iframeSources.push(src);
       }
     );
 
-    // Extract raw URLs from scripts/html
-    const urlMatches =
+    // data-src
+    epDoc("[data-src]").each(
+      (_, el) => {
+
+        const src =
+          epDoc(el).attr(
+            "data-src"
+          );
+
+        if (src) {
+          urls.push(src);
+        }
+      }
+    );
+
+    // Extract URLs from page
+    const matches =
       epHtml.match(
         /https?:\/\/[^"' ]+/g
       ) || [];
 
-    for (const url of urlMatches) {
+    urls.push(...matches);
 
-      if (
-        url.includes("embed") ||
-        url.includes("player") ||
-        url.includes("turbosplayer") ||
-        url.includes(".m3u8")
-      ) {
+    // ========================================================
+    // Filter useful URLs
+    // ========================================================
 
-        iframeSources.push(url);
-      }
-    }
-
-    // Remove duplicates
-    const uniqueFrames =
-      [...new Set(iframeSources)];
+    const filtered =
+      [...new Set(urls)].filter(
+        url =>
+          url.includes(
+            ".m3u8"
+          ) ||
+          url.includes(
+            "embed"
+          ) ||
+          url.includes(
+            "player"
+          ) ||
+          url.includes(
+            "turbosplayer"
+          )
+      );
 
     console.log(
-      "[OnePace] Sources found:",
-      uniqueFrames.length
+      "[OnePace] Sources:",
+      filtered.length
     );
 
     // ========================================================
-    // Resolve streams
+    // Resolve all
     // ========================================================
 
     for (
       let i = 0;
-      i < uniqueFrames.length;
+      i < filtered.length;
       i++
     ) {
 
       try {
 
-        const src =
-          uniqueFrames[i];
+        let url =
+          filtered[i];
+
+        if (
+          !url.startsWith(
+            "http"
+          )
+        ) {
+
+          url = new URL(
+            url,
+            epUrl
+          ).href;
+        }
 
         console.log(
           "[OnePace] Resolving:",
-          src
+          url
         );
 
-        // Already direct m3u8
-        if (
-          src.includes(".m3u8")
-        ) {
-
-          streams.push({
-
-            name: "OnePace",
-
-            title:
-              `OnePace Server ${i + 1}`,
-
-            url: src,
-
-            quality: "1080p",
-
-            type: "hls",
-
-            subtitles: [],
-
-            behaviorHints: {
-
-              notWebReady: false,
-
-              proxyHeaders: {
-
-                request: {
-
-                  "User-Agent":
-                    HEADERS[
-                      "User-Agent"
-                    ],
-
-                  "Referer":
-                    fullEpisodeUrl,
-
-                  "Origin":
-                    BASE_URL
-                }
-              }
-            }
-          });
-
-          continue;
-        }
-
-        // Resolve embeds
         const resolved =
-          await resolveStream(src);
+          await resolveStream(
+            url
+          );
 
         if (
           !resolved?.url
-        ) continue;
+        ) {
+          continue;
+        }
 
         streams.push({
 
           name: "OnePace",
 
           title:
-            `OnePace Server ${i + 1}`,
+            `Server ${i + 1}`,
 
-          url: resolved.url,
+          url:
+            resolved.url,
 
-          quality: "1080p",
+          quality:
+            "1080p",
 
           type: "hls",
 
@@ -485,19 +450,20 @@ async function getStreams(
       } catch (err) {
 
         console.log(
-          "[resolve error]",
+          "[Stream Error]",
           err
         );
       }
     }
 
     // ========================================================
-    // Remove duplicate streams
+    // Deduplicate
     // ========================================================
 
-    const unique = [];
+    const final = [];
 
-    const seen = new Set();
+    const seen =
+      new Set();
 
     for (const s of streams) {
 
@@ -507,21 +473,22 @@ async function getStreams(
 
         seen.add(s.url);
 
-        unique.push(s);
+        final.push(s);
       }
     }
 
     console.log(
-      `[OnePace] Final streams: ${unique.length}`
+      "[OnePace] Final:",
+      final.length
     );
 
-    return unique;
+    return final;
 
-  } catch (e) {
+  } catch (err) {
 
     console.log(
-      "[OnePace fatal error]",
-      e
+      "[OnePace Fatal]",
+      err
     );
 
     return [];
@@ -529,7 +496,8 @@ async function getStreams(
 }
 
 if (
-  typeof module !== "undefined" &&
+  typeof module !==
+    "undefined" &&
   module.exports
 ) {
 

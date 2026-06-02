@@ -4,69 +4,94 @@ const cheerio = require('cheerio-without-node-native');
 // OnePace Provider for Nuvio
 // Scrapes https://onepace.co
 // Resolves direct .m3u8 streams from embeds
-// Includes Turbosplayer support
 // ============================================================
 
 const BASE_URL = "https://onepace.co";
-const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
+
+const TMDB_API_KEY =
+  "1865f43a0549ca50d341dd9ab8b29f49";
 
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+
   "Referer": BASE_URL + "/",
   "Origin": BASE_URL
 };
 
+// ============================================================
+// Safe fetch
+// ============================================================
+
 async function safeFetch(url, options = {}) {
+
   try {
+
     return await fetch(url, options);
+
   } catch (e) {
+
     console.log("[safeFetch error]", e);
+
     return null;
   }
 }
 
+// ============================================================
+// Extract m3u8 from HTML
+// ============================================================
+
 function extractM3U8(html) {
+
   if (!html) return null;
 
-  const patterns = [
+  const regexes = [
+
     /https?:\/\/[^"' ]+\.m3u8[^"' ]*/gi,
+
     /file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i,
+
     /source\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i,
+
     /src\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i
   ];
 
-  for (const pattern of patterns) {
-    const match = html.match(pattern);
+  for (const regex of regexes) {
+
+    const match = html.match(regex);
 
     if (match) {
-      if (Array.isArray(match)) {
-        return match[1] || match[0];
-      }
+
+      return match[1] || match[0];
     }
   }
 
   // Turbosplayer fallback
   const turboMatch = html.match(
-    /file\/([a-f0-9-]+)\/master\.m3u8/i
+    /https?:\/\/[^"' ]+\/file\/[a-f0-9-]+\/master\.m3u8/i
   );
 
   if (turboMatch) {
-    return `https://g251.turbosplayer.com/file/${turboMatch[1]}/master.m3u8`;
+
+    return turboMatch[0];
   }
 
   return null;
 }
 
+// ============================================================
+// Resolve embed pages
+// ============================================================
+
 async function resolveStream(embedUrl) {
+
   try {
-    const embedHeaders = {
-      ...HEADERS,
-      Referer: BASE_URL + "/"
-    };
 
     const res = await safeFetch(embedUrl, {
-      headers: embedHeaders
+      headers: {
+        ...HEADERS,
+        Referer: BASE_URL + "/"
+      }
     });
 
     if (!res) return null;
@@ -76,26 +101,38 @@ async function resolveStream(embedUrl) {
     // Direct extraction
     let m3u8 = extractM3U8(html);
 
-    // If iframe inside iframe
+    // Nested iframe
     if (!m3u8) {
+
       const iframeMatch = html.match(
         /<iframe[^>]+src=["']([^"']+)["']/i
       );
 
-      if (iframeMatch && iframeMatch[1]) {
-        const nestedUrl = iframeMatch[1].startsWith("http")
-          ? iframeMatch[1]
-          : new URL(iframeMatch[1], embedUrl).href;
+      if (iframeMatch?.[1]) {
 
-        const nestedRes = await safeFetch(nestedUrl, {
-          headers: {
-            ...HEADERS,
-            Referer: embedUrl
+        const nestedUrl =
+          iframeMatch[1].startsWith("http")
+            ? iframeMatch[1]
+            : new URL(
+                iframeMatch[1],
+                embedUrl
+              ).href;
+
+        const nestedRes = await safeFetch(
+          nestedUrl,
+          {
+            headers: {
+              ...HEADERS,
+              Referer: embedUrl
+            }
           }
-        });
+        );
 
         if (nestedRes) {
-          const nestedHtml = await nestedRes.text();
+
+          const nestedHtml =
+            await nestedRes.text();
+
           m3u8 = extractM3U8(nestedHtml);
         }
       }
@@ -110,279 +147,393 @@ async function resolveStream(embedUrl) {
     };
 
   } catch (e) {
+
     console.log("[resolveStream error]", e);
+
     return null;
   }
 }
 
-async function getStreams(tmdbId, mediaType, season, episode) {
+// ============================================================
+// Main stream resolver
+// ============================================================
+
+async function getStreams(
+  tmdbId,
+  mediaType,
+  season,
+  episode
+) {
+
   try {
 
-    // =========================================================
-    // Get TMDB info
-    // =========================================================
+    const streams = [];
+
+    // ========================================================
+    // TMDB lookup
+    // ========================================================
 
     const tmdbUrl =
       `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
 
-    const tmdbRes = await safeFetch(tmdbUrl, {
-      headers: HEADERS
-    });
+    const tmdbRes = await safeFetch(
+      tmdbUrl,
+      {
+        headers: HEADERS
+      }
+    );
 
     if (!tmdbRes) return [];
 
-    const mediaInfo = await tmdbRes.json();
+    const mediaInfo =
+      await tmdbRes.json();
 
-    const title = mediaInfo.title || mediaInfo.name;
+    const title =
+      mediaInfo.title ||
+      mediaInfo.name;
 
     if (!title) return [];
 
-    // =========================================================
+    console.log(
+      "[OnePace] TMDB Title:",
+      title
+    );
+
+    // ========================================================
     // Load One Pace page
-    // =========================================================
+    // ========================================================
 
     const seriesUrl =
       `${BASE_URL}/series/one-pace-english-sub/`;
 
-    const seriesRes = await safeFetch(seriesUrl, {
-      headers: HEADERS
-    });
+    const seriesRes = await safeFetch(
+      seriesUrl,
+      {
+        headers: HEADERS
+      }
+    );
 
     if (!seriesRes) return [];
 
-    const seriesHtml = await seriesRes.text();
+    const seriesHtml =
+      await seriesRes.text();
 
-    const doc = cheerio.load(seriesHtml);
+    const doc =
+      cheerio.load(seriesHtml);
 
-    const streams = [];
+    // ========================================================
+    // Build episode list
+    // ========================================================
 
-// =========================================================
-// Find episode links
-// =========================================================
+    const allEpisodes = [];
 
-let episodeLinks = [];
+    doc("ul.seasons-lst.anm-a li").each(
+      (_, el) => {
 
-const allEpisodes = [];
+        const $el = doc(el);
 
-doc("ul.seasons-lst.anm-a li").each((_, el) => {
+        const href =
+          $el.find("a").attr("href");
 
-  const $el = doc(el);
+        const epTitle =
+          $el.find("h3.title")
+            .text()
+            .trim() ||
+          $el.text().trim();
 
-  const href = $el.find("a").attr("href");
+        if (href) {
 
-  const title =
-    $el.find("h3.title").text().trim() ||
-    $el.text().trim();
-
-  if (href) {
-
-    allEpisodes.push({
-      href,
-      title
-    });
-  }
-});
-
-// Debug logging
-console.log(
-  "[OnePace] Total episodes:",
-  allEpisodes.length
-);
-
-// Match by episode index instead
-if (episode && allEpisodes.length > 0) {
-
-  const epIndex = parseInt(episode) - 1;
-
-  if (allEpisodes[epIndex]) {
-
-    episodeLinks.push(
-      allEpisodes[epIndex].href
+          allEpisodes.push({
+            href,
+            title: epTitle
+          });
+        }
+      }
     );
+
+    console.log(
+      "[OnePace] Episodes found:",
+      allEpisodes.length
+    );
+
+    if (allEpisodes.length === 0) {
+
+      return [];
+    }
+
+    // ========================================================
+    // Match episode
+    // ========================================================
+
+    let selectedEpisode = null;
+
+    if (
+      episode &&
+      allEpisodes[
+        parseInt(episode) - 1
+      ]
+    ) {
+
+      selectedEpisode =
+        allEpisodes[
+          parseInt(episode) - 1
+        ];
+
+    } else {
+
+      selectedEpisode =
+        allEpisodes[0];
+    }
 
     console.log(
       "[OnePace] Selected:",
-      allEpisodes[epIndex].title
+      selectedEpisode.title
     );
-  }
-}
 
-// Final fallback
-if (episodeLinks.length === 0 && allEpisodes.length > 0) {
+    // ========================================================
+    // Open episode page
+    // ========================================================
 
-  episodeLinks.push(allEpisodes[0].href);
+    const fullEpisodeUrl =
+      selectedEpisode.href.startsWith("http")
+        ? selectedEpisode.href
+        : BASE_URL +
+          selectedEpisode.href;
 
-  console.log(
-    "[OnePace] Using fallback episode"
-  );
-}
+    const epRes = await safeFetch(
+      fullEpisodeUrl,
+      {
+        headers: HEADERS
+      }
+    );
 
-    // =========================================================
-    // Fallback first episode
-    // =========================================================
+    if (!epRes) return [];
 
-    if (episodeLinks.length === 0) {
+    const epHtml =
+      await epRes.text();
 
-      const firstEp =
-        doc("ul.seasons-lst.anm-a li")
-          .first()
-          .find("a")
-          .attr("href");
+    const epDoc =
+      cheerio.load(epHtml);
 
-      if (firstEp) {
-        episodeLinks.push(firstEp);
+    // ========================================================
+    // Extract iframe/player sources
+    // ========================================================
+
+    const iframeSources = [];
+
+    // Standard iframes
+    epDoc("iframe").each(
+      (_, frame) => {
+
+        let src =
+          epDoc(frame).attr("src");
+
+        if (!src) return;
+
+        if (!src.startsWith("http")) {
+
+          src = new URL(
+            src,
+            BASE_URL
+          ).href;
+        }
+
+        iframeSources.push(src);
+      }
+    );
+
+    // Extract raw URLs from scripts/html
+    const urlMatches =
+      epHtml.match(
+        /https?:\/\/[^"' ]+/g
+      ) || [];
+
+    for (const url of urlMatches) {
+
+      if (
+        url.includes("embed") ||
+        url.includes("player") ||
+        url.includes("turbosplayer") ||
+        url.includes(".m3u8")
+      ) {
+
+        iframeSources.push(url);
       }
     }
 
-    // =========================================================
-    // Extract stream links
-    // =========================================================
+    // Remove duplicates
+    const uniqueFrames =
+      [...new Set(iframeSources)];
 
-    for (const epUrl of episodeLinks) {
+    console.log(
+      "[OnePace] Sources found:",
+      uniqueFrames.length
+    );
+
+    // ========================================================
+    // Resolve streams
+    // ========================================================
+
+    for (
+      let i = 0;
+      i < uniqueFrames.length;
+      i++
+    ) {
 
       try {
 
-        const fullUrl = epUrl.startsWith("http")
-          ? epUrl
-          : BASE_URL + epUrl;
+        const src =
+          uniqueFrames[i];
 
-        const epRes = await safeFetch(fullUrl, {
-          headers: HEADERS
+        console.log(
+          "[OnePace] Resolving:",
+          src
+        );
+
+        // Already direct m3u8
+        if (
+          src.includes(".m3u8")
+        ) {
+
+          streams.push({
+
+            name: "OnePace",
+
+            title:
+              `OnePace Server ${i + 1}`,
+
+            url: src,
+
+            quality: "1080p",
+
+            type: "hls",
+
+            subtitles: [],
+
+            behaviorHints: {
+
+              notWebReady: false,
+
+              proxyHeaders: {
+
+                request: {
+
+                  "User-Agent":
+                    HEADERS[
+                      "User-Agent"
+                    ],
+
+                  "Referer":
+                    fullEpisodeUrl,
+
+                  "Origin":
+                    BASE_URL
+                }
+              }
+            }
+          });
+
+          continue;
+        }
+
+        // Resolve embeds
+        const resolved =
+          await resolveStream(src);
+
+        if (
+          !resolved?.url
+        ) continue;
+
+        streams.push({
+
+          name: "OnePace",
+
+          title:
+            `OnePace Server ${i + 1}`,
+
+          url: resolved.url,
+
+          quality: "1080p",
+
+          type: "hls",
+
+          subtitles: [],
+
+          behaviorHints: {
+
+            notWebReady: false,
+
+            proxyHeaders: {
+
+              request: {
+
+                "User-Agent":
+                  HEADERS[
+                    "User-Agent"
+                  ],
+
+                "Referer":
+                  resolved.referer,
+
+                "Origin":
+                  resolved.origin
+              }
+            }
+          }
         });
 
-        if (!epRes) continue;
+      } catch (err) {
 
-        const epHtml = await epRes.text();
-
-        const epDoc = cheerio.load(epHtml);
-
-        const bodyClass =
-          epDoc("body").attr("class") || "";
-
-        const termMatch =
-          bodyClass.match(/(?:term|postid)-(\d+)/);
-
-        if (!termMatch) continue;
-
-        const term = termMatch[1];
-
-        // =====================================================
-// Extract ALL iframes directly from episode page
-// =====================================================
-
-const iframeSources = [];
-
-// Main iframe embeds
-epDoc("iframe").each((_, frame) => {
-
-  let src = epDoc(frame).attr("src");
-
-  if (!src) return;
-
-  if (!src.startsWith("http")) {
-    src = new URL(src, BASE_URL).href;
-  }
-
-  iframeSources.push(src);
-});
-
-// Video source URLs inside scripts
-epHtml.match(/https?:\/\/[^"' ]+/g)?.forEach(url => {
-
-  if (
-    url.includes("embed") ||
-    url.includes("player") ||
-    url.includes("turbosplayer") ||
-    url.includes(".m3u8")
-  ) {
-    iframeSources.push(url);
-  }
-});
-
-// Remove duplicates
-const uniqueFrames = [...new Set(iframeSources)];
-
-console.log(
-  "[OnePace] Found iframe sources:",
-  uniqueFrames.length
-);
-
-// Resolve each iframe
-for (let i = 0; i < uniqueFrames.length; i++) {
-
-  try {
-
-    const src = uniqueFrames[i];
-
-    const resolved = await resolveStream(src);
-
-    if (!resolved?.url) continue;
-
-    console.log(
-      "[OnePace] Resolved:",
-      resolved.url
-    );
-
-    streams.push({
-      name: "OnePace",
-      title: `OnePace Server ${i + 1}`,
-      url: resolved.url,
-      quality: "1080p",
-      type: "hls",
-      subtitles: [],
-
-      behaviorHints: {
-        notWebReady: false,
-
-        proxyHeaders: {
-          request: {
-            "User-Agent":
-              HEADERS["User-Agent"],
-
-            "Referer":
-              resolved.referer,
-
-            "Origin":
-              resolved.origin
-          }
-        }
+        console.log(
+          "[resolve error]",
+          err
+        );
       }
-    });
+    }
 
-  } catch (err) {
-    console.log("[resolve error]", err);
-  }
-}
-
-    // =========================================================
-    // Remove duplicates
-    // =========================================================
+    // ========================================================
+    // Remove duplicate streams
+    // ========================================================
 
     const unique = [];
+
     const seen = new Set();
 
     for (const s of streams) {
 
-      if (!seen.has(s.url)) {
+      if (
+        !seen.has(s.url)
+      ) {
+
         seen.add(s.url);
+
         unique.push(s);
       }
     }
 
     console.log(
-      `[OnePace] Found ${unique.length} streams`
+      `[OnePace] Final streams: ${unique.length}`
     );
 
     return unique;
 
   } catch (e) {
 
-    console.log("[OnePace fatal error]", e);
+    console.log(
+      "[OnePace fatal error]",
+      e
+    );
 
     return [];
   }
 }
 
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
+if (
+  typeof module !== "undefined" &&
+  module.exports
+) {
+
+  module.exports = {
+    getStreams
+  };
 }

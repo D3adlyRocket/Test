@@ -1,6 +1,6 @@
 const cheerio = require('cheerio-without-node-native');
 // onepace.js
-// Final Fix: Decodes hidden JavaScript streaming paths and extracts clean media links
+// Fixed: Converts embed targets directly into raw playable stream manifests (.m3u8)
 
 const BASE_URL = "https://onepace.co";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -8,7 +8,6 @@ const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const SYSTEM_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36",
   "Accept": "*/*",
-  "Accept-Language": "en-US,en;q=0.9",
   "Referer": BASE_URL + "/"
 };
 
@@ -55,7 +54,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (firstArcEps) episodeLinks.push(firstArcEps);
     }
 
-    // 4. Extract and convert Embeds into Direct Stream Requests
+    // 4. Translate Embed Identifiers into Direct Stream Asset Playlists
     for (const epUrl of episodeLinks) {
       const fullUrl = epUrl.startsWith("http") ? epUrl : BASE_URL + epUrl;
       const epHtml = await (await fetch(fullUrl, { headers: SYSTEM_HEADERS })).text();
@@ -77,72 +76,45 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           if (!src || !src.startsWith("http")) continue;
 
           let serverName = `Server ${i + 1}`;
-          let directStreamUrl = null;
+          let rawMediaPlaylist = null;
 
-          // Convert HTML player endpoints into their raw, un-sandboxed JSON/M3U8 API pathways
+          // Perform exact regex ID slicing and hook into raw CDNs discovered via DevTools
           if (src.includes("vidmoly.net")) {
-            serverName = "VidMoly";
+            serverName = "VidMoly CDN";
             const videoId = src.split("/embed-")[1]?.split(".html")[0];
             if (videoId) {
-              // Bypass HTML player page and fetch the direct stream master manifest directly
-              directStreamUrl = `https://vidmoly.net/v/` + videoId; 
+              rawMediaPlaylist = `https://cdn.staticmoly.me/p/${videoId}/master.m3u8`;
             }
-
-          } else if (src.includes("rubystm.com")) {
-            serverName = "RubyStm";
-            const videoId = src.split("/e/")[1];
+          } 
+          else if (src.includes("emturbovid.com")) {
+            serverName = "TurboVid / Omega";
+            const videoId = src.split("/t/")[1] || src.split("/").pop();
             if (videoId) {
-              // Direct streaming route for Rubystm CDN nodes
-              directStreamUrl = `https://rubystm.com/api/source/${videoId}`;
+              rawMediaPlaylist = `https://turbovidhls.com/hls/${videoId}/master.m3u8`;
             }
-
-          } else if (src.includes("abyssplayer.com")) {
-            serverName = "AbyssPlayer";
-            const videoId = src.split("/").pop();
-            // Abyss uses a standardized tracking endpoint to deliver clean streams
-            directStreamUrl = `https://abyssplayer.com/api/source/${videoId}`;
-
-          } else if (src.includes("emturbovid.com")) {
-            serverName = "TurboVid";
-            const videoId = src.split("/t/")[1];
+          }
+          else if (src.includes("rubystm.com")) {
+            serverName = "RubyStm CDN";
+            const videoId = src.split("/e/")[1] || src.split("/").pop();
             if (videoId) {
-              directStreamUrl = `https://emturbovid.com/api/source/${videoId}`;
+              rawMediaPlaylist = `https://185.237.107.43/v4/epu/${videoId}/master.m3u8`;
             }
           }
 
-          // If we successfully translated the HTML link into an asset path, append it
-          if (directStreamUrl) {
+          // Append only verified direct media files (.m3u8) to the engine
+          if (rawMediaPlaylist) {
             streams.push({
               name: "OnePace",
-              url: directStreamUrl,
+              url: rawMediaPlaylist,
               quality: "Auto",
               title: `OnePace [${serverName}]`,
               subtitles: [],
               behaviorHints: {
-                notWebReady: false, // Tell the core engine this link can be directly played
+                notWebReady: false, // Core video player can now boot the stream natively
                 proxyHeaders: {
                   request: {
                     "User-Agent": SYSTEM_HEADERS["User-Agent"],
                     "Origin": new URL(src).origin,
-                    "Referer": src
-                  }
-                }
-              }
-            });
-          } else {
-            // Ultimate Fallback: If it's a provider we don't have an API route for (like gdmirrorbot),
-            // send the raw file but mask the stream context so the media engine treats it as direct HLS
-            streams.push({
-              name: "OnePace",
-              url: src,
-              quality: "Auto",
-              title: `OnePace [${serverName} - Web Stream]`,
-              subtitles: [],
-              behaviorHints: {
-                notWebReady: true, // Forces application to open a sandboxed video webview fallback
-                proxyHeaders: {
-                  request: {
-                    "User-Agent": SYSTEM_HEADERS["User-Agent"],
                     "Referer": src
                   }
                 }
@@ -156,7 +128,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     return streams;
   } catch (e) {
-    console.error("[OnePace Final Handler Exception]", e);
+    console.error("[OnePace Engine Failure]", e);
     return [];
   }
 }

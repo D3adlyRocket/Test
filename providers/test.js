@@ -157,21 +157,21 @@ function formatRegularStreams(data, meta, mediaType, seasonId, episodeId) {
     if (!src.url)
       continue;
     var quality = normalizeQuality(src.quality);
-    var serverNameStr = src.server ? " [" + src.server + "]" : "";
+    var serverTag = src.server ? " [" + src.server + "]" : "";
     var proxyUrl = BACKEND + "/videasy-proxy?url=" + encodeURIComponent(src.url);
     
-    // Fallback single-line layout string to bypass application multi-line rejection
-    var infoTag = "";
+    // Balanced distribution between name (Header Text) and title (Subtitle Text)
+    var subtitleRow = "";
     if (mediaType === "movie") {
-      infoTag = "🎬 " + meta.title + " | 🎞️ " + quality + " | ⚡ Auto" + serverNameStr + " | ⏱️ " + meta.duration;
+      subtitleRow = "🎞️ " + meta.title + " | ⚡ Auto | ⏱️ " + meta.duration;
     } else {
-      infoTag = "🎬 " + meta.title + " | 🎥 S" + seasonId + "E" + episodeId + " | 🎞️ " + quality + " | ⚡ Auto" + serverNameStr + " | ⏱️ " + meta.duration;
+      subtitleRow = "🎞️ " + meta.title + " | 🎥 S" + seasonId + "E" + episodeId + " | ⚡ Auto | ⏱️ " + meta.duration;
     }
 
     if (quality === "4K") {
       streams.push({
-        name: infoTag,
-        title: src.server ? "Cineby | " + quality + " | [" + src.server + "]" : "Cineby | " + quality,
+        name: "🎬 Cineby | " + quality + serverTag,
+        title: subtitleRow,
         url: src.url,
         quality,
         size: "",
@@ -181,11 +181,9 @@ function formatRegularStreams(data, meta, mediaType, seasonId, episodeId) {
       });
     }
 
-    var fallbackInfoTag = infoTag.replace(quality, quality + " Fallback");
-
     streams.push({
-      name: fallbackInfoTag,
-      title: src.server ? "Cineby | " + quality + " Fallback | [" + src.server + "]" : "Cineby | " + quality + " Fallback",
+      name: "🎬 Cineby | " + quality + " Fallback" + serverTag,
+      title: subtitleRow,
       url: proxyUrl,
       quality,
       size: "",
@@ -201,7 +199,7 @@ function formatRegularStreams(data, meta, mediaType, seasonId, episodeId) {
 }
 function streamRank(stream) {
   var rank = qualityRank(stream && stream.quality);
-  if (stream && stream.title && String(stream.title).indexOf("Fallback") !== -1)
+  if (stream && stream.name && String(stream.name).indexOf("Fallback") !== -1)
     rank -= 1;
   return rank;
 }
@@ -393,18 +391,19 @@ function getStreams(tmdbId, mediaType, season, episode) {
                 var audioLabel = qParts[1] || "";
                 var displayLang = audioLabel.toLowerCase() === "dub" ? "English (DUB)" : "Original (SUB)";
                 
-                // Single-line layout configuration for internal HiAnime path
-                var hiInfoTag = "";
+                // Balanced fields layout configuration for Anime elements
+                var hiSubtitleRow = "";
                 if (mType === "movie") {
-                  hiInfoTag = "🎬 " + meta.title + " | 🎞️ M3U8 | ⚡ Auto | 🌍 " + displayLang + " | ⏱️ " + meta.duration;
+                  hiSubtitleRow = "🎞️ " + meta.title + " | ⚡ Auto | 🌍 " + displayLang + " | ⏱️ " + meta.duration;
                 } else {
-                  hiInfoTag = "🎬 " + meta.title + " | 🎥 S" + seasonId + "E" + episodeId + " | 🎞️ M3U8 | ⚡ Auto | 🌍 " + displayLang + " | ⏱️ " + meta.duration;
+                  hiSubtitleRow = "🎞️ " + meta.title + " | 🎥 S" + seasonId + "E" + episodeId + " | ⚡ Auto | 🌍 " + displayLang + " | ⏱️ " + meta.duration;
                 }
                 var proxyUrl = BACKEND + "/hianime-proxy?url=" + encodeURIComponent(src.url);
+                var hiNameLabel = audioLabel ? "🎬 Cineby | HiAnime | " + res + " (" + audioLabel.toUpperCase() + ")" : "🎬 Cineby | HiAnime | " + res;
                 
                 streams.push({
-                  name: hiInfoTag,
-                  title: audioLabel ? "Cineby | HiAnime | " + res + " (" + audioLabel.toUpperCase() + ")" : "Cineby | HiAnime | " + res,
+                  name: hiNameLabel,
+                  title: hiSubtitleRow,
                   url: proxyUrl,
                   quality: res,
                   size: "",

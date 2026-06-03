@@ -81,7 +81,7 @@ function getTmdbMeta(mediaType, tmdbId, season) {
     } else {
       title = data.name;
       year = data.first_air_date ? new Date(data.first_air_date).getFullYear() : "";
-      duration = "24m"; // Default fallback value for fallback calculations
+      duration = "24m";
     }
     imdbId = data.external_ids && data.external_ids.imdb_id || "";
     var genres = (data.genres || []).map(function(g) {
@@ -160,7 +160,7 @@ function formatRegularStreams(data, meta, mediaType, seasonId, episodeId) {
     var serverTag = src.server ? " [" + src.server + "]" : "";
     var proxyUrl = BACKEND + "/videasy-proxy?url=" + encodeURIComponent(src.url);
     
-    // Dynamic multi-line structural template block for Standard Items
+    // Dynamic multi-line structural template block swapped to the .name property
     var lines = [];
     if (mediaType === "movie") {
       lines = [
@@ -174,12 +174,12 @@ function formatRegularStreams(data, meta, mediaType, seasonId, episodeId) {
         "🎞️ " + quality + " | ⚡ Auto | 🌍 English | ⏱️ " + meta.duration
       ];
     }
-    var streamTitle = lines.join("\n");
+    var streamTitleName = lines.join("\n");
 
     if (quality === "4K") {
       streams.push({
-        name: src.server ? "Cineby | " + quality + " | [" + src.server + "]" : "Cineby | " + quality,
-        title: streamTitle,
+        name: streamTitleName,
+        title: src.server ? "Cineby | " + quality + " | [" + src.server + "]" : "Cineby | " + quality,
         url: src.url,
         quality,
         size: "",
@@ -191,11 +191,11 @@ function formatRegularStreams(data, meta, mediaType, seasonId, episodeId) {
 
     var fallbackLines = [...lines];
     fallbackLines[fallbackLines.length - 1] = fallbackLines[fallbackLines.length - 1].replace(quality, quality + " Fallback");
-    var fallbackTitle = fallbackLines.join("\n");
+    var fallbackTitleName = fallbackLines.join("\n");
 
     streams.push({
-      name: src.server ? "Cineby | " + quality + " Fallback | [" + src.server + "]" : "Cineby | " + quality + " Fallback",
-      title: fallbackTitle,
+      name: fallbackTitleName,
+      title: src.server ? "Cineby | " + quality + " Fallback | [" + src.server + "]" : "Cineby | " + quality + " Fallback",
       url: proxyUrl,
       quality,
       size: "",
@@ -403,12 +403,12 @@ function getStreams(tmdbId, mediaType, season, episode) {
                 var audioLabel = qParts[1] || "";
                 var displayLang = audioLabel.toLowerCase() === "dub" ? "English (DUB)" : "Original (SUB)";
                 
-                // Dynamic multi-line layout blocks for internal HiAnime path
+                // Dynamic multi-line structural template blocks for internal HiAnime path
                 var lines = [];
                 if (mType === "movie") {
                   lines = [
                     "🎬 " + meta.title,
-                    "🎞️ M3U8 | ⚡ Auto | 🌍 " + displayLang + " | ⏱/️ " + meta.duration
+                    "🎞️ M3U8 | ⚡ Auto | 🌍 " + displayLang + " | ⏱️ " + meta.duration
                   ];
                 } else {
                   lines = [
@@ -417,12 +417,12 @@ function getStreams(tmdbId, mediaType, season, episode) {
                     "🎞️ M3U8 | ⚡ Auto | 🌍 " + displayLang + " | ⏱️ " + meta.duration
                   ];
                 }
-                var streamTitle = lines.join("\n");
-                var streamName = audioLabel ? "Cineby | HiAnime | " + res + " (" + audioLabel.toUpperCase() + ")" : "Cineby | HiAnime | " + res;
+                var streamTitleName = lines.join("\n");
+                var proxyUrl = BACKEND + "/hianime-proxy?url=" + encodeURIComponent(src.url);
                 
                 streams.push({
-                  name: streamName,
-                  title: streamTitle,
+                  name: streamTitleName,
+                  title: audioLabel ? "Cineby | HiAnime | " + res + " (" + audioLabel.toUpperCase() + ")" : "Cineby | HiAnime | " + res,
                   url: proxyUrl,
                   quality: res,
                   size: "",

@@ -157,28 +157,20 @@ function formatRegularStreams(data, meta, mediaType, seasonId, episodeId) {
     if (!src.url)
       continue;
     var quality = normalizeQuality(src.quality);
-    var serverTag = src.server ? " [" + src.server + "]" : "";
+    var serverNameStr = src.server ? " [" + src.server + "]" : "";
     var proxyUrl = BACKEND + "/videasy-proxy?url=" + encodeURIComponent(src.url);
     
-    // Dynamic multi-line structural template block swapped to the .name property
-    var lines = [];
+    // Fallback single-line layout string to bypass application multi-line rejection
+    var infoTag = "";
     if (mediaType === "movie") {
-      lines = [
-        "🎬 " + meta.title,
-        "🎞️ " + quality + " | ⚡ Auto | 🌍 English | ⏱️ " + meta.duration
-      ];
+      infoTag = "🎬 " + meta.title + " | 🎞️ " + quality + " | ⚡ Auto" + serverNameStr + " | ⏱️ " + meta.duration;
     } else {
-      lines = [
-        "🎬 " + meta.title,
-        "🎥 S" + seasonId + "E" + episodeId,
-        "🎞️ " + quality + " | ⚡ Auto | 🌍 English | ⏱️ " + meta.duration
-      ];
+      infoTag = "🎬 " + meta.title + " | 🎥 S" + seasonId + "E" + episodeId + " | 🎞️ " + quality + " | ⚡ Auto" + serverNameStr + " | ⏱️ " + meta.duration;
     }
-    var streamTitleName = lines.join("\n");
 
     if (quality === "4K") {
       streams.push({
-        name: streamTitleName,
+        name: infoTag,
         title: src.server ? "Cineby | " + quality + " | [" + src.server + "]" : "Cineby | " + quality,
         url: src.url,
         quality,
@@ -189,12 +181,10 @@ function formatRegularStreams(data, meta, mediaType, seasonId, episodeId) {
       });
     }
 
-    var fallbackLines = [...lines];
-    fallbackLines[fallbackLines.length - 1] = fallbackLines[fallbackLines.length - 1].replace(quality, quality + " Fallback");
-    var fallbackTitleName = fallbackLines.join("\n");
+    var fallbackInfoTag = infoTag.replace(quality, quality + " Fallback");
 
     streams.push({
-      name: fallbackTitleName,
+      name: fallbackInfoTag,
       title: src.server ? "Cineby | " + quality + " Fallback | [" + src.server + "]" : "Cineby | " + quality + " Fallback",
       url: proxyUrl,
       quality,
@@ -403,25 +393,17 @@ function getStreams(tmdbId, mediaType, season, episode) {
                 var audioLabel = qParts[1] || "";
                 var displayLang = audioLabel.toLowerCase() === "dub" ? "English (DUB)" : "Original (SUB)";
                 
-                // Dynamic multi-line structural template blocks for internal HiAnime path
-                var lines = [];
+                // Single-line layout configuration for internal HiAnime path
+                var hiInfoTag = "";
                 if (mType === "movie") {
-                  lines = [
-                    "🎬 " + meta.title,
-                    "🎞️ M3U8 | ⚡ Auto | 🌍 " + displayLang + " | ⏱️ " + meta.duration
-                  ];
+                  hiInfoTag = "🎬 " + meta.title + " | 🎞️ M3U8 | ⚡ Auto | 🌍 " + displayLang + " | ⏱️ " + meta.duration;
                 } else {
-                  lines = [
-                    "🎬 " + meta.title,
-                    "🎥 S" + seasonId + "E" + episodeId,
-                    "🎞️ M3U8 | ⚡ Auto | 🌍 " + displayLang + " | ⏱️ " + meta.duration
-                  ];
+                  hiInfoTag = "🎬 " + meta.title + " | 🎥 S" + seasonId + "E" + episodeId + " | 🎞️ M3U8 | ⚡ Auto | 🌍 " + displayLang + " | ⏱️ " + meta.duration;
                 }
-                var streamTitleName = lines.join("\n");
                 var proxyUrl = BACKEND + "/hianime-proxy?url=" + encodeURIComponent(src.url);
                 
                 streams.push({
-                  name: streamTitleName,
+                  name: hiInfoTag,
                   title: audioLabel ? "Cineby | HiAnime | " + res + " (" + audioLabel.toUpperCase() + ")" : "Cineby | HiAnime | " + res,
                   url: proxyUrl,
                   quality: res,

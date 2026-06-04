@@ -383,17 +383,18 @@ function resolveMoviePage(pageUrl, html) {
 }
 
 function extractEpisodeAnchors(html) {
-    // Matches new5.filepress.wiki, hubcloud, fileditchfiles, and xcloud domains
-    var regex = /href=["'](https?:\/\/(?:new5\.filepress\.wiki\/file\/|hubcloud\.[a-z]+\/video\/|fileditchfiles\.[a-z]+\/|xcloud\.[a-z]+\/)[^"'#?]+)["']/gi;
+    // Captures the URL and the anchor text together in one single regex pattern
+    var regex = /<a[^>]+href=["'](https?:\/\/(?:new5\.filepress\.wiki\/file\/|hubcloud\.[a-z0-9]+\/video\/|fileditchfiles\.[a-z0-9]+\/|xcloud\.[a-z0-9]+\/)[^"'#?]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
     var results = [];
     var seen = {};
     var match;
 
     while ((match = regex.exec(html))) {
         var url = match[1];
+        var rawText = match[2] ? stripTags(match[2]) : "";
         var fileId = "";
 
-        // Extract a unique identifier (fileId) based on the domain type
+        // Extract a unique key to filter out duplicates
         if (url.indexOf("filepress.wiki") !== -1) {
             var fpMatch = url.match(/\/file\/([A-Za-z0-9]+)/);
             fileId = fpMatch ? fpMatch[1] : url;
@@ -401,7 +402,6 @@ function extractEpisodeAnchors(html) {
             var hcMatch = url.match(/\/video\/([A-Za-z0-9]+)/);
             fileId = hcMatch ? hcMatch[1] : url;
         } else {
-            // For FileDitch and XCloud, use the filename or trailing hash as the unique key
             var generalMatch = url.match(/\/([^/]+)$/);
             fileId = generalMatch ? generalMatch[1] : url;
         }
@@ -411,15 +411,10 @@ function extractEpisodeAnchors(html) {
         }
         seen[fileId] = true;
 
-        // Find the accompanying anchor text if possible, or default to empty
-        // We look ahead slightly in the HTML string for the anchor's inner text
-        var textMatch = html.substring(match.index).match(/>([\s\S]*?)<\/a>/i);
-        var anchorText = textMatch ? stripTags(textMatch[1]) : "";
-
         results.push({
             url: url,
             fileId: fileId,
-            text: anchorText
+            text: rawText
         });
     }
     return results;

@@ -5,8 +5,7 @@ var SITE_URL = "https://onlykdrama.shop";
 var TMDB_URL = "https://www.themoviedb.org";
 var DEFAULT_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.5"
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 };
 
 function mergeHeaders(base, extra) {
@@ -70,16 +69,15 @@ function getTmdbInfo(tmdbId, mediaType) {
       /<title>([\s\S]*?)<\/title>/i,
       /"name":"([^"]+)"/i
     ]);
-    var yearMatch = html.match(/<title>[\s\S]*?\b((?:19|20)\d{2})\b[\s\S]*?<\/title>/i) || html.match(/\b((?:19|20)\d{2})\b/);
     return {
-      title: title.replace(/\s+\(TV Series.*$/i, "").replace(/\s+\(\d{4}\).*$/i, "").trim(),
-      year: yearMatch ? yearMatch[1] : ""
+      title: title.replace(/\s+\(TV Series.*$/i, "").replace(/\s+\(\d{4}\).*$/i, "").trim()
     };
   });
 }
 
 function extractCandidateUrls(html) {
-  var regex = /(https?:\/\/onlykdrama\.shop\/(?:drama|movies|episodes)\/[a-z0-9\-]+)\/?/gi;
+  // Matches any platform link inside text blocks aggressively, ignoring strict tag/quote boundaries
+  var regex = /(https?:\/\/onlykdrama\.shop\/(?:drama|movies|episodes)\/[a-z0-9\-]+)/gi;
   var urls = [];
   var seen = {};
   var match;
@@ -94,33 +92,16 @@ function extractCandidateUrls(html) {
   return urls;
 }
 
-function collectCandidatePages(title, mediaType, episode) {
+function collectCandidatePages(title) {
   var searchUrl = SITE_URL + "/?s=" + encodeURIComponent(title);
   return fetchText(searchUrl).then(function (html) {
-    var extracted = extractCandidateUrls(html);
-    var filtered = [];
-    var i;
-
-    for (i = 0; i < extracted.length; i += 1) {
-      var url = extracted[i];
-      // For TV shows, prioritize the direct episode paths if found
-      if (mediaType === "tv") {
-        if (url.indexOf("/episodes/") !== -1 || url.indexOf("-episode-") !== -1 || url.indexOf("-ep-") !== -1) {
-          filtered.unshift(url); 
-        } else {
-          filtered.push(url);
-        }
-      } else if (mediaType === "movie" && url.indexOf("/movies/") !== -1) {
-        filtered.push(url);
-      }
-    }
-    return filtered;
+    return extractCandidateUrls(html);
   }).catch(function () {
     return [];
   });
 }
 
-// Recursively unwrap base64 payload strings to handle nested redirects
+// Recursively unpack multi-layered Base64 redirection payloads
 function decodePayloadString(payload) {
   if (!payload) return "";
   try {
@@ -128,8 +109,7 @@ function decodePayloadString(payload) {
     if (decoded.indexOf('{"url":"') === 0) {
       var parsed = JSON.parse(decoded);
       if (parsed && parsed.url) {
-        // Look inside the extracted string for nested layers
-        var nestedMatch = parsed.url.match(/[?&][dd]=([^&]+)/);
+        var nestedMatch = parsed.url.match(/[?&][idvdt]=([^&]+)/);
         if (nestedMatch && nestedMatch[1]) {
           return decodePayloadString(nestedMatch[1]);
         }
@@ -143,15 +123,14 @@ function decodePayloadString(payload) {
 }
 
 function extractEpisodeAnchors(html) {
-  // Broad match layout pattern covering raw tags, targets, and parameters
-  var regex = /href=["'](https?:\/\/(?:ads\d*?\.onlykdrama\.(?:shop|top)\/continue\.php|new5\.filepress\.wiki\/file\/|hubcloud\.[a-z0-9]+\/video\/)[^"'#?]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  // Scans the entire HTML code string globally for target server links completely independent of HTML tag structure
+  var regex = /(https?:\/\/(?:ads\d*?\.onlykdrama\.(?:shop|top)\/continue\.php|new5\.filepress\.wiki\/file\/|hubcloud\.[a-z0-9]+\/video\/|fileditchfiles\.[a-z0-9]+\/|xcloud\.[a-z0-9]+\/)[^"'#?\s>]+)/gi;
   var results = [];
   var seen = {};
   var match;
 
   while ((match = regex.exec(html))) {
     var originalUrl = match[1];
-    var rawText = match[2] ? stripTags(match[2]) : "";
     var finalUrl = originalUrl;
 
     if (originalUrl.indexOf("/continue.php") !== -1) {
@@ -164,19 +143,18 @@ function extractEpisodeAnchors(html) {
       }
     }
 
+    // Sanitize any residual quotes or bracket markers left over from greedy regex captures
+    finalUrl = finalUrl.replace(/["']/g, "");
+
     if (!finalUrl || seen[finalUrl]) { continue; }
     seen[finalUrl] = true;
 
-    results.push({
-      url: finalUrl,
-      text: rawText
-    });
+    results.push({ url: finalUrl });
   }
   return results;
 }
 
-function checkMatch(text, url, season, episode) {
-  var normText = text.toLowerCase().replace(/[^a-z0-9]/g, " ");
+function checkUrlMatch(url, season, episode) {
   var normUrl = decodeURIComponent(url).toLowerCase().replace(/[^a-z0-9]/g, " ");
   
   var sStr = "s" + (season < 10 ? "0" + season : season);
@@ -184,11 +162,12 @@ function checkMatch(text, url, season, episode) {
   var epFullStr = "episode " + episode;
   var epShortStr = "ep " + episode;
 
-  // Exact Match targeting signature: checking both standard and fallback styles
-  if (normText.indexOf(sStr + eStr) !== -1 || normUrl.indexOf(sStr + eStr) !== -1) { return true; }
+  // Validate the actual streaming target URL contents directly
+  if (normUrl.indexOf(sStr + eStr) !== -1) { return true; }
   if (season === 1) {
-    if (normText.indexOf(epFullStr) !== -1 || normText.indexOf(epShortStr) !== -1) { return true; }
-    if (normUrl.indexOf(epFullStr) !== -1 || normUrl.indexOf(epShortStr) !== -1) { return true; }
+    if (normUrl.indexOf(epFullStr) !== -1 || normUrl.indexOf(epShortStr) !== -1 || normUrl.indexOf("e" + episode) !== -1) { 
+      return true; 
+    }
   }
   return false;
 }
@@ -205,13 +184,23 @@ function tryCandidatePages(urls, index, mediaType, tmdbInfo, season, episode) {
 
     for (i = 0; i < anchors.length; i += 1) {
       var a = anchors[i];
-      if (mediaType === "movie" || checkMatch(a.text, a.url, season, episode)) {
-        var qualityMatch = a.text.match(/\b(2160p|1080p|720p|480p)\b/i);
-        var q = qualityMatch ? qualityMatch[1] : "HD";
+      
+      // Movies pass immediately; TV shows check the decrypted URL structures directly instead of element text string filters
+      if (mediaType === "movie" || checkUrlMatch(a.url, season, episode)) {
+        var titleTag = tmdbInfo.title + " S" + season + "E" + episode;
         
+        var q = "HD";
+        if (a.url.indexOf("1080p") !== -1) q = "1080P";
+        else if (a.url.indexOf("720p") !== -1) q = "720P";
+        else if (a.url.indexOf("2160p") !== -1) q = "4K";
+
+        if (a.url.indexOf("hubcloud") !== -1) titleTag += " [HubCloud]";
+        else if (a.url.indexOf("filepress") !== -1) titleTag += " [FilePress]";
+        else if (a.url.indexOf("fileditch") !== -1) titleTag += " [FileDitch]";
+
         streams.push({
           name: PROVIDER_NAME,
-          title: a.text || (tmdbInfo.title + " E" + episode),
+          title: titleTag,
           url: a.url,
           quality: q
         });
@@ -233,16 +222,17 @@ function getStreams(tmdbId, mediaType, season, episode) {
   return getTmdbInfo(tmdbId, normalizedMediaType).then(function (tmdbInfo) {
     if (!tmdbInfo || !tmdbInfo.title) { return []; }
     
-    return collectCandidatePages(tmdbInfo.title, normalizedMediaType, normalizedEpisode).then(function (urls) {
-      if (!urls || !urls.length) {
-        // If the query engine came up short, synthesize path fallbacks directly
-        var slug = normalizeText(tmdbInfo.title).replace(/\s+/g, "-");
-        urls = [
-          SITE_URL + "/episodes/" + slug + "-episode-" + normalizedEpisode + "/",
-          SITE_URL + "/episodes/" + slug + "-ep-" + normalizedEpisode + "/"
-        ];
-      }
-      return tryCandidatePages(urls, 0, normalizedMediaType, tmdbInfo, normalizedSeason, normalizedEpisode);
+    return collectCandidatePages(tmdbInfo.title).then(function (urls) {
+      // Build dynamic slug fallback structures if search entries return short
+      var slug = normalizeText(tmdbInfo.title).replace(/\s+/g, "-");
+      var structuralFallbacks = [
+        SITE_URL + "/episodes/" + slug + "-episode-" + normalizedEpisode + "/",
+        SITE_URL + "/episodes/" + slug + "-ep-" + normalizedEpisode + "/",
+        SITE_URL + "/drama/" + slug + "/"
+      ];
+      
+      var finalUrls = urls.concat(structuralFallbacks);
+      return tryCandidatePages(finalUrls, 0, normalizedMediaType, tmdbInfo, normalizedSeason, normalizedEpisode);
     });
   }).catch(function (error) {
     console.log("[" + PROVIDER_NAME + "] Error: " + error.message);

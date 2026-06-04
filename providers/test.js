@@ -193,66 +193,77 @@ function buildSearchQueries(title, year) {
 }
 
 function extractCandidateUrls(html, mediaType) {
-  // Matches any onlykdrama.shop URL followed by words, numbers, and dashes (the slug)
-  // Completely ignores href restrictions so it catches data attributes, redirects, and clean strings
-  var regex = /(https?:\/\/onlykdrama\.shop\/(?:drama|movies)\/[a-z0-9\-]+)\/?/gi;
+  var regex = /(https?:\/\/onlykdrama\.shop\/(?:drama|movies|episodes)\/[a-z0-9\-]+)\/?/gi;
   var urls = [];
   var seen = {};
   var match;
   
   while ((match = regex.exec(html))) {
     var cleanUrl = match[1].toLowerCase();
-    
-    // Ensure it trailing-slashes consistently to prevent duplicates
     if (!cleanUrl.endsWith('/')) {
       cleanUrl += '/';
     }
-
     if (seen[cleanUrl]) {
       continue;
     }
-    
     seen[cleanUrl] = true;
     urls.push(cleanUrl);
   }
-  
   return urls;
 }
 
-function scoreCandidateUrl(url, title, year, mediaType) {
-  var score = mediaType === "movie" ? (url.indexOf("/movies/") !== -1 ? 10 : 0) : (url.indexOf("/drama/") !== -1 ? 10 : 0);
-  var tokens = uniqueTokens(title);
+function scoreCandidateUrl(url, title, year, mediaType, episode) {
+  var score = 0;
   var normalizedUrl = normalizeText(url);
+  var tokens = uniqueTokens(title);
   var i;
+
   for (i = 0; i < tokens.length; i += 1) {
     if (normalizedUrl.indexOf(tokens[i]) !== -1) {
-      score += 12;
+      score += 15;
     }
   }
+
+  if (mediaType === "movie") {
+    if (url.indexOf("/movies/") !== -1) score += 20;
+  } else {
+    // Elevate actual targeted landing structures above plain show paths
+    if (url.indexOf("/drama/") !== -1) score += 10;
+    if (url.indexOf("/episodes/") !== -1) score += 25;
+    
+    // Explicit token matches for episode paths
+    var epStr = "ep" + episode;
+    var episodeStr = "episode" + episode;
+    if (normalizedUrl.indexOf(epStr) !== -1 || normalizedUrl.indexOf(episodeStr) !== -1) {
+      score += 40;
+    }
+  }
+
   if (year && normalizedUrl.indexOf(String(year)) !== -1) {
-    score += 15;
+    score += 10;
   }
   return score;
 }
 
-function collectCandidatePages(queries, mediaType, tmdbInfo, index, collected) {
+function collectCandidatePages(queries, mediaType, tmdbInfo, episode, index, collected) {
   if (index >= queries.length) {
-    return Promise.resolve(rankCandidatePages(collected, tmdbInfo, mediaType));
+    return Promise.resolve(rankCandidatePages(collected, tmdbInfo, mediaType, episode));
   }
   return fetchText(SITE_URL + "/?s=" + encodeURIComponent(queries[index])).then(function (html) {
     return collectCandidatePages(
       queries,
       mediaType,
       tmdbInfo,
+      episode,
       index + 1,
       collected.concat(extractCandidateUrls(html, mediaType))
     );
   }).catch(function () {
-    return collectCandidatePages(queries, mediaType, tmdbInfo, index + 1, collected);
+    return collectCandidatePages(queries, mediaType, tmdbInfo, episode, index + 1, collected);
   });
 }
 
-function rankCandidatePages(urls, tmdbInfo, mediaType) {
+function rankCandidatePages(urls, tmdbInfo, mediaType, episode) {
   var seen = {};
   var ranked = [];
   var i;
@@ -263,7 +274,7 @@ function rankCandidatePages(urls, tmdbInfo, mediaType) {
     seen[urls[i]] = true;
     ranked.push({
       url: urls[i],
-      score: scoreCandidateUrl(urls[i], tmdbInfo.title, tmdbInfo.year, mediaType),
+      score: scoreCandidateUrl(urls[i], tmdbInfo.title, tmdbInfo.year, mediaType, episode),
       index: i
     });
   }
@@ -273,7 +284,7 @@ function rankCandidatePages(urls, tmdbInfo, mediaType) {
     }
     return a.index - b.index;
   });
-  return ranked.slice(0, 8).map(function (item) {
+  return ranked.slice(0, 12).map(function (item) {
     return item.url;
   });
 }
@@ -294,17 +305,14 @@ function titleLooksRelevant(candidateTitle, expectedTitle, expectedYear) {
   var candidateNorm = normalizeText(candidateTitle);
   var expectedNorm = normalizeText(expectedTitle);
   
-  // Rule 1: Direct containment match (e.g., "reborn rookie ep 2" contains "reborn rookie")
   if (candidateNorm.indexOf(expectedNorm) !== -1) {
-    // Only fail the year check if a year is explicitly found in the title and it's a mismatch
     var candidateYearMatch = String(candidateTitle).match(/\b((?:19|20)\d{2})\b/);
     if (expectedYear && candidateYearMatch && candidateYearMatch[1] !== String(expectedYear)) {
-      return false; // Wrong year variant found
+      return false;
     }
     return true;
   }
   
-  // Rule 2: Fallback token overlapping matching logic
   var candidateTokens = uniqueTokens(candidateTitle);
   var expectedTokens = uniqueTokens(expectedTitle);
   var matchCount = 0;
@@ -406,8 +414,8 @@ function resolveMoviePage(pageUrl, html) {
 }
 
 function extractEpisodeAnchors(html) {
-  // Overhauled to track both raw host links AND the new wrapper domains
-  var regex = /<a[^>]+href=["'](https?:\/\/(?:ads\d*?\.onlykdrama\.(?:shop|top)\/continue\.php|new5\.filepress\.wiki\/file\/|hubcloud\.[a-z0-9]+\/video\/|fileditchfiles\.[a-z0-9]+\/|xcloud\.[a-z0-9]+\/)[^"'#?]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  // Broadened to look directly for any valid absolute text match or raw href components
+  var regex = /href=["'](https?:\/\/(?:ads\d*?\.onlykdrama\.(?:shop|top)\/continue\.php|new5\.filepress\.wiki\/file\/|hubcloud\.[a-z0-9]+\/video\/|fileditchfiles\.[a-z0-9]+\/|xcloud\.[a-z0-9]+\/)[^"'#?]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   var results = [];
   var seen = {};
   var match;
@@ -417,7 +425,6 @@ function extractEpisodeAnchors(html) {
     var rawText = match[2] ? stripTags(match[2]) : "";
     var targetUrl = originalUrl;
 
-    // Decryption Routine: If it's wrapped behind continue.php, intercept and decode the base64 payload
     if (originalUrl.indexOf("/continue.php") !== -1) {
       var base64Data = "";
       var idMatch = originalUrl.match(/[?&]id=([^&]+)/);
@@ -428,10 +435,7 @@ function extractEpisodeAnchors(html) {
 
       if (base64Data) {
         try {
-          // Decode Base64 string payload natively
           var decodedStr = atob(decodeURIComponent(base64Data));
-          
-          // Check if payload is a raw URL or inside a JSON object {"url":"..."}
           if (decodedStr.indexOf("http") === 0) {
             targetUrl = decodedStr;
           } else if (decodedStr.indexOf('{"') === 0) {
@@ -441,13 +445,11 @@ function extractEpisodeAnchors(html) {
             }
           }
         } catch (e) {
-          // Fallback to original URL if decoding fails
           targetUrl = originalUrl;
         }
       }
     }
 
-    // Run original validation filters on the decoded target URL destination
     var fileId = "";
     if (targetUrl.indexOf("filepress.wiki") !== -1) {
       var fpMatch = targetUrl.match(/\/file\/([A-Za-z0-9]+)/);
@@ -565,7 +567,8 @@ function resolveFilePressWithMethod(fileId, methods, index) {
 }
 
 function resolveEpisodePage(html, season, episode) {
-  var anchor = pickEpisodeAnchor(extractEpisodeAnchors(html), season, episode);
+  var anchors = extractEpisodeAnchors(html);
+  var anchor = pickEpisodeAnchor(anchors, season, episode);
   if (!anchor) {
     return Promise.resolve([]);
   }
@@ -580,9 +583,8 @@ function resolveEpisodePage(html, season, episode) {
   }
 
   var titleTag = anchor.text || ("Episode " + episode);
-  
   if (anchor.url.indexOf("hubcloud") !== -1) titleTag += " [HubCloud]";
-  else if (anchor.url.indexOf("fileditchfiles") !== -1 || anchor.url.indexOf("fileditch") !== -1) titleTag += " [FileDitch]";
+  else if (anchor.url.indexOf("fileditch") !== -1) titleTag += " [FileDitch]";
   else if (anchor.url.indexOf("xcloud") !== -1) titleTag += " [XCloud]";
 
   return Promise.resolve([
@@ -624,6 +626,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       buildSearchQueries(tmdbInfo.title, tmdbInfo.year),
       normalizedMediaType,
       tmdbInfo,
+      normalizedEpisode,
       0,
       []
     ).then(function (urls) {

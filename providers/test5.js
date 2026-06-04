@@ -882,19 +882,45 @@ function getStreams(id, type, season, episode, providerContext = null) {
       if (!selectedUrl) selectedUrl = links[0].url;
       const streamUrl = resolveUrl(movieUrl, selectedUrl);
       console.log(`[CinemaCity] Direct stream: ${streamUrl}`);
+      const metadata = await getTmdbMetadata(imdbId, providerType);
+
+const year =
+  metadata?.release_date?.slice(0, 4) ||
+  metadata?.first_air_date?.slice(0, 4) ||
+  "";
+
+const duration =
+  metadata?.runtime
+    ? `${metadata.runtime} min`
+    : metadata?.episode_run_time?.[0]
+      ? `${metadata.episode_run_time[0]} min`
+      : "";
+
+const language = hasItalian
+  ? "🇮🇹 Italian"
+  : "🌍 Multi-Audio";
+
+const streamTitle =
+`${metadata?.title || metadata?.name || movieTitle} - ${year}
+
+📺 1080p | ${language}
+🎞️ HLS | ⏱️ ${duration}
+ℹ️ CinemaCity`;
       const result = {
-        name: "CinemaCity",
-        title,
-        url: streamUrl,
-        quality: "1080p",
-        type: "hls",
-        language: hasItalian ? "Italian" : "",
-        behaviorHints: { notWebReady: true },
-        headers: {
-          "Referer": "https://cinemacity.cc/",
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
-        }
-      };
+  name: "CinemaCity | Multi-Audio | 1080p",
+  title: streamTitle,
+  url: streamUrl,
+  quality: "1080p",
+  type: "hls",
+  language: hasItalian ? "Italian" : "",
+  behaviorHints: {
+    notWebReady: true
+  },
+  headers: {
+    Referer: "https://cinemacity.cc/",
+    "User-Agent": USER_AGENT
+  }
+};
       return [formatStream(result, "CinemaCity")];
     } catch (e) {
       console.error("[CinemaCity] Error:", e);

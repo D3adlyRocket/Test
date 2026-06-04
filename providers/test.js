@@ -193,18 +193,29 @@ function buildSearchQueries(title, year) {
 }
 
 function extractCandidateUrls(html, mediaType) {
-  var segment = mediaType === "movie" ? "/movies/" : "/drama/";
-  var regex = /href=["'](https?:\/\/onlykdrama\.shop\/[^"'#?]+)["']/gi;
+  // Matches any onlykdrama.shop URL followed by words, numbers, and dashes (the slug)
+  // Completely ignores href restrictions so it catches data attributes, redirects, and clean strings
+  var regex = /(https?:\/\/onlykdrama\.shop\/(?:drama|movies)\/[a-z0-9\-]+)\/?/gi;
   var urls = [];
   var seen = {};
   var match;
+  
   while ((match = regex.exec(html))) {
-    if (match[1].indexOf(segment) === -1 || seen[match[1]]) {
+    var cleanUrl = match[1].toLowerCase();
+    
+    // Ensure it trailing-slashes consistently to prevent duplicates
+    if (!cleanUrl.endsWith('/')) {
+      cleanUrl += '/';
+    }
+
+    if (seen[cleanUrl]) {
       continue;
     }
-    seen[match[1]] = true;
-    urls.push(match[1]);
+    
+    seen[cleanUrl] = true;
+    urls.push(cleanUrl);
   }
+  
   return urls;
 }
 

@@ -383,67 +383,65 @@ function resolveMoviePage(pageUrl, html) {
 }
 
 function extractEpisodeAnchors(html) {
-    // Captures the URL and the anchor text together in one single regex pattern
-    var regex = /<a[^>]+href=["'](https?:\/\/(?:new5\.filepress\.wiki\/file\/|hubcloud\.[a-z0-9]+\/video\/|fileditchfiles\.[a-z0-9]+\/|xcloud\.[a-z0-9]+\/)[^"'#?]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-    var results = [];
-    var seen = {};
-    var match;
+  var regex = /<a[^>]+href=["'](https?:\/\/(?:new5\.filepress\.wiki\/file\/|hubcloud\.[a-z0-9]+\/video\/|fileditchfiles\.[a-z0-9]+\/|xcloud\.[a-z0-9]+\/)[^"'#?]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  var results = [];
+  var seen = {};
+  var match;
 
-    while ((match = regex.exec(html))) {
-        var url = match[1];
-        var rawText = match[2] ? stripTags(match[2]) : "";
-        var fileId = "";
+  while ((match = regex.exec(html))) {
+    var url = match[1];
+    var rawText = match[2] ? stripTags(match[2]) : "";
+    var fileId = "";
 
-        // Extract a unique key to filter out duplicates
-        if (url.indexOf("filepress.wiki") !== -1) {
-            var fpMatch = url.match(/\/file\/([A-Za-z0-9]+)/);
-            fileId = fpMatch ? fpMatch[1] : url;
-        } else if (url.indexOf("hubcloud") !== -1) {
-            var hcMatch = url.match(/\/video\/([A-Za-z0-9]+)/);
-            fileId = hcMatch ? hcMatch[1] : url;
-        } else {
-            var generalMatch = url.match(/\/([^/]+)$/);
-            fileId = generalMatch ? generalMatch[1] : url;
-        }
-
-        if (seen[fileId]) {
-            continue;
-        }
-        seen[fileId] = true;
-
-        results.push({
-            url: url,
-            fileId: fileId,
-            text: rawText
-        });
+    if (url.indexOf("filepress.wiki") !== -1) {
+      var fpMatch = url.match(/\/file\/([A-Za-z0-9]+)/);
+      fileId = fpMatch ? fpMatch[1] : url;
+    } else if (url.indexOf("hubcloud") !== -1) {
+      var hcMatch = url.match(/\/video\/([A-Za-z0-9]+)/);
+      fileId = hcMatch ? hcMatch[1] : url;
+    } else {
+      var generalMatch = url.match(/\/([^/]+)$/);
+      fileId = generalMatch ? generalMatch[1] : url;
     }
-    return results;
+
+    if (seen[fileId]) {
+      continue;
+    }
+    seen[fileId] = true;
+
+    results.push({
+      url: url,
+      fileId: fileId,
+      text: rawText
+    });
+  }
+  return results;
 }
 
-function episodeMatches(text, season, episode, hasSeasonedEntries) {
+function episodeMatches(text, url, season, episode, hasSeasonedEntries) {
   var escapedEpisode = escapeRegex(String(episode));
   var explicitSeasonPattern = new RegExp("(?:^|[^A-Z0-9])S0*" + escapeRegex(String(season)) + "E0*" + escapedEpisode + "(?:[^A-Z0-9]|$)", "i");
   var episodePattern = new RegExp("(?:^|[^A-Z0-9])E0*" + escapedEpisode + "(?:[^A-Z0-9]|$)", "i");
   var namedEpisodePattern = new RegExp("Episode\\s*0*" + escapedEpisode + "(?:[^0-9]|$)", "i");
-  if (explicitSeasonPattern.test(text)) {
-    return true;
-  }
-  if (hasSeasonedEntries) {
-    return false;
-  }
-  if (season > 1) {
-    return false;
-  }
-  return episodePattern.test(text) || namedEpisodePattern.test(text);
+
+  if (explicitSeasonPattern.test(text)) return true;
+  if (!hasSeasonedEntries && season === 1 && (episodePattern.test(text) || namedEpisodePattern.test(text))) return true;
+
+  var cleanUrl = decodeURIComponent(url);
+  if (explicitSeasonPattern.test(cleanUrl)) return true;
+  if (!hasSeasonedEntries && season === 1 && episodePattern.test(cleanUrl)) return true;
+
+  return false;
 }
 
 function pickEpisodeAnchor(anchors, season, episode) {
   var hasSeasonedEntries = anchors.some(function (anchor) {
-    return /S\d{1,2}E\d{1,2}/i.test(anchor.text);
+    return /S\d{1,2}E\d{1,2}/i.test(anchor.text) || /S\d{1,2}E\d{1,2}/i.test(anchor.url);
   });
+  
   var i;
   for (i = 0; i < anchors.length; i += 1) {
-    if (episodeMatches(anchors[i].text, season, episode, hasSeasonedEntries)) {
+    if (episodeMatches(anchors[i].text, anchors[i].url, season, episode, hasSeasonedEntries)) {
       return anchors[i];
     }
   }
@@ -511,32 +509,29 @@ function resolveFilePressWithMethod(fileId, methods, index) {
 }
 
 function resolveEpisodePage(html, season, episode) {
-    var anchor = pickEpisodeAnchor(extractEpisodeAnchors(html), season, episode);
-    if (!anchor) {
-        return Promise.resolve([]);
-    }
+  var anchor = pickEpisodeAnchor(extractEpisodeAnchors(html), season, episode);
+  if (!anchor) {
+    return Promise.resolve([]);
+  }
 
-    // If it's a standard FilePress link, use the original API handshake routine
-    if (anchor.url.indexOf("filepress.wiki") !== -1) {
-        return resolveFilePressWithMethod(anchor.fileId, [ "indexDownlaod", "publicDownlaod", "publicUserDownlaod" ], 0).then(function (finalUrl) {
-            if (!finalUrl) {
-                return [];
-            }
-            return [ buildStream(anchor.text || "Episode " + episode, finalUrl, extractQuality(anchor.text)) ];
-        });
-    }
+  if (anchor.url.indexOf("filepress.wiki") !== -1) {
+    return resolveFilePressWithMethod(anchor.fileId, [ "indexDownlaod", "publicDownlaod", "publicUserDownlaod" ], 0).then(function (finalUrl) {
+      if (!finalUrl) {
+        return [];
+      }
+      return [ buildStream(anchor.text || "Episode " + episode, finalUrl, extractQuality(anchor.text)) ];
+    });
+  }
 
-    // If it's HubCloud, FileDitch, or XCloud, the captured URL is already the direct/embed streaming page
-    var titleTag = anchor.text || ("Episode " + episode);
-    
-    // Append the source label to the title for clarity (e.g., "Episode 2 [HubCloud]")
-    if (anchor.url.indexOf("hubcloud") !== -1) titleTag += " [HubCloud]";
-else if (anchor.url.indexOf("fileditchfiles") !== -1 || anchor.url.indexOf("fileditch") !== -1) titleTag += " [FileDitch]";
-else if (anchor.url.indexOf("xcloud") !== -1) titleTag += " [XCloud]";
+  var titleTag = anchor.text || ("Episode " + episode);
+  
+  if (anchor.url.indexOf("hubcloud") !== -1) titleTag += " [HubCloud]";
+  else if (anchor.url.indexOf("fileditchfiles") !== -1 || anchor.url.indexOf("fileditch") !== -1) titleTag += " [FileDitch]";
+  else if (anchor.url.indexOf("xcloud") !== -1) titleTag += " [XCloud]";
 
-    return Promise.resolve([
-        buildStream(titleTag, anchor.url, extractQuality(anchor.text || anchor.url))
-    ]);
+  return Promise.resolve([
+    buildStream(titleTag, anchor.url, extractQuality(anchor.text || anchor.url))
+  ]);
 }
 
 function tryCandidatePages(urls, index, mediaType, tmdbInfo, season, episode) {

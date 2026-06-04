@@ -531,8 +531,8 @@ function resolveEpisodePage(html, season, episode) {
     
     // Append the source label to the title for clarity (e.g., "Episode 2 [HubCloud]")
     if (anchor.url.indexOf("hubcloud") !== -1) titleTag += " [HubCloud]";
-    else if (anchor.url.indexOf("fileditch") !== -1) titleTag += " [FileDitch]";
-    else if (anchor.url.indexOf("xcloud") !== -1) titleTag += " [XCloud]";
+else if (anchor.url.indexOf("fileditchfiles") !== -1 || anchor.url.indexOf("fileditch") !== -1) titleTag += " [FileDitch]";
+else if (anchor.url.indexOf("xcloud") !== -1) titleTag += " [XCloud]";
 
     return Promise.resolve([
         buildStream(titleTag, anchor.url, extractQuality(anchor.text || anchor.url))

@@ -383,25 +383,58 @@ function resolveMoviePage(pageUrl, html) {
 }
 
 function extractEpisodeAnchors(html) {
-  var regex = /<a[^>]+href=["'](https?:\/\/(?:new5\.filepress\.wiki\/file\/|hubcloud\.[a-z0-9]+\/video\/|fileditchfiles\.[a-z0-9]+\/|xcloud\.[a-z0-9]+\/)[^"'#?]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
+  // Overhauled to track both raw host links AND the new wrapper domains
+  var regex = /<a[^>]+href=["'](https?:\/\/(?:ads\d*?\.onlykdrama\.(?:shop|top)\/continue\.php|new5\.filepress\.wiki\/file\/|hubcloud\.[a-z0-9]+\/video\/|fileditchfiles\.[a-z0-9]+\/|xcloud\.[a-z0-9]+\/)[^"'#?]+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   var results = [];
   var seen = {};
   var match;
 
   while ((match = regex.exec(html))) {
-    var url = match[1];
+    var originalUrl = match[1];
     var rawText = match[2] ? stripTags(match[2]) : "";
-    var fileId = "";
+    var targetUrl = originalUrl;
 
-    if (url.indexOf("filepress.wiki") !== -1) {
-      var fpMatch = url.match(/\/file\/([A-Za-z0-9]+)/);
-      fileId = fpMatch ? fpMatch[1] : url;
-    } else if (url.indexOf("hubcloud") !== -1) {
-      var hcMatch = url.match(/\/video\/([A-Za-z0-9]+)/);
-      fileId = hcMatch ? hcMatch[1] : url;
+    // Decryption Routine: If it's wrapped behind continue.php, intercept and decode the base64 payload
+    if (originalUrl.indexOf("/continue.php") !== -1) {
+      var base64Data = "";
+      var idMatch = originalUrl.match(/[?&]id=([^&]+)/);
+      var dMatch = originalUrl.match(/[?&]d=([^&]+)/);
+      
+      if (idMatch) base64Data = idMatch[1];
+      else if (dMatch) base64Data = dMatch[1];
+
+      if (base64Data) {
+        try {
+          // Decode Base64 string payload natively
+          var decodedStr = atob(decodeURIComponent(base64Data));
+          
+          // Check if payload is a raw URL or inside a JSON object {"url":"..."}
+          if (decodedStr.indexOf("http") === 0) {
+            targetUrl = decodedStr;
+          } else if (decodedStr.indexOf('{"') === 0) {
+            var parsedJson = JSON.parse(decodedStr);
+            if (parsedJson && parsedJson.url) {
+              targetUrl = parsedJson.url;
+            }
+          }
+        } catch (e) {
+          // Fallback to original URL if decoding fails
+          targetUrl = originalUrl;
+        }
+      }
+    }
+
+    // Run original validation filters on the decoded target URL destination
+    var fileId = "";
+    if (targetUrl.indexOf("filepress.wiki") !== -1) {
+      var fpMatch = targetUrl.match(/\/file\/([A-Za-z0-9]+)/);
+      fileId = fpMatch ? fpMatch[1] : targetUrl;
+    } else if (targetUrl.indexOf("hubcloud") !== -1) {
+      var hcMatch = targetUrl.match(/\/video\/([A-Za-z0-9]+)/);
+      fileId = hcMatch ? hcMatch[1] : targetUrl;
     } else {
-      var generalMatch = url.match(/\/([^/]+)$/);
-      fileId = generalMatch ? generalMatch[1] : url;
+      var generalMatch = targetUrl.match(/\/([^/]+)$/);
+      fileId = generalMatch ? generalMatch[1] : targetUrl;
     }
 
     if (seen[fileId]) {
@@ -410,7 +443,7 @@ function extractEpisodeAnchors(html) {
     seen[fileId] = true;
 
     results.push({
-      url: url,
+      url: targetUrl,
       fileId: fileId,
       text: rawText
     });

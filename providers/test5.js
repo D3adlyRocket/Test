@@ -882,78 +882,20 @@ function getStreams(id, type, season, episode, providerContext = null) {
       if (!selectedUrl) selectedUrl = links[0].url;
       const streamUrl = resolveUrl(movieUrl, selectedUrl);
       console.log(`[CinemaCity] Direct stream: ${streamUrl}`);
-      const metadata = await getTmdbMetadata(imdbId, providerType);
-
-const titleName =
-    metadata?.title ||
-    metadata?.name ||
-    movieTitle;
-
-const year =
-    metadata?.release_date?.slice(0, 4) ||
-    metadata?.first_air_date?.slice(0, 4) ||
-    "";
-
-const runtime =
-    metadata?.runtime
-        ? `${metadata.runtime} min`
-        : metadata?.episode_run_time?.[0]
-            ? `${metadata.episode_run_time[0]} min`
-            : "Unknown";
-
-const rating =
-    metadata?.vote_average
-        ? Number(metadata.vote_average).toFixed(1)
-        : null;
-
-const languageText = hasItalian
-    ? "🇮🇹 Italian"
-    : "🌍 Multi-Audio";
-
-let prettyTitle = `🎬 ${titleName}`;
-
-if (year) {
-    prettyTitle += ` (${year})`;
-}
-
-prettyTitle += `
-
-📺 1080p | ${languageText}`;
-
-if (rating) {
-    prettyTitle += `
-⭐ ${rating} TMDB`;
-}
-
-prettyTitle += `
-🎞️ HLS
-⏱️ ${runtime}`;
-
-if (providerType === "tv") {
-    prettyTitle += `
-📂 S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
-}
-
-prettyTitle += `
-ℹ️ CinemaCity`;
-
-const result = {
-    name: "CinemaCity | 1080p",
-    title: prettyTitle,
-    url: streamUrl,
-    quality: "1080p",
-    type: "hls",
-    language: hasItalian ? "Italian" : "Multi-Audio",
-    behaviorHints: {
-        notWebReady: true
-    },
-    headers: {
-        Referer: "https://cinemacity.cc/",
-        "User-Agent": USER_AGENT
-    }
-};
-
-return [formatStream(result, "CinemaCity")];
+      const result = {
+        name: "CinemaCity",
+        title,
+        url: streamUrl,
+        quality: "1080p",
+        type: "hls",
+        language: hasItalian ? "Italian" : "",
+        behaviorHints: { notWebReady: true },
+        headers: {
+          "Referer": "https://cinemacity.cc/",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        }
+      };
+      return [formatStream(result, "CinemaCity")];
     } catch (e) {
       console.error("[CinemaCity] Error:", e);
       return [];

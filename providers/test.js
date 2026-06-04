@@ -287,13 +287,30 @@ function getOnlyKDramaTitle(html) {
 }
 
 function titleLooksRelevant(candidateTitle, expectedTitle, expectedYear) {
+  if (!candidateTitle || !expectedTitle) {
+    return false;
+  }
+  
+  var candidateNorm = normalizeText(candidateTitle);
+  var expectedNorm = normalizeText(expectedTitle);
+  
+  // Rule 1: Direct containment match (e.g., "reborn rookie ep 2" contains "reborn rookie")
+  if (candidateNorm.indexOf(expectedNorm) !== -1) {
+    // Only fail the year check if a year is explicitly found in the title and it's a mismatch
+    var candidateYearMatch = String(candidateTitle).match(/\b((?:19|20)\d{2})\b/);
+    if (expectedYear && candidateYearMatch && candidateYearMatch[1] !== String(expectedYear)) {
+      return false; // Wrong year variant found
+    }
+    return true;
+  }
+  
+  // Rule 2: Fallback token overlapping matching logic
   var candidateTokens = uniqueTokens(candidateTitle);
   var expectedTokens = uniqueTokens(expectedTitle);
   var matchCount = 0;
-  var i;
   var tokenMap = {};
-  var candidateYearMatch = String(candidateTitle || "").match(/\b((?:19|20)\d{2})\b/);
-  var candidateYear = candidateYearMatch ? candidateYearMatch[1] : "";
+  var i;
+  
   for (i = 0; i < candidateTokens.length; i += 1) {
     tokenMap[candidateTokens[i]] = true;
   }
@@ -302,13 +319,8 @@ function titleLooksRelevant(candidateTitle, expectedTitle, expectedYear) {
       matchCount += 1;
     }
   }
-  if (expectedYear && candidateYear && candidateYear !== String(expectedYear)) {
-    return false;
-  }
-  if (expectedTokens.length <= 2) {
-    return matchCount >= 1;
-  }
-  return matchCount >= 2;
+  
+  return matchCount >= Math.min(2, expectedTokens.length);
 }
 
 function extractAttr(html, name) {

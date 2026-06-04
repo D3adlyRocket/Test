@@ -1,6 +1,6 @@
 /**
  * cineby - Built from src/cineby/
- * Generated: 2026-06-03T16:34:36.061Z
+ * Generated: 2026-06-04T16:50:57.017Z
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -135,20 +135,6 @@ function decryptItems(items, tmdbId, cacheKey) {
 }
 function formatRegularStreams(data) {
   var sources = data.sources || [];
-  var subtitles = data.subtitles || [];
-  var subs = [];
-  for (var k = 0; k < subtitles.length; k++) {
-    var sub = subtitles[k];
-    var lang = sub.lang || sub.language || "Unknown";
-    var normLang = String(lang).toLowerCase();
-    var isWantedSub = normLang.indexOf("arabic") !== -1 || normLang === "ar" || normLang.indexOf("english") !== -1 || normLang === "en";
-    if (sub.url && isWantedSub) {
-      subs.push({
-        url: sub.url,
-        lang
-      });
-    }
-  }
   var streams = [];
   for (var j = 0; j < sources.length; j++) {
     var src = sources[j];
@@ -165,7 +151,7 @@ function formatRegularStreams(data) {
         quality,
         size: "",
         headers: PLAY_HEADERS,
-        subtitles: subs,
+        subtitles: [],
         provider: "cineby"
       });
     }
@@ -176,7 +162,7 @@ function formatRegularStreams(data) {
       quality,
       size: "",
       headers: {},
-      subtitles: subs,
+      subtitles: [],
       provider: "cineby"
     });
   }

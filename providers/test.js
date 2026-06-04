@@ -596,21 +596,57 @@ function tryCandidatePages(urls, index, mediaType, tmdbInfo, season, episode) {
   if (index >= urls.length) {
     return Promise.resolve([]);
   }
-  return fetchText(urls[index]).then(function (html) {
+  
+  var targetUrl = urls[index];
+
+  // If we are scraping a TV show/Drama, bypass the series landing page container shell.
+  // Synthesize and prioritize the standalone post layout paths where text entries exist.
+  if (mediaType === "tv") {
+    var slug = targetUrl.replace(SITE_URL, "").replace(/\/(drama|movies|episodes)\//, "").replace(/\//g, "");
+    
+    // Generates absolute permutations like: /reborn-rookie-episode-2/ or /reborn-rookie-ep-2/
+    var synthesizedUrls = [
+      SITE_URL + "/" + slug + "-episode-" + episode + "/",
+      SITE_URL + "/" + slug + "-ep-" + episode + "/",
+      SITE_URL + "/episodes/" + slug + "-episode-" + episode + "/",
+      SITE_URL + "/episodes/" + slug + "-ep-" + episode + "/",
+      targetUrl // fallback to original
+    ];
+
+    return trySynthesizedPages(synthesizedUrls, 0, tmdbInfo, season, episode);
+  }
+
+  // Fallback for standard movie parsing processing logic
+  return fetchText(targetUrl).then(function (html) {
     var pageTitle = getOnlyKDramaTitle(html);
     if (!titleLooksRelevant(pageTitle, tmdbInfo.title, tmdbInfo.year)) {
       return tryCandidatePages(urls, index + 1, mediaType, tmdbInfo, season, episode);
     }
-    return (mediaType === "movie" ? resolveMoviePage(urls[index], html) : resolveEpisodePage(html, season, episode)).then(function (streams) {
+    return resolveMoviePage(targetUrl, html);
+  }).catch(function () {
+    return tryCandidatePages(urls, index + 1, mediaType, tmdbInfo, season, episode);
+  });
+}
+
+function trySynthesizedPages(urls, index, tmdbInfo, season, episode) {
+  if (index >= urls.length) {
+    return Promise.resolve([]);
+  }
+  
+  return fetchText(urls[index]).then(function (html) {
+    // If the page returns a 404 block or doesn't have our target ad elements, skip it
+    if (html.indexOf("/continue.php") === -1 && html.indexOf("filepress.wiki") === -1 && html.indexOf("hubcloud") === -1) {
+      return trySynthesizedPages(urls, index + 1, tmdbInfo, season, episode);
+    }
+    
+    return resolveEpisodePage(html, season, episode).then(function (streams) {
       if (streams && streams.length) {
         return streams;
       }
-      return tryCandidatePages(urls, index + 1, mediaType, tmdbInfo, season, episode);
-    }).catch(function () {
-      return tryCandidatePages(urls, index + 1, mediaType, tmdbInfo, season, episode);
+      return trySynthesizedPages(urls, index + 1, tmdbInfo, season, episode);
     });
   }).catch(function () {
-    return tryCandidatePages(urls, index + 1, mediaType, tmdbInfo, season, episode);
+    return trySynthesizedPages(urls, index + 1, tmdbInfo, season, episode);
   });
 }
 
@@ -641,3 +677,4 @@ function getStreams(tmdbId, mediaType, season, episode) {
 module.exports = {
   getStreams: getStreams
 };
+

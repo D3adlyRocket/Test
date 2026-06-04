@@ -91,7 +91,7 @@ var require_formatter = __commonJS({
       return normalized || void 0;
     }
     function formatStream2(stream, providerName) {
-      // Setup dynamic quality tags
+      // 1. Quality Tags Configuration
       let quality = stream.quality || "1080p";
       if (quality === "2160p") quality = "4K UHD";
       else if (quality === "1440p") quality = "QHD";
@@ -101,27 +101,30 @@ var require_formatter = __commonJS({
 
       const audioType = stream.language === "Italian" ? "Multi-Audio" : "Dual-Audio";
       
-      // CinemaCity | Multi-Audio | 1080p
+      // Header UI: CinemaCity | Multi-Audio | 1080p
       const finalName = `${providerName || "CinemaCity"} | ${audioType} | ${quality}`;
 
-      // 🎬 Movie or Series Name - Year
+      // Line 2: 🎬 Movie Name - Year
       const titleName = stream.originalTitle || "Stream";
       const yearSuffix = stream.year ? ` - ${stream.year}` : "";
       const line2 = `🎬 ${titleName}${yearSuffix}`;
 
-      // 📺 Quality | 🌍 Language | 📦 Size
+      // Line 3: 📺 Quality | 🌍 Language | 📦 Size
       const langFlag = stream.language === "Italian" ? "🇮🇹 Italian" : "🌍 English/Sub";
       const sizeTag = stream.size ? stream.size : "N/A";
       const line3 = `📺 ${quality} | 🌍 ${langFlag} | 📦 ${sizeTag}`;
 
-      // 🎞️ Format | ⏱️ Duration |  ℹ️ Extra
+      // Line 4: 🎞️ Format | ⏱️ Duration | ℹ️ Extra
       const formatTag = stream.type ? String(stream.type).toUpperCase() : "HLS";
       const durationTag = stream.duration ? `${stream.duration} min` : "N/A";
       const extraTag = stream.episodeInfo ? stream.episodeInfo : "Direct Stream";
       const line4 = `🎞️ ${formatTag} | ⏱️ ${durationTag} | ℹ️ ${extraTag}`;
 
-      // Build out combined layouts into line breaks
-      const finalTitle = `${line2}\n${line3}\n${line4}`;
+      // Combine descriptive blocks using linebreaks
+      const finalTitleWithBreaks = `${line2}\n${line3}\n${line4}`;
+      
+      // Secondary fallback inline string configuration if linebreaks are filtered out by the video interface
+      const inlineFallbackString = `${line2}  •  ${line3}  •  ${line4}`;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       let finalHeaders = stream.headers;
@@ -156,8 +159,9 @@ var require_formatter = __commonJS({
       
       return __spreadProps(__spreadValues({}, stream), {
         name: finalName,
-        title: finalTitle,
-        description: finalTitle, // Redundant fallback string matching description fields for variant players
+        title: finalTitleWithBreaks,
+        description: finalTitleWithBreaks, 
+        tagline: inlineFallbackString, 
         providerName: providerName || "CinemaCity",
         qualityTag: quality,
         originalTitle: titleName,
@@ -748,7 +752,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
       const movieUrl = searchResult.url;
       const movieTitle = (searchResult.title || imdbId).replace(/\s*\(.*?\)\s*/g, "").trim();
       
-      // Dynamic fallback capture for layout variables via TMDB
       const metadata = yield getTmdbMetadata(imdbId, providerType);
       const releaseYear = extractYearFromMetadata(metadata);
       const duration = metadata ? (metadata.runtime || (metadata.episode_run_time ? metadata.episode_run_time[0] : null)) : null;

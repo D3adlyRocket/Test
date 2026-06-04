@@ -91,7 +91,7 @@ var require_formatter = __commonJS({
       return normalized || void 0;
     }
     function formatStream2(stream, providerName) {
-      // 1. Setup metadata values
+      // Setup dynamic quality tags
       let quality = stream.quality || "1080p";
       if (quality === "2160p") quality = "4K UHD";
       else if (quality === "1440p") quality = "QHD";
@@ -101,26 +101,26 @@ var require_formatter = __commonJS({
 
       const audioType = stream.language === "Italian" ? "Multi-Audio" : "Dual-Audio";
       
-      // Line 1 UI: CinemaCity | Multi-Audio | 1080p
+      // CinemaCity | Multi-Audio | 1080p
       const finalName = `${providerName || "CinemaCity"} | ${audioType} | ${quality}`;
 
-      // Line 2 UI: 🎬 Movie or Series Name - Year
+      // 🎬 Movie or Series Name - Year
       const titleName = stream.originalTitle || "Stream";
       const yearSuffix = stream.year ? ` - ${stream.year}` : "";
       const line2 = `🎬 ${titleName}${yearSuffix}`;
 
-      // Line 3 UI: 📺 Quality | 🌍 Language | 📦 Size
+      // 📺 Quality | 🌍 Language | 📦 Size
       const langFlag = stream.language === "Italian" ? "🇮🇹 Italian" : "🌍 English/Sub";
       const sizeTag = stream.size ? stream.size : "N/A";
       const line3 = `📺 ${quality} | 🌍 ${langFlag} | 📦 ${sizeTag}`;
 
-      // Line 4 UI: 🎞️ Format | ⏱️ Duration | ℹ️ Extra
+      // 🎞️ Format | ⏱️ Duration |  ℹ️ Extra
       const formatTag = stream.type ? String(stream.type).toUpperCase() : "HLS";
       const durationTag = stream.duration ? `${stream.duration} min` : "N/A";
       const extraTag = stream.episodeInfo ? stream.episodeInfo : "Direct Stream";
       const line4 = `🎞️ ${formatTag} | ⏱️ ${durationTag} | ℹ️ ${extraTag}`;
 
-      // Combine descriptive blocks using linebreaks
+      // Build out combined layouts into line breaks
       const finalTitle = `${line2}\n${line3}\n${line4}`;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
@@ -157,9 +157,9 @@ var require_formatter = __commonJS({
       return __spreadProps(__spreadValues({}, stream), {
         name: finalName,
         title: finalTitle,
+        description: finalTitle, // Redundant fallback string matching description fields for variant players
         providerName: providerName || "CinemaCity",
         qualityTag: quality,
-        description: sizeTag,
         originalTitle: titleName,
         language: stream.language || "",
         _nuvio_formatted: true,
@@ -243,8 +243,7 @@ function base64Decode(str) {
     if (typeof atob === "function") {
       return decodeURIComponent(escape(atob(str)));
     }
-  } catch (e) {
-  }
+  } catch (e) {}
   try {
     let output = "";
     let buffer = 0;
@@ -605,7 +604,7 @@ function getIdsFromKitsu(kitsuId, season, episode, providerContext = null) {
     }
   });
 }
-function parseCompositeSeriesId(rawId, season, episode) {
+var parseCompositeSeriesId = (rawId, season, episode) => {
   const parsed = {
     normalizedId: String(rawId || "").trim(),
     season: Number.isInteger(season) ? season : Number.parseInt(season, 10) || 1,
@@ -618,7 +617,7 @@ function parseCompositeSeriesId(rawId, season, episode) {
     parsed.episode = Number.parseInt(match[3], 10) || parsed.episode;
   }
   return parsed;
-}
+};
 function buildDownloadUrl(fileVal, movieTitle) {
   const baseEnd = fileVal.indexOf("/public_files/");
   if (baseEnd === -1) return null;

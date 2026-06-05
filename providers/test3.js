@@ -107,9 +107,122 @@ function parseQuality(text) {
   return "720p";
 }
 
+function getBaseUrl(url) {
+  if (!url) return BASE_URL;
+  var match = url.match(/^(https?:\/\/[^\/]+)/);
+  return match ? match[1] : BASE_URL;
+}
+
+function fixUrl(url, domain) {
+  if (!url) return "";
+  if (url.indexOf("http") === 0) return url;
+  if (url.indexOf("//") === 0) return "https:" + url;
+  if (url.indexOf("/") === 0) return domain + url;
+  return domain + "/" + url;
+}
+
 // ==========================================
-// DEEP PLAYBACK UNWRAPPERS (FROM SCRIPT 2)
+// REGEXP UTILITIES & RE-ENGINEERED BYPASSERS
 // ==========================================
+
+function extractFormAction(html) {
+  var m = html.match(/<form[^>]*id="landing"[^>]*action="([^"]+)"/i) || html.match(/<form[^>]*action="([^"]+)"[^>]*id="landing"/i);
+  return m ? m[1] : null;
+}
+
+function extractFormInputs(html) {
+  var obj = {};
+  var formMatch = html.match(/<form[^>]*id="landing"[^>]*>([\s\S]*?)<\/form>/i) || html.match(/<form[^>]*>([\s\S]*?)<\/form>/i);
+  var formHtml = formMatch ? formMatch[1] : html;
+  var re = /<input[^>]+>/gi;
+  var m;
+  while ((m = re.exec(formHtml)) !== null) {
+    var nameM = m[0].match(/name="([^"]+)"/i);
+    var valueM = m[0].match(/value="([^"]*)"/i);
+    if (nameM) obj[nameM[1]] = valueM ? valueM[1] : "";
+  }
+  return obj;
+}
+
+function extractScriptContaining(html, needle) {
+  var re = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+  var m;
+  while ((m = re.exec(html)) !== null) {
+    if (m[1].indexOf(needle) !== -1) return m[1];
+  }
+  return "";
+}
+
+function extractMetaRefresh(html) {
+  var m = html.match(/<meta[^>]*http-equiv="refresh"[^>]*content="([^"]+)"/i) || html.match(/<meta[^>]*content="([^"]+)"[^>]*http-equiv="refresh"/i);
+  if (!m) return null;
+  var urlM = m[1].match(/url=(.+)/i);
+  return urlM ? urlM[1].trim() : null;
+}
+
+// BULLETPROOF LANDING BYPASSER ENGINE (Script 2 architecture integration)
+function bypassUnblockedGames(sidUrl) {
+  return __async(this, null, function* () {
+    const host = getBaseUrl(sidUrl);
+    console.log("[UHDMovies Bypass] Executing multi-stage form extraction on: " + sidUrl);
+    try {
+      // Phase 1: Fetch first landing wrapper page
+      const res = yield fetch(sidUrl, { headers: { "User-Agent": USER_AGENT } });
+      const html = yield res.text();
+      let formUrl = extractFormAction(html);
+      let formData = extractFormInputs(html);
+      if (!formUrl) return sidUrl;
+
+      // Phase 2: Fire first step payload to unlock intermediate page context
+      const postRes = yield fetch(formUrl, {
+        method: "POST",
+        headers: { "User-Agent": USER_AGENT, "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(formData).toString()
+      });
+      const postHtml = yield postRes.text();
+      let formUrl2 = extractFormAction(postHtml);
+      let formData2 = extractFormInputs(postHtml);
+      if (!formUrl2) return sidUrl;
+
+      // Phase 3: Fire final step payload to fetch JavaScript script execution environment
+      const postRes2 = yield fetch(formUrl2, {
+        method: "POST",
+        headers: { "User-Agent": USER_AGENT, "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(formData2).toString()
+      });
+      const postHtml2 = yield postRes2.text();
+
+      // Phase 4: Dig into script text block to grab initialization token variables
+      let scriptContent = extractScriptContaining(postHtml2, "?go=");
+      let skTokenM = scriptContent.match(/\?go=([^"]+)/) || postHtml2.match(/\?go=([^"'\s>]+)/);
+      if (!skTokenM) return sidUrl;
+      
+      const skToken = skTokenM[1];
+      const wpHttp2 = formData2["_wp_http2"] || "";
+      
+      // Phase 5: Pass security parameter headers via Cookie authorization check mapping
+      const cookieRes = yield fetch(host + "?go=" + skToken, {
+        headers: { "User-Agent": USER_AGENT, "Cookie": skToken + "=" + wpHttp2 }
+      });
+      const cookieHtml = yield cookieRes.text();
+
+      // Phase 6: Cleanse and capture the dynamic meta-refresh redirection block
+      let driveUrl = extractMetaRefresh(cookieHtml);
+      if (!driveUrl) return sidUrl;
+
+      // Phase 7: Land on final delivery domain platform and strip standard error codes
+      const driveRes = yield fetch(driveUrl, { headers: { "User-Agent": USER_AGENT } });
+      const driveHtml = yield driveRes.text();
+      const pathM = driveHtml.match(/replace\("([^"]+)"\)/);
+      if (!pathM || pathM[1] === "/404") return sidUrl;
+      
+      return fixUrl(pathM[1], getBaseUrl(driveUrl));
+    } catch (err) {
+      console.log(`[UHDMovies bypasser] Gateway parsing aborted: ${err.message}`);
+      return sidUrl;
+    }
+  });
+}
 
 function extractVideoSeed(finallink) {
   return __async(this, null, function* () {
@@ -203,9 +316,7 @@ function extractDriveseedPage(url) {
         const html1 = yield res1.text();
         var redirectM = html1.match(/replace\("([^"]+)"\)/);
         if (!redirectM) return null;
-        var baseMatch = url.match(/^(https?:\/\/[^\/]+)/);
-        var base = baseMatch ? baseMatch[1] : "";
-        const res2 = yield fetch(base + redirectM[1], { headers: { "User-Agent": USER_AGENT } });
+        const res2 = yield fetch(getBaseUrl(url) + redirectM[1], { headers: { "User-Agent": USER_AGENT } });
         html = yield res2.text();
       } else {
         const res = yield fetch(url, { headers: { "User-Agent": USER_AGENT } });
@@ -237,102 +348,8 @@ function extractDriveseedPage(url) {
   });
 }
 
-// FIXED DEEP LANDING GATEWAY BYPASSER
-function bypassUnblockedGames(sidUrl) {
-  return __async(this, null, function* () {
-    try {
-      var hostMatch = sidUrl.match(/^(https?:\/\/[^\/]+)/);
-      var host = hostMatch ? hostMatch[1] : "https://cloud.unblockedgames.world";
-      
-      const res = yield fetch(sidUrl, { headers: { "User-Agent": USER_AGENT } });
-      const html = yield res.text();
-      const $ = cheerio.load(html);
-      const form0 = $("form#landing");
-      const form0Action = form0.attr("action") || sidUrl;
-      const form0Inputs = {};
-      form0.find("input").each((_, inp) => {
-        form0Inputs[$(inp).attr("name")] = $(inp).attr("value") || "";
-      });
-      if (!form0Inputs["_wp_http"])
-        return sidUrl;
-        
-      const postRes = yield fetch(form0Action, {
-        method: "POST",
-        headers: {
-          "User-Agent": USER_AGENT,
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: new URLSearchParams(form0Inputs).toString()
-      });
-      const postHtml = yield postRes.text();
-      const $post = cheerio.load(postHtml);
-      const form1 = $post("form#landing");
-      const form1Action = form1.attr("action");
-      const form1Inputs = {};
-      form1.find("input").each((_, inp) => {
-        form1Inputs[$post(inp).attr("name")] = $post(inp).attr("value") || "";
-      });
-      if (!form1Inputs["_wp_http2"])
-        return sidUrl;
-        
-      const postRes2 = yield fetch(form1Action, {
-        method: "POST",
-        headers: {
-          "User-Agent": USER_AGENT,
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Referer": form0Action
-        },
-        body: new URLSearchParams(form1Inputs).toString()
-      });
-      const postHtml2 = yield postRes2.text();
-      
-      // FIXED SCRIPT PARSING logic from Script 2
-      let scriptContent = "";
-      const scriptRe = /<script[^>]*>([\s\S]*?)<\/script>/gi;
-      let m;
-      while ((m = scriptRe.exec(postHtml2)) !== null) {
-        if (m[1].indexOf("?go=") !== -1) scriptContent = m[1];
-      }
-      const skTokenM = scriptContent.match(/\?go=([^"]+)/);
-      if (!skTokenM) return sidUrl;
-      
-      const skToken = skTokenM[1];
-      const wpHttp2 = form1Inputs["_wp_http2"] || "";
-      
-      const finalUrl = host + "?go=" + skToken;
-      const finalRes = yield fetch(finalUrl, {
-        headers: {
-          "User-Agent": USER_AGENT,
-          "Cookie": skToken + "=" + wpHttp2
-        }
-      });
-      const finalHtml = yield finalRes.text();
-      
-      let refreshM = finalHtml.match(/<meta[^>]*http-equiv="refresh"[^>]*content="([^"]+)"/i) || finalHtml.match(/<meta[^>]*content="([^"]+)"[^>]*http-equiv="refresh"/i);
-      let driveUrl = null;
-      if (refreshM) {
-        var urlM = refreshM[1].match(/url=(.+)/i);
-        driveUrl = urlM ? urlM[1].trim() : null;
-      }
-      if (!driveUrl) return sidUrl;
-
-      const driveRes = yield fetch(driveUrl, { headers: { "User-Agent": USER_AGENT } });
-      const driveHtml = yield driveRes.text();
-      const pathM = driveHtml.match(/replace\("([^"]+)"\)/);
-      if (!pathM || pathM[1] === "/404") return sidUrl;
-      
-      var baseMatch2 = driveUrl.match(/^(https?:\/\/[^\/]+)/);
-      var base2 = baseMatch2 ? baseMatch2[1] : "";
-      return base2 + pathM[1];
-    } catch (err) {
-      console.log(`[UHDMovies bypasser] Failed resolving ${sidUrl}: ${err.message}`);
-    }
-    return sidUrl;
-  });
-}
-
 // ==========================================
-// CORE EXTRACTION STREAM MACHINE
+// MAIN GETSTREAMS IMPLEMENTATION
 // ==========================================
 
 function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
@@ -400,7 +417,7 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
           currentUrl = yield bypassUnblockedGames(currentUrl);
         }
         
-        // DEEP EXTRACT PIPELINE ADDED
+        // Deep Extraction Pipeline Execution
         if (currentUrl && (currentUrl.includes("driveseed") || currentUrl.includes("driveleech"))) {
           const deepVideoUrl = yield extractDriveseedPage(currentUrl);
           if (deepVideoUrl) currentUrl = deepVideoUrl;

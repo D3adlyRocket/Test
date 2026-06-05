@@ -91,37 +91,28 @@ var require_formatter = __commonJS({
       return normalized || void 0;
     }
     function formatStream2(stream, providerName) {
-      let quality = stream.quality || "";
-      if (quality === "2160p") quality = "\u{1F525}4K UHD";
-      else if (quality === "1440p") quality = "\u2728 QHD";
-      else if (quality === "1080p") quality = "\u{1F680} FHD";
-      else if (quality === "720p") quality = "\u{1F4BF} HD";
-      else if (quality === "576p" || quality === "480p" || quality === "360p" || quality === "240p") quality = "\u{1F4A9} Low Quality";
-      else if (!quality || ["auto", "unknown", "unknow"].includes(String(quality).toLowerCase())) quality = "\u{1F4BF} HD";
-      let title = `\u{1F4C1} ${stream.title || "Stream"}`;
-      let language = stream.language;
-      if (language === "Italian") {
-        language = "\u{1F1EE}\u{1F1F9}";
-      } else if (stream.name && (stream.name.includes("SUB ITA") || stream.name.includes("SUB"))) {
-        language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
-      } else if (stream.title && (stream.title.includes("SUB ITA") || stream.title.includes("SUB"))) {
-        language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
-      } else if (language === void 0 || language === null) {
-        language = "";
+      // 1. Determine Quality Tag
+      let quality = stream.quality || "1080p"; // Fallback to 1080p if not found
+      
+      // 2. Parse language / Multi-Audio tag
+      let audioTag = "Multi-Audio";
+      if (stream.language === "Italian" || (stream.name && stream.name.includes("ITA"))) {
+        audioTag = "Multi-Audio";
       }
-      let details = [];
-      if (stream.size) details.push(`\u{1F4E6} ${stream.size}`);
-      const desc = details.join(" | ");
-      let pName = stream.name || stream.server || providerName;
-      if (pName) {
-        pName = pName.replace(/\s*\[?\(?\s*SUB\s*ITA\s*\)?\]?/i, "").replace(/\s*\[?\(?\s*ITA\s*\)?\]?/i, "").replace(/\s*\[?\(?\s*SUB\s*\)?\]?/i, "").replace(/\(\s*\)/g, "").replace(/\[\s*\]/g, "").trim();
-      }
-      if (pName === providerName) {
-        pName = pName.charAt(0).toUpperCase() + pName.slice(1);
-      }
-      if (pName) {
-        pName = `\u{1F4E1} ${pName}`;
-      }
+
+      // 3. Construct your requested custom Layout Name
+      // Output example: "CinemaCity | Multi-Audio | 1080p"
+      const finalName = `CinemaCity | ${audioTag} | ${quality}`;
+
+      // 4. Clean up title formatting
+      let rawTitle = stream.title || "Stream";
+      // Strip any leftover emojis or sizing tags if they creep in from the provider
+      rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '');
+      
+      // 5. Construct your requested custom Title Layout
+      // Output example: "🎬 Movie Name"
+      let finalTitle = `🎬 ${rawTitle}`;
+
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       let finalHeaders = stream.headers;
       if (behaviorHints.proxyHeaders && behaviorHints.proxyHeaders.request) {
@@ -148,30 +139,23 @@ var require_formatter = __commonJS({
       } else if (!providerExplicitNotWebReady) {
         delete behaviorHints.notWebReady;
       }
-      const finalName = pName;
-      let finalTitle = `\u{1F4C1} ${stream.title || "Stream"}`;
-      if (desc) finalTitle += ` | ${desc}`;
-      if (language) finalTitle += ` | ${language}`;
+
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
+      
       return __spreadProps(__spreadValues({}, stream), {
-        // Keep original properties
         name: finalName,
         title: finalTitle,
-        // Metadata for Stremio UI reconstruction (safer names for RN)
-        providerName: pName,
+        providerName: "CinemaCity",
         qualityTag: quality,
-        description: desc,
+        description: "",
         originalTitle: stream.title || "Stream",
-        // Ensure language is set for Stremio/Nuvio sorting
-        language,
-        // Mark as formatted
+        language: stream.language || "",
         _nuvio_formatted: true,
         behaviorHints,
         provider: stream.provider || normalizeProviderId(providerName),
         referer: playbackReferer,
         userAgent: playbackUserAgent,
-        // Explicitly ensure root headers are preserved for Nuvio
         headers: finalHeaders
       });
     }
@@ -534,6 +518,7 @@ function verifyCandidateImdb(candidateUrl, expectedImdbId) {
     }
   });
 }
+// Note: Handled logic to dynamically construct the title + release year formatting inside getStreams below
 function searchBySitemap(id, providerType, providerContext = null) {
   return __async(this, null, function* () {
     const expectedImdbId = /^tt\d{5,}$/i.test(String(id || "").trim()) ? String(id).trim().toLowerCase() : null;
@@ -588,7 +573,8 @@ function searchBySitemap(id, providerType, providerContext = null) {
           console.log(`[CinemaCity] Sitemap IMDb verified: ${expectedTitles[0]} -> ${candidate.entry.url}`);
           return {
             url: candidate.entry.url,
-            title: expectedTitles[0] || candidate.entry.title
+            title: expectedTitles[0] || candidate.entry.title,
+            year: expectedYear
           };
         }
         if (candidateImdbId && candidateImdbId !== expectedImdbId) {
@@ -605,7 +591,8 @@ function searchBySitemap(id, providerType, providerContext = null) {
     console.log(`[CinemaCity] Sitemap match: ${expectedTitles[0]} -> ${bestEntry.url} [score=${Math.round(bestScore)}]`);
     return {
       url: bestEntry.url,
-      title: expectedTitles[0] || bestEntry.title
+      title: expectedTitles[0] || bestEntry.title,
+      year: expectedYear
     };
   });
 }
@@ -836,7 +823,11 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
       const movieUrl = searchResult.url;
       const movieTitle = (searchResult.title || imdbId).replace(/\s*\(.*?\)\s*/g, "").trim();
-      const title = type === "tv" || type === "series" ? `${movieTitle} ${season}x${episode}` : movieTitle;
+      
+      // Build dynamic "Movie Name - Year" layout details
+      const releaseYear = searchResult.year ? ` - ${searchResult.year}` : "";
+      const title = type === "tv" || type === "series" ? `${movieTitle} ${season}x${episode}${releaseYear}` : `${movieTitle}${releaseYear}`;
+      
       let html;
       try {
         html = yield fetchViaWorker(movieUrl);
@@ -882,45 +873,19 @@ function getStreams(id, type, season, episode, providerContext = null) {
       if (!selectedUrl) selectedUrl = links[0].url;
       const streamUrl = resolveUrl(movieUrl, selectedUrl);
       console.log(`[CinemaCity] Direct stream: ${streamUrl}`);
-      const metadata = await getTmdbMetadata(imdbId, providerType);
-
-const year =
-  metadata?.release_date?.slice(0, 4) ||
-  metadata?.first_air_date?.slice(0, 4) ||
-  "";
-
-const duration =
-  metadata?.runtime
-    ? `${metadata.runtime} min`
-    : metadata?.episode_run_time?.[0]
-      ? `${metadata.episode_run_time[0]} min`
-      : "";
-
-const language = hasItalian
-  ? "🇮🇹 Italian"
-  : "🌍 Multi-Audio";
-
-const streamTitle =
-`${metadata?.title || metadata?.name || movieTitle} - ${year}
-
-📺 1080p | ${language}
-🎞️ HLS | ⏱️ ${duration}
-ℹ️ CinemaCity`;
       const result = {
-  name: "CinemaCity | Multi-Audio | 1080p",
-  title: streamTitle,
-  url: streamUrl,
-  quality: "1080p",
-  type: "hls",
-  language: hasItalian ? "Italian" : "",
-  behaviorHints: {
-    notWebReady: true
-  },
-  headers: {
-    Referer: "https://cinemacity.cc/",
-    "User-Agent": USER_AGENT
-  }
-};
+        name: "CinemaCity",
+        title,
+        url: streamUrl,
+        quality: "1080p",
+        type: "hls",
+        language: hasItalian ? "Italian" : "",
+        behaviorHints: { notWebReady: true },
+        headers: {
+          "Referer": "https://cinemacity.cc/",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
+        }
+      };
       return [formatStream(result, "CinemaCity")];
     } catch (e) {
       console.error("[CinemaCity] Error:", e);

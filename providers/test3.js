@@ -90,32 +90,121 @@ function getMediaDetails(tmdbId, mediaType) {
   });
 }
 
-function parseSize(text) {
-  const match = text.match(/(\d+(?:\.\d+)?)\s*(GB|MB)/i);
-  return match ? `${match[1]} ${match[2].toUpperCase()}` : null;
-}
-
-function parseQuality(text) {
-  if (text.match(/4k|2160p/i)) return "2160p";
-  if (text.match(/1080p/i)) return "1080p";
-  if (text.match(/720p/i)) return "720p";
-  if (text.match(/480p/i)) return "480p";
-  return "720p";
-}
-
 function getBaseUrl(url) {
   if (!url) return BASE_URL;
   var match = url.match(/^(https?:\/\/[^\/]+)/);
   return match ? match[1] : BASE_URL;
 }
 
+function fixUrl(url, domain) {
+  if (!url) return "";
+  if (url.indexOf("http") === 0) return url;
+  if (url.indexOf("//") === 0) return "https:" + url;
+  if (url.indexOf("/") === 0) return domain + url;
+  return domain + "/" + url;
+}
+
+function buildQualityLabel(str) {
+  if (!str) return "720p";
+  var m = str.match(/(\d{3,4})[pP]/);
+  var label = m ? m[1] + "p" : "720p";
+  if (/\b4[kK]\b/.test(str) || /\bUHD\b(?!movies)/i.test(str)) label = "2160p";
+  return label;
+}
+
 // ==========================================
-// DEEP RESOVERS TRANSPLANTED FROM SCRIPT 2
+// SCRIPT 2 DEEP PLAYBACK BYPASSERS
 // ==========================================
+
+function bypassHrefli(url) {
+  return __async(this, null, function* () {
+    const host = getBaseUrl(url);
+    console.log("[UHDMovies Playback] Bypassing Hrefli Hub/Landing Gateway: " + url);
+    try {
+      const res = yield fetch(url, { headers: { "User-Agent": USER_AGENT } });
+      const html = yield res.text();
+      
+      let formUrl = html.match(/<form[^>]*id="landing"[^>]*action="([^"]+)"/i) || html.match(/<form[^>]*action="([^"]+)"[^>]*id="landing"/i);
+      formUrl = formUrl ? formUrl[1] : null;
+      
+      const formData = {};
+      const formMatch = html.match(/<form[^>]*id="landing"[^>]*>([\s\S]*?)<\/form>/i) || html.match(/<form[^>]*>([\s\S]*?)<\/form>/i);
+      const formHtml = formMatch ? formMatch[1] : html;
+      const re = /<input[^>]+>/gi;
+      let m;
+      while ((m = re.exec(formHtml)) !== null) {
+        var nameM = m[0].match(/name="([^"]+)"/i);
+        var valueM = m[0].match(/value="([^"]*)"/i);
+        if (nameM) formData[nameM[1]] = valueM ? valueM[1] : "";
+      }
+      if (!formUrl) return null;
+
+      const postRes = yield fetch(formUrl, {
+        method: "POST",
+        headers: { "User-Agent": USER_AGENT, "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(formData).toString()
+      });
+      const postHtml = yield postRes.text();
+
+      let formUrl2 = postHtml.match(/<form[^>]*id="landing"[^>]*action="([^"]+)"/i) || postHtml.match(/<form[^>]*action="([^"]+)"[^>]*id="landing"/i);
+      formUrl2 = formUrl2 ? formUrl2[1] : null;
+      
+      const formData2 = {};
+      const formMatch2 = postHtml.match(/<form[^>]*id="landing"[^>]*>([\s\S]*?)<\/form>/i) || postHtml.match(/<form[^>]*>([\s\S]*?)<\/form>/i);
+      const formHtml2 = formMatch2 ? formMatch2[1] : postHtml;
+      while ((m = re.exec(formHtml2)) !== null) {
+        var nameM2 = m[0].match(/name="([^"]+)"/i);
+        var valueM2 = m[0].match(/value="([^"]*)"/i);
+        if (nameM2) formData2[nameM2[1]] = valueM2 ? valueM2[1] : "";
+      }
+      if (!formUrl2) return null;
+
+      const postRes2 = yield fetch(formUrl2, {
+        method: "POST",
+        headers: { "User-Agent": USER_AGENT, "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(formData2).toString()
+      });
+      const postHtml2 = yield postRes2.text();
+
+      let scriptContent = "";
+      const scriptRe = /<script[^>]*>([\s\S]*?)<\/script>/gi;
+      while ((m = scriptRe.exec(postHtml2)) !== null) {
+        if (m[1].indexOf("?go=") !== -1) scriptContent = m[1];
+      }
+      const skTokenM = scriptContent.match(/\?go=([^"]+)/);
+      if (!skTokenM) return null;
+      
+      const skToken = skTokenM[1];
+      const wpHttp2 = formData2["_wp_http2"] || "";
+      
+      const cookieRes = yield fetch(host + "?go=" + skToken, {
+        headers: { "User-Agent": USER_AGENT, "Cookie": skToken + "=" + wpHttp2 }
+      });
+      const cookieHtml = yield cookieRes.text();
+
+      let refreshM = cookieHtml.match(/<meta[^>]*http-equiv="refresh"[^>]*content="([^"]+)"/i) || cookieHtml.match(/<meta[^>]*content="([^"]+)"[^>]*http-equiv="refresh"/i);
+      let driveUrl = null;
+      if (refreshM) {
+        var urlM = refreshM[1].match(/url=(.+)/i);
+        driveUrl = urlM ? urlM[1].trim() : null;
+      }
+      if (!driveUrl) return null;
+
+      const driveRes = yield fetch(driveUrl, { headers: { "User-Agent": USER_AGENT } });
+      const driveHtml = yield driveRes.text();
+      const pathM = driveHtml.match(/replace\("([^"]+)"\)/);
+      if (!pathM || pathM[1] === "/404") return null;
+      
+      return fixUrl(pathM[1], getBaseUrl(driveUrl));
+    } catch (err) {
+      console.error("[UHDMovies] Hrefli bypass error: " + err.message);
+      return null;
+    }
+  });
+}
 
 function extractVideoSeed(finallink) {
   return __async(this, null, function* () {
-    console.log("[UHDMovies Deep Resolver] Extracting VideoSeed: " + finallink);
     try {
       var hostM = finallink.match(/^https?:\/\/([^\/]+)/);
       var host = hostM ? hostM[1] : "video-seed.xyz";
@@ -136,7 +225,6 @@ function extractVideoSeed(finallink) {
       var m = text.match(/url":"([^"]+)"/);
       return m ? m[1].replace(/\\\//g, "/") : null;
     } catch (err) {
-      console.error("[UHDMovies] VideoSeed error: " + err.message);
       return null;
     }
   });
@@ -144,10 +232,9 @@ function extractVideoSeed(finallink) {
 
 function extractInstantLink(finallink) {
   return __async(this, null, function* () {
-    console.log("[UHDMovies Deep Resolver] Extracting InstantLink: " + finallink);
     try {
       var hostM = finallink.match(/^https?:\/\/([^\/]+)/);
-      var host = hostM ? hostM[1] : (finallink.indexOf("video-leech") !== -1 ? "video-leech.pro" : "video-seed.pro");
+      var host = hostM ? hostM[1] : "video-seed.pro";
       var tokenParts = finallink.split("url=");
       if (tokenParts.length < 2) return null;
       var token = tokenParts[1];
@@ -165,7 +252,6 @@ function extractInstantLink(finallink) {
       var m = text.match(/url":"([^"]+)"/);
       return m ? m[1].replace(/\\\//g, "/") : null;
     } catch (err) {
-      console.error("[UHDMovies] InstantLink error: " + err.message);
       return null;
     }
   });
@@ -173,32 +259,28 @@ function extractInstantLink(finallink) {
 
 function extractResumeBot(url) {
   return __async(this, null, function* () {
-    console.log("[UHDMovies Deep Resolver] Extracting ResumeBot: " + url);
     try {
-      const resPage = yield fetch(url, { headers: { "User-Agent": USER_AGENT } });
-      const html = yield resPage.text();
+      const res = yield fetch(url, { headers: { "User-Agent": USER_AGENT } });
+      const html = yield res.text();
       var tokenM = html.match(/formData\.append\('token', '([a-f0-9]+)'\)/);
       var pathM = html.match(/fetch\('\/download\?id=([a-zA-Z0-9\/+]+)'/);
       if (!tokenM || !pathM) return null;
       var token = tokenM[1];
       var path = pathM[1];
       var baseUrl = url.split("/download")[0];
-      const resApi = yield fetch(baseUrl + "/download?id=" + path, {
+      const postRes = yield fetch(baseUrl + "/download?id=" + path, {
         method: "POST",
         headers: {
           "User-Agent": USER_AGENT,
           "Content-Type": "application/x-www-form-urlencoded",
-          "Accept": "*/*",
-          "Origin": baseUrl,
           "Referer": url
         },
         body: "token=" + encodeURIComponent(token)
       });
-      const text = yield resApi.text();
+      const text = yield postRes.text();
       var json = JSON.parse(text);
       return json.url && json.url.indexOf("http") === 0 ? json.url : null;
-    } catch (err) {
-      console.error("[UHDMovies] ResumeBot error: " + err.message);
+    } catch (e) {
       return null;
     }
   });
@@ -206,133 +288,107 @@ function extractResumeBot(url) {
 
 function extractDriveseedPage(url) {
   return __async(this, null, function* () {
-    console.log("[UHDMovies Deep Resolver] Resolving Driveseed Landing Page: " + url);
     try {
-      let finalHtml = "";
+      let html = "";
       if (url.indexOf("r?key=") !== -1) {
-        const rRes = yield fetch(url, { headers: { "User-Agent": USER_AGENT } });
-        const rHtml = yield rRes.text();
-        var redirectM = rHtml.match(/replace\("([^"]+)"\)/);
-        if (redirectM) {
-          var base = getBaseUrl(url);
-          const finalRes = yield fetch(base + redirectM[1], { headers: { "User-Agent": USER_AGENT } });
-          finalHtml = yield finalRes.text();
-        } else {
-          finalHtml = rHtml;
-        }
+        const res1 = yield fetch(url, { headers: { "User-Agent": USER_AGENT } });
+        const html1 = yield res1.text();
+        var redirectM = html1.match(/replace\("([^"]+)"\)/);
+        if (!redirectM) return null;
+        const res2 = yield fetch(getBaseUrl(url) + redirectM[1], { headers: { "User-Agent": USER_AGENT } });
+        html = yield res2.text();
       } else {
         const res = yield fetch(url, { headers: { "User-Agent": USER_AGENT } });
-        finalHtml = yield res.text();
+        html = yield res.text();
       }
-
-      const $ = cheerio.load(finalHtml);
-      let playableUrl = null;
-
-      // Scan all anchors on the landing page for video extraction points
-      const anchors = $("a").toArray();
-      for (let el of anchors) {
+      
+      const $ = cheerio.load(html);
+      let foundUrl = null;
+      
+      const links = $("div.text-center a").toArray();
+      for (let el of links) {
         const href = $(el).attr("href");
         const text = $(el).text().toLowerCase();
         if (!href) continue;
-
+        
         if (text.indexOf("instant download") !== -1) {
-          playableUrl = yield extractInstantLink(href);
+          foundUrl = yield extractInstantLink(href);
         } else if (text.indexOf("resume worker bot") !== -1) {
-          playableUrl = yield extractResumeBot(href);
+          foundUrl = yield extractResumeBot(href);
         } else if (text.indexOf("cloud download") !== -1 || text.indexOf("direct links") !== -1) {
-          playableUrl = href;
+          foundUrl = href;
         }
-        if (playableUrl) break; // Return the first functional direct stream found
+        if (foundUrl) break;
       }
-      return playableUrl;
+      return foundUrl;
     } catch (e) {
-      console.error("[UHDMovies] Driveseed extraction error:", e.message);
       return null;
     }
   });
 }
 
 // ==========================================
-// CORE BYPASSER (Slightly optimized Script 1 Version)
+// MOVIE & TV LINK CONTAINER MATCHERS (From Script 2)
 // ==========================================
 
-function bypassUnblockedGames(sidUrl) {
-  return __async(this, null, function* () {
-    try {
-      const res = yield fetch(sidUrl, { headers: { "User-Agent": USER_AGENT } });
-      const html = yield res.text();
-      const $ = cheerio.load(html);
-      const form0 = $("form#landing");
-      const form0Action = form0.attr("action") || sidUrl;
-      const form0Inputs = {};
-      form0.find("input").each((_, inp) => {
-        form0Inputs[$(inp).attr("name")] = $(inp).attr("value") || "";
-      });
-      if (!form0Inputs["_wp_http"])
-        return sidUrl;
-      const postRes = yield fetch(form0Action, {
-        method: "POST",
-        headers: {
-          "User-Agent": USER_AGENT,
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        body: new URLSearchParams(form0Inputs).toString()
-      });
-      const postHtml = yield postRes.text();
-      const $post = cheerio.load(postHtml);
-      const form1 = $post("form#landing");
-      const form1Action = form1.attr("action");
-      const form1Inputs = {};
-      form1.find("input").each((_, inp) => {
-        form1Inputs[$post(inp).attr("name")] = $post(inp).attr("value") || "";
-      });
-      if (!form1Inputs["_wp_http2"])
-        return sidUrl;
-      const postRes2 = yield fetch(form1Action, {
-        method: "POST",
-        headers: {
-          "User-Agent": USER_AGENT,
-          "Content-Type": "application/x-www-form-urlencoded",
-          "Referer": form0Action
-        },
-        body: new URLSearchParams(form1Inputs).toString()
-      });
-      const postHtml2 = yield postRes2.text();
-      const $post2 = cheerio.load(postHtml2);
-      let scriptContent = "";
-      $post2("script").each((_, el) => {
-        scriptContent += $post2(el).html() + "\n";
-      });
-      const match = scriptContent.match(/s_343\s*\(\s*'([^']+)'\s*,\s*'([^']+)'/);
-      if (match) {
-        const cookieName = match[1];
-        const cookieValue = match[2];
-        const finalUrl = `https://cloud.unblockedgames.world/?go=${cookieName}`;
-        const finalRes = yield fetch(finalUrl, {
-          headers: {
-            "User-Agent": USER_AGENT,
-            "Cookie": `${cookieName}=${cookieValue}`
-          }
-        });
-        const finalHtml = yield finalRes.text();
-        const $final = cheerio.load(finalHtml);
-        const metaRefresh = $final('meta[http-equiv="refresh"]').attr("content");
-        if (metaRefresh) {
-          const urlMatch = metaRefresh.match(/url=([^"]+)/i);
-          if (urlMatch) {
-            return urlMatch[1];
-          }
+function getMovieLinks(html) {
+  var links = [];
+  var entryM = html.match(/<div[^>]*class="[^"]*entry-content[^"]*"[^>]*>([\s\S]*)/i);
+  var entryHtml = entryM ? entryM[1] : html;
+  var parts = entryHtml.split(/<\/?p(?:\s[^>]*)?\s*>/i);
+  for (var i = 0; i < parts.length; i++) {
+    if (!/\[.*\]/.test(parts[i])) continue;
+    var sourceName = parts[i].replace(/<[^>]+>/g, "").split("Download")[0].trim();
+    for (var j = i + 1; j < Math.min(i + 6, parts.length); j++) {
+      var btnM = parts[j].match(/<a[^>]*class="[^"]*maxbutton-1[^"]*"[^>]*href="([^"]+)"/i) || parts[j].match(/<a[^>]*href="([^"]+)"[^>]*class="[^"]*maxbutton-1[^"]*"/i);
+      if (btnM) {
+        links.push({ sourceName, sourceLink: btnM[1] });
+        break;
+      }
+    }
+  }
+  return links;
+}
+
+function getTvEpisodeLink(html, targetSeason, targetEpisode) {
+  var links = [];
+  var blockRe = /<(p|div)(\s[^>]*)?>[\s\S]*?<\/\1>/gi;
+  var prevDetails = "";
+  var currentSeason = 1;
+  var m;
+  while ((m = blockRe.exec(html)) !== null) {
+    var blockHtml = m[0];
+    var blockText = blockHtml.replace(/<[^>]+>/g, "").trim();
+    var hasEpisodeLink = /episode/i.test(blockHtml) && /<a\b/i.test(blockHtml);
+    if (hasEpisodeLink) {
+      var seasonM = prevDetails.match(/(?:Season\s+|S0?)(\d+)/i);
+      if (seasonM) currentSeason = parseInt(seasonM[1]);
+      if (currentSeason === targetSeason) {
+        var episodeLinks = [];
+        var aRe = /<a\b[^>]*href="([^"]+)"[^>]*>[\s\S]*?<\/a>/gi;
+        var aM;
+        while ((aM = aRe.exec(blockHtml)) !== null) {
+          if (/episode/i.test(aM[0])) episodeLinks.push(aM[1]);
+        }
+        if (targetEpisode <= episodeLinks.length && targetEpisode >= 1) {
+          var link = episodeLinks[targetEpisode - 1];
+          var sizeM = prevDetails.match(/(\d+(?:\.\d+)?\s*(?:MB|GB))/i);
+          links.push({
+            sourceLink: link,
+            quality: buildQualityLabel(prevDetails),
+            size: sizeM ? sizeM[1] : "Unknown",
+            sourceName: prevDetails
+          });
         }
       }
-    } catch (err) {
-      console.log(`[UHDMovies bypasser] Failed resolving ${sidUrl}: ${err.message}`);
     }
-    return sidUrl;
-  });
+    prevDetails = blockText;
+  }
+  return links;
 }
 
 // ==========================================
-// MAIN STREAM EXTRACTION & RESOLUTION LOGIC
+// CORE EXECUTION ENTRYPOINT
 // ==========================================
 
 function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
@@ -340,16 +396,18 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
     try {
       const domain = yield getLatestDomain();
       const media = yield getMediaDetails(tmdbId, mediaType);
-      if (!media)
-        return [];
-      console.log(`[UHDMovies] Resolved details: Title="${media.title}", Year=${media.year}`);
+      if (!media) return [];
+      
+      console.log(`[UHDMovies] Resolved: "${media.title}", Year=${media.year}`);
       const cleanQuery = media.title.replace(/[^\w\s]/gi, "");
       const query = encodeURIComponent(`${cleanQuery} ${media.year}`);
       const searchUrl = `${domain}/?s=${query}`;
+      
       const res = yield fetch(searchUrl, { headers: { "User-Agent": USER_AGENT } });
       const html = yield res.text();
       const $ = cheerio.load(html);
       const results = [];
+      
       $("article.gridlove-post").each((_, el) => {
         const $el = $(el);
         const titleRaw = $el.find("h1.sanket, h2.entry-title a").text().trim();
@@ -358,84 +416,66 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
           results.push({ title: titleRaw, url: href });
         }
       });
-      if (results.length === 0) {
-        console.log(`[UHDMovies] No search results found on ${domain}`);
-        return [];
-      }
+      
+      if (results.length === 0) return [];
+      
       const bestPost = results[0];
-      const searchedTitle = media.title.toLowerCase();
-      const matchedTitle = bestPost.title.toLowerCase();
-      const searchWords = searchedTitle.split(/\s+/).filter((w) => w.length > 2);
-      const isMatched = searchWords.every((word) => matchedTitle.includes(word));
-      if (!isMatched) {
-        console.log(`[UHDMovies] Matched post "${bestPost.title}" does not overlap enough with searched title "${media.title}". Ignoring.`);
-        return [];
-      }
-      console.log(`[UHDMovies] Extracting links from post: ${bestPost.title}`);
+      const searchWords = media.title.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+      const isMatched = searchWords.every((word) => bestPost.title.toLowerCase().includes(word));
+      if (!isMatched) return [];
+      
+      console.log(`[UHDMovies] Navigating content page: ${bestPost.title}`);
       const postRes = yield fetch(bestPost.url, { headers: { "User-Agent": USER_AGENT } });
       const postHtml = yield postRes.text();
-      const $post = cheerio.load(postHtml);
-      const rawStreams = [];
       
-      // Extract links based on text tags or explicit TV season matching configurations
-      $post("a").each((_, el) => {
-        const href = $post(el).attr("href") || "";
-        const text = $post(el).text().trim() || $post(el).parent().text().trim();
+      // Select the precise container strategy matching Script 2
+      const isSeries = mediaType === "tv" || mediaType === "series";
+      const targetLinks = isSeries && seasonNum && episodeNum 
+        ? getTvEpisodeLink(postHtml, parseInt(seasonNum), parseInt(episodeNum))
+        : getMovieLinks(postHtml);
         
-        // If it's a TV show request, perform basic validation to ensure the element matches desired episode definitions
-        if (mediaType === "tv" || mediaType === "series") {
-          if (episodeNum && !text.toLowerCase().includes(`ep${episodeNum}`) && !text.toLowerCase().includes(`episode ${episodeNum}`)) {
-             return; // Skip if it explicitly targets another episode
-          }
+      console.log(`[UHDMovies] Located ${targetLinks.length} target block elements.`);
+      const streams = [];
+      
+      // Process and de-obfuscate raw items sequentially to achieve playable outputs
+      for (let item of targetLinks) {
+        let rawUrl = item.sourceLink;
+        if (!rawUrl) continue;
+        
+        let finalPlayableUrl = null;
+        
+        // Process landing gateway explicitly (Script 2 approach)
+        if (rawUrl.includes("unblockedgames") || rawUrl.includes("sid=")) {
+          finalPlayableUrl = yield bypassHrefli(rawUrl);
+        } else {
+          finalPlayableUrl = rawUrl;
         }
-
-        if (href.match(/instant|drive|gdrive|sharer|kolop|hubdrive|appdrive|gdflix|vcloud|mdisk|unblockedgames|sid=/i)) {
-          const quality = parseQuality(text + " " + bestPost.title);
-          const size = parseSize(text) || "Unknown Size";
-          rawStreams.push({
-            name: `UHDMovies (${quality})`,
-            title: `${bestPost.title.substring(0, 35)}... [${size}]`,
-            url: href,
-            quality,
-            size,
+        
+        if (!finalPlayableUrl) continue;
+        
+        // Deep unpack internal configurations
+        if (finalPlayableUrl.includes("driveseed") || finalPlayableUrl.includes("driveleech")) {
+          finalPlayableUrl = yield extractDriveseedPage(finalPlayableUrl);
+        } else if (finalPlayableUrl.includes("video-seed")) {
+          finalPlayableUrl = yield extractVideoSeed(finalPlayableUrl);
+        }
+        
+        if (finalPlayableUrl && finalPlayableUrl.startsWith("http") && !finalPlayableUrl.includes("uhdmovies")) {
+          const streamQuality = buildQualityLabel(item.sourceName || item.quality);
+          streams.push({
+            name: `UHDMovies (${streamQuality})`,
+            title: `${bestPost.title.substring(0, 30)}... [${item.size || "Multi"}]`,
+            url: finalPlayableUrl,
+            quality: streamQuality,
+            size: item.size || "Unknown",
             provider: "uhdmovies"
           });
         }
-      });
+      }
       
-      console.log(`[UHDMovies] Found ${rawStreams.length} raw links. Resolving redirects and deep video items...`);
-      const linksToResolve = rawStreams.slice(0, 12);
-      
-      const resolvedStreams = yield Promise.all(linksToResolve.map((stream) => __async(this, null, function* () {
-        let currentUrl = stream.url;
-        
-        // Step 1: Pass through initial domain bypasser if applicable
-        if (currentUrl.includes("unblockedgames") || currentUrl.includes("sid=")) {
-          currentUrl = yield bypassUnblockedGames(currentUrl);
-        }
-        
-        // Step 2: Extract direct video media files using the transplanted resolvers
-        if (currentUrl.includes("driveseed") || currentUrl.includes("driveleech")) {
-          const deepVideoUrl = yield extractDriveseedPage(currentUrl);
-          if (deepVideoUrl) currentUrl = deepVideoUrl;
-        } else if (currentUrl.includes("video-seed")) {
-          const deepVideoUrl = yield extractVideoSeed(currentUrl);
-          if (deepVideoUrl) currentUrl = deepVideoUrl;
-        }
-        
-        return __spreadProps(__spreadValues({}, stream), { url: currentUrl });
-      })));
-      
-      // Filter out links that failed to decode into playable structures
-      const finalStreams = resolvedStreams.filter((stream) => {
-        const url = stream.url.toLowerCase();
-        return !url.includes("uhdmovies") && !url.includes("/4k-movies/") && url.startsWith("http");
-      });
-      
-      console.log(`[UHDMovies] Returning ${finalStreams.length} resolved stream links`);
-      return finalStreams;
+      return streams;
     } catch (e) {
-      console.error("[UHDMovies] Scraper error:", e.message);
+      console.error("[UHDMovies] Playback compiler encountered an error:", e.message);
       return [];
     }
   });

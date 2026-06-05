@@ -90,13 +90,6 @@ function encodeQuote(str) {
   return encodeURIComponent(str).replace(/%20/g, "+").replace(/\+/g, "%20");
 }
 
-// src/lordflix/index.js
-var SERVERS = ["Berlin", "Tokyo", "Bogota", "Oslo", "Luna", "LordFlix", "Sakura", "Rio", "Ativa"];
-
-function encodeQuote(str) {
-  return encodeURIComponent(str).replace(/%20/g, "+").replace(/\+/g, "%20");
-}
-
 function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
   return __async(this, null, function* () {
     const streams = [];

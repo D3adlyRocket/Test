@@ -48,7 +48,7 @@ var HEADERS = {
 };
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var TMDB_BASE_URL = "https://api.themoviedb.org/3";
-var LORDFLIX_API = "https://snowhouse.lordflix.club/servers";
+var LORDFLIX_API = "https://snowhouse.lordflix.club";
 var MULTI_DECRYPT_API = "https://enc-dec.app/api";
 
 // src/lordflix/utils.js
@@ -85,9 +85,11 @@ function getTMDBDetails(tmdbId, mediaType) {
 
 // src/lordflix/index.js
 var SERVERS = ["Berlin", "Tokyo", "Bogota", "Oslo", "Luna", "LordFlix", "Sakura", "Rio", "Ativa"];
+
 function encodeQuote(str) {
   return encodeURIComponent(str).replace(/%20/g, "+").replace(/\+/g, "%20");
 }
+
 function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
   return __async(this, null, function* () {
     const streams = [];
@@ -95,21 +97,60 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
       const info = yield getTMDBDetails(tmdbId, mediaType);
       if (!info.title || !info.imdbId)
         return streams;
+
       const typeParam = mediaType === "tv" ? "series" : "movie";
       const titleEnc = encodeQuote(info.title);
+
+      // =================================================================
+      // STEP 1: FETCH THE TARGET PAGE TO EXTRACT THE DYNAMIC TOKEN PATH
+      // =================================================================
+      let dynamicTokenPath = "";
+      try {
+        // Construct the embedding page URL depending on if it's a movie or a TV show
+        let embedPageUrl = `https://lordflix.org/${typeParam}/${info.imdbId}`;
+        if (mediaType === "tv") {
+          embedPageUrl += `-${seasonNum}-${episodeNum}`;
+        }
+
+        const targetPageHtml = yield fetchText(embedPageUrl, { headers: HEADERS });
+        
+        // Regex to look for the pattern found in your network tab
+        const pathRegex = /https:\/\/snowhouse\.lordflix\.club\/([^"'` \n]+)\/script-4axj2\.js/;
+        const match = targetPageHtml.match(pathRegex);
+
+        if (match && match[1]) {
+          dynamicTokenPath = match[1];
+        }
+      } catch (e) {
+        console.error(`[Lordflix] Failed to extract dynamic token:`, e.message);
+      }
+
+      // If we couldn't resolve a dynamic token, fallback to the old path style or abort
+      if (!dynamicTokenPath) {
+         dynamicTokenPath = "servers"; 
+      }
+
+      // =================================================================
+      // STEP 2: USE THE EXTRACTED TOKEN TO QUERY THE SERVERS
+      // =================================================================
       yield Promise.all(SERVERS.map((server) => __async(this, null, function* () {
         try {
-          let serverUrl = `${LORDFLIX_API}/?title=${titleEnc}&type=${typeParam}&year=${info.year || ""}&imdb=${info.imdbId}&tmdb=${tmdbId}&server=${server}`;
+          // Notice we replaced "${LORDFLIX_API}" with our dynamically discovered directory path
+          let serverUrl = `https://snowhouse.lordflix.club/${dynamicTokenPath}/?title=${titleEnc}&type=${typeParam}&year=${info.year || ""}&imdb=${info.imdbId}&tmdb=${tmdbId}&server=${server}`;
+          
           if (mediaType === "tv")
             serverUrl += `&season=${seasonNum}&episode=${episodeNum}`;
+
           const encBridgeUrl = `${MULTI_DECRYPT_API}/enc-lordflix?url=${encodeQuote(serverUrl)}`;
           const encBridgeJson = yield fetchJson(encBridgeUrl);
           if (!encBridgeJson || encBridgeJson.status !== 200 || !encBridgeJson.result)
             return;
+
           const proxyEncUrl = encBridgeJson.result.url;
           const signature = encBridgeJson.result.sign;
           if (!proxyEncUrl || !signature)
             return;
+
           const remoteEncData = yield fetchText(proxyEncUrl);
           const decResponse = yield fetch(`${MULTI_DECRYPT_API}/dec-lordflix`, {
             method: "POST",
@@ -118,12 +159,15 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
           });
           if (!decResponse.ok)
             return;
+
           const finalJson = yield decResponse.json();
-          if (!finalJson || finalJson.status !== 200 || !finalJson.result || finalJson.result.error)
+          if (!finalJson || finalJson.status !== 200 || finalJson.result || finalJson.result.error)
             return;
+
           const streamList = finalJson.result.stream;
           if (!streamList || !Array.isArray(streamList) || streamList.length === 0)
             return;
+
           const topStream = streamList[0];
           if (topStream.type === "hls" && topStream.playlist) {
             streams.push({
@@ -136,6 +180,7 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
             });
           }
         } catch (e) {
+          // Silent catch for individual failing server streams
         }
       })));
     } catch (err) {
@@ -144,4 +189,6 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
     return streams;
   });
 }
+
 module.exports = { getStreams };
+

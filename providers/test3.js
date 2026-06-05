@@ -90,6 +90,19 @@ function getMediaDetails(tmdbId, mediaType) {
   });
 }
 
+function parseSize(text) {
+  const match = text.match(/(\d+(?:\.\d+)?)\s*(GB|MB)/i);
+  return match ? `${match[1]} ${match[2].toUpperCase()}` : "Unknown Size";
+}
+
+function parseQuality(text) {
+  if (text.match(/4k|2160p/i)) return "2160p";
+  if (text.match(/1080p/i)) return "1080p";
+  if (text.match(/720p/i)) return "720p";
+  if (text.match(/480p/i)) return "480p";
+  return "720p";
+}
+
 function getBaseUrl(url) {
   if (!url) return BASE_URL;
   var match = url.match(/^(https?:\/\/[^\/]+)/);
@@ -104,22 +117,14 @@ function fixUrl(url, domain) {
   return domain + "/" + url;
 }
 
-function buildQualityLabel(str) {
-  if (!str) return "720p";
-  var m = str.match(/(\d{3,4})[pP]/);
-  var label = m ? m[1] + "p" : "720p";
-  if (/\b4[kK]\b/.test(str) || /\bUHD\b(?!movies)/i.test(str)) label = "2160p";
-  return label;
-}
-
 // ==========================================
-// SCRIPT 2 DEEP PLAYBACK BYPASSERS
+// SCRIPT 2 WORKING PLAYBACK BYPASSERS
 // ==========================================
 
 function bypassHrefli(url) {
   return __async(this, null, function* () {
     const host = getBaseUrl(url);
-    console.log("[UHDMovies Playback] Bypassing Hrefli Hub/Landing Gateway: " + url);
+    console.log("[UHDMovies] Bypassing Landing Hub: " + url);
     try {
       const res = yield fetch(url, { headers: { "User-Agent": USER_AGENT } });
       const html = yield res.text();
@@ -182,7 +187,7 @@ function bypassHrefli(url) {
       });
       const cookieHtml = yield cookieRes.text();
 
-      let refreshM = cookieHtml.match(/<meta[^>]*http-equiv="refresh"[^>]*content="([^"]+)"/i) || cookieHtml.match(/<meta[^>]*content="([^"]+)"[^>]*http-equiv="refresh"/i);
+      let refreshM = cookieHtml.match(/<meta[^>]*http-equiv="refresh"[^>]*content="([^"]+)"/i) || cookieHtml.match(/<meta[^>]*content="([^"]+)"[^http-equiv="refresh"]/i);
       let driveUrl = null;
       if (refreshM) {
         var urlM = refreshM[1].match(/url=(.+)/i);
@@ -305,10 +310,10 @@ function extractDriveseedPage(url) {
       const $ = cheerio.load(html);
       let foundUrl = null;
       
-      const links = $("div.text-center a").toArray();
+      const links = $("a").toArray();
       for (let el of links) {
         const href = $(el).attr("href");
-        const text = $(el).text().toLowerCase();
+        const text = $(el).text().toLowerCase() || $(el).parent().text().toLowerCase();
         if (!href) continue;
         
         if (text.indexOf("instant download") !== -1) {
@@ -328,67 +333,7 @@ function extractDriveseedPage(url) {
 }
 
 // ==========================================
-// MOVIE & TV LINK CONTAINER MATCHERS (From Script 2)
-// ==========================================
-
-function getMovieLinks(html) {
-  var links = [];
-  var entryM = html.match(/<div[^>]*class="[^"]*entry-content[^"]*"[^>]*>([\s\S]*)/i);
-  var entryHtml = entryM ? entryM[1] : html;
-  var parts = entryHtml.split(/<\/?p(?:\s[^>]*)?\s*>/i);
-  for (var i = 0; i < parts.length; i++) {
-    if (!/\[.*\]/.test(parts[i])) continue;
-    var sourceName = parts[i].replace(/<[^>]+>/g, "").split("Download")[0].trim();
-    for (var j = i + 1; j < Math.min(i + 6, parts.length); j++) {
-      var btnM = parts[j].match(/<a[^>]*class="[^"]*maxbutton-1[^"]*"[^>]*href="([^"]+)"/i) || parts[j].match(/<a[^>]*href="([^"]+)"[^>]*class="[^"]*maxbutton-1[^"]*"/i);
-      if (btnM) {
-        links.push({ sourceName, sourceLink: btnM[1] });
-        break;
-      }
-    }
-  }
-  return links;
-}
-
-function getTvEpisodeLink(html, targetSeason, targetEpisode) {
-  var links = [];
-  var blockRe = /<(p|div)(\s[^>]*)?>[\s\S]*?<\/\1>/gi;
-  var prevDetails = "";
-  var currentSeason = 1;
-  var m;
-  while ((m = blockRe.exec(html)) !== null) {
-    var blockHtml = m[0];
-    var blockText = blockHtml.replace(/<[^>]+>/g, "").trim();
-    var hasEpisodeLink = /episode/i.test(blockHtml) && /<a\b/i.test(blockHtml);
-    if (hasEpisodeLink) {
-      var seasonM = prevDetails.match(/(?:Season\s+|S0?)(\d+)/i);
-      if (seasonM) currentSeason = parseInt(seasonM[1]);
-      if (currentSeason === targetSeason) {
-        var episodeLinks = [];
-        var aRe = /<a\b[^>]*href="([^"]+)"[^>]*>[\s\S]*?<\/a>/gi;
-        var aM;
-        while ((aM = aRe.exec(blockHtml)) !== null) {
-          if (/episode/i.test(aM[0])) episodeLinks.push(aM[1]);
-        }
-        if (targetEpisode <= episodeLinks.length && targetEpisode >= 1) {
-          var link = episodeLinks[targetEpisode - 1];
-          var sizeM = prevDetails.match(/(\d+(?:\.\d+)?\s*(?:MB|GB))/i);
-          links.push({
-            sourceLink: link,
-            quality: buildQualityLabel(prevDetails),
-            size: sizeM ? sizeM[1] : "Unknown",
-            sourceName: prevDetails
-          });
-        }
-      }
-    }
-    prevDetails = blockText;
-  }
-  return links;
-}
-
-// ==========================================
-// CORE EXECUTION ENTRYPOINT
+// CORE EXTRACTION MACHINE
 // ==========================================
 
 function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
@@ -398,7 +343,7 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
       const media = yield getMediaDetails(tmdbId, mediaType);
       if (!media) return [];
       
-      console.log(`[UHDMovies] Resolved: "${media.title}", Year=${media.year}`);
+      console.log(`[UHDMovies] Resolved details: Title="${media.title}", Year=${media.year}`);
       const cleanQuery = media.title.replace(/[^\w\s]/gi, "");
       const query = encodeURIComponent(`${cleanQuery} ${media.year}`);
       const searchUrl = `${domain}/?s=${query}`;
@@ -417,65 +362,97 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
         }
       });
       
-      if (results.length === 0) return [];
-      
-      const bestPost = results[0];
-      const searchWords = media.title.toLowerCase().split(/\s+/).filter((w) => w.length > 2);
-      const isMatched = searchWords.every((word) => bestPost.title.toLowerCase().includes(word));
-      if (!isMatched) return [];
-      
-      console.log(`[UHDMovies] Navigating content page: ${bestPost.title}`);
-      const postRes = yield fetch(bestPost.url, { headers: { "User-Agent": USER_AGENT } });
-      const postHtml = yield postRes.text();
-      
-      // Select the precise container strategy matching Script 2
-      const isSeries = mediaType === "tv" || mediaType === "series";
-      const targetLinks = isSeries && seasonNum && episodeNum 
-        ? getTvEpisodeLink(postHtml, parseInt(seasonNum), parseInt(episodeNum))
-        : getMovieLinks(postHtml);
-        
-      console.log(`[UHDMovies] Located ${targetLinks.length} target block elements.`);
-      const streams = [];
-      
-      // Process and de-obfuscate raw items sequentially to achieve playable outputs
-      for (let item of targetLinks) {
-        let rawUrl = item.sourceLink;
-        if (!rawUrl) continue;
-        
-        let finalPlayableUrl = null;
-        
-        // Process landing gateway explicitly (Script 2 approach)
-        if (rawUrl.includes("unblockedgames") || rawUrl.includes("sid=")) {
-          finalPlayableUrl = yield bypassHrefli(rawUrl);
-        } else {
-          finalPlayableUrl = rawUrl;
-        }
-        
-        if (!finalPlayableUrl) continue;
-        
-        // Deep unpack internal configurations
-        if (finalPlayableUrl.includes("driveseed") || finalPlayableUrl.includes("driveleech")) {
-          finalPlayableUrl = yield extractDriveseedPage(finalPlayableUrl);
-        } else if (finalPlayableUrl.includes("video-seed")) {
-          finalPlayableUrl = yield extractVideoSeed(finalPlayableUrl);
-        }
-        
-        if (finalPlayableUrl && finalPlayableUrl.startsWith("http") && !finalPlayableUrl.includes("uhdmovies")) {
-          const streamQuality = buildQualityLabel(item.sourceName || item.quality);
-          streams.push({
-            name: `UHDMovies (${streamQuality})`,
-            title: `${bestPost.title.substring(0, 30)}... [${item.size || "Multi"}]`,
-            url: finalPlayableUrl,
-            quality: streamQuality,
-            size: item.size || "Unknown",
-            provider: "uhdmovies"
-          });
-        }
+      if (results.length === 0) {
+        console.log(`[UHDMovies] No search results found on ${domain}`);
+        return [];
       }
       
-      return streams;
+      const bestPost = results[0];
+      const searchedTitle = media.title.toLowerCase();
+      const matchedTitle = bestPost.title.toLowerCase();
+      const searchWords = searchedTitle.split(/\s+/).filter((w) => w.length > 2);
+      const isMatched = searchWords.every((word) => matchedTitle.includes(word));
+      if (!isMatched) {
+        console.log(`[UHDMovies] Title mismatch gap found. Skipping.`);
+        return [];
+      }
+      
+      console.log(`[UHDMovies] Extracting links from content page: ${bestPost.title}`);
+      const postRes = yield fetch(bestPost.url, { headers: { "User-Agent": USER_AGENT } });
+      const postHtml = yield postRes.text();
+      const $post = cheerio.load(postHtml);
+      const rawStreams = [];
+      
+      // Using Script 1's working wide-net anchor collector strategy
+      $post("a").each((_, el) => {
+        const href = $post(el).attr("href") || "";
+        const text = $post(el).text().trim() || $post(el).parent().text().trim();
+        
+        // Filter out TV show episodes if specific limits are requested
+        if (mediaType === "tv" || mediaType === "series") {
+          if (episodeNum) {
+            const epPatterns = [
+              new RegExp(`ep(?:isode)?\\s*0*${episodeNum}\\b`, "i"),
+              new RegExp(`E0*${episodeNum}\\b`, "i")
+            ];
+            const textMatch = epPatterns.some(p => p.test(text) || p.test(href));
+            // Only enforce skipping if there's an explicit episode list block text mismatching our targeted index
+            if (/episode|ep/i.test(text) && !textMatch) {
+              return; 
+            }
+          }
+        }
+
+        if (href.match(/instant|drive|gdrive|sharer|kolop|hubdrive|appdrive|gdflix|vcloud|mdisk|unblockedgames|sid=/i)) {
+          const quality = parseQuality(text + " " + bestPost.title);
+          const size = parseSize(text);
+          rawStreams.push({
+            name: `UHDMovies (${quality})`,
+            title: `${bestPost.title.substring(0, 35)}... [${size}]`,
+            url: href,
+            quality,
+            size,
+            provider: "uhdmovies",
+            rawText: text
+          });
+        }
+      });
+      
+      console.log(`[UHDMovies] Found ${rawStreams.length} links. Parsing through video-playback bypassers...`);
+      const linksToResolve = rawStreams.slice(0, 15);
+      
+      const resolvedStreams = yield Promise.all(linksToResolve.map((stream) => __async(this, null, function* () {
+        let currentUrl = stream.url;
+        
+        // Use Script 2's functional bypassHrefli engine instead of Script 1's incomplete form handler
+        if (currentUrl.includes("unblockedgames") || currentUrl.includes("sid=")) {
+          currentUrl = yield bypassHrefli(currentUrl);
+        }
+        
+        if (!currentUrl) return null;
+        
+        // Deep unpack landing pages straight to video layer URLs
+        if (currentUrl.includes("driveseed") || currentUrl.includes("driveleech")) {
+          const deepVideoUrl = yield extractDriveseedPage(currentUrl);
+          if (deepVideoUrl) currentUrl = deepVideoUrl;
+        } else if (currentUrl.includes("video-seed")) {
+          const deepVideoUrl = yield extractVideoSeed(currentUrl);
+          if (deepVideoUrl) currentUrl = deepVideoUrl;
+        }
+        
+        return __spreadProps(__spreadValues({}, stream), { url: currentUrl });
+      })));
+      
+      const finalStreams = resolvedStreams.filter((stream) => {
+        if (!stream || !stream.url) return false;
+        const url = stream.url.toLowerCase();
+        return !url.includes("uhdmovies") && !url.includes("/4k-movies/") && url.startsWith("http");
+      });
+      
+      console.log(`[UHDMovies] Returning ${finalStreams.length} direct media file streams.`);
+      return finalStreams;
     } catch (e) {
-      console.error("[UHDMovies] Playback compiler encountered an error:", e.message);
+      console.error("[UHDMovies] Scraper error:", e.message);
       return [];
     }
   });

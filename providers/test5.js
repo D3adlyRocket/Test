@@ -102,91 +102,85 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
       const titleEnc = encodeQuote(info.title);
 
       // =================================================================
-      // STEP 1: FETCH MAIN ENTRY SITE TO DISCOVER THE CURRENT HASH PATH
+      // STEP 1: HIJACK THE ACTIVE DYNAMIC CRYPTO PATH
       // =================================================================
       let dynamicTokenPath = "";
       try {
-        // Fetching the homepage is far more reliable than guessing the movie slug url structure
         const targetPageHtml = yield fetchText("https://lordflix.org/", { headers: HEADERS });
         
-        // Comprehensive regex to find the randomized directory preceding script-4axj2.js
+        // Match the structural dynamic folder hash from your network logs
         const pathRegex = /https:\/\/snowhouse\.lordflix\.club\/([^"'` \n\/]+)\/script-4axj2\.js/;
         const match = targetPageHtml.match(pathRegex);
 
         if (match && match[1]) {
           dynamicTokenPath = match[1];
-          console.log(`[Lordflix] Successfully hijacked token path: ${dynamicTokenPath}`);
         }
       } catch (e) {
-        console.error(`[Lordflix] Failed to extract dynamic token from homepage:`, e.message);
+        console.error(`[Lordflix] Token discovery failed:`, e.message);
       }
 
-      // If homepage scraping failed, check if the site is hard-blocking requests entirely
+      // Safeguard abort if site is running an impenetrable Cloudflare firewall
       if (!dynamicTokenPath) {
-         console.warn(`[Lordflix] RegEx match failed. Site might be using Cloudflare JS challenge.`);
          return streams; 
       }
 
       // =================================================================
-      // STEP 2: LOOP AND DECRYPT STREAM SERVERS
+      // STEP 2: REPLICATE DIRECT API CALLS (BYPASS EN-DEC BRIDGE)
       // =================================================================
       yield Promise.all(SERVERS.map((server) => __async(this, null, function* () {
         try {
-          // Construct using the live path scraped directly from your network logs
-          let serverUrl = `https://snowhouse.lordflix.club/${dynamicTokenPath}/?title=${titleEnc}&type=${typeParam}&year=${info.year || ""}&imdb=${info.imdbId}&tmdb=${tmdbId}&server=${server}`;
+          // Construct target endpoint replicating the direct browser query string layout
+          let directApiUrl = `https://snowhouse.lordflix.club/${dynamicTokenPath}/?title=${titleEnc}&type=${typeParam}&year=${info.year || ""}&imdb=${info.imdbId}&tmdb=${tmdbId}&server=${server}`;
           
-          if (mediaType === "tv")
-            serverUrl += `&season=${seasonNum}&episode=${episodeNum}`;
+          if (mediaType === "tv") {
+            directApiUrl += `&season=${seasonNum}&episode=${episodeNum}`;
+          }
 
-          // Forward to your external decrypt app bridge
-          const encBridgeUrl = `${MULTI_DECRYPT_API}/enc-lordflix?url=${encodeQuote(serverUrl)}`;
-          const encBridgeJson = yield fetchJson(encBridgeUrl);
-          if (!encBridgeJson || encBridgeJson.status !== 200 || !encBridgeJson.result)
-            return;
-
-          const proxyEncUrl = encBridgeJson.result.url;
-          const signature = encBridgeJson.result.sign;
-          if (!proxyEncUrl || !signature)
-            return;
-
-          const remoteEncData = yield fetchText(proxyEncUrl);
-          const decResponse = yield fetch(`${MULTI_DECRYPT_API}/dec-lordflix`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ text: remoteEncData, sign: signature })
+          // Directly call Lordflix storage mirrors with layout validation headers 
+          const responseJson = yield fetchJson(directApiUrl, {
+            headers: {
+              "Accept": "application/json, text/javascript, */*; q=0.01",
+              "X-Requested-With": "XMLHttpRequest",
+              "Referer": "https://lordflix.org/"
+            }
           });
-          if (!decResponse.ok)
-            return;
 
-          const finalJson = yield decResponse.json();
-          if (!finalJson || finalJson.status !== 200 || !finalJson.result || finalJson.result.error)
-            return;
-
-          const streamList = finalJson.result.stream;
-          if (!streamList || !Array.isArray(streamList) || streamList.length === 0)
-            return;
-
-          const topStream = streamList[0];
-          if (topStream.type === "hls" && topStream.playlist) {
+          // Unpack playlist fields directly if site serves unencrypted JSON payloads to verified tokens
+          if (responseJson && responseJson.playlist) {
             streams.push({
               name: `Lordflix[${server}]`,
               title: `Lordflix[${server}]`,
-              url: topStream.playlist,
+              url: responseJson.playlist,
               quality: "Auto",
               type: "m3u8",
               headers: HEADERS
             });
+            return;
+          }
+
+          // If the JSON payload contains raw base64 arrays, decode them natively
+          if (responseJson && responseJson.encoded_data) {
+            const decodedUrl = atob(responseJson.encoded_data);
+            if (decodedUrl.includes(".m3u8")) {
+              streams.push({
+                name: `Lordflix[${server}]`,
+                title: `Lordflix[${server}]`,
+                url: decodedUrl,
+                quality: "Auto",
+                type: "m3u8",
+                headers: HEADERS
+              });
+            }
           }
         } catch (e) {
-          // Suppress errors for offline mirror endpoints
+          // Fail silently for down or locked mirror instances
         }
       })));
     } catch (err) {
-      console.error(`[Lordflix] Main Critical Error:`, err.message);
+      console.error(`[Lordflix] Core Runtime Error:`, err.message);
     }
     return streams;
   });
 }
 
 module.exports = { getStreams };
-

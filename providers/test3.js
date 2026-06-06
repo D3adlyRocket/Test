@@ -7,7 +7,7 @@
 // =============================================================
 
 var DOMAINS_URL           = 'https://raw.githubusercontent.com/wooodyhood/nuvio-repo/main/domains.json';
-var PURSTREAM_FALLBACK    = 'wiki';
+var PURSTREAM_FALLBACK    = 'ch';
 var PURSTREAM_API         = 'https://api.purstream.' + PURSTREAM_FALLBACK + '/api/v1';
 var PURSTREAM_REFERER     = 'https://purstream.' + PURSTREAM_FALLBACK + '/';
 var PURSTREAM_UA          = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';

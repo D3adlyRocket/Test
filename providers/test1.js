@@ -27,26 +27,22 @@ function extractQuality(str) {
   return "Unknown";
 }
 
-// Helper to look for the streaming link inside the shortener HTML page using multiple selector fallbacks
 function parseStreamFromShortenerHtml(htmlContent) {
   if (!htmlContent) return null;
   const $dl = cheerio.load(htmlContent);
   
-  // Strategy 1: Check standard dynamic download button href attribute
   let targetUrl = $dl("a.hidden-button.buttonDownloadnew").attr("href");
   
-  // Strategy 2: Fallback to any anchor element containing a url redirect string parameter
   if (!targetUrl) {
     $dl("a").each((i, el) => {
       const href = $dl(el).attr("href") || "";
       if (href.includes("url=http")) {
         targetUrl = href;
-        return false; // Break loop
+        return false;
       }
     });
   }
 
-  // Strategy 3: Raw regex regex extraction fallback from scripts or variables if HTML layout differs
   if (!targetUrl) {
     const rawRegex = /https?:\/\/[^\s"'`<>]+?\.b-cdn\.net\/[^\s"'`<>]+\.(?:mkv|mp4|m3u8)/i;
     const match = htmlContent.match(rawRegex);
@@ -59,6 +55,62 @@ function parseStreamFromShortenerHtml(htmlContent) {
   }
 
   return null;
+}
+
+// Generates the layout metadata requested
+function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, season, episode) {
+  const name = mediaInfo.title || mediaInfo.name || "Unknown Title";
+  const dateStr = mediaInfo.release_date || mediaInfo.first_air_date || "";
+  const year = dateStr ? dateStr.split("-")[0] : "N/A";
+  
+  // Scrape language configurations from URL structure
+  const lowerUrl = url.toLowerCase();
+  let audioType = "Single-Audio";
+  let language = "Hindi"; 
+  
+  if (lowerUrl.includes("dual")) {
+    audioType = "Dual-Audio";
+    language = "Hindi / English";
+  } else if (lowerUrl.includes("multi")) {
+    audioType = "Multi-Audio";
+    language = "Multilingual";
+  } else if (lowerUrl.includes("bangla")) {
+    language = "Bangla";
+  } else if (lowerUrl.includes("tamil")) {
+    language = "Tamil";
+  } else if (lowerUrl.includes("telugu")) {
+    language = "Telugu";
+  }
+
+  // File structural parsing
+  let format = "MKV";
+  if (lowerUrl.includes(".mp4")) format = "MP4";
+  if (lowerUrl.includes(".m3u8")) format = "M3U8 / HLS";
+
+  // Calculate generic media duration limits from TMDB profiles
+  let duration = "N/A";
+  if (isTV) {
+    duration = mediaInfo.episode_run_time?.[0] ? `${mediaInfo.episode_run_time[0]} min per ep` : "45 min";
+  } else {
+    duration = mediaInfo.runtime ? `${mediaInfo.runtime} min` : "N/A";
+  }
+
+  // Title tags injection
+  const displayTitle = `FibWatch | ${declaredQuality} | ${audioType}`;
+  
+  // Detail row assemblies
+  const nameRow = isTV ? `🎬 ${name} - S${season}E${episode} (${year})` : `🎬 ${name} - ${year}`;
+  const metaRow = `⚡ ${declaredQuality} | 🌍 ${language} | 💾 Dynamic Size`;
+  const formatRow = `🎞️ ${format} | ⏱️ Duration: ${duration} | 📌 WEB-DL`;
+
+  return {
+    title: displayTitle,
+    description: `${nameRow}\n${metaRow}\n${formatRow}`,
+    quality: declaredQuality,
+    url: url,
+    subtitles: [],
+    headers: PLAYBACK_HEADERS
+  };
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -97,9 +149,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const videoId = $show("input#video-id").attr("value");
     if (!videoId) return [];
 
-    const streams = [];
+    const rawStreams = [];
 
-    // 4. Collect video files using the calculated endpoints
+    // 4. Extract TV streams or Movie streams
     const processResolutionLinks = async (allLinks) => {
       for (const item of allLinks) {
         let url = (item.url || "").trim();
@@ -112,29 +164,15 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         const declaredQuality = extractQuality(item.res || url);
 
         if (url.match(/\.(mp4|mkv|m3u8)/i)) {
-          streams.push({
-            url,
-            quality: declaredQuality,
-            title: `FibWatch [${declaredQuality}]`,
-            subtitles: [],
-            headers: PLAYBACK_HEADERS
-          });
+          rawStreams.push({ url, quality: declaredQuality });
         } else {
           try {
             const shortenerHtml = await (await fetch(url, { headers: HEADERS })).text();
             const extractedMediaUrl = parseStreamFromShortenerHtml(shortenerHtml);
             
             if (extractedMediaUrl && extractedMediaUrl.startsWith("http")) {
-              // Override quality tag if final link explicitly names a different stream resolution profile
               const finalQuality = extractQuality(extractedMediaUrl) !== "Unknown" ? extractQuality(extractedMediaUrl) : declaredQuality;
-              
-              streams.push({
-                url: extractedMediaUrl,
-                quality: finalQuality,
-                title: `FibWatch [${finalQuality}]`,
-                subtitles: [],
-                headers: PLAYBACK_HEADERS
-              });
+              rawStreams.push({ url: extractedMediaUrl, quality: finalQuality });
             }
           } catch (e) {}
         }
@@ -179,20 +217,31 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         await processResolutionLinks(allLinks);
       }
     } else {
-      // Movies path
       const resUrl = `${BASE_URL}/ajax/resolution_switcher.php?video_id=${videoId}`;
       const resData = await (await fetch(resUrl, { headers: HEADERS})).json();
       const allLinks = [...(resData.current || []), ...(resData.popup || [])];
       await processResolutionLinks(allLinks);
     }
 
-    // Deduplicate streams matching explicit destination urls
+    // Deduplicate and assemble the final layout structure
     const uniqueStreams = [];
     const seenUrls = new Set();
-    for (const entry of streams) {
+    
+    for (const entry of rawStreams) {
       if (!seenUrls.has(entry.url)) {
         seenUrls.add(entry.url);
-        uniqueStreams.push(entry);
+        
+        const formattedLayout = generateStreamLayout(
+          entry.url, 
+          title, 
+          entry.quality, 
+          mediaInfo, 
+          isTV, 
+          season, 
+          episode
+        );
+        
+        uniqueStreams.push(formattedLayout);
       }
     }
 

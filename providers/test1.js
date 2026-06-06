@@ -57,13 +57,12 @@ function parseStreamFromShortenerHtml(htmlContent) {
   return null;
 }
 
-// Generates the layout metadata requested
+// Fixed layout generator providing multiple structural avenues for media descriptors
 function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, season, episode) {
   const name = mediaInfo.title || mediaInfo.name || "Unknown Title";
   const dateStr = mediaInfo.release_date || mediaInfo.first_air_date || "";
   const year = dateStr ? dateStr.split("-")[0] : "N/A";
   
-  // Scrape language configurations from URL structure
   const lowerUrl = url.toLowerCase();
   let audioType = "Single-Audio";
   let language = "Hindi"; 
@@ -82,30 +81,44 @@ function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, seas
     language = "Telugu";
   }
 
-  // File structural parsing
   let format = "MKV";
   if (lowerUrl.includes(".mp4")) format = "MP4";
   if (lowerUrl.includes(".m3u8")) format = "M3U8 / HLS";
 
-  // Calculate generic media duration limits from TMDB profiles
   let duration = "N/A";
   if (isTV) {
-    duration = mediaInfo.episode_run_time?.[0] ? `${mediaInfo.episode_run_time[0]} min per ep` : "45 min";
+    duration = mediaInfo.episode_run_time?.[0] ? `${mediaInfo.episode_run_time[0]} min` : "45 min";
   } else {
     duration = mediaInfo.runtime ? `${mediaInfo.runtime} min` : "N/A";
   }
 
-  // Title tags injection
+  // Header 
   const displayTitle = `FibWatch | ${declaredQuality} | ${audioType}`;
   
-  // Detail row assemblies
+  // Specific Rows Requested
   const nameRow = isTV ? `🎬 ${name} - S${season}E${episode} (${year})` : `🎬 ${name} - ${year}`;
   const metaRow = `⚡ ${declaredQuality} | 🌍 ${language} | 💾 Dynamic Size`;
-  const formatRow = `🎞️ ${format} | ⏱️ Duration: ${duration} | 📌 WEB-DL`;
+  const formatRow = `🎞️ ${format} | ⏱️ ${duration} | 📌 WEB-DL`;
+
+  const fullDescription = `${nameRow}\n${metaRow}\n${formatRow}`;
 
   return {
-    title: displayTitle,
-    description: `${nameRow}\n${metaRow}\n${formatRow}`,
+    name: displayTitle,         // Some players read name instead of title
+    title: displayTitle,        // Standard main header
+    
+    // Multi-line unified string configuration
+    description: fullDescription, 
+    
+    // Explicit tag configurations for player interfaces that drop plain description arrays
+    shortDescription: `${nameRow} • ${metaRow}`,
+    episodeDescription: fullDescription,
+    
+    // Meta fields used explicitly by customizable TV app UI layers
+    tags: [nameRow, metaRow, formatRow],
+    extra: {
+      info: [nameRow, metaRow, formatRow]
+    },
+
     quality: declaredQuality,
     url: url,
     subtitles: [],

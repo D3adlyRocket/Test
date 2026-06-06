@@ -1,11 +1,9 @@
 const cheerio = require('cheerio-without-node-native');
 // fibwatch.js
-// FibWatch - Hindi/Bangla/South Indian multilingual movie & series site (fibwatch.top)
 
 const BASE_URL = "https://fibwatch.art";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
-// Accurate User-Agent matching your functional browser session
 const BROWSER_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
 
 const HEADERS = {
@@ -13,7 +11,6 @@ const HEADERS = {
   "Referer": `${BASE_URL}/`
 };
 
-// Precise headers required by BunnyCDN to validate and stream the files
 const PLAYBACK_HEADERS = {
   "User-Agent": BROWSER_UA,
   "Referer": "https://urlshortlink.top/",
@@ -27,7 +24,7 @@ function extractQuality(str) {
   if (u.includes("720")) return "720p";
   if (u.includes("480")) return "480p";
   if (u.includes("360")) return "360p";
-  return "Unknown";
+  return "";
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -110,10 +107,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           if (!url) continue;
           
           if (url.match(/\.(mp4|mkv|m3u8)/i)) {
+            const fallbackQual = extractQuality(item.res || url) || "Unknown";
             streams.push({
               url,
-              quality: extractQuality(item.res || url),
-              title: `FibWatch [${item.res || "Stream"}]`,
+              quality: fallbackQual,
+              title: `FibWatch [${fallbackQual}]`,
               subtitles: [],
               headers: PLAYBACK_HEADERS
             });
@@ -122,7 +120,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
               const dlHtml = await (await fetch(url, { headers: HEADERS})).text();
               const $dl = cheerio.load(dlHtml);
               
-              // Map all interactive links discovered on the gateway endpoint page
               $dl("a.hidden-button.buttonDownloadnew").each((idx, element) => {
                 const onclick = $dl(element).attr("href") || "";
                 let dlUrl = onclick.replace(/.*url=/, "").trim();
@@ -131,7 +128,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                   dlUrl = decodeURIComponent(dlUrl);
                   if (dlUrl.startsWith("http")) {
                     const dynamicLabel = $dl(element).text() || item.res || dlUrl;
-                    const determinedQuality = extractQuality(dynamicLabel);
+                    // Fall back to item.res or raw link structure strings if text extraction yields empty values
+                    const determinedQuality = extractQuality(dynamicLabel) || extractQuality(item.res) || extractQuality(dlUrl) || "Unknown";
                     
                     streams.push({
                       url: dlUrl,
@@ -148,7 +146,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
       }
     } else {
-      // Movies processing track
+      // Movies track processing
       const resUrl = `${BASE_URL}/ajax/resolution_switcher.php?video_id=${videoId}`;
       const resData = await (await fetch(resUrl, { headers: HEADERS})).json();
       const allLinks = [...(resData.current || []), ...(resData.popup || [])];
@@ -158,10 +156,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         if (!url) continue;
         
         if (url.match(/\.(mp4|mkv|m3u8)/i)) {
+          const fallbackQual = extractQuality(item.res || url) || "Unknown";
           streams.push({
             url,
-            quality: extractQuality(item.res || url),
-            title: `FibWatch [${item.res || "Stream"}]`,
+            quality: fallbackQual,
+            title: `FibWatch [${fallbackQual}]`,
             subtitles: [],
             headers: PLAYBACK_HEADERS
           });
@@ -170,7 +169,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             const dlHtml = await (await fetch(url, { headers: HEADERS})).text();
             const $dl = cheerio.load(dlHtml);
             
-            // Map all interactive links discovered on the gateway endpoint page
             $dl("a.hidden-button.buttonDownloadnew").each((idx, element) => {
               const onclick = $dl(element).attr("href") || "";
               let dlUrl = onclick.replace(/.*url=/, "").trim();
@@ -179,7 +177,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                 dlUrl = decodeURIComponent(dlUrl);
                 if (dlUrl.startsWith("http")) {
                   const dynamicLabel = $dl(element).text() || item.res || dlUrl;
-                  const determinedQuality = extractQuality(dynamicLabel);
+                  const determinedQuality = extractQuality(dynamicLabel) || extractQuality(item.res) || extractQuality(dlUrl) || "Unknown";
                   
                   streams.push({
                     url: dlUrl,
@@ -195,7 +193,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
       }
 
-      // Final fallback layer parsing the landing view source code
+      // Final fallback layer parsing landing view source directly
       if (streams.length === 0) {
         const dlBtn = $show("a.hidden-button.buttonDownloadnew").attr("href") || "";
         let dlUrl = dlBtn.replace(/.*url=/, "").trim();
@@ -203,10 +201,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         if (dlUrl) {
           dlUrl = decodeURIComponent(dlUrl);
           if (dlUrl.startsWith("http")) {
+            const fallbackQual = extractQuality(dlUrl) || "Unknown";
             streams.push({
               url: dlUrl,
-              quality: "Unknown",
-              title: "FibWatch",
+              quality: fallbackQual,
+              title: `FibWatch [${fallbackQual}]`,
               subtitles: [],
               headers: PLAYBACK_HEADERS
             });
@@ -215,7 +214,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       }
     }
 
-    // Deduplicate responses matching exact destination stream strings
+    // Deduplicate streams matching explicit destination urls
     const uniqueStreams = [];
     const seenUrls = new Set();
     for (const entry of streams) {

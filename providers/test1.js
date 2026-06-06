@@ -1,14 +1,11 @@
 const cheerio = require('cheerio-without-node-native');
 // fibwatch.js
 // FibWatch - Hindi/Bangla/South Indian multilingual movie & series site (fibwatch.top)
-// Search: /search?keyword={query}&page_id=1
-// Video IDs from input#video-id → /ajax/resolution_switcher.php?video_id={id}
-// Episodes via: /ajax/episodes.php?video_id={id}
 
 const BASE_URL = "https://fibwatch.art";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
-// Matches the exact User-Agent from your working browser session
+// Accurate User-Agent matching your functional browser session
 const BROWSER_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
 
 const HEADERS = {
@@ -16,7 +13,7 @@ const HEADERS = {
   "Referer": `${BASE_URL}/`
 };
 
-// Target headers needed by BunnyCDN to permit video playback
+// Precise headers required by BunnyCDN to validate and stream the files
 const PLAYBACK_HEADERS = {
   "User-Agent": BROWSER_UA,
   "Referer": "https://urlshortlink.top/",
@@ -35,13 +32,13 @@ function extractQuality(str) {
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // 1. Get title from TMDB
+    // 1. Fetch metadata from TMDB
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl)).json();
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Search
+    // 2. Search platform index
     const searchUrl = `${BASE_URL}/search?keyword=${encodeURIComponent(title)}&page_id=1`;
     const searchHtml = await (await fetch(searchUrl, { headers: HEADERS})).text();
     const $ = cheerio.load(searchHtml);
@@ -62,25 +59,23 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const pageUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
 
-    // 3. Load show page
+    // 3. Extract core site parameters
     const showHtml = await (await fetch(pageUrl, { headers: HEADERS})).text();
     const $show = cheerio.load(showHtml);
 
     const videoId = $show("input#video-id").attr("value");
     if (!videoId) return [];
 
-    // 4. Get streams based on type
     const streams = [];
 
+    // 4. Extract TV streams or Movie streams
     if (isTV) {
-      // Get episodes list
       const epDataUrl = `${BASE_URL}/ajax/episodes.php?video_id=${videoId}`;
       const epData = await (await fetch(epDataUrl, { headers: HEADERS})).json();
       const episodes = epData.episodes || [];
 
       if (!episodes.length) return [];
 
-      // Find matching episode by parsing title for SxEx pattern
       let targetEpUrl = "";
       for (const ep of episodes) {
         const epTitle = (ep.title || "").toLowerCase();
@@ -96,13 +91,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       }
 
       if (!targetEpUrl && episodes.length > 0) {
-        // Fallback: use first episode
         targetEpUrl = episodes[0].url ? (episodes[0].url.startsWith("http") ? episodes[0].url : `${BASE_URL}${episodes[0].url}`) : "";
       }
 
       if (!targetEpUrl) return [];
 
-      // Load episode page
       const epHtml = await (await fetch(targetEpUrl, { headers: HEADERS})).text();
       const $ep = cheerio.load(epHtml);
       const epVideoId = $ep("input#video-id").attr("value");
@@ -111,11 +104,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         const resUrl = `${BASE_URL}/ajax/resolution_switcher.php?video_id=${epVideoId}`;
         const resData = await (await fetch(resUrl, { headers: HEADERS})).json();
         const allLinks = [...(resData.current || []), ...(resData.popup || [])];
+        
         for (const item of allLinks) {
           const url = (item.url || "").trim();
           if (!url) continue;
           
-          // Direct media check
           if (url.match(/\.(mp4|mkv|m3u8)/i)) {
             streams.push({
               url,
@@ -125,39 +118,37 @@ async function getStreams(tmdbId, mediaType, season, episode) {
               headers: PLAYBACK_HEADERS
             });
           } else {
-            // Try to get download URL from the shortener link
-try {
-  const dlHtml = await (await fetch(url, { headers: HEADERS })).text();
-  const $dl = cheerio.load(dlHtml);
-  
-  // Loop through ALL matching buttons on the page instead of just the first one
-  $dl("a.hidden-button.buttonDownloadnew").each((idx, element) => {
-    const onclick = $dl(element).attr("href") || "";
-    let dlUrl = onclick.replace(/.*url=/, "").trim();
-    
-    if (dlUrl) {
-      dlUrl = decodeURIComponent(dlUrl);
-      if (dlUrl.startsWith("http")) {
-        // We use the text of the button or the URL to determine quality
-        const buttonText = $dl(element).text() || item.res || dlUrl;
-        
-        streams.push({
-          url: dlUrl,
-          quality: extractQuality(buttonText),
-          title: `FibWatch [${extractQuality(buttonText)}]`,
-          subtitles: [],
-          headers: PLAYBACK_HEADERS
-        });
-      }
-    }
-  });
-} catch (e) {}
-
+            try {
+              const dlHtml = await (await fetch(url, { headers: HEADERS})).text();
+              const $dl = cheerio.load(dlHtml);
+              
+              // Map all interactive links discovered on the gateway endpoint page
+              $dl("a.hidden-button.buttonDownloadnew").each((idx, element) => {
+                const onclick = $dl(element).attr("href") || "";
+                let dlUrl = onclick.replace(/.*url=/, "").trim();
+                
+                if (dlUrl) {
+                  dlUrl = decodeURIComponent(dlUrl);
+                  if (dlUrl.startsWith("http")) {
+                    const dynamicLabel = $dl(element).text() || item.res || dlUrl;
+                    const determinedQuality = extractQuality(dynamicLabel);
+                    
+                    streams.push({
+                      url: dlUrl,
+                      quality: determinedQuality,
+                      title: `FibWatch [${determinedQuality}]`,
+                      subtitles: [],
+                      headers: PLAYBACK_HEADERS
+                    });
+                  }
+                }
+              });
+            } catch (e) {}
           }
         }
       }
     } else {
-      // Movie: use resolution switcher
+      // Movies processing track
       const resUrl = `${BASE_URL}/ajax/resolution_switcher.php?video_id=${videoId}`;
       const resData = await (await fetch(resUrl, { headers: HEADERS})).json();
       const allLinks = [...(resData.current || []), ...(resData.popup || [])];
@@ -176,34 +167,35 @@ try {
           });
         } else {
           try {
-  const dlHtml = await (await fetch(url, { headers: HEADERS })).text();
-  const $dl = cheerio.load(dlHtml);
-  
-  // Loop through ALL matching buttons on the page
-  $dl("a.hidden-button.buttonDownloadnew").each((idx, element) => {
-    const onclick = $dl(element).attr("href") || "";
-    let dlUrl = onclick.replace(/.*url=/, "").trim();
-    
-    if (dlUrl) {
-      dlUrl = decodeURIComponent(dlUrl);
-      if (dlUrl.startsWith("http")) {
-        const buttonText = $dl(element).text() || item.res || dlUrl;
-        
-        streams.push({
-          url: dlUrl,
-          quality: extractQuality(buttonText),
-          title: `FibWatch [${extractQuality(buttonText)}]`,
-          subtitles: [],
-          headers: PLAYBACK_HEADERS
-        });
-      }
-    }
-  });
-} catch (e) {}
+            const dlHtml = await (await fetch(url, { headers: HEADERS})).text();
+            const $dl = cheerio.load(dlHtml);
+            
+            // Map all interactive links discovered on the gateway endpoint page
+            $dl("a.hidden-button.buttonDownloadnew").each((idx, element) => {
+              const onclick = $dl(element).attr("href") || "";
+              let dlUrl = onclick.replace(/.*url=/, "").trim();
+              
+              if (dlUrl) {
+                dlUrl = decodeURIComponent(dlUrl);
+                if (dlUrl.startsWith("http")) {
+                  const dynamicLabel = $dl(element).text() || item.res || dlUrl;
+                  const determinedQuality = extractQuality(dynamicLabel);
+                  
+                  streams.push({
+                    url: dlUrl,
+                    quality: determinedQuality,
+                    title: `FibWatch [${determinedQuality}]`,
+                    subtitles: [],
+                    headers: PLAYBACK_HEADERS
+                  });
+                }
+              }
+            });
+          } catch (e) {}
         }
       }
 
-      // Fallback: check for download button directly on show page
+      // Final fallback layer parsing the landing view source code
       if (streams.length === 0) {
         const dlBtn = $show("a.hidden-button.buttonDownloadnew").attr("href") || "";
         let dlUrl = dlBtn.replace(/.*url=/, "").trim();
@@ -223,7 +215,17 @@ try {
       }
     }
 
-    return streams;
+    // Deduplicate responses matching exact destination stream strings
+    const uniqueStreams = [];
+    const seenUrls = new Set();
+    for (const entry of streams) {
+      if (!seenUrls.has(entry.url)) {
+        seenUrls.add(entry.url);
+        uniqueStreams.push(entry);
+      }
+    }
+
+    return uniqueStreams;
   } catch (e) {
     console.error("[FibWatch]", e);
     return [];

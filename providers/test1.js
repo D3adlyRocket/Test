@@ -7,9 +7,20 @@ const cheerio = require('cheerio-without-node-native');
 
 const BASE_URL = "https://fibwatch.art";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
+
+// Matches the exact User-Agent from your working browser session
+const BROWSER_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
+
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+  "User-Agent": BROWSER_UA,
   "Referer": `${BASE_URL}/`
+};
+
+// Target headers needed by BunnyCDN to permit video playback
+const PLAYBACK_HEADERS = {
+  "User-Agent": BROWSER_UA,
+  "Referer": "https://urlshortlink.top/",
+  "Origin": "https://urlshortlink.top"
 };
 
 function extractQuality(str) {
@@ -103,27 +114,34 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         for (const item of allLinks) {
           const url = (item.url || "").trim();
           if (!url) continue;
+          
           // Direct media check
           if (url.match(/\.(mp4|mkv|m3u8)/i)) {
             streams.push({
               url,
               quality: extractQuality(item.res || url),
               title: `FibWatch [${item.res || "Stream"}]`,
-              subtitles: []
+              subtitles: [],
+              headers: PLAYBACK_HEADERS
             });
           } else {
-            // Try to get download URL
+            // Try to get download URL from the shortener link
             try {
               const dlHtml = await (await fetch(url, { headers: HEADERS})).text();
               const $dl = cheerio.load(dlHtml);
-              const dlUrl = ($dl("a.hidden-button.buttonDownloadnew").attr("href") || "").replace(/.*url=/, "").trim();
-              if (dlUrl && dlUrl.startsWith("http")) {
-                streams.push({
-                  url: dlUrl,
-                  quality: extractQuality(item.res || dlUrl),
-                  title: `FibWatch [${item.res || "Stream"}]`,
-                  subtitles: []
-                });
+              let dlUrl = ($dl("a.hidden-button.buttonDownloadnew").attr("href") || "").replace(/.*url=/, "").trim();
+              
+              if (dlUrl) {
+                dlUrl = decodeURIComponent(dlUrl);
+                if (dlUrl.startsWith("http")) {
+                  streams.push({
+                    url: dlUrl,
+                    quality: extractQuality(item.res || dlUrl),
+                    title: `FibWatch [${item.res || "Stream"}]`,
+                    subtitles: [],
+                    headers: PLAYBACK_HEADERS
+                  });
+                }
               }
             } catch (e) {}
           }
@@ -138,26 +156,33 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       for (const item of allLinks) {
         const url = (item.url || "").trim();
         if (!url) continue;
+        
         if (url.match(/\.(mp4|mkv|m3u8)/i)) {
           streams.push({
             url,
             quality: extractQuality(item.res || url),
             title: `FibWatch [${item.res || "Stream"}]`,
-            subtitles: []
+            subtitles: [],
+            headers: PLAYBACK_HEADERS
           });
         } else {
           try {
             const dlHtml = await (await fetch(url, { headers: HEADERS})).text();
             const $dl = cheerio.load(dlHtml);
             const onclick = $dl("a.hidden-button.buttonDownloadnew").attr("href") || "";
-            const dlUrl = onclick.replace(/.*url=/, "").trim();
-            if (dlUrl && dlUrl.startsWith("http")) {
-              streams.push({
-                url: dlUrl,
-                quality: extractQuality(item.res || dlUrl),
-                title: `FibWatch [${item.res || "Stream"}]`,
-                subtitles: []
-              });
+            let dlUrl = onclick.replace(/.*url=/, "").trim();
+            
+            if (dlUrl) {
+              dlUrl = decodeURIComponent(dlUrl);
+              if (dlUrl.startsWith("http")) {
+                streams.push({
+                  url: dlUrl,
+                  quality: extractQuality(item.res || dlUrl),
+                  title: `FibWatch [${item.res || "Stream"}]`,
+                  subtitles: [],
+                  headers: PLAYBACK_HEADERS
+                });
+              }
             }
           } catch (e) {}
         }
@@ -166,14 +191,19 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       // Fallback: check for download button directly on show page
       if (streams.length === 0) {
         const dlBtn = $show("a.hidden-button.buttonDownloadnew").attr("href") || "";
-        const dlUrl = dlBtn.replace(/.*url=/, "").trim();
-        if (dlUrl && dlUrl.startsWith("http")) {
-          streams.push({
-            url: dlUrl,
-            quality: "Unknown",
-            title: "FibWatch",
-            subtitles: []
-          });
+        let dlUrl = dlBtn.replace(/.*url=/, "").trim();
+        
+        if (dlUrl) {
+          dlUrl = decodeURIComponent(dlUrl);
+          if (dlUrl.startsWith("http")) {
+            streams.push({
+              url: dlUrl,
+              quality: "Unknown",
+              title: "FibWatch",
+              subtitles: [],
+              headers: PLAYBACK_HEADERS
+            });
+          }
         }
       }
     }

@@ -33,7 +33,8 @@ var SERVERS = [
   { name: "Hydrogen", endpoint: "cdn/sources-with-title" },
   { name: "Lithium", endpoint: "moviebox/sources-with-title" },
   { name: "Helium", endpoint: "1movies/sources-with-title" },
-  { name: "Titanium", endpoint: "primesrcme/sources-with-title" }
+  { name: "Titanium", endpoint: "primesrcme/sources-with-title" },
+  { name: "Vyse", endpoint: "hdmovie/sources-with-title" }
 ];
 var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 var PLAY_HEADERS = {

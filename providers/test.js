@@ -1,243 +1,296 @@
-"use strict";
+/**
+ * CineStream Provider untuk Nuvio Mobile
+ * Dibangun menggunakan pola yang sama dengan VideoEasy (works)
+ *
+ * Pelajaran dari Videasy:
+ * 1. Pakai API endpoint yang return JSON langsung — BUKAN scraping HTML
+ * 2. Jika response terenkripsi → dekripsi via enc-dec.app
+ * 3. TMDB → ambil title + imdbId dalam satu request (append_to_response)
+ * 4. Dedup + sort kualitas sebelum return
+ *
+ * Sources yang digunakan (semua clean JSON API):
+ * - Videasy (10 servers) — sama persis dengan plugin Videasy yang works
+ * - Stremio addons: Streamvix, NoTorrent (JSON /stream endpoint)
+ * - VidSrc JSON API
+ */
 
-var PROVIDER_NAME = "OnlyKDrama";
-var SITE_URL = "https://onlykdrama.shop";
-var TMDB_URL = "https://www.themoviedb.org";
-var DEFAULT_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+var TMDB_API_KEY  = '1865f43a0549ca50d341dd9ab8b29f49';
+var DECRYPT_API   = 'https://enc-dec.app/api/dec-videasy';
+var STREAMVIX_API = 'https://streamvix.hayd.uk';
+var NOTORRENT_API = 'https://addon-osvh.onrender.com';
+var VIDSRC_API    = 'https://api.rgshows.ru';
+var FETCH_TIMEOUT = 12000;
+
+var HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'Accept': 'application/json, text/plain, */*',
+  'Origin': 'https://player.videasy.to',
+  'Referer': 'https://player.videasy.to/'
 };
 
-function mergeHeaders(base, extra) {
-  var result = {};
-  var key;
-  for (key in base) {
-    if (Object.prototype.hasOwnProperty.call(base, key)) { result[key] = base[key]; }
-  }
-  if (!extra) { return result; }
-  for (key in extra) {
-    if (Object.prototype.hasOwnProperty.call(extra, key)) { result[key] = extra[key]; }
-  }
-  return result;
+// ─── Videasy servers (sama persis dari plugin Videasy yang works) ──────────────
+var VIDEASY_SERVERS = [
+  { name: 'Neon',   url: 'https://api.videasy.to/myflixerzupcloud/sources-with-title', tvOk: true },
+  { name: 'Cypher', url: 'https://api.videasy.to/moviebox/sources-with-title',         tvOk: true },
+  { name: 'Reyna',  url: 'https://api.videasy.to/primewire/sources-with-title',        tvOk: true },
+  { name: 'Omen',   url: 'https://api.videasy.to/onionplay/sources-with-title',        tvOk: true },
+  { name: 'Breach', url: 'https://api.videasy.to/m4uhd/sources-with-title',            tvOk: true },
+  { name: 'Ghost',  url: 'https://api.videasy.to/primesrcme/sources-with-title',       tvOk: true },
+  { name: 'Sage',   url: 'https://api.videasy.to/1movies/sources-with-title',          tvOk: true },
+  { name: 'Vyse',   url: 'https://api.videasy.to/hdmovie/sources-with-title',          tvOk: true },
+  { name: 'Raze',   url: 'https://api.videasy.to/superflix/sources-with-title',        tvOk: true },
+  { name: 'Yoru',   url: 'https://api.videasy.to/cdn/sources-with-title',              tvOk: false } // movie only
+];
+
+var QUALITY_ORDER = { '4K': 6, '2160p': 6, '1080p': 5, '720p': 4, '576p': 3, '480p': 2, '360p': 1, 'Auto': 0 };
+
+// ─── Fetch dengan timeout ─────────────────────────────────────────────────────
+function fetchTimeout(url, options, ms) {
+  ms = ms || FETCH_TIMEOUT;
+  return Promise.race([
+    fetch(url, options),
+    new Promise(function(_, rej) {
+      setTimeout(function() { rej(new Error('Timeout')); }, ms);
+    })
+  ]);
 }
 
-function fetchText(url, options) {
-  var request = options || {};
-  request.headers = mergeHeaders(DEFAULT_HEADERS, request.headers || {});
-  return fetch(url, request).then(function (response) {
-    if (!response.ok) { throw new Error("HTTP " + response.status + " for " + url); }
-    return response.text();
+function safeText(url, options) {
+  return fetchTimeout(url, options || {}).then(function(r) { return r.text(); }).catch(function() { return ''; });
+}
+
+function safeJson(url, options) {
+  return fetchTimeout(url, options || {}).then(function(r) { return r.json(); }).catch(function() { return null; });
+}
+
+// ─── Dedup + sort kualitas (sama dengan Videasy) ──────────────────────────────
+function dedupAndSort(streams) {
+  var seen = {};
+  var unique = streams.filter(function(s) {
+    if (!s || !s.url) return false;
+    var key = s.url + '|' + s.quality;
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
   });
+  unique.sort(function(a, b) {
+    return (QUALITY_ORDER[b.quality] || 0) - (QUALITY_ORDER[a.quality] || 0);
+  });
+  return unique;
 }
 
-function decodeHtml(text) {
-  if (!text) { return ""; }
-  return text
-    .replace(/&#(\d+);/g, function (_, code) { return String.fromCharCode(parseInt(code, 10)); })
-    .replace(/&amp;/g, "&").replace(/&quot;/g, "\"").replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+// ─── Step 1: Ambil info dari TMDB (satu request, append external_ids) ─────────
+// Sama persis dengan Videasy
+function getTmdbInfo(tmdbId, isMovie) {
+  var type = isMovie ? 'movie' : 'tv';
+  var url = 'https://api.themoviedb.org/3/' + type + '/' + tmdbId +
+            '?api_key=' + TMDB_API_KEY + '&append_to_response=external_ids';
+
+  return fetchTimeout(url, {}, 8000)
+    .then(function(r) {
+      if (!r.ok) throw new Error('TMDB gagal: ' + r.status);
+      return r.json();
+    })
+    .then(function(data) {
+      var title = data.title || data.name;
+      if (!title) throw new Error('Judul tidak ditemukan di TMDB');
+
+      var imdbFull = (data.external_ids && data.external_ids.imdb_id) || '';
+      var imdbClean = imdbFull.startsWith('tt') ? imdbFull.slice(2) : imdbFull;
+
+      return {
+        id: String(tmdbId),
+        title: title,
+        year: (data.release_date || data.first_air_date || '').split('-')[0],
+        imdbId: imdbClean,       // tanpa "tt" prefix — untuk Videasy
+        imdbIdFull: imdbFull,    // dengan "tt" prefix — untuk Stremio & VidSrc
+        type: isMovie ? 'movie' : 'tv'
+      };
+    });
 }
 
-function stripTags(text) {
-  return decodeHtml((text || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
-}
+// ─── Source 1: Videasy servers (pola identik dengan plugin Videasy) ───────────
+function invokeVideasy(info, isMovie, season, episode, allStreams) {
+  var tasks = VIDEASY_SERVERS.map(function(server) {
+    return function() {
+      // Skip server movie-only jika ini TV
+      if (!isMovie && !server.tvOk) return Promise.resolve();
 
-function normalizeText(text) {
-  return decodeHtml(text || "")
-    .toLowerCase()
-    .replace(/[\u2019'`]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
+      var url = server.url +
+        '?title='     + encodeURIComponent(info.title) +
+        '&mediaType=' + info.type +
+        '&year='      + info.year +
+        '&tmdbId='    + info.id +
+        '&imdbId='    + info.imdbId;
 
-function getFirstMatch(text, patterns) {
-  var i, match;
-  for (i = 0; i < patterns.length; i += 1) {
-    match = text.match(patterns[i]);
-    if (match && match[1]) { return stripTags(match[1]); }
-  }
-  return "";
-}
+      if (!isMovie) {
+        url += '&seasonId=' + season + '&episodeId=' + episode;
+      }
 
-function getTmdbInfo(tmdbId, mediaType) {
-  var route = mediaType === "movie" ? "movie" : "tv";
-  var url = TMDB_URL + "/" + route + "/" + encodeURIComponent(String(tmdbId)) + "?language=en-US";
-  return fetchText(url).then(function (html) {
-    var title = getFirstMatch(html, [
-      /<meta property="og:title" content="([^"]+)"/i,
-      /<title>([\s\S]*?)<\/title>/i,
-      /"name":"([^"]+)"/i
-    ]);
-    return {
-      title: title.replace(/\s+\(TV Series.*$/i, "").replace(/\s+\(\d{4}\).*$/i, "").trim()
+      return safeText(url, { headers: HEADERS })
+        .then(function(encText) {
+          if (!encText || encText.length < 20 || encText.startsWith('<!')) return;
+
+          return fetchTimeout(DECRYPT_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: encText, id: info.id })
+          })
+          .then(function(r) { return r.json(); })
+          .then(function(dec) {
+            var data = dec.result || dec;
+            if (!data || !Array.isArray(data.sources)) return;
+
+            data.sources.forEach(function(s) {
+              if (!s.url) return;
+              allStreams.push({
+                name: 'CineStream',
+                title: 'Videasy ' + server.name + ' [' + (s.quality || 'Auto') + ']',
+                url: s.url,
+                quality: s.quality || 'Auto',
+                headers: {
+                  'Referer': 'https://player.videasy.net/',
+                  'Origin': 'https://player.videasy.net',
+                  'User-Agent': HEADERS['User-Agent']
+                },
+                provider: 'videasy_' + server.name.toLowerCase()
+              });
+            });
+          });
+        })
+        .catch(function(e) {
+          console.error('[CineStream] Videasy ' + server.name + ' error: ' + e.message);
+        });
     };
   });
+
+  return runLimited(tasks, 4);
 }
 
-function extractCandidateUrls(html) {
-  // Matches any platform link inside text blocks aggressively, ignoring strict tag/quote boundaries
-  var regex = /(https?:\/\/onlykdrama\.shop\/(?:drama|movies|episodes)\/[a-z0-9\-]+)/gi;
-  var urls = [];
-  var seen = {};
-  var match;
-  
-  while ((match = regex.exec(html))) {
-    var cleanUrl = match[1].toLowerCase();
-    if (!cleanUrl.endsWith('/')) { cleanUrl += '/'; }
-    if (seen[cleanUrl]) { continue; }
-    seen[cleanUrl] = true;
-    urls.push(cleanUrl);
-  }
-  return urls;
-}
+// ─── Source 2: Stremio addon (Streamvix + NoTorrent) — clean JSON API ─────────
+// Format: /stream/movie/{imdbId}.json atau /stream/series/{imdbId}:{s}:{e}.json
+function invokeStremio(name, baseUrl, imdbIdFull, isMovie, season, episode, allStreams) {
+  if (!imdbIdFull) return Promise.resolve();
 
-function collectCandidatePages(title) {
-  var searchUrl = SITE_URL + "/?s=" + encodeURIComponent(title);
-  return fetchText(searchUrl).then(function (html) {
-    return extractCandidateUrls(html);
-  }).catch(function () {
-    return [];
-  });
-}
+  var path = isMovie
+    ? '/stream/movie/' + imdbIdFull + '.json'
+    : '/stream/series/' + imdbIdFull + '%3A' + season + '%3A' + episode + '.json';
 
-// Recursively unpack multi-layered Base64 redirection payloads
-function decodePayloadString(payload) {
-  if (!payload) return "";
-  try {
-    var decoded = atob(decodeURIComponent(payload));
-    if (decoded.indexOf('{"url":"') === 0) {
-      var parsed = JSON.parse(decoded);
-      if (parsed && parsed.url) {
-        var nestedMatch = parsed.url.match(/[?&][idvdt]=([^&]+)/);
-        if (nestedMatch && nestedMatch[1]) {
-          return decodePayloadString(nestedMatch[1]);
-        }
-        return parsed.url;
-      }
-    }
-    return decoded;
-  } catch (e) {
-    return "";
-  }
-}
-
-function extractEpisodeAnchors(html) {
-  // Scans the entire HTML code string globally for target server links completely independent of HTML tag structure
-  var regex = /(https?:\/\/(?:ads\d*?\.onlykdrama\.(?:shop|top)\/continue\.php|new5\.filepress\.wiki\/file\/|hubcloud\.[a-z0-9]+\/video\/|fileditchfiles\.[a-z0-9]+\/|xcloud\.[a-z0-9]+\/)[^"'#?\s>]+)/gi;
-  var results = [];
-  var seen = {};
-  var match;
-
-  while ((match = regex.exec(html))) {
-    var originalUrl = match[1];
-    var finalUrl = originalUrl;
-
-    if (originalUrl.indexOf("/continue.php") !== -1) {
-      var paramMatch = originalUrl.match(/[?&][idvdt]=([^&]+)/);
-      if (paramMatch && paramMatch[1]) {
-        var unwrapped = decodePayloadString(paramMatch[1]);
-        if (unwrapped && unwrapped.indexOf("http") === 0) {
-          finalUrl = unwrapped;
-        }
-      }
-    }
-
-    // Sanitize any residual quotes or bracket markers left over from greedy regex captures
-    finalUrl = finalUrl.replace(/["']/g, "");
-
-    if (!finalUrl || seen[finalUrl]) { continue; }
-    seen[finalUrl] = true;
-
-    results.push({ url: finalUrl });
-  }
-  return results;
-}
-
-function checkUrlMatch(url, season, episode) {
-  var normUrl = decodeURIComponent(url).toLowerCase().replace(/[^a-z0-9]/g, " ");
-  
-  var sStr = "s" + (season < 10 ? "0" + season : season);
-  var eStr = "e" + (episode < 10 ? "0" + episode : episode);
-  var epFullStr = "episode " + episode;
-  var epShortStr = "ep " + episode;
-
-  // Validate the actual streaming target URL contents directly
-  if (normUrl.indexOf(sStr + eStr) !== -1) { return true; }
-  if (season === 1) {
-    if (normUrl.indexOf(epFullStr) !== -1 || normUrl.indexOf(epShortStr) !== -1 || normUrl.indexOf("e" + episode) !== -1) { 
-      return true; 
-    }
-  }
-  return false;
-}
-
-function tryCandidatePages(urls, index, mediaType, tmdbInfo, season, episode) {
-  if (index >= urls.length) { return Promise.resolve([]); }
-  
-  var currentUrl = urls[index];
-
-  return fetchText(currentUrl).then(function (html) {
-    var anchors = extractEpisodeAnchors(html);
-    var streams = [];
-    var i;
-
-    for (i = 0; i < anchors.length; i += 1) {
-      var a = anchors[i];
-      
-      // Movies pass immediately; TV shows check the decrypted URL structures directly instead of element text string filters
-      if (mediaType === "movie" || checkUrlMatch(a.url, season, episode)) {
-        var titleTag = tmdbInfo.title + " S" + season + "E" + episode;
-        
-        var q = "HD";
-        if (a.url.indexOf("1080p") !== -1) q = "1080P";
-        else if (a.url.indexOf("720p") !== -1) q = "720P";
-        else if (a.url.indexOf("2160p") !== -1) q = "4K";
-
-        if (a.url.indexOf("hubcloud") !== -1) titleTag += " [HubCloud]";
-        else if (a.url.indexOf("filepress") !== -1) titleTag += " [FilePress]";
-        else if (a.url.indexOf("fileditch") !== -1) titleTag += " [FileDitch]";
-
-        streams.push({
-          name: PROVIDER_NAME,
-          title: titleTag,
-          url: a.url,
-          quality: q
+  return safeJson(baseUrl.replace(/\/$/, '') + path)
+    .then(function(data) {
+      if (!data || !Array.isArray(data.streams)) return;
+      data.streams.forEach(function(s) {
+        if (!s.url) return;
+        var q = detectQuality(s.name || s.title || '');
+        allStreams.push({
+          name: 'CineStream',
+          title: name + ' [' + q + ']',
+          url: s.url,
+          quality: q,
+          headers: (s.behaviorHints && s.behaviorHints.headers) || { 'Referer': baseUrl }
         });
-      }
-    }
-
-    if (streams.length > 0) { return streams; }
-    return tryCandidatePages(urls, index + 1, mediaType, tmdbInfo, season, episode);
-  }).catch(function () {
-    return tryCandidatePages(urls, index + 1, mediaType, tmdbInfo, season, episode);
-  });
+      });
+    })
+    .catch(function() {});
 }
 
+// ─── Source 3: VidSrc JSON API ────────────────────────────────────────────────
+function invokeVidSrc(imdbIdFull, isMovie, season, episode, allStreams) {
+  if (!imdbIdFull) return Promise.resolve();
+
+  var url = isMovie
+    ? VIDSRC_API + '/api/v2/embed/movie?imdb_id=' + imdbIdFull
+    : VIDSRC_API + '/api/v2/embed/tv?imdb_id=' + imdbIdFull + '&season=' + season + '&episode=' + episode;
+
+  return safeJson(url)
+    .then(function(data) {
+      if (!data) return;
+      var sources = (data.result && data.result.sources) || data.sources || [];
+      sources.forEach(function(s) {
+        if (!s.url) return;
+        allStreams.push({
+          name: 'CineStream',
+          title: 'VidSrc [' + (s.quality || 'Auto') + ']',
+          url: s.url,
+          quality: s.quality || 'Auto',
+          headers: { 'Referer': VIDSRC_API + '/' }
+        });
+      });
+    })
+    .catch(function() {});
+}
+
+// ─── Quality detector ─────────────────────────────────────────────────────────
+function detectQuality(str) {
+  str = String(str || '');
+  if (str.indexOf('4K') !== -1 || str.indexOf('2160') !== -1) return '4K';
+  if (str.indexOf('1080') !== -1) return '1080p';
+  if (str.indexOf('720') !== -1)  return '720p';
+  if (str.indexOf('480') !== -1)  return '480p';
+  if (str.indexOf('360') !== -1)  return '360p';
+  return 'Auto';
+}
+
+// ─── Concurrency runner ───────────────────────────────────────────────────────
+function runLimited(tasks, limit) {
+  var i = 0;
+  function next() {
+    if (i >= tasks.length) return Promise.resolve();
+    var fn = tasks[i++];
+    return fn().catch(function() {}).then(next);
+  }
+  var workers = [];
+  for (var w = 0; w < Math.min(limit, tasks.length); w++) workers.push(next());
+  return Promise.all(workers);
+}
+
+// ─── getStreams — entry point dipanggil Nuvio ─────────────────────────────────
 function getStreams(tmdbId, mediaType, season, episode) {
-  var normalizedMediaType = mediaType === "movie" ? "movie" : "tv";
-  var normalizedSeason = Number(season) || 1;
-  var normalizedEpisode = Number(episode) || 1;
+  var isMovie = mediaType !== 'tv';
 
-  return getTmdbInfo(tmdbId, normalizedMediaType).then(function (tmdbInfo) {
-    if (!tmdbInfo || !tmdbInfo.title) { return []; }
-    
-    return collectCandidatePages(tmdbInfo.title).then(function (urls) {
-      // Build dynamic slug fallback structures if search entries return short
-      var slug = normalizeText(tmdbInfo.title).replace(/\s+/g, "-");
-      var structuralFallbacks = [
-        SITE_URL + "/episodes/" + slug + "-episode-" + normalizedEpisode + "/",
-        SITE_URL + "/episodes/" + slug + "-ep-" + normalizedEpisode + "/",
-        SITE_URL + "/drama/" + slug + "/"
-      ];
-      
-      var finalUrls = urls.concat(structuralFallbacks);
-      return tryCandidatePages(finalUrls, 0, normalizedMediaType, tmdbInfo, normalizedSeason, normalizedEpisode);
+  if (!tmdbId) {
+    console.error('[CineStream] tmdbId tidak boleh kosong');
+    return Promise.resolve([]);
+  }
+  if (!isMovie && (season == null || episode == null)) {
+    console.error('[CineStream] season/episode wajib untuk TV');
+    return Promise.resolve([]);
+  }
+
+  console.log('[CineStream] ' + mediaType + ' tmdbId=' + tmdbId +
+    (isMovie ? '' : ' S' + season + 'E' + episode));
+
+  var allStreams = [];
+
+  // Step 1: Info dari TMDB
+  return getTmdbInfo(tmdbId, isMovie)
+    .then(function(info) {
+      console.log('[CineStream] "' + info.title + '" (' + info.year + ') imdb=' + (info.imdbIdFull || 'none'));
+
+      // Step 2: Jalankan semua sources secara parallel
+      return Promise.all([
+        // Videasy 10 servers (concurrency 4)
+        invokeVideasy(info, isMovie, season, episode, allStreams),
+
+        // Stremio addons (JSON langsung)
+        invokeStremio('Streamvix', STREAMVIX_API, info.imdbIdFull, isMovie, season, episode, allStreams),
+        invokeStremio('NoTorrent', NOTORRENT_API, info.imdbIdFull, isMovie, season, episode, allStreams),
+
+        // VidSrc JSON API
+        invokeVidSrc(info.imdbIdFull, isMovie, season, episode, allStreams)
+      ]);
+    })
+    .then(function() {
+      var result = dedupAndSort(allStreams);
+      console.log('[CineStream] Selesai — ' + result.length + ' stream ditemukan');
+      return result;
+    })
+    .catch(function(err) {
+      console.error('[CineStream] Error: ' + (err.message || err));
+      return [];
     });
-  }).catch(function (error) {
-    console.log("[" + PROVIDER_NAME + "] Error: " + error.message);
-    return [];
-  });
 }
 
-module.exports = { getStreams: getStreams };
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams: getStreams };
+}

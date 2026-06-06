@@ -119,6 +119,10 @@ function getMalTitle(malId) {
       if (!res.ok)
         return null;
       const data = yield res.json();
+      // Prefers the English title string if available from Jikan API wrapper
+      if (data.data.title_english) {
+        return data.data.title_english;
+      }
       return data.data.title;
     } catch (e) {
       return null;
@@ -247,27 +251,31 @@ function getStreams(tmdbId, mediaType, season, episode) {
       let animeTitle = "";
       let mappedEp = episode;
       let mapping = null;
-      let durationStr = "24m"; // Default fallback layout item
+      let durationStr = "24m";
 
       if (mediaType === "tv") {
-        const imdbId = yield getImdbId(tmdbId, mediaType);
-        if (!imdbId)
-          return [];
-        mapping = yield resolveMapping(imdbId, season, episode);
-        if (!mapping || !mapping.mal_id)
-          return [];
-        mappedEp = mapping.mal_episode || episode;
-        animeTitle = yield getMalTitle(mapping.mal_id);
-
-        // Optional: Grab runtime info dynamically via TMDB details endpoint if needed
+        // Fetch baseline information from TMDB details directly to guarantee English Title name structures
         try {
           const tmdbTvUrl = `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=1865f43a0549ca50d341dd9ab8b29f49`;
           const tmdbTvRes = yield fetch(tmdbTvUrl);
           const tmdbTvData = yield tmdbTvRes.json();
+          animeTitle = tmdbTvData.name || tmdbTvData.original_name || "";
           if (tmdbTvData.episode_run_time && tmdbTvData.episode_run_time.length > 0) {
             durationStr = `${tmdbTvData.episode_run_time[0]}m`;
           }
         } catch (e) {}
+
+        const imdbId = yield getImdbId(tmdbId, mediaType);
+        if (imdbId) {
+          mapping = yield resolveMapping(imdbId, season, episode);
+          if (mapping && mapping.mal_id) {
+            mappedEp = mapping.mal_episode || episode;
+            // Fallback strategy if TMDB lookup layout fails unexpectedly
+            if (!animeTitle) {
+              animeTitle = yield getMalTitle(mapping.mal_id);
+            }
+          }
+        }
       } else {
         const tmdbUrl = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=1865f43a0549ca50d341dd9ab8b29f49`;
         const tmdbRes = yield fetch(tmdbUrl);
@@ -370,27 +378,26 @@ function getStreams(tmdbId, mediaType, season, episode) {
       else if (format === "Sub & Dub") langString = "Multi Audio (SUB/DUB)";
 
       if (masterUrl) {
-        // MODIFIED: Generate dynamic clean 4-line or 2-line layout depending on layout rules
         let lines = [];
         if (mediaType === "movie") {
           lines = [
             `🎬 ${animeTitle}`,
-            `🎞️ HLS | ⚡ Multi | 🌍 ${langString} | ⏱️ ${durationStr}`
+            `🎞️ HLS | ⚡ Auto | 🌍 ${langString} | ⏱️ ${durationStr}`
           ];
         } else {
           lines = [
             `🎬 ${animeTitle}`,
             `🎥 S${season}E${episode} - Episode ${mappedEp}`,
-            `🎞️ HLS | ⚡ Multi | 🌍 ${langString} | ⏱️ ${durationStr}`
+            `🎞️ HLS | ⚡ Auto | 🌍 ${langString} | ⏱️ ${durationStr}`
           ];
         }
         const streamTitle = lines.join("\n");
 
         streams.push({
-          name: `AniZone | Multi | [HLS] (${format.toUpperCase()})`,
+          name: `AniZone | Auto | [HLS] (${format.toUpperCase()})`,
           title: streamTitle,
           url: masterUrl,
-          quality: "Multi",
+          quality: "Auto",
           headers: HEADERS,
           subtitles,
           provider: "anizone",

@@ -11,12 +11,6 @@ const HEADERS = {
   "Referer": `${BASE_URL}/`
 };
 
-const PLAYBACK_HEADERS = {
-  "User-Agent": BROWSER_UA,
-  "Referer": "https://urlshortlink.top/",
-  "Origin": "https://urlshortlink.top"
-};
-
 function extractQuality(str) {
   const u = (str || "").toLowerCase();
   if (u.includes("2160") || u.includes("4k")) return "4K";
@@ -24,7 +18,43 @@ function extractQuality(str) {
   if (u.includes("720")) return "720p";
   if (u.includes("480")) return "480p";
   if (u.includes("360")) return "360p";
-  return "";
+  return "Unknown";
+}
+
+// Dynamically sets headers based on the specific media file path
+function getPlaybackHeaders(streamUrl) {
+  const isDirect = !streamUrl.includes("urlshortlink");
+  return {
+    "User-Agent": BROWSER_UA,
+    "Referer": isDirect ? `${BASE_URL}/` : "https://urlshortlink.top/",
+    "Origin": isDirect ? BASE_URL : "https://urlshortlink.top"
+  };
+}
+
+// Scrapes raw text profiles for direct video links hidden inside scripts/elements
+function parseDirectVideoLinks(htmlContent, streamsArray) {
+  if (!htmlContent) return;
+  
+  // Regex to extract direct streaming URLs embedded in script blocks or parameters
+  const videoRegex = /https?:\/\/[^\s"'`<>]+?\.(?:mp4|mkv|m3u8)[^\s"'`<>]*/gi;
+  let match;
+  
+  while ((match = videoRegex.exec(htmlContent)) !== null) {
+    let cleanUrl = match[0].trim();
+    // Clean trailing escaped characters common inside JSON blocks
+    cleanUrl = cleanUrl.replace(/\\/g, '');
+    
+    if (cleanUrl.startsWith("http")) {
+      const detectedQual = extractQuality(cleanUrl);
+      streamsArray.push({
+        url: cleanUrl,
+        quality: detectedQual,
+        title: `FibWatch [${detectedQual}]`,
+        subtitles: [],
+        headers: getPlaybackHeaders(cleanUrl)
+      });
+    }
+  }
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -65,7 +95,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const streams = [];
 
-    // 4. Extract TV streams or Movie streams
+    // 4. Handle TV shows vs Movies
     if (isTV) {
       const epDataUrl = `${BASE_URL}/ajax/episodes.php?video_id=${videoId}`;
       const epData = await (await fetch(epDataUrl, { headers: HEADERS})).json();
@@ -94,6 +124,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (!targetEpUrl) return [];
 
       const epHtml = await (await fetch(targetEpUrl, { headers: HEADERS})).text();
+      
+      // Look for direct 720p/embedded options directly inside the source markup
+      parseDirectVideoLinks(epHtml, streams);
+
       const $ep = cheerio.load(epHtml);
       const epVideoId = $ep("input#video-id").attr("value");
 
@@ -107,13 +141,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           if (!url) continue;
           
           if (url.match(/\.(mp4|mkv|m3u8)/i)) {
-            const fallbackQual = extractQuality(item.res || url) || "Unknown";
+            const fallbackQual = extractQuality(item.res || url);
             streams.push({
               url,
               quality: fallbackQual,
               title: `FibWatch [${fallbackQual}]`,
               subtitles: [],
-              headers: PLAYBACK_HEADERS
+              headers: getPlaybackHeaders(url)
             });
           } else {
             try {
@@ -128,15 +162,14 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                   dlUrl = decodeURIComponent(dlUrl);
                   if (dlUrl.startsWith("http")) {
                     const dynamicLabel = $dl(element).text() || item.res || dlUrl;
-                    // Fall back to item.res or raw link structure strings if text extraction yields empty values
-                    const determinedQuality = extractQuality(dynamicLabel) || extractQuality(item.res) || extractQuality(dlUrl) || "Unknown";
+                    const determinedQuality = extractQuality(dynamicLabel) || extractQuality(item.res) || extractQuality(dlUrl);
                     
                     streams.push({
                       url: dlUrl,
                       quality: determinedQuality,
                       title: `FibWatch [${determinedQuality}]`,
                       subtitles: [],
-                      headers: PLAYBACK_HEADERS
+                      headers: getPlaybackHeaders(url)
                     });
                   }
                 }
@@ -146,7 +179,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
       }
     } else {
-      // Movies track processing
+      // Movies Processing Loop
+      // Step A: Parse direct links from the main page view source (Catch 720p inline elements)
+      parseDirectVideoLinks(showHtml, streams);
+
+      // Step B: Follow resolution switcher (Catch shortener links)
       const resUrl = `${BASE_URL}/ajax/resolution_switcher.php?video_id=${videoId}`;
       const resData = await (await fetch(resUrl, { headers: HEADERS})).json();
       const allLinks = [...(resData.current || []), ...(resData.popup || [])];
@@ -156,13 +193,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         if (!url) continue;
         
         if (url.match(/\.(mp4|mkv|m3u8)/i)) {
-          const fallbackQual = extractQuality(item.res || url) || "Unknown";
+          const fallbackQual = extractQuality(item.res || url);
           streams.push({
             url,
             quality: fallbackQual,
             title: `FibWatch [${fallbackQual}]`,
             subtitles: [],
-            headers: PLAYBACK_HEADERS
+            headers: getPlaybackHeaders(url)
           });
         } else {
           try {
@@ -177,14 +214,14 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                 dlUrl = decodeURIComponent(dlUrl);
                 if (dlUrl.startsWith("http")) {
                   const dynamicLabel = $dl(element).text() || item.res || dlUrl;
-                  const determinedQuality = extractQuality(dynamicLabel) || extractQuality(item.res) || extractQuality(dlUrl) || "Unknown";
+                  const determinedQuality = extractQuality(dynamicLabel) || extractQuality(item.res) || extractQuality(dlUrl);
                   
                   streams.push({
                     url: dlUrl,
                     quality: determinedQuality,
                     title: `FibWatch [${determinedQuality}]`,
                     subtitles: [],
-                    headers: PLAYBACK_HEADERS
+                    headers: getPlaybackHeaders(url)
                   });
                 }
               }
@@ -192,34 +229,19 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           } catch (e) {}
         }
       }
-
-      // Final fallback layer parsing landing view source directly
-      if (streams.length === 0) {
-        const dlBtn = $show("a.hidden-button.buttonDownloadnew").attr("href") || "";
-        let dlUrl = dlBtn.replace(/.*url=/, "").trim();
-        
-        if (dlUrl) {
-          dlUrl = decodeURIComponent(dlUrl);
-          if (dlUrl.startsWith("http")) {
-            const fallbackQual = extractQuality(dlUrl) || "Unknown";
-            streams.push({
-              url: dlUrl,
-              quality: fallbackQual,
-              title: `FibWatch [${fallbackQual}]`,
-              subtitles: [],
-              headers: PLAYBACK_HEADERS
-            });
-          }
-        }
-      }
     }
 
-    // Deduplicate streams matching explicit destination urls
+    // Deduplicate array based on unique target stream URLs
     const uniqueStreams = [];
     const seenUrls = new Set();
     for (const entry of streams) {
       if (!seenUrls.has(entry.url)) {
         seenUrls.add(entry.url);
+        // Fallback flag assignment for missed tags
+        if (entry.quality === "Unknown") {
+          entry.quality = extractQuality(entry.url);
+          entry.title = `FibWatch [${entry.quality}]`;
+        }
         uniqueStreams.push(entry);
       }
     }

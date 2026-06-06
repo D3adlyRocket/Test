@@ -126,24 +126,33 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             });
           } else {
             // Try to get download URL from the shortener link
-            try {
-              const dlHtml = await (await fetch(url, { headers: HEADERS})).text();
-              const $dl = cheerio.load(dlHtml);
-              let dlUrl = ($dl("a.hidden-button.buttonDownloadnew").attr("href") || "").replace(/.*url=/, "").trim();
-              
-              if (dlUrl) {
-                dlUrl = decodeURIComponent(dlUrl);
-                if (dlUrl.startsWith("http")) {
-                  streams.push({
-                    url: dlUrl,
-                    quality: extractQuality(item.res || dlUrl),
-                    title: `FibWatch [${item.res || "Stream"}]`,
-                    subtitles: [],
-                    headers: PLAYBACK_HEADERS
-                  });
-                }
-              }
-            } catch (e) {}
+try {
+  const dlHtml = await (await fetch(url, { headers: HEADERS })).text();
+  const $dl = cheerio.load(dlHtml);
+  
+  // Loop through ALL matching buttons on the page instead of just the first one
+  $dl("a.hidden-button.buttonDownloadnew").each((idx, element) => {
+    const onclick = $dl(element).attr("href") || "";
+    let dlUrl = onclick.replace(/.*url=/, "").trim();
+    
+    if (dlUrl) {
+      dlUrl = decodeURIComponent(dlUrl);
+      if (dlUrl.startsWith("http")) {
+        // We use the text of the button or the URL to determine quality
+        const buttonText = $dl(element).text() || item.res || dlUrl;
+        
+        streams.push({
+          url: dlUrl,
+          quality: extractQuality(buttonText),
+          title: `FibWatch [${extractQuality(buttonText)}]`,
+          subtitles: [],
+          headers: PLAYBACK_HEADERS
+        });
+      }
+    }
+  });
+} catch (e) {}
+
           }
         }
       }
@@ -167,24 +176,30 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           });
         } else {
           try {
-            const dlHtml = await (await fetch(url, { headers: HEADERS})).text();
-            const $dl = cheerio.load(dlHtml);
-            const onclick = $dl("a.hidden-button.buttonDownloadnew").attr("href") || "";
-            let dlUrl = onclick.replace(/.*url=/, "").trim();
-            
-            if (dlUrl) {
-              dlUrl = decodeURIComponent(dlUrl);
-              if (dlUrl.startsWith("http")) {
-                streams.push({
-                  url: dlUrl,
-                  quality: extractQuality(item.res || dlUrl),
-                  title: `FibWatch [${item.res || "Stream"}]`,
-                  subtitles: [],
-                  headers: PLAYBACK_HEADERS
-                });
-              }
-            }
-          } catch (e) {}
+  const dlHtml = await (await fetch(url, { headers: HEADERS })).text();
+  const $dl = cheerio.load(dlHtml);
+  
+  // Loop through ALL matching buttons on the page
+  $dl("a.hidden-button.buttonDownloadnew").each((idx, element) => {
+    const onclick = $dl(element).attr("href") || "";
+    let dlUrl = onclick.replace(/.*url=/, "").trim();
+    
+    if (dlUrl) {
+      dlUrl = decodeURIComponent(dlUrl);
+      if (dlUrl.startsWith("http")) {
+        const buttonText = $dl(element).text() || item.res || dlUrl;
+        
+        streams.push({
+          url: dlUrl,
+          quality: extractQuality(buttonText),
+          title: `FibWatch [${extractQuality(buttonText)}]`,
+          subtitles: [],
+          headers: PLAYBACK_HEADERS
+        });
+      }
+    }
+  });
+} catch (e) {}
         }
       }
 

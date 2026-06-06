@@ -149,8 +149,8 @@ function invokeVideasy(info, isMovie, season, episode, allStreams) {
                 url: s.url,
                 quality: s.quality || 'Auto',
                 headers: {
-                  'Referer': 'https://player.videasy.net/',
-                  'Origin': 'https://player.videasy.net',
+                  'Referer': 'https://player.videasy.to/',
+                  'Origin': 'https://player.videasy.to',
                   'User-Agent': HEADERS['User-Agent']
                 },
                 provider: 'videasy_' + server.name.toLowerCase()

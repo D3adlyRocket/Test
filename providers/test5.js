@@ -4,7 +4,7 @@ const cheerio = require('cheerio-without-node-native');
 // Search: /?s={query}
 // Stream links: p a elements containing "watch online" text
 
-const BASE_URL = "https://5movierulz.discount";
+const BASE_URL = "https://www.5movierulz.discount";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",

@@ -1,18 +1,18 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (Bulletproof String Split Fix)
+// Nuvio-compatible Cinefreak scraper (API-to-Storage Direct Resolution Fix)
 
 const BASE_URL = "https://cinefreak.nl";
-const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-
-const cheerio = require("cheerio");
 
 const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-  Cookie: "xla=s4t"
+  "Accept": "application/json, text/charset=utf-8",
+  "Referer": "https://cinefreak.nl/"
 };
-
-// Safe decoder that will NEVER crash the script
+    
+// =========================
+// Helpers
+// =========================
 function decodeBase64Safe(str) {
   try {
     let cleanStr = decodeURIComponent(str).trim();
@@ -30,16 +30,23 @@ function decodeBase64Safe(str) {
 // =========================
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // 1. Get TMDB Data
-    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    // 1. Fetch TMDB details to ensure exact alphanumeric sync with the storage cluster naming layout
+    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=1865f43a0549ca50d341dd9ab8b29f49`;
     const mediaInfo = await (await fetch(tmdbUrl)).json();
 
     if (!mediaInfo) return [];
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Search Cinefreak
-    const searchUrl = `${BASE_URL}/search-api.php?q=${encodeURIComponent(title)}&pg=1`;
+    // Clean up movie title punctuation to ensure perfect alignment with direct CDN file strings
+    const cleanTitle = title
+      .replace(/[^a-zA-Z0-9\s()]/g, "")
+      .trim()
+      .replace(/\s+/g, " ");
+
+    // 2. Query the active API endpoint uncovered in your network logs (including cache-busting timestamp signature)
+    const timestamp = Date.now();
+    const searchUrl = `${BASE_URL}/search-api.php?q=${encodeURIComponent(title)}&pg=1&_t=${timestamp}`;
     const searchResp = await fetch(searchUrl, { headers: HEADERS });
 
     let searchData;
@@ -52,88 +59,56 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const results = Array.isArray(searchData?.results) ? searchData.results : [];
     if (!results.length) return [];
 
-    // 3. Match Item
+    // Match search data using standard name parameters
     const lcTitle = title.toLowerCase();
     let match = results.find(r => (r.t || "").toLowerCase().includes(lcTitle)) || results[0];
-    if (!match) return [];
-
-    const pageUrl = match.l.startsWith("http") ? match.l : `${BASE_URL}/${match.l}/`;
-    const pageHtml = await (await fetch(pageUrl, { headers: HEADERS })).text();
+    if (!match || !match.l) return [];
 
     const streams = [];
-    
-    // Clean Title for the R2 URL format
-    const cleanTitle = title
-      .replace(/[^a-zA-Z0-9\s()]/g, "")
-      .trim()
-      .replace(/\s+/g, " ");
 
-    // 4. Pure String Search (No Cheerio, No URL Objects, Safe Runtime)
-    // Split the entire HTML page into an array by 'href=' to isolate links cleanly
-    const parts = pageHtml.split(/href=["']/i);
+    // 3. IMMEDATE TRANSLATION LOOP
+    // We isolate the base64 encrypted payload directly out of the matched search item link configuration
+    const idParamMatch = match.l.match(/[?&]id=([^&"'\s]+)/);
+    let targetHash = "";
 
-    for (let i = 1; i < parts.length; i++) {
-      // Isolate the actual URL string
-      const urlPart = parts[i].split(["\"", "'"])[0];
-
-      if (urlPart.includes("generate.php?id=")) {
-        try {
-          // Manually split out the ID param value without using the URL constructor
-          const idSplit = urlPart.split("id=");
-          if (idSplit.length < 2) continue;
-          
-          const rawId = idSplit[1].split("&")[0].split('"')[0].split("'")[0];
-          if (!rawId) continue;
-
-          let decoded = decodeBase64Safe(rawId);
-          if (!decoded || !decoded.startsWith("http")) continue;
-
-          // Strip anti-bot additions
-          decoded = decoded.replace(/newgo\d*$/, "");
-
-          // Grab the hash ID out of the path
-          const hashMatch = decoded.match(/\/f\/([a-f0-9]+)/i);
-          if (!hashMatch || !hashMatch[1]) continue;
-
-          const mediaId = hashMatch[1];
-
-          // Determine quality based on structural checks inside the isolated string chunk
-          let qual = "1080p";
-          const surroundingText = parts[i].toLowerCase();
-          if (surroundingText.includes("2160p") || surroundingText.includes("4k")) qual = "4K";
-          else if (surroundingText.includes("720p")) qual = "720p";
-          else if (surroundingText.includes("480p")) qual = "480p";
-
-          // Force construct the exact known working direct storage location URL
-          const finalPlayableUrl = `https://pub-${mediaId}.r2.dev/CINEFREAK.TOP%20-%20${encodeURIComponent(cleanTitle)}%20%5B${qual}%5D.mkv`;
-
-          streams.push({
-            url: finalPlayableUrl,
-            quality: qual,
-            title: `Cinefreak [${qual}]`,
-            subtitles: []
-          });
-
-        } catch (innerErr) {
-          // Prevent any inner string failure from stopping the loop
+    if (idParamMatch) {
+      let decoded = decodeBase64Safe(idParamMatch[1]);
+      if (decoded) {
+        decoded = decoded.replace(/newgo\d*$/, "");
+        const hashMatch = decoded.match(/\/f\/([a-f0-9]+)/i);
+        if (hashMatch && hashMatch[1]) {
+          targetHash = hashMatch[1];
         }
       }
     }
 
-    // Deduplicate array data to keep Nuvio manifest clean
-    const uniqueStreams = [];
-    const seenUrls = new Set();
-    for (const stream of streams) {
-      if (!seenUrls.has(stream.url)) {
-        seenUrls.add(stream.url);
-        uniqueStreams.push(stream);
+    // If string processing constraints fell back, extract the raw alpha string structure
+    if (!targetHash) {
+      const pathFallback = match.l.match(/\/f\/([a-f0-9]+)/i);
+      if (pathFallback) targetHash = pathFallback[1];
+    }
+
+    // 4. GENERATE DIRECT CDNS
+    // Hard-construct your proven working R2 endpoints directly into Nuvio's manifest output stream
+    if (targetHash) {
+      const qualities = ["1080p", "720p", "480p"];
+      
+      for (const qual of qualities) {
+        const directPlayableAssetUrl = `https://pub-${targetHash}.r2.dev/CINEFREAK.TOP%20-%20${encodeURIComponent(cleanTitle)}%20%5B${qual}%5D.mkv`;
+        
+        streams.push({
+          url: directPlayableAssetUrl,
+          quality: qual,
+          title: `Cinefreak Direct [${qual}]`,
+          subtitles: []
+        });
       }
     }
 
-    return uniqueStreams;
+    return streams;
 
   } catch (e) {
-    console.log("[Cinefreak FATAL]", e);
+    console.log("[Cinefreak Structural Failure Blocked]", e);
     return [];
   }
 }

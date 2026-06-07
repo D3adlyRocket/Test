@@ -1,5 +1,5 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (iframe-aware extraction fix)
+// Nuvio-compatible Cinefreak scraper (Complete Static Bypass Fix)
 
 const BASE_URL = "https://cinefreak.nl";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -34,32 +34,29 @@ function decodeBase64Safe(str) {
 }
 
 /**
- /**
- * Hard-coded pattern resolver to completely bypass Cloudflare blockages
- * by mapping the known ID translations from your working browser sessions.
+ * Extracts the video file by converting the intermediate URL format
+ * directly into the unprotected Vagaverse configuration player frame.
  */
 async function resolveFinalStreamUrl(url) {
   try {
-    // If it's already a direct asset link, don't touch it
     if (url.includes(".r2.dev")) return url;
 
-    // Extract the hash ID from the cinecloud link (e.g., 7ebfab1b)
+    // Extract the hash ID (e.g., 7ebfab1b or 6155ede1) from the link
     const cinecloudIdMatch = url.match(/\/f\/([a-f0-9]+)/i);
     
     if (cinecloudIdMatch && cinecloudIdMatch[1]) {
       const mediaId = cinecloudIdMatch[1];
       
-      // Reconstruct the exact stream layout used by Vagaverse
-      // This bypasses the need to ever fetch the blocked parent landing page
+      // Build the target structure and inject it into the Vagaverse embed player URL
       const directTargetHost = `https://movieto.in/f/${mediaId}`;
       const encodedTarget = encodeURIComponent(directTargetHost);
-      
       const simulatedFrameUrl = `https://stream.vagaverse.net/embed2/?id=${encodedTarget}`;
       
-      // Attempt to hit the unprotected third-party embed engine instead of the protected parent site
+      // Scrape the unprotected player frame instead of the protected landing page
       const frameResponse = await fetch(simulatedFrameUrl, { headers: HEADERS });
       const frameHtml = await frameResponse.text();
       
+      // Search for the direct storage stream URL (.r2.dev)
       const r2Regex = /(https:\/\/pub-[a-f0-9]+\.r2\.dev\/[^"'\s]+)/i;
       const frameMatch = frameHtml.match(r2Regex);
       
@@ -67,25 +64,12 @@ async function resolveFinalStreamUrl(url) {
         return frameMatch[1].replace(/\\/g, "");
       }
       
-      // Reconstruct fallback standard pattern if frame scraping fails
       return simulatedFrameUrl;
     }
 
     return url;
   } catch (e) {
     console.log("[Cinefreak Static Bypass Error]", e);
-    return url; 
-  }
-}
-
-
-    // 4. Dom fallback for standard player tags
-    const videoSrc = $("video").attr("src") || $("video source").attr("src");
-    if (videoSrc && videoSrc.startsWith("http")) return videoSrc;
-
-    return response.url || url;
-  } catch (e) {
-    console.log("[Cinefreak Extraction Error]", e);
     return url; 
   }
 }
@@ -158,7 +142,18 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           const text = $(a).text().trim();
           if (!href) return;
 
-          const p = resolveFinalStreamUrl(href).then(finalUrl => {
+          let targetUrl = href;
+          try {
+            const idMatch = href.match(/id=([^&]+)/);
+            if (idMatch) {
+              let decoded = decodeBase64Safe(idMatch[1]);
+              if (decoded && decoded.startsWith("http")) {
+                targetUrl = decoded.replace(/newgo\d*$/, "");
+              }
+            }
+          } catch (e) {}
+
+          const p = resolveFinalStreamUrl(targetUrl).then(finalUrl => {
             streams.push({
               url: finalUrl,
               quality: extractQuality(text),

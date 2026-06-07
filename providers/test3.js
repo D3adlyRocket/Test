@@ -1,33 +1,34 @@
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const TORRENTIO_API = "https://torrentio.strem.fun";
 
+// Public Torrentio requires community-matching headers to avoid instant 403/429 rejections on Android TV
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-  "Accept": "application/json"
+  "User-Agent": "Mozilla/5.0 (Linux; Android 10; BRAVIA 4K UR3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+  "Accept": "application/json",
+  "Origin": "https://stremio.com"
 };
 
-// Android TV Friendly Fetch
+// Android TV Resilient Fetch Layer
 async function fetchWithTimeout(url, options = {}) {
-  const timeout = options.timeout || 20000;
+  const timeout = options.timeout || 15000;
   if (typeof fetch === 'undefined') {
-    console.log("[DIAG] CRITICAL: Fetch is completely undefined on this TV engine.");
-    throw new Error("Fetch undefined");
+    console.log("[TORRA] Runtime Error: Global fetch missing.");
+    return null;
   }
 
   let controller;
   let timeoutId;
-
   if (typeof AbortController !== 'undefined') {
     controller = new AbortController();
     options.signal = controller.signal;
-    timeoutId = setTimeout(() => {
-      console.log(`[DIAG TIMEOUT] Stale connection dropped: ${url}`);
-      controller.abort();
-    }, timeout);
+    timeoutId = setTimeout(() => controller.abort(), timeout);
   }
 
   try {
     return await fetch(url, options);
+  } catch (e) {
+    console.log(`[TORRA] Fetch aborted or failed for: ${url}`);
+    return null;
   } finally {
     if (timeoutId) clearTimeout(timeoutId);
   }
@@ -54,60 +55,44 @@ function buildMagnet(infoHash) {
   return `magnet:?xt=urn:btih:${infoHash}${tr}`;
 }
 
-// TMDB -> IMDB Lookup
+// Fixed TMDB Lookup Configuration
 async function getImdbId(tmdbId, mediaType) {
   try {
-    const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+    // TMDB requires 'tv' or 'movie' inside the endpoint path
+    const type = (mediaType === "tv" || mediaType === "series") ? "tv" : "movie";
+    const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
     
-    console.log(`[DIAG] Attempting TMDB Fetch for ID: ${tmdbId}`);
-    const res = await fetchWithTimeout(url, { 
-      headers: HEADERS,
-      timeout: 12000,
-      skipSizeCheck: true 
-    });
-
-    if (!res.ok) {
-      console.log(`[DIAG ERROR] TMDB responded with bad status: ${res.status}`);
-      return null;
-    }
+    console.log(`[TORRA] Requesting TMDB ID mapping for type: ${type}`);
+    const res = await fetchWithTimeout(url, { headers: HEADERS });
+    if (!res || !res.ok) return null;
 
     const data = await res.json();
-    const id = data.external_ids?.imdb_id || data.imdb_id || null;
-    console.log(`[DIAG SUCCESS] Found IMDB ID: ${id}`);
-    return id;
+    return data.external_ids?.imdb_id || data.imdb_id || null;
   } catch (e) {
-    console.log("[DIAG CRASH] TMDB Fetch crashed entirely. Network/SSL block suspected.", e.message || e);
     return null;
   }
 }
 
-// Torrentio Scraper
-async function invokeTorrentio(imdbId, season, episode) {
+// Torrentio Public Gateway Interceptor
+async function invokeTorrentio(imdbId, mediaType, season, episode) {
   try {
-    const isTV = season != null && episode != null;
+    const isTV = mediaType === "tv" || mediaType === "series";
+    
+    // Core Correction: Public Torrentio endpoint strings rely on /stream/series/ or /stream/movie/
     const url = isTV
       ? `${TORRENTIO_API}/stream/series/${imdbId}:${season}:${episode}.json`
       : `${TORRENTIO_API}/stream/movie/${imdbId}.json`;
 
-    console.log("[DIAG] Querying Torrentio URL:", url);
+    console.log("[TORRA] Scraping URL:", url);
 
-    const res = await fetchWithTimeout(url, {
-      headers: HEADERS,
-      timeout: 15000,
-      skipSizeCheck: true
-    });
-
-    if (!res.ok) {
-      console.log(`[DIAG ERROR] Torrentio API blocked request. Status: ${res.status}`);
+    const res = await fetchWithTimeout(url, { headers: HEADERS });
+    if (!res || !res.ok) {
+      console.log(`[TORRA] Torrentio Engine dropped endpoint connection. Status: ${res ? res.status : 'Dead'}`);
       return [];
     }
 
     const json = await res.json();
-
-    if (!json || !json.streams || json.streams.length === 0) {
-      console.log("[DIAG WARNING] Torrentio returned 0 streams. You might be rate-limited.");
-      return [];
-    }
+    if (!json || !json.streams) return [];
 
     const streams = [];
     for (const stream of json.streams.slice(0, 15)) {
@@ -115,7 +100,7 @@ async function invokeTorrentio(imdbId, season, episode) {
         const title = stream.title || "";
         const quality = extractQuality(title);
         const seeders = title.match(/👤\s*(\d+)/)?.[1] || "?";
-        const magnet = buildMagnet(stream.infoHash);
+        const magnet = stream.url || buildMagnet(stream.infoHash);
 
         if (!magnet) continue;
 
@@ -128,32 +113,26 @@ async function invokeTorrentio(imdbId, season, episode) {
       } catch (inner) {}
     }
 
-    console.log(`[DIAG SUCCESS] Successfully parsed ${streams.length} links.`);
     return streams;
-
   } catch (e) {
-    console.log("[DIAG CRASH] Torrentio connection dropped completely.", e.message || e);
     return [];
   }
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    const normalizedType = (mediaType === "tv" || mediaType === "series") ? "tv" : "movie";
-    
-    const imdbId = await getImdbId(tmdbId, normalizedType);
+    if (!tmdbId) return [];
+
+    const imdbId = await getImdbId(tmdbId, mediaType);
     if (!imdbId) {
-      console.log("[DIAG ABORT] Script stopped early because IMDB extraction returned nothing.");
+      console.log("[TORRA] Error: Mapping TMDB to IMDB ID returned empty results.");
       return [];
     }
 
-    return await invokeTorrentio(
-      imdbId,
-      normalizedType === "tv" ? season : null,
-      normalizedType === "tv" ? episode : null
-    );
+    console.log(`[TORRA] Mapped IMDB Identity: ${imdbId}`);
+    return await invokeTorrentio(imdbId, mediaType, season || 1, episode || 1);
   } catch (e) {
-    console.log("[DIAG FATAL MASTER ERROR]", e);
+    console.log("[TORRA MASTER CRASH]", e);
     return [];
   }
 }

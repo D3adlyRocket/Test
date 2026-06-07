@@ -1,13 +1,9 @@
 const cheerio = require('cheerio-without-node-native');
 // dudefilms.js
 // DudeFilms - Hindi/Bollywood/South Indian movie & series site (dudefilms.sarl)
-// Search: /page/1/?s={query}
-// Download links: a.maxbutton → redirect pages with more maxbutton links → final stream URLs
-// Uses Cinemeta for metadata enhancement
 
 const BASE_URL = "https://dudefilms.irish";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-const CINEMETA_URL = "https://v3-cinemeta.strem.io/meta";
 const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
   "Referer": `${BASE_URL}/`
@@ -20,6 +16,66 @@ function extractQuality(url) {
   if (u.includes("720p")) return "720p";
   if (u.includes("480p")) return "480p";
   return "Unknown";
+}
+
+/**
+ * Resolves intermediate HubCloud landing pages down to the final stream/download links
+ */
+async function resolveHubCloud(landingUrl) {
+  try {
+    const hubHeaders = {
+      "User-Agent": HEADERS["User-Agent"],
+      "Referer": BASE_URL
+    };
+
+    // 1. Fetch the HubCloud landing page HTML (the one from your screenshots)
+    const res = await fetch(landingUrl, { headers: hubHeaders });
+    const html = await res.text();
+    const $ = cheerio.load(html);
+    
+    const resolvedStreams = [];
+
+    // Strategy A: Find the ultra-fast direct cloud CDN server link
+    $('a[href*="hubcloud.cx"]').each((i, el) => {
+      const href = $(el).attr('href');
+      if (href) {
+        resolvedStreams.push({
+          url: href,
+          quality: extractQuality(href),
+          title: "DudeFilms (HubCloud HighSpeed)"
+        });
+      }
+    });
+
+    // Strategy B: Find the obsession stream link
+    $('a[href*="obobsession.buzz"]').each((i, el) => {
+      const href = $(el).attr('href');
+      if (href) {
+        resolvedStreams.push({
+          url: href,
+          quality: extractQuality(href),
+          title: "DudeFilms (Obsession Stream)"
+        });
+      }
+    });
+
+    // Strategy C: Fallback to the Pixeldrain mirror
+    $('a[href*="pixeldrain.dev"]').each((i, el) => {
+      const href = $(el).attr('href');
+      if (href) {
+        resolvedStreams.push({
+          url: href,
+          quality: extractQuality(href),
+          title: "DudeFilms (Pixeldrain Mirror)"
+        });
+      }
+    });
+
+    return resolvedStreams;
+  } catch (err) {
+    console.error("[HubCloud Resolver Error]", err);
+    return [];
+  }
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -55,10 +111,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const pageHtml = await (await fetch(pageUrl, { headers: HEADERS})).text();
     const $page = cheerio.load(pageHtml);
 
-    const streams = [];
+    const intermediateLinks = [];
 
     if (isTV) {
-      // Find season headers (h4 with "Season N") then follow links to episode pages
       let found = false;
       const h4s = $page("h4").toArray();
 
@@ -89,13 +144,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                 const epUrl = $seasonPage(epBtn).attr("href");
                 if (!epUrl) continue;
 
-                // This URL is a final stream link
-                streams.push({
-                  url: epUrl,
-                  quality: extractQuality(epUrl),
-                  title: `DudeFilms [S${season}E${episode}]`,
-                  subtitles: []
-                });
+                if (epUrl.includes("hubcloud") || epUrl.includes("gkyfilehost")) {
+                  intermediateLinks.push(epUrl);
+                }
                 found = true;
                 break;
               }
@@ -105,7 +156,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
       }
     } else {
-      // Movie: follow a.maxbutton links
+      // Movie: gather redirect landing urls
       const maxButtons = $page("a.maxbutton").toArray();
       for (const btn of maxButtons) {
         try {
@@ -116,19 +167,31 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           $btn("a.maxbutton").each((i, a) => {
             const href = $btn(a).attr("href");
             if (href && href.startsWith("http")) {
-              streams.push({
-                url: href,
-                quality: extractQuality(href),
-                title: `DudeFilms`,
-                subtitles: []
-              });
+              intermediateLinks.push(href);
             }
           });
         } catch (e) {}
       }
     }
 
-    return streams;
+    // 4. Resolve the intermediate links into true playable streams
+    const finalStreams = [];
+    for (const rawUrl of intermediateLinks) {
+      if (rawUrl.includes("hubcloud")) {
+        const resolved = await resolveHubCloud(rawUrl);
+        finalStreams.push(...resolved);
+      } else {
+        // Fallback placeholder for other domain types (like gkyfilehost) if they match clean urls
+        finalStreams.push({
+          url: rawUrl,
+          quality: extractQuality(rawUrl),
+          title: "DudeFilms (Direct)",
+          subtitles: []
+        });
+      }
+    }
+
+    return finalStreams;
   } catch (e) {
     console.error("[DudeFilms]", e);
     return [];

@@ -1,4 +1,3 @@
-
 // ================= XDmovies =================
 const cheerio = require('cheerio-without-node-native');
 
@@ -8,13 +7,11 @@ const XDMOVIES_API = "https://top.xdmovies.wtf";
 const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
-// Hardcoded decoded token to prevent atob() engine crashes
 const XDMOVIES_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36...",
+    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
     "Referer": `${XDMOVIES_API}/`,
-    "Cookie": "cf_clearance=yJd3t8J8NIoFYfkyY.U.rS3v12Yvifks4hGobprsWLo-1780842511-1.2.1.1-HStTbSPWY6pID5piVX3ILj2vZIm_9brOoULrppNhvSLOeGZC3fz57YNUUiDIvyFgmWetuwxVSueevcwrmds9_xtwqV5uYfwtyDv5zbseZFeCwzYiUKGq93GcWABkiDBMhpoPol.DFG449bMZZdQ.QAbACuqOhwM_.fE9SSfboYNz3xuFb_WguQKkfhApF4OquBmlEmcVsiW13yMvHdgOqLIN0SLiwlGMyIqLkaxseNggEfI2P.n6_ZsXXwr.E5dOetE2S9CyY87h0jqop6Qt2JDx6CCWxDNzg_3ZIe.MYvugC61ORyP8dnCXGUB1KDVFoErNvEwpt8RV8ihf2zKgmHt1hxSVMRu6QMK0DgTnx7fb8TNY4iAQGDkeUvPgzR5l4I9gcaSDtnL8RXHBRzeu72mpwWDtU.j_BIx_c9K7tdI; _ga=GA1.1.464820671.1780843214; _ga_KFGX1HHK8C=GS2.1.s1780843214$o1$g1$t1780843662$j59$l0$h0",
-    "x-requested-with": "XMLHttpRequest",
-    "x-auth-token": atob("NzI5N3Nra2loa2Fqd25zZ2FrbGFrc2h1d2Q=")
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+    "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8"
 };
 
 const HEADERS = {
@@ -141,16 +138,7 @@ function hbLinksExtractor(url, referer) {
 }
 
 function hubCdnExtractor(url, referer) {
-    return fetch(url, { headers: { ...HEADERS, Referer: referer } })
-        .then(res => res.text())
-        .then(data => {
-            const encodedMatch = data.match(/r=([A-Za-z0-9+/=]+)/);
-            if (encodedMatch && encodedMatch[1]) {
-                // Safe basic replacement alternative to complex atob
-                return []; 
-            }
-            return [];
-        }).catch(() => []);
+    return Promise.resolve([]);
 }
 
 function hubDriveExtractor(url, referer) {
@@ -249,7 +237,7 @@ function loadExtractor(url, referer) {
 
         if (hostname.includes('hubcloud')) return hubCloudExtractor(url, ref);
         if (hostname.includes('hubdrive')) return hubDriveExtractor(url, ref);
-        if (hostname.includes('hubcdn')) return hubCdnExtractor(url, ref);
+        if (hostname.includes('hubcdn')) return Promise.resolve([]);
         if (hostname.includes('hblinks')) return hbLinksExtractor(url, ref);
         if (hostname.includes('hubstream')) return hubStreamExtractor(url, ref);
         if (hostname.includes('pixeldrain')) return pixelDrainExtractor(url);
@@ -289,21 +277,32 @@ function getStreams(tmdbId, mediaType = 'movie', season = null, episode = null) 
         .then(mediaInfo => {
             if (!mediaInfo?.title) return [];
 
-            return fetch(`${XDMOVIES_API}/php/search_api.php?query=${encodeURIComponent(mediaInfo.title)}&fuzzy=true`, { headers: XDMOVIES_HEADERS })
+            // CHANGED: Querying the main search HTML page instead of the broken search_api.php backend endpoint
+            return fetch(`${XDMOVIES_API}/search.html?q=${encodeURIComponent(mediaInfo.title)}`, { headers: XDMOVIES_HEADERS })
                 .then(r => r.ok ? r.text() : '')
-                .then(text => {
-                    try { return JSON.parse(text); } catch (_) { return []; }
-                })
-                .then(searchData => {
-                    if (!Array.isArray(searchData)) return [];
-                    const matched = searchData.find(x => Number(x.tmdb_id) === Number(tmdbId));
-                    if (!matched?.path) return [];
+                .then(html => {
+                    if (!html) return [];
+                    const $ = cheerio.load(html);
+                    let matchedPath = null;
 
-                    return fetch(XDMOVIES_API + matched.path, { headers: XDMOVIES_HEADERS })
+                    // Scrape movie cards dynamically from search results page
+                    $('div.movie-grid a.movie-card').each((_, el) => {
+                        const href = $(el).attr('href');
+                        const cardTitle = $(el).find('.movie-title').text() || '';
+                        
+                        // String matching validation check
+                        if (href && cardTitle.toLowerCase().includes(mediaInfo.title.toLowerCase())) {
+                            matchedPath = href;
+                        }
+                    });
+
+                    if (!matchedPath) return [];
+
+                    return fetch(XDMOVIES_API + matchedPath, { headers: XDMOVIES_HEADERS })
                         .then(r => r.ok ? r.text() : '')
-                        .then(html => {
-                            if (!html) return [];
-                            const $ = cheerio.load(html);
+                        .then(htmlPage => {
+                            if (!htmlPage) return [];
+                            const $page = cheerio.load(htmlPage);
                             const collectedUrls = [];
 
                             const resolveRedirect = (url) => 
@@ -312,19 +311,19 @@ function getStreams(tmdbId, mediaType = 'movie', season = null, episode = null) 
                                     .catch(() => url);
 
                             if (!season) {
-                                const rawLinks = $('div.download-item a[href]').map((_, a) => $(a).attr('href')).get();
+                                const rawLinks = $page('div.download-item a[href]').map((_, a) => $page(a).attr('href')).get();
                                 return Promise.all(rawLinks.map(raw => resolveRedirect(raw).then(u => { if (u) collectedUrls.push(u); }))).then(() => collectedUrls);
                             }
 
                             const epRegex = new RegExp(`S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`, 'i');
                             const jobs = [];
 
-                            $('div.episode-card').each((_, card) => {
-                                const $card = $(card);
+                            $page('div.episode-card').each((_, card) => {
+                                const $card = $page(card);
                                 if (!epRegex.test($card.find('.episode-title').text() || '')) return;
 
                                 $card.find('a[href]').each((_, a) => {
-                                    const raw = $(a).attr('href');
+                                    const raw = $page(a).attr('href');
                                     if (raw) jobs.push(resolveRedirect(raw).then(u => { if (u) collectedUrls.push(u); }));
                                 });
                             });

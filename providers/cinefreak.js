@@ -16,7 +16,8 @@ const PLAYBACK_HEADERS = {
   "User-Agent": BROWSER_UA,
   "Referer": "https://new5.cinecloud.site/",
   "Origin": "https://new5.cinecloud.site/"
-
+};
+    
 // =========================
 // Helpers
 // =========================

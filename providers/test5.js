@@ -1,6 +1,6 @@
 const cheerio = require('cheerio-without-node-native');
 // dudefilms.js
-// DudeFilms - Hindi/Bollywood/South Indian movie & series site
+// DudeFilms Engine - Dynamic Multi-Host Stream Resolver
 
 const BASE_URL = "https://dudefilms.irish";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -19,60 +19,70 @@ function extractQuality(url) {
 }
 
 /**
- * Universal resolver for Filepress, Gkyfilehost, Gdflix, and Dtflix
+ * Follows the dynamic routing chain through gamerxyt / bonuscaf wrapper nodes
  */
-async function resolveGenericHost(url, providerName) {
+async function resolveIntermediatePage(targetUrl) {
   try {
-    const res = await fetch(url, { headers: { "User-Agent": HEADERS["User-Agent"] } });
-    const html = await res.text();
-    const $ = cheerio.load(html);
-    
-    const streams = [];
-
-    // Look for common direct stream/download link patterns used by these specific templates
-    // Pattern 1: Look for explicit stream, watch online, or fast download buttons
-    $('a[href*="/download/"], a[href*="/stream/"], a.btn-success, a.btn-primary').each((i, el) => {
-      const href = $(el).attr('href');
-      if (href && href.startsWith('http')) {
-        streams.push({
-          url: href,
-          quality: extractQuality(url),
-          title: `DudeFilms (${providerName})`
-        });
+    const fetchOptions = {
+      headers: {
+        "User-Agent": HEADERS["User-Agent"],
+        "Referer": BASE_URL
       }
-    });
+    };
 
-    // Pattern 2: Fallback to searching all anchors on the landing page if Pattern 1 yields nothing
-    if (streams.length === 0) {
-      $('a').each((i, el) => {
-        const href = $(el).attr('href');
-        // Filter out typical UI layout paths, only grab apparent stream links
-        if (href && href.startsWith('http') && !href.includes('login') && !href.includes('register') && !href.includes('telegram')) {
-          streams.push({
-            url: href,
-            quality: extractQuality(url),
-            title: `DudeFilms (${providerName} Alt)`
-          });
-        }
+    // 1. Fetch initial landing response string
+    const response = await fetch(targetUrl, fetchOptions);
+    const htmlText = await response.text();
+    
+    // Check if the page is forcing a hardcoded script redirection to an ad network
+    const bonuscafMatch = htmlText.match(/window\.location\.href\s*=\s*['"]([^'"]+bonuscaf\.com\/go\/[^'"]+)['"]/);
+    if (bonuscafMatch) {
+      const adRedirectUrl = bonuscafMatch[1];
+      // Fetch the redirect wall container safely to read the internal structural elements
+      const followRes = await fetch(adRedirectUrl, fetchOptions);
+      return await followRes.text();
+    }
+    
+    return htmlText;
+  } catch (e) {
+    console.error("[Resolver Request Failure]", e);
+    return "";
+  }
+}
+
+/**
+ * Extracts true playable file configurations out of parsed document nodes
+ */
+function extractMediaStreams(htmlContent, fallbackUrl) {
+  const $ = cheerio.load(htmlContent);
+  const streams = [];
+
+  // Precision extraction filter targeting explicitly defined server element button tags
+  $('a[href*="hubcloud"], a[href*="obobsession"], a[href*="pixeldrain"], a[href*="busycdn"], a.btn-success, a.btn-danger').each((i, el) => {
+    const href = $(el).attr('href');
+    const label = $(el).text().trim().replace(/\s+/g, ' ');
+    
+    if (href && href.startsWith('http') && !href.includes('bonuscaf') && !href.includes('gamerxyt')) {
+      streams.push({
+        url: href,
+        quality: extractQuality(href !== fallbackUrl ? href : fallbackUrl),
+        title: `DudeFilms [${label || 'HighSpeed Server'}]`
       });
     }
+  });
 
-    return streams;
-  } catch (err) {
-    console.error(`[Resolver Error - ${providerName}]`, err);
-    return [];
-  }
+  return streams;
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // 1. Get title from TMDB
+    // 1. Resolve Target Metadata Title via TMDB API
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl)).json();
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Search
+    // 2. Query Site Directory Index
     const searchUrl = `${BASE_URL}/page/1/?s=${encodeURIComponent(title)}`;
     const searchHtml = await (await fetch(searchUrl, { headers: HEADERS})).text();
     const $ = cheerio.load(searchHtml);
@@ -93,11 +103,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const pageUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
 
-    // 3. Load show page
+    // 3. Parse Destination Show/Movie Framework Page
     const pageHtml = await (await fetch(pageUrl, { headers: HEADERS})).text();
     const $page = cheerio.load(pageHtml);
 
-    const intermediateLinks = [];
+    const intermediateUrls = [];
 
     if (isTV) {
       let found = false;
@@ -128,9 +138,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                 if (!epMatch || parseInt(epMatch[1]) !== episode) continue;
 
                 const epUrl = $seasonPage(epBtn).attr("href");
-                if (epUrl) {
-                  intermediateLinks.push(epUrl);
-                }
+                if (epUrl) intermediateUrls.push(epUrl);
                 found = true;
                 break;
               }
@@ -140,7 +148,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
       }
     } else {
-      // Movie: gather redirect landing urls from the page buttons
+      // Movie Link Matrix Extraction
       const maxButtons = $page("a.maxbutton").toArray();
       for (const btn of maxButtons) {
         try {
@@ -151,45 +159,37 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           $btn("a.maxbutton").each((i, a) => {
             const href = $btn(a).attr("href");
             if (href && href.startsWith("http")) {
-              intermediateLinks.push(href);
+              intermediateUrls.push(href);
             }
           });
         } catch (e) {}
       }
     }
 
-    // 4. Resolve the intermediate links into true playable streams
+    // 4. Trace the intermediate redirection layers to clean out junk components
     const finalStreams = [];
-    for (const rawUrl of intermediateLinks) {
-      if (rawUrl.includes("filepress")) {
-        const resolved = await resolveGenericHost(rawUrl, "Filepress");
-        finalStreams.push(...resolved);
-      } else if (rawUrl.includes("gkyfilehost")) {
-        const resolved = await resolveGenericHost(rawUrl, "GkyFileHost");
-        finalStreams.push(...resolved);
-      } else if (rawUrl.includes("dtflix")) {
-        const resolved = await resolveGenericHost(rawUrl, "DtFlix");
-        finalStreams.push(...resolved);
-      } else if (rawUrl.includes("gdflix")) {
-        const resolved = await resolveGenericHost(rawUrl, "GdFlix");
-        finalStreams.push(...resolved);
-      } else if (rawUrl.includes("gofile")) {
-        const resolved = await resolveGenericHost(rawUrl, "GoFile");
-        finalStreams.push(...resolved);
+    for (const link of intermediateUrls) {
+      // Intercept wrapper paths and extract real data payload
+      if (link.includes("gamerxyt.com") || link.includes("hubcloud") || link.includes("gdflix") || link.includes("filepress")) {
+        const resolvedHtml = await resolveIntermediatePage(link);
+        if (resolvedHtml) {
+          const extracted = extractMediaStreams(resolvedHtml, link);
+          finalStreams.push(...extracted);
+        }
       } else {
-        // Fallback placeholder if it's already a direct streaming format
+        // Safe direct fallback mechanism
         finalStreams.push({
-          url: rawUrl,
-          quality: extractQuality(rawUrl),
-          title: "DudeFilms (Direct Link)"
+          url: link,
+          quality: extractQuality(link),
+          title: "DudeFilms (Direct Stream Link)"
         });
       }
     }
 
-    // Filter out duplicates and empty results before returning
-    return finalStreams.filter(stream => stream.url);
+    // Remove duplicates or unparsed blank strings before rendering sources array
+    return finalStreams.filter((item, pos, self) => self.findIndex(v => v.url === item.url) === pos);
   } catch (e) {
-    console.error("[DudeFilms Global Error]", e);
+    console.error("[DudeFilms Engine Critical Malfunction]", e);
     return [];
   }
 }

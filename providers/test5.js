@@ -22,11 +22,13 @@ const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
 const XDMOVIES_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36...",
     "Referer": `${XDMOVIES_API}/`,
+    "Cookie": "cf_clearance=yJd3t8J8NIoFYfkyY.U.rS3v12Yvifks4hGobprsWLo-1780842511-1.2.1.1-HStTbSPWY6pID5piVX3ILj2vZIm_9brOoULrppNhvSLOeGZC3fz57YNUUiDIvyFgmWetuwxVSueevcwrmds9_xtwqV5uYfwtyDv5zbseZFeCwzYiUKGq93GcWABkiDBMhpoPol.DFG449bMZZdQ.QAbACuqOhwM_.fE9SSfboYNz3xuFb_WguQKkfhApF4OquBmlEmcVsiW13yMvHdgOqLIN0SLiwlGMyIqLkaxseNggEfI2P.n6_ZsXXwr.E5dOetE2S9CyY87h0jqop6Qt2JDx6CCWxDNzg_3ZIe.MYvugC61ORyP8dnCXGUB1KDVFoErNvEwpt8RV8ihf2zKgmHt1hxSVMRu6QMK0DgTnx7fb8TNY4iAQGDkeUvPgzR5l4I9gcaSDtnL8RXHBRzeu72mpwWDtU.j_BIx_c9K7tdI; _ga=GA1.1.464820671.1780843214; _ga_KFGX1HHK8C=GS2.1.s1780843214$o1$g1$t1780843662$j59$l0$h0",
     "x-requested-with": "XMLHttpRequest",
     "x-auth-token": atob("NzI5N3Nra2loa2Fqd25zZ2FrbGFrc2h1d2Q=")
 };
+
 
 const HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0",

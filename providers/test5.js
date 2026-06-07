@@ -1,5 +1,5 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (String Order Correction Fix)
+// Nuvio-compatible Cinefreak scraper (Token Slicing Correction Fix)
 
 const BASE_URL = "https://www.cinefreak.net"; 
 const ALTERNATE_BASE_URL = "https://www.cinefreak.nl";
@@ -52,17 +52,11 @@ function resolvePlayableStream(href, title, quality) {
 
     const rawIdParam = idMatch[1];
     
-    // MATCH THE CONSOLE: Apply the regex replacement directly onto the ENCODED string first
-    const cleanedEncodedStr = rawIdParam.replace(/newgo\d*$/i, "").trim();
-
-    // Now decode the pre-scrubbed base64 string
-    let decoded = decodeBase64Safe(cleanedEncodedStr);
+    // Decode the base64 string directly
+    let decoded = decodeBase64Safe(rawIdParam);
     if (!decoded || !decoded.startsWith("http")) return href;
 
-    // Handle secondary clean up if 'newgo' bypassed the initial encoding string layer
-    decoded = decoded.replace(/newgo\d*$/i, "").trim();
-
-    // Isolate the token segment out of the decrypted path sequence (/f/, /x/, or /v/)
+    // Isolate the dynamic stream token from the URL paths (/f/, /x/, or /v/)
     let tokenSegment = decoded.split("/f/")[1] || decoded.split("/x/")[1] || decoded.split("/v/")[1] || "";
     if (!tokenSegment) {
       const fallbackHashMatch = decoded.match(/\/[fxv]\/([a-f0-9]+)/i);
@@ -71,7 +65,9 @@ function resolvePlayableStream(href, title, quality) {
 
     if (!tokenSegment) return href;
 
-    const targetHash = tokenSegment.replace(/newgo\d*$/i, "").trim();
+    // Slicing FIX: Split the string at the word "newgo" and keep only the preceding hash ID
+    let targetHash = tokenSegment.split("newgo")[0].trim();
+    
     if (targetHash.length < 6) return href;
 
     const cleanTitle = title

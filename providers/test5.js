@@ -166,55 +166,59 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
 
     // =========================
-    // MOVIE LOGIC
-    // =========================
-    const moviePromises = [];
+// MOVIE LOGIC
+// =========================
+const moviePromises = [];
 
-    $("div.download-links-div").each((_, container) => {
-      $(container)
-        .find("h4.movie-title")
-        .each((_, titleEl) => {
-          const qualMatch = $(titleEl)
-            .text()
-            .match(/(480p|720p|1080p|2160p)/i);
+$("div.download-links-div").each((_, container) => {
+  $(container)
+    .find("h4.movie-title")
+    .each((_, titleEl) => {
+      const qualMatch = $(titleEl)
+        .text()
+        .match(/(480p|720p|1080p|2160p)/i);
 
-          const qual = qualMatch ? qualMatch[1] : "Unknown";
+      const qual = qualMatch ? qualMatch[1] : "Unknown";
 
-          $(titleEl)
-            .next()
-            .find("a.dlbtn-download[href]")
-            .each((_, a) => {
-              const href = $(a).attr("href");
-              if (!href) return;
+      $(titleEl)
+        .next()
+        .find("a.dlbtn-download[href]")
+        .each((_, a) => {
+          const href = $(a).attr("href");
+          if (!href) return;
 
-              let targetUrl = href;
+          let targetUrl = href;
 
-              // Base64 decode check
-              try {
-                const idMatch = href.match(/id=([^&]+)/);
-                if (idMatch) {
-                  const decoded = decodeBase64Safe(idMatch[1]);
-                  if (decoded && decoded.startsWith("http")) {
-                    targetUrl = decoded;
-                  }
-                }
-              } catch (e) {
-                console.log("[base64 error]", e);
+          // Base64 decode check
+          try {
+            const idMatch = href.match(/id=([^&]+)/);
+            if (idMatch) {
+              let decoded = decodeBase64Safe(idMatch[1]);
+              if (decoded && decoded.startsWith("http")) {
+                
+                // FIX: Strip the anti-bot "newgo32" or trailing numbers from the end of the URL
+                decoded = decoded.replace(/newgo\d*$/, "");
+                
+                targetUrl = decoded;
               }
+            }
+          } catch (e) {
+            console.log("[base64 error]", e);
+          }
 
-              // Queue real asset extraction concurrently
-              const p = resolveFinalStreamUrl(targetUrl).then(finalUrl => {
-                streams.push({
-                  url: finalUrl,
-                  quality: qual,
-                  title: `Cinefreak [${qual}]`,
-                  subtitles: []
-                });
-              });
-              moviePromises.push(p);
+          // Queue real asset extraction concurrently
+          const p = resolveFinalStreamUrl(targetUrl).then(finalUrl => {
+            streams.push({
+              url: finalUrl,
+              quality: qual,
+              title: `Cinefreak [${qual}]`,
+              subtitles: []
             });
+          });
+          moviePromises.push(p);
         });
     });
+});
 
     // Wait for all redirect tasks to finish before completing execution
     await Promise.all(moviePromises);

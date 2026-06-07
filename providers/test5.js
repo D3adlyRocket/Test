@@ -1,8 +1,8 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (Full Reconstructed Implementation)
+// Nuvio-compatible Cinefreak scraper (Complete Production Subdomain Fix)
 
-const BASE_URL = "https://cinefreak.net"; 
-const ALTERNATE_BASE_URL = "https://cinefreak.nl";
+const BASE_URL = "https://www.cinefreak.net"; 
+const ALTERNATE_BASE_URL = "https://www.cinefreak.nl";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
 const cheerio = require("cheerio");
@@ -11,8 +11,8 @@ const HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,application/json,*/*;q=0.8",
-  "Referer": "https://cinefreak.net/",
-  "Origin": "https://cinefreak.net"
+  "Referer": "https://www.cinefreak.net/",
+  "Origin": "https://www.cinefreak.net"
 };
     
 // =========================
@@ -55,12 +55,12 @@ function resolvePlayableStream(href, title, quality) {
   try {
     // Locate the base64 encrypted query value inside the ID parameter
     const idMatch = href.match(/[?&]id=([^&"'\s]+)/);
-    if (!idMatch) return href; // Return original if pattern mismatch
+    if (!idMatch) return href; 
 
     let decoded = decodeBase64Safe(idMatch[1]);
     if (!decoded || !decoded.startsWith("http")) return href;
 
-    // Isolate the storage token segment out of the decrypted path sequence (/f/, /x/, or /v/)
+    // Isolate the token segment out of the decrypted sequence (/f/, /x/, or /v/)
     let tokenSegment = decoded.split("/f/")[1] || decoded.split("/x/")[1] || decoded.split("/v/")[1] || "";
     if (!tokenSegment) {
       const fallbackHashMatch = decoded.match(/\/[fxv]\/([a-f0-9]+)/i);
@@ -69,7 +69,7 @@ function resolvePlayableStream(href, title, quality) {
 
     if (!tokenSegment) return href;
 
-    // Strip out the non-hex anti-bot trailing variables (like newgo32) cleanly
+    // Clean out the trailing non-hex anti-bot variable tags (like newgo32) explicitly
     const targetHash = tokenSegment.replace(/newgo\d*$/i, "").trim();
     if (targetHash.length < 6) return href;
 
@@ -99,12 +99,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Fetch target from Search API using fallback domain layers
+    // 2. Fetch target from Search API using correct subdomain path tracking
     const timestamp = Date.now();
     let searchUrl = `${BASE_URL}/search-api.php?q=${encodeURIComponent(title)}&pg=1&_t=${timestamp}`;
     let searchResp = await fetch(searchUrl, { headers: HEADERS });
 
-    // Fallback path check if the main target routing domain dropped
+    // Fallback layer checking alternate domains if the connection drops out
     if (!searchResp.ok) {
       searchUrl = `${ALTERNATE_BASE_URL}/search-api.php?q=${encodeURIComponent(title)}&pg=1&_t=${timestamp}`;
       searchResp = await fetch(searchUrl, { headers: HEADERS });
@@ -125,8 +125,14 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     let match = results.find(r => (r.t || "").toLowerCase().includes(lcTitle)) || results[0];
     if (!match || !match.l) return [];
 
-    // Fix landing path layout assignment to prevent routing dropouts
-    let pageUrl = match.l.startsWith("http") ? match.l : `${BASE_URL}/${match.l}`;
+    // Force base subdomain URL rules across dynamic strings
+    let targetLink = match.l;
+    if (!targetLink.startsWith("http")) {
+      targetLink = `${BASE_URL}/${targetLink}`;
+    }
+    
+    // Normalize absolute paths to utilize proper layout rules
+    let pageUrl = targetLink.replace("https://cinefreak.", "https://www.cinefreak.");
     if (!pageUrl.endsWith("/")) {
       pageUrl += "/";
     }
@@ -136,8 +142,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     try {
       pageHtml = await (await fetch(pageUrl, { headers: HEADERS })).text();
     } catch (err) {
-      // Direct secondary toggle validation check if cross-origin endpoints mismatch
-      pageUrl = pageUrl.replace("cinefreak.net", "cinefreak.nl");
+      // Toggle validation fallback check
+      pageUrl = pageUrl.includes(".net") ? pageUrl.replace(".net", ".nl") : pageUrl.replace(".nl", ".net");
       pageHtml = await (await fetch(pageUrl, { headers: HEADERS })).text();
     }
 

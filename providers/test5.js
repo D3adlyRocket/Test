@@ -1,5 +1,5 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (Direct R2 Mapping Fix)
+// Nuvio-compatible Cinefreak scraper (Deterministic Direct Stream Fix)
 
 const BASE_URL = "https://cinefreak.nl";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -25,49 +25,69 @@ function extractQuality(str = "") {
   return "Unknown";
 }
 
+/**
+ * Robust base64 decoder with strict padding validation to mimic browser-level flexibility.
+ */
 function decodeBase64Safe(str) {
   try {
-    return Buffer.from(decodeURIComponent(str), "base64").toString("utf-8");
+    let cleanStr = decodeURIComponent(str).trim();
+    // Normalize string string padding constraints for Node runtime environments
+    while (cleanStr.length % 4 !== 0) {
+      cleanStr += "=";
+    }
+    return Buffer.from(cleanStr, "base64").toString("utf-8");
   } catch {
     return null;
   }
 }
 
 /**
- * Strips out the unique hash from the protected gateway links
- * and converts it directly into a clean stream asset URL configuration.
+ * Forges the final stream target URL cleanly by separating the unique site hash ID
+ * away from the intermediate platform gateway strings.
  */
-function resolveFinalStreamUrl(url, title, quality) {
+function resolveFinalStreamUrl(rawHref, title, quality) {
   try {
-    if (url.includes(".r2.dev")) return url;
+    let base64Token = "";
 
-    // Isolate the dynamic hash ID (e.g., 2d592ad939c2490a8552659d1c27056f)
-    const hashIdMatch = url.match(/\/f\/([a-f0-9]+)/i);
-    
-    if (hashIdMatch && hashIdMatch[1]) {
-      const mediaId = hashIdMatch[1];
-      
-      // Clean and properly format the media title strings to match file storage layouts
-      const cleanedTitle = encodeURIComponent(
-        title
-          .replace(/[^a-zA-Z0-9\s()]/g, "")
-          .trim()
-          .replace(/\s+/g, " ")
-      );
+    // Extract raw base64 string directly from the URL target
+    const urlObj = new URL(rawHref, BASE_URL);
+    base64Token = urlObj.searchParams.get("id");
 
-      // Reconstruct the exact direct download CDN target path without firing external network requests
-      const directCdnUrl = `https://pub-${mediaId}.r2.dev/CINEFREAK.TOP%20-%20${cleanedTitle}%20%5B${quality}%5D.mkv`;
-      
-      // Fallback: If Nuvio prefers the embedded web player setup, return the active player structure
-      // const directCdnUrl = `https://stream.vagaverse.net/embed2/?id=https%3A%2F%2Fmovieto.in%2Ff%2F${mediaId}`;
-      
-      return directCdnUrl;
+    if (!base64Token) {
+      const fallbackMatch = rawHref.match(/id=([^&]+)/);
+      if (fallbackMatch) base64Token = fallbackMatch[1];
     }
 
-    return url;
+    if (base64Token) {
+      let decodedUrl = decodeBase64Safe(base64Token);
+      
+      if (decodedUrl && decodedUrl.startsWith("http")) {
+        // Purge tracking tags or trailing string artifacts (e.g. newgo32)
+        decodedUrl = decodedUrl.replace(/newgo\d*$/, "");
+
+        // Isolate the dynamic media asset index key sequence
+        const hashIdMatch = decodedUrl.match(/\/f\/([a-f0-9]+)/i);
+        if (hashIdMatch && hashIdMatch[1]) {
+          const mediaId = hashIdMatch[1];
+          
+          // Format standard alphanumeric text safely for asset distribution layouts
+          const urlFriendlyTitle = encodeURIComponent(
+            title
+              .replace(/[^a-zA-Z0-9\s()]/g, "")
+              .trim()
+              .replace(/\s+/g, " ")
+          );
+
+          // Build asset routing URL configuration pointing to direct object target blocks
+          return `https://pub-${mediaId}.r2.dev/CINEFREAK.TOP%20-%20${urlFriendlyTitle}%20%5B${quality}%5D.mkv`;
+        }
+        return decodedUrl;
+      }
+    }
+    return rawHref;
   } catch (e) {
-    console.log("[Cinefreak Direct Translation Error]", e);
-    return url; 
+    console.log("[Cinefreak Core Translation Error]", e);
+    return rawHref; 
   }
 }
 
@@ -76,7 +96,7 @@ function resolveFinalStreamUrl(url, title, quality) {
 // =========================
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // 1. TMDB
+    // 1. TMDB Meta Query Handling
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl)).json();
 
@@ -85,7 +105,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Search API
+    // 2. Search Index Fetch Validation
     const searchUrl = `${BASE_URL}/search-api.php?q=${encodeURIComponent(title)}&pg=1`;
     const searchResp = await fetch(searchUrl, { headers: HEADERS });
 
@@ -99,7 +119,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const results = Array.isArray(searchData?.results) ? searchData.results : [];
     if (!results.length) return [];
 
-    // 3. Match
+    // 3. String Alignment and Node Isolation
     const lcTitle = title.toLowerCase();
     let match = results.find(r => (r.t || "").toLowerCase().includes(lcTitle)) || results[0];
     if (!match) return [];
@@ -112,7 +132,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const isTV = mediaType === "tv";
 
     // =========================
-    // TV LOGIC
+    // TV LAYER LOGIC
     // =========================
     if (isTV) {
       let found = false;
@@ -138,19 +158,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           const text = $(a).text().trim();
           if (!href) return;
 
-          let targetUrl = href;
-          try {
-            const idMatch = href.match(/id=([^&]+)/);
-            if (idMatch) {
-              let decoded = decodeBase64Safe(idMatch[1]);
-              if (decoded && decoded.startsWith("http")) {
-                targetUrl = decoded.replace(/newgo\d*$/, "");
-              }
-            }
-          } catch (e) {}
-
           const qual = extractQuality(text);
-          const finalUrl = resolveFinalStreamUrl(targetUrl, title, qual);
+          const finalUrl = resolveFinalStreamUrl(href, title, qual);
           
           streams.push({
             url: finalUrl,
@@ -165,7 +174,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
 
     // =========================
-    // MOVIE LOGIC
+    // MOVIE LAYER LOGIC
     // =========================
     $("div.download-links-div").each((_, container) => {
       $(container)
@@ -181,21 +190,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
               const href = $(a).attr("href");
               if (!href) return;
 
-              let targetUrl = href;
-
-              try {
-                const idMatch = href.match(/id=([^&]+)/);
-                if (idMatch) {
-                  let decoded = decodeBase64Safe(idMatch[1]);
-                  if (decoded && decoded.startsWith("http")) {
-                    targetUrl = decoded.replace(/newgo\d*$/, "");
-                  }
-                }
-              } catch (e) {
-                console.log("[base64 error]", e);
-              }
-
-              const finalUrl = resolveFinalStreamUrl(targetUrl, title, qual);
+              const finalUrl = resolveFinalStreamUrl(href, title, qual);
               
               streams.push({
                 url: finalUrl,

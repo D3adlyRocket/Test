@@ -1,5 +1,5 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (fixed with redirect resolution)
+// Nuvio-compatible Cinefreak scraper (Fully fixed stream asset resolver)
 
 const BASE_URL = "https://cinefreak.nl";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -25,7 +25,6 @@ function extractQuality(str = "") {
   return "Unknown";
 }
 
-// safer base64 decoder (Nuvio-safe)
 function decodeBase64Safe(str) {
   try {
     return Buffer.from(decodeURIComponent(str), "base64").toString("utf-8");
@@ -35,20 +34,49 @@ function decodeBase64Safe(str) {
 }
 
 /**
- * Resolves intermediate gateway links and redirects to extract the 
- * final playable media asset URL (e.g., Cloudflare R2 storage bucket link).
+ * Deep-extracts the actual streaming file URL from the landing host page.
+ * Parses the internal script patterns or configurations to catch the asset target.
  */
 async function resolveFinalStreamUrl(url) {
   try {
-    const res = await fetch(url, {
-      method: "HEAD", // HEAD only fetches headers, avoiding heavy 2GB data transfers
-      headers: HEADERS,
-      redirect: "follow"
-    });
-    return res.url || url;
+    // 1. Fetch the actual content of the landing host page instead of just HEAD headers
+    const response = await fetch(url, { headers: HEADERS });
+    const htmlText = await response.text();
+
+    // If it's already a direct video file link or didn't hit the landing page, return the final URL
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("video/") || url.includes(".r2.dev")) {
+      return response.url || url;
+    }
+
+    // 2. Scan the webpage HTML body scripts for common source patterns or the R2 CDN host
+    // Matches patterns like "url": "...", file: "...", or direct .dev bucket links embedded inside the script config
+    const sourceRegexes = [
+      /["'](https:\/\/pub-[a-f0-9]+\.r2\.dev\/[^"']+)["']/i,
+      /file\s*:\s*["']([^"']+\.(?:mkv|mp4|m3u8)[^"']*)["']/i,
+      /src\s*:\s*["']([^"']+\.(?:mkv|mp4|m3u8)[^"']*)["']/i
+    ];
+
+    for (const regex of sourceRegexes) {
+      const match = htmlText.match(regex);
+      if (match && match[1]) {
+        // Clean any backslash escapes common in JSON/JS variables
+        return match[1].replace(/\\/g, "");
+      }
+    }
+
+    // 3. Fallback: Check if the landing page contains standard HTML5 video elements or download anchors
+    const $ = cheerio.load(htmlText);
+    const videoSrc = $("video").attr("src") || $("video source").attr("src") || $("a.download-btn").attr("href");
+    if (videoSrc && videoSrc.startsWith("http")) {
+      return videoSrc;
+    }
+
+    // If nothing structural is found, default to the followed page location
+    return response.url || url;
   } catch (e) {
-    console.log("[Cinefreak Redirect Error]", e);
-    return url; // Fallback to original URL if resolution fails
+    console.log("[Cinefreak Extraction Error]", e);
+    return url; 
   }
 }
 
@@ -148,7 +176,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
             if (!href) return;
 
-            // Queue URL resolution asynchronously
             const p = resolveFinalStreamUrl(href).then(finalUrl => {
               streams.push({
                 url: finalUrl,
@@ -166,61 +193,57 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
 
     // =========================
-// MOVIE LOGIC
-// =========================
-const moviePromises = [];
+    // MOVIE LOGIC
+    // =========================
+    const moviePromises = [];
 
-$("div.download-links-div").each((_, container) => {
-  $(container)
-    .find("h4.movie-title")
-    .each((_, titleEl) => {
-      const qualMatch = $(titleEl)
-        .text()
-        .match(/(480p|720p|1080p|2160p)/i);
+    $("div.download-links-div").each((_, container) => {
+      $(container)
+        .find("h4.movie-title")
+        .each((_, titleEl) => {
+          const qualMatch = $(titleEl)
+            .text()
+            .match(/(480p|720p|1080p|2160p)/i);
 
-      const qual = qualMatch ? qualMatch[1] : "Unknown";
+          const qual = qualMatch ? qualMatch[1] : "Unknown";
 
-      $(titleEl)
-        .next()
-        .find("a.dlbtn-download[href]")
-        .each((_, a) => {
-          const href = $(a).attr("href");
-          if (!href) return;
+          $(titleEl)
+            .next()
+            .find("a.dlbtn-download[href]")
+            .each((_, a) => {
+              const href = $(a).attr("href");
+              if (!href) return;
 
-          let targetUrl = href;
+              let targetUrl = href;
 
-          // Base64 decode check
-          try {
-            const idMatch = href.match(/id=([^&]+)/);
-            if (idMatch) {
-              let decoded = decodeBase64Safe(idMatch[1]);
-              if (decoded && decoded.startsWith("http")) {
-                
-                // FIX: Strip the anti-bot "newgo32" or trailing numbers from the end of the URL
-                decoded = decoded.replace(/newgo\d*$/, "");
-                
-                targetUrl = decoded;
+              // Base64 token translation logic
+              try {
+                const idMatch = href.match(/id=([^&]+)/);
+                if (idMatch) {
+                  let decoded = decodeBase64Safe(idMatch[1]);
+                  if (decoded && decoded.startsWith("http")) {
+                    // Strips off trailing "newgo32" obfuscators
+                    targetUrl = decoded.replace(/newgo\d*$/, "");
+                  }
+                }
+              } catch (e) {
+                console.log("[base64 error]", e);
               }
-            }
-          } catch (e) {
-            console.log("[base64 error]", e);
-          }
 
-          // Queue real asset extraction concurrently
-          const p = resolveFinalStreamUrl(targetUrl).then(finalUrl => {
-            streams.push({
-              url: finalUrl,
-              quality: qual,
-              title: `Cinefreak [${qual}]`,
-              subtitles: []
+              // Concurrently run deep stream extraction
+              const p = resolveFinalStreamUrl(targetUrl).then(finalUrl => {
+                streams.push({
+                  url: finalUrl,
+                  quality: qual,
+                  title: `Cinefreak [${qual}]`,
+                  subtitles: []
+                });
+              });
+              moviePromises.push(p);
             });
-          });
-          moviePromises.push(p);
         });
     });
-});
 
-    // Wait for all redirect tasks to finish before completing execution
     await Promise.all(moviePromises);
     return streams;
 
@@ -230,9 +253,6 @@ $("div.download-links-div").each((_, container) => {
   }
 }
 
-// =========================
-// REQUIRED EXPORT FOR NUVIO
-// =========================
 module.exports = {
   getStreams
 };

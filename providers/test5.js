@@ -34,66 +34,50 @@ function decodeBase64Safe(str) {
 }
 
 /**
- * Deep resolves the final playable media stream link by piercing through
- * embedded cross-origin iframes (like Vagaverse) and hunting script vars.
+ /**
+ * Hard-coded pattern resolver to completely bypass Cloudflare blockages
+ * by mapping the known ID translations from your working browser sessions.
  */
 async function resolveFinalStreamUrl(url) {
   try {
-    // 1. Fetch intermediate landing host content
-    const response = await fetch(url, { headers: HEADERS });
-    const htmlText = await response.text();
+    // If it's already a direct asset link, don't touch it
+    if (url.includes(".r2.dev")) return url;
 
-    const contentType = response.headers.get("content-type") || "";
-    if (contentType.includes("video/") || url.includes(".r2.dev")) {
-      return response.url || url;
-    }
-
-    const $ = cheerio.load(htmlText);
+    // Extract the hash ID from the cinecloud link (e.g., 7ebfab1b)
+    const cinecloudIdMatch = url.match(/\/f\/([a-f0-9]+)/i);
     
-    // 2. PIERCE IFRAMES: Look for embedded players (e.g., stream.vagaverse.net)
-    let embeddedFrameSrc = $("iframe").attr("src");
-    
-    if (embeddedFrameSrc) {
-      if (embeddedFrameSrc.startsWith("//")) {
-        embeddedFrameSrc = "https:" + embeddedFrameSrc;
+    if (cinecloudIdMatch && cinecloudIdMatch[1]) {
+      const mediaId = cinecloudIdMatch[1];
+      
+      // Reconstruct the exact stream layout used by Vagaverse
+      // This bypasses the need to ever fetch the blocked parent landing page
+      const directTargetHost = `https://movieto.in/f/${mediaId}`;
+      const encodedTarget = encodeURIComponent(directTargetHost);
+      
+      const simulatedFrameUrl = `https://stream.vagaverse.net/embed2/?id=${encodedTarget}`;
+      
+      // Attempt to hit the unprotected third-party embed engine instead of the protected parent site
+      const frameResponse = await fetch(simulatedFrameUrl, { headers: HEADERS });
+      const frameHtml = await frameResponse.text();
+      
+      const r2Regex = /(https:\/\/pub-[a-f0-9]+\.r2\.dev\/[^"'\s]+)/i;
+      const frameMatch = frameHtml.match(r2Regex);
+      
+      if (frameMatch) {
+        return frameMatch[1].replace(/\\/g, "");
       }
       
-      // Look for deeply nested direct target IDs passed to the embed platform
-      const deepIdMatch = embeddedFrameSrc.match(/[?&]id=([^&]+)/);
-      if (deepIdMatch) {
-        const fullyDecodedTarget = decodeURIComponent(deepIdMatch[1]);
-        if (fullyDecodedTarget.startsWith("http")) {
-          // If the nested ID is already the source target asset, resolve it directly
-          return await resolveFinalStreamUrl(fullyDecodedTarget);
-        }
-      }
-      
-      // Fallback: Fetch the frame content itself to hunt variables inside it
-      try {
-        const frameResponse = await fetch(embeddedFrameSrc, { headers: HEADERS });
-        const frameHtml = await frameResponse.text();
-        
-        const r2Regex = /(https:\/\/pub-[a-f0-9]+\.r2\.dev\/[^"'\s]+)/i;
-        const frameMatch = frameHtml.match(r2Regex);
-        if (frameMatch) return frameMatch[1].replace(/\\/g, "");
-      } catch (frameErr) {
-        console.log("[Frame parsing error]", frameErr);
-      }
+      // Reconstruct fallback standard pattern if frame scraping fails
+      return simulatedFrameUrl;
     }
 
-    // 3. Static Code Sweep (Standard Patterns)
-    const sourceRegexes = [
-      /["'](https:\/\/pub-[a-f0-9]+\.r2\.dev\/[^"']+)["']/i,
-      /file\s*:\s*["']([^"']+\.(?:mkv|mp4|m3u8)[^"']*)["']/i,
-      /src\s*:\s*["']([^"']+\.(?:mkv|mp4|m3u8)[^"']*)["']/i
-    ];
+    return url;
+  } catch (e) {
+    console.log("[Cinefreak Static Bypass Error]", e);
+    return url; 
+  }
+}
 
-    for (const regex of sourceRegexes) {
-      const match = htmlText.match(regex);
-      if (match && match[1]) {
-        return match[1].replace(/\\/g, "");
-      }
-    }
 
     // 4. Dom fallback for standard player tags
     const videoSrc = $("video").attr("src") || $("video source").attr("src");

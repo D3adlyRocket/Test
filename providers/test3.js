@@ -6,57 +6,41 @@ const HEADERS = {
   "Accept": "application/json"
 };
 
-// ======================================
-// ANDROID TV COMPATIBLE FETCH WRAPPER
-// ======================================
+// Android TV Friendly Fetch
 async function fetchWithTimeout(url, options = {}) {
-  const timeout = options.timeout || 20000; // 20 seconds default fallback for TV stales
-  
+  const timeout = options.timeout || 20000;
   if (typeof fetch === 'undefined') {
-    console.log("[ERROR] No fetch implementation found in this environment!");
+    console.log("[DIAG] CRITICAL: Fetch is completely undefined on this TV engine.");
     throw new Error("Fetch undefined");
   }
 
   let controller;
   let timeoutId;
 
-  // Safe check for environments that have half-baked or missing AbortController setups
   if (typeof AbortController !== 'undefined') {
     controller = new AbortController();
     options.signal = controller.signal;
     timeoutId = setTimeout(() => {
-      console.log(`[TIMEOUT] Request to ${url} timed out after ${timeout}ms`);
+      console.log(`[DIAG TIMEOUT] Stale connection dropped: ${url}`);
       controller.abort();
     }, timeout);
   }
 
   try {
-    const response = await fetch(url, options);
+    return await fetch(url, options);
+  } finally {
     if (timeoutId) clearTimeout(timeoutId);
-    return response;
-  } catch (err) {
-    if (timeoutId) clearTimeout(timeoutId);
-    throw err;
   }
 }
 
-// ======================================
-// QUALITY EXTRACTION
-// ======================================
 function extractQuality(str = "") {
   const u = str.toLowerCase();
-
   if (u.includes("2160p") || u.includes("4k")) return "4K";
   if (u.includes("1080p")) return "1080p";
   if (u.includes("720p")) return "720p";
-  if (u.includes("480p")) return "480p";
-
-  return "Unknown";
+  return "480p";
 }
 
-// ======================================
-// STATIC TRACKERS
-// ======================================
 const TRACKERS = [
   "udp://tracker.opentrackr.org:1337/announce",
   "udp://open.stealth.si:80/announce",
@@ -64,77 +48,68 @@ const TRACKERS = [
   "udp://exodus.desync.com:6969/announce"
 ];
 
-// ======================================
-// MAGNET BUILDER
-// ======================================
 function buildMagnet(infoHash) {
   if (!infoHash) return "";
-
-  const tr = TRACKERS.map(
-    t => `&tr=${encodeURIComponent(t)}`
-  ).join("");
-
+  const tr = TRACKERS.map(t => `&tr=${encodeURIComponent(t)}`).join("");
   return `magnet:?xt=urn:btih:${infoHash}${tr}`;
 }
 
-// ======================================
-// TMDB -> IMDB
-// ======================================
+// TMDB -> IMDB Lookup
 async function getImdbId(tmdbId, mediaType) {
   try {
-    const url =
-      `https://api.themoviedb.org/3/${mediaType}/${tmdbId}` +
-      `?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+    const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+    
+    console.log(`[DIAG] Attempting TMDB Fetch for ID: ${tmdbId}`);
+    const res = await fetchWithTimeout(url, { 
+      headers: HEADERS,
+      timeout: 12000,
+      skipSizeCheck: true 
+    });
 
-    // FIX: Swapped to fetchWithTimeout and appended HEADERS (Required for TV network security)
-    const res = await (
-      await fetchWithTimeout(url, { 
-        headers: HEADERS,
-        timeout: 15000,
-        skipSizeCheck: true 
-      })
-    ).json();
+    if (!res.ok) {
+      console.log(`[DIAG ERROR] TMDB responded with bad status: ${res.status}`);
+      return null;
+    }
 
-    return (
-      res.external_ids?.imdb_id ||
-      res.imdb_id ||
-      null
-    );
+    const data = await res.json();
+    const id = data.external_ids?.imdb_id || data.imdb_id || null;
+    console.log(`[DIAG SUCCESS] Found IMDB ID: ${id}`);
+    return id;
   } catch (e) {
-    console.log("[TMDB ERROR]", e);
+    console.log("[DIAG CRASH] TMDB Fetch crashed entirely. Network/SSL block suspected.", e.message || e);
     return null;
   }
 }
 
-// ======================================
-// TORRENTIO
-// ======================================
+// Torrentio Scraper
 async function invokeTorrentio(imdbId, season, episode) {
   try {
     const isTV = season != null && episode != null;
-
     const url = isTV
       ? `${TORRENTIO_API}/stream/series/${imdbId}:${season}:${episode}.json`
       : `${TORRENTIO_API}/stream/movie/${imdbId}.json`;
 
-    console.log("[TORRENTIO URL]", url);
+    console.log("[DIAG] Querying Torrentio URL:", url);
 
-    // FIX: Wrapped in fetchWithTimeout to prevent permanent background connection hangs
     const res = await fetchWithTimeout(url, {
       headers: HEADERS,
-      timeout: 20000,
+      timeout: 15000,
       skipSizeCheck: true
     });
 
+    if (!res.ok) {
+      console.log(`[DIAG ERROR] Torrentio API blocked request. Status: ${res.status}`);
+      return [];
+    }
+
     const json = await res.json();
 
-    if (!json || !json.streams) {
-      console.log("[TORRENTIO] No streams");
+    if (!json || !json.streams || json.streams.length === 0) {
+      console.log("[DIAG WARNING] Torrentio returned 0 streams. You might be rate-limited.");
       return [];
     }
 
     const streams = [];
-
     for (const stream of json.streams.slice(0, 15)) {
       try {
         const title = stream.title || "";
@@ -150,50 +125,37 @@ async function invokeTorrentio(imdbId, season, episode) {
           title: `Torrentio | ${quality} | 👤 ${seeders}`,
           subtitles: []
         });
-
-      } catch (e) {}
+      } catch (inner) {}
     }
 
+    console.log(`[DIAG SUCCESS] Successfully parsed ${streams.length} links.`);
     return streams;
 
   } catch (e) {
-    console.log("[TORRENTIO ERROR]", e);
+    console.log("[DIAG CRASH] Torrentio connection dropped completely.", e.message || e);
     return [];
   }
 }
 
-// ======================================
-// MAIN
-// ======================================
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // TMDB -> IMDB
-    const imdbId = await getImdbId(tmdbId, mediaType);
-
+    const normalizedType = (mediaType === "tv" || mediaType === "series") ? "tv" : "movie";
+    
+    const imdbId = await getImdbId(tmdbId, normalizedType);
     if (!imdbId) {
-      console.log("[TORRA] No IMDB ID");
+      console.log("[DIAG ABORT] Script stopped early because IMDB extraction returned nothing.");
       return [];
     }
 
-    console.log("[TORRA IMDB]", imdbId);
-
-    const streams = await invokeTorrentio(
+    return await invokeTorrentio(
       imdbId,
-      mediaType === "tv" || mediaType === "series" ? season : null,
-      mediaType === "tv" || mediaType === "series" ? episode : null
+      normalizedType === "tv" ? season : null,
+      normalizedType === "tv" ? episode : null
     );
-
-    return streams;
-
   } catch (e) {
-    console.log("[TORRA FATAL]", e);
+    console.log("[DIAG FATAL MASTER ERROR]", e);
     return [];
   }
 }
 
-// ======================================
-// REQUIRED
-// ======================================
-module.exports = {
-  getStreams
-};
+module.exports = { getStreams };

@@ -1,5 +1,5 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (Complete Production Subdomain Fix)
+// Nuvio-compatible Cinefreak scraper (Complete Production Implementation)
 
 const BASE_URL = "https://www.cinefreak.net"; 
 const ALTERNATE_BASE_URL = "https://www.cinefreak.nl";
@@ -60,7 +60,10 @@ function resolvePlayableStream(href, title, quality) {
     let decoded = decodeBase64Safe(idMatch[1]);
     if (!decoded || !decoded.startsWith("http")) return href;
 
-    // Isolate the token segment out of the decrypted sequence (/f/, /x/, or /v/)
+    // Hard-clean the decoded URL to eliminate anti-bot noise (e.g. newgo32) right away
+    decoded = decoded.replace(/newgo\d*$/i, "").trim();
+
+    // Isolate the token segment out of the decrypted path sequence (/f/, /x/, or /v/)
     let tokenSegment = decoded.split("/f/")[1] || decoded.split("/x/")[1] || decoded.split("/v/")[1] || "";
     if (!tokenSegment) {
       const fallbackHashMatch = decoded.match(/\/[fxv]\/([a-f0-9]+)/i);
@@ -69,7 +72,7 @@ function resolvePlayableStream(href, title, quality) {
 
     if (!tokenSegment) return href;
 
-    // Clean out the trailing non-hex anti-bot variable tags (like newgo32) explicitly
+    // Secondary deep verification cleanup step to pull the exact clean hex ID sequence out
     const targetHash = tokenSegment.replace(/newgo\d*$/i, "").trim();
     if (targetHash.length < 6) return href;
 

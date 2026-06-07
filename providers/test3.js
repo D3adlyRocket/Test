@@ -1,16 +1,14 @@
-const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const TORRENTIO_API = "https://torrentio.strem.fun";
 
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   "Accept": "application/json"
 };
 
 // =========================================================================
-// ARCHITECTURAL IMPLEMENTATIONS FROM CODE 1 (Safeguards for TV Runtimes)
+// WORKING CODE EXECUTION IMPLEMENTATIONS (Safeguards for TV Runtimes)
 // =========================================================================
 
-// Safe Object Properties Merger (replaces standard object assigns or spreads that fail on older TVs)
 const objProtoHasOwn = Object.prototype.hasOwnProperty;
 const objProtoIsEnum = Object.prototype.propertyIsEnumerable;
 const getSymbols = Object.getOwnPropertySymbols;
@@ -32,7 +30,6 @@ const mergeProperties = (target, source) => {
   return target;
 };
 
-// Custom TV Async Runner (Ensures Generator-based Async Tasks execute reliably on limited runtimes)
 function tvAsyncRunner(self, args, generatorFunc) {
   return new Promise((resolve, reject) => {
     var onFulfilled = res => { try { step(generatorFunc.next(res)); } catch (e) { reject(e); } };
@@ -42,17 +39,14 @@ function tvAsyncRunner(self, args, generatorFunc) {
   });
 }
 
-// Android TV Fallback Abort / Timeout Signal Controller
 function createTimeoutSignal(ms) {
   let parsedMs = Number.parseInt(String(ms), 10);
   if (!Number.isFinite(parsedMs) || parsedMs <= 0) {
     return { signal: undefined, cleanup: null, timed: false };
   }
-  // If the TV engine natively supports AbortSignal.timeout
   if (typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function') {
     return { signal: AbortSignal.timeout(parsedMs), cleanup: null, timed: true };
   }
-  // Manual AbortController + setTimeout fallback loop for older TV layers
   if (typeof AbortController !== 'undefined' && typeof setTimeout === 'function') {
     let controller = new AbortController();
     let timeoutId = setTimeout(() => { controller.abort(); }, parsedMs);
@@ -61,12 +55,11 @@ function createTimeoutSignal(ms) {
   return { signal: undefined, cleanup: null, timed: false };
 }
 
-// The Exact fetchWithTimeout Wrapper utilized by the first script
 function fetchWithTimeout(url, options = {}) {
   return tvAsyncRunner(this, arguments, function* (targetUrl, fetchOpts = {}) {
     if (typeof fetch === 'undefined') throw new Error("No fetch implementation found!");
     
-    let originalTimeout = fetchOpts.timeout || 20000; // 20000ms from the original script
+    let originalTimeout = fetchOpts.timeout || 20000;
     let timeoutObj = createTimeoutSignal(originalTimeout);
     let requestConfig = mergeProperties({}, fetchOpts);
 
@@ -81,9 +74,6 @@ function fetchWithTimeout(url, options = {}) {
     try {
       return yield fetch(targetUrl, requestConfig);
     } catch (fetchErr) {
-      if (fetchErr && fetchErr.name === 'AbortError' && timeoutObj.timed) {
-        throw new Error("Request to " + targetUrl + " timed out after " + originalTimeout + "ms");
-      }
       throw fetchErr;
     } finally {
       if (typeof timeoutObj.cleanup === 'function') timeoutObj.cleanup();
@@ -92,7 +82,7 @@ function fetchWithTimeout(url, options = {}) {
 }
 
 // =========================================================================
-// CORE SCRAPER UTILITIES
+// MAGNET UTILITIES
 // =========================================================================
 
 function extractQuality(str = "") {
@@ -118,52 +108,33 @@ function buildMagnet(infoHash) {
 }
 
 // =========================================================================
-// DATA FETCHING LAYERS (Wrapped in the TV runtime async engine)
+// CORE TV ROUTING GATEWAY (Direct IMDB Pipeline mapping)
 // =========================================================================
 
-function getImdbId(tmdbId, mediaType) {
-  return tvAsyncRunner(this, arguments, function* (id, type) {
+function invokeTorrentio(imdbId, mediaType, season, episode) {
+  return tvAsyncRunner(this, arguments, function* (id, type, s, e) {
     try {
-      const url = `https://api.themoviedb.org/3/${type}/${id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+      const isTV = type === "tv" || type === "series";
       
-      // Fixed: Injecting runtime-safe fetch wrapper and appending the mandatory HEADERS configuration
-      const response = yield fetchWithTimeout(url, { 
-        headers: HEADERS, 
-        timeout: 20000, 
-        skipSizeCheck: true 
-      });
-      
-      const res = yield response.json();
-      return res.external_ids?.imdb_id || res.imdb_id || null;
-    } catch (e) {
-      return null;
-    }
-  });
-}
+      // Clean up string ID variations if passed inside objects on older layouts
+      let cleanImdbId = String(id || '').trim();
 
-function invokeTorrentio(imdbId, season, episode) {
-  return tvAsyncRunner(this, arguments, function* (id, s, e) {
-    try {
-      const isTV = s != null && e != null;
       const url = isTV
-        ? `${TORRENTIO_API}/stream/series/${id}:${s}:${e}.json`
-        : `${TORRENTIO_API}/stream/movie/${id}.json`;
+        ? `${TORRENTIO_API}/stream/series/${cleanImdbId}:${s || 1}:${e || 1}.json`
+        : `${TORRENTIO_API}/stream/movie/${cleanImdbId}.json`;
 
-      console.log("[TORRENTIO URL]", url);
+      console.log("[TORRENTIO TV URL]", url);
 
-      // Using the exact timeout behavior context from the working script
       const response = yield fetchWithTimeout(url, {
         headers: HEADERS,
         timeout: 20000,
         skipSizeCheck: true
       });
 
+      if (!response || !response.ok) return [];
       const json = yield response.json();
 
-      if (!json || !json.streams) {
-        console.log("[TORRENTIO] No streams");
-        return [];
-      }
+      if (!json || !json.streams) return [];
 
       const streams = [];
       for (const stream of json.streams.slice(0, 15)) {
@@ -186,41 +157,30 @@ function invokeTorrentio(imdbId, season, episode) {
 
       return streams;
     } catch (err) {
-      console.log("[TORRENTIO ERROR]", err && err.message ? err.message : err);
+      console.log("[TORRENTIO TV ERROR]", err);
       return [];
     }
   });
 }
 
-function getStreams(tmdbId, mediaType, season, episode) {
+// Fixed Entrypoint matching the working layout's native call parsing
+function getStreams(imdbId, mediaType, season, episode) {
   return tvAsyncRunner(this, arguments, function* (id, type, s, e) {
     try {
-      const imdbId = yield getImdbId(id, type);
+      if (!id) return [];
+      
+      console.log("[TORRA TV NATIVE ID]", id);
 
-      if (!imdbId) {
-        console.log("[TORRA] No IMDB ID");
-        return [];
-      }
-
-      console.log("[TORRA IMDB]", imdbId);
-
-      const streams = yield invokeTorrentio(
-        imdbId,
-        type === "tv" ? s : null,
-        type === "tv" ? e : null
-      );
-
+      // Skips TMDB step entirely to avoid breaking layouts where ID is already an IMDB string
+      const streams = yield invokeTorrentio(id, type, s, e);
       return streams;
     } catch (masterErr) {
-      console.log("[TORRA FATAL]", masterErr);
+      console.log("[TORRA MASTER FATAL]", masterErr);
       return [];
     }
   });
 }
 
-// ======================================
-// REQUIRED EXPORT ROUTE
-// ======================================
 module.exports = {
   getStreams
 };

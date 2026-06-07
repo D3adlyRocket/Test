@@ -1,5 +1,5 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (Deterministic URL Reconstruction Fix)
+// Nuvio-compatible Cinefreak scraper (Direct R2 Mapping Fix)
 
 const BASE_URL = "https://cinefreak.nl";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -34,30 +34,39 @@ function decodeBase64Safe(str) {
 }
 
 /**
- * Reconstructs the target stream patterns mathematically.
- * Bypasses network blocks entirely by using known structural mappings.
+ * Strips out the unique hash from the protected gateway links
+ * and converts it directly into a clean stream asset URL configuration.
  */
-function resolveFinalStreamUrl(url) {
+function resolveFinalStreamUrl(url, title, quality) {
   try {
     if (url.includes(".r2.dev")) return url;
 
-    // Extract the hash ID (e.g., 7ebfab1b or 6155ede1) from the link
-    const cinecloudIdMatch = url.match(/\/f\/([a-f0-9]+)/i);
+    // Isolate the dynamic hash ID (e.g., 2d592ad939c2490a8552659d1c27056f)
+    const hashIdMatch = url.match(/\/f\/([a-f0-9]+)/i);
     
-    if (cinecloudIdMatch && cinecloudIdMatch[1]) {
-      const mediaId = cinecloudIdMatch[1];
+    if (hashIdMatch && hashIdMatch[1]) {
+      const mediaId = hashIdMatch[1];
       
-      // OPTION A: Provide the embedded player link directly to Nuvio.
-      // Most players handle the Vagaverse wrapper smoothly if it is returned cleanly.
-      const directTargetHost = `https://movieto.in/f/${mediaId}`;
-      const simulatedFrameUrl = `https://stream.vagaverse.net/embed2/?id=${encodeURIComponent(directTargetHost)}`;
+      // Clean and properly format the media title strings to match file storage layouts
+      const cleanedTitle = encodeURIComponent(
+        title
+          .replace(/[^a-zA-Z0-9\s()]/g, "")
+          .trim()
+          .replace(/\s+/g, " ")
+      );
+
+      // Reconstruct the exact direct download CDN target path without firing external network requests
+      const directCdnUrl = `https://pub-${mediaId}.r2.dev/CINEFREAK.TOP%20-%20${cleanedTitle}%20%5B${quality}%5D.mkv`;
       
-      return simulatedFrameUrl;
+      // Fallback: If Nuvio prefers the embedded web player setup, return the active player structure
+      // const directCdnUrl = `https://stream.vagaverse.net/embed2/?id=https%3A%2F%2Fmovieto.in%2Ff%2F${mediaId}`;
+      
+      return directCdnUrl;
     }
 
     return url;
   } catch (e) {
-    console.log("[Cinefreak Pattern Resolution Error]", e);
+    console.log("[Cinefreak Direct Translation Error]", e);
     return url; 
   }
 }
@@ -140,10 +149,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             }
           } catch (e) {}
 
-          const finalUrl = resolveFinalStreamUrl(targetUrl);
+          const qual = extractQuality(text);
+          const finalUrl = resolveFinalStreamUrl(targetUrl, title, qual);
+          
           streams.push({
             url: finalUrl,
-            quality: extractQuality(text),
+            quality: qual,
             title: `Cinefreak [${text}]`,
             subtitles: []
           });
@@ -184,7 +195,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                 console.log("[base64 error]", e);
               }
 
-              const finalUrl = resolveFinalStreamUrl(targetUrl);
+              const finalUrl = resolveFinalStreamUrl(targetUrl, title, qual);
+              
               streams.push({
                 url: finalUrl,
                 quality: qual,

@@ -1,10 +1,8 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (Direct Token Interception Fix)
+// Nuvio-compatible Cinefreak scraper (Bulletproof Regex Decoder Fix)
 
 const BASE_URL = "https://cinefreak.nl";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-
-const cheerio = require("cheerio");
 
 const HEADERS = {
   "User-Agent":
@@ -37,45 +35,12 @@ function decodeBase64Safe(str) {
   }
 }
 
-/**
- * Intercepts the raw generate.php URL string, cracks open its base64 payload,
- * extracts the hidden cinecloud file identifier, and outputs the playable R2 location.
- */
-function processGenerateLink(rawHref, title, quality) {
-  try {
-    // Isolate the base64 string from the "id=" parameter
-    const idMatch = rawHref.match(/[?&]id=([^&"'\s]+)/);
-    if (!idMatch) return null;
-
-    let decoded = decodeBase64Safe(idMatch[1]);
-    if (!decoded || !decoded.startsWith("http")) return null;
-
-    // Purge the trailing 'newgo32' anti-bot tokens attached to the end of the string
-    decoded = decoded.replace(/newgo\d*$/, "");
-
-    // Extract the final unique stream hash (e.g., 7ebfab1b)
-    const hashMatch = decoded.match(/\/f\/([a-f0-9]+)/i);
-    if (!hashMatch || !hashMatch[1]) return null;
-
-    const mediaId = hashMatch[1];
-    const cleanTitle = title
-      .replace(/[^a-zA-Z0-9\s()]/g, "")
-      .trim()
-      .replace(/\s+/g, " ");
-
-    // Build the direct R2 download link matching your verified endpoint layout
-    return `https://pub-${mediaId}.r2.dev/CINEFREAK.TOP%20-%20${encodeURIComponent(cleanTitle)}%20%5B${quality}%5D.mkv`;
-  } catch (e) {
-    return null;
-  }
-}
-
 // =========================
 // Main
 // =========================
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // 1. Resolve exact title parameters via TMDB
+    // 1. Get Title from TMDB
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl)).json();
 
@@ -83,7 +48,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Query search endpoint tracking with fresh timestamp strings
+    const cleanTitle = title
+      .replace(/[^a-zA-Z0-9\s()]/g, "")
+      .trim()
+      .replace(/\s+/g, " ");
+
+    // 2. Query Search API
     const timestamp = Date.now();
     const searchUrl = `${BASE_URL}/search-api.php?q=${encodeURIComponent(title)}&pg=1&_t=${timestamp}`;
     const searchResp = await fetch(searchUrl, { headers: HEADERS });
@@ -102,90 +72,61 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     let match = results.find(r => (r.t || "").toLowerCase().includes(lcTitle)) || results[0];
     if (!match || !match.l) return [];
 
-    // Form page routing target safely
+    // Format final page routing path cleanly
     let pageUrl = match.l.startsWith("http") ? match.l : `${BASE_URL}/${match.l}`;
     if (!pageUrl.endsWith("/")) {
       pageUrl += "/";
     }
 
+    // 3. Get Raw HTML Source Text
     const pageHtml = await (await fetch(pageUrl, { headers: HEADERS })).text();
-    const $ = cheerio.load(pageHtml);
-
     const streams = [];
-    const isTV = mediaType === "tv";
+    const seenUrls = new Set();
 
-    // =========================
-    // TV PARSING
-    // =========================
-    if (isTV) {
-      let found = false;
+    // 4. BRUTE-FORCE REGEX SCAN
+    // Matches any instance of generate.php?id=... anywhere on the page text
+    const generateRegex = /generate\.php\?id=([^"'\s&>]+)/gi;
+    let regexMatch;
 
-      $("div.ep-card").each((_, card) => {
-        if (found) return;
+    while ((regexMatch = generateRegex.exec(pageHtml)) !== null) {
+      const rawIdParam = regexMatch[1];
 
-        const seasonText = $(card).find("span.season-number").text().match(/S(\d+)/);
-        const cardSeason = seasonText ? parseInt(seasonText[1]) : 1;
-        if (cardSeason !== parseInt(season || 1)) return;
+      // Decode the base64 token safely
+      let decoded = decodeBase64Safe(rawIdParam);
+      if (!decoded || !decoded.includes("/f/")) continue;
 
-        const epText = $(card).find("span.episode-badge").text();
-        const epMatch = epText.match(/Episode\s+([\d\-]+)/i);
-        if (!epMatch) return;
+      // Clean up anti-bot tokens at the tail (e.g., newgo32)
+      decoded = decoded.replace(/newgo\d*$/, "");
 
-        const epNums = epMatch[1].split("-").map(n => parseInt(n.trim())).filter(Boolean);
-        if (!epNums.includes(parseInt(episode || 1))) return;
+      // Isolate the unique hash ID (e.g., 7ebfab1b)
+      const hashMatch = decoded.match(/\/f\/([a-f0-9]+)/i);
+      if (!hashMatch || !hashMatch[1]) continue;
 
-        found = true;
+      const mediaId = hashMatch[1];
 
-        $(card).find("div.download-links a[href]").each((_, a) => {
-          const href = $(a).attr("href");
-          const text = $(a).text().trim();
-          if (!href) return;
+      // Pull context clues near the match to determine file video quality
+      const matchIndex = regexMatch.index;
+      const surroundingText = pageHtml.substring(Math.max(0, matchIndex - 150), matchIndex + 150);
+      const qual = extractQuality(surroundingText);
 
-          const qual = extractQuality(text);
-          const finalUrl = processGenerateLink(href, title, qual);
-          
-          if (finalUrl) {
-            streams.push({
-              url: finalUrl,
-              quality: qual,
-              title: `Cinefreak Direct [${text}]`,
-              subtitles: []
-            });
-          }
+      // Reconstruct your direct playable R2 link format natively
+      const finalPlayableUrl = `https://pub-${mediaId}.r2.dev/CINEFREAK.TOP%20-%20${encodeURIComponent(cleanTitle)}%20%5B${qual}%5D.mkv`;
+
+      if (!seenUrls.has(finalPlayableUrl)) {
+        seenUrls.add(finalPlayableUrl);
+        streams.push({
+          url: finalPlayableUrl,
+          quality: qual,
+          title: `Cinefreak [${qual}]`,
+          subtitles: []
         });
-      });
-
-      return streams;
+      }
     }
-
-    // =========================
-    // MOVIE PARSING
-    // =========================
-    $("div.download-links-div, div.download-links, div.entry-content").each((_, container) => {
-      $(container).find("a[href*='generate.php']").each((_, a) => {
-        const href = $(a).attr("href");
-        if (!href) return;
-
-        const contextualText = $(a).text() || $(a).closest("div").prev("h4").text() || "";
-        const qual = extractQuality(contextualText);
-
-        const finalUrl = processGenerateLink(href, title, qual);
-
-        if (finalUrl) {
-          streams.push({
-            url: finalUrl,
-            quality: qual,
-            title: `Cinefreak Direct [${qual}]`,
-            subtitles: []
-          });
-        }
-      });
-    });
 
     return streams;
 
   } catch (e) {
-    console.log("[Cinefreak FATAL]", e);
+    console.log("[Cinefreak Scraper Fatal Exception]", e);
     return [];
   }
 }

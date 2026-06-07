@@ -1,5 +1,5 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (Deterministic Direct Stream Fix)
+// Nuvio-compatible Cinefreak scraper (Strict Structural Fix)
 
 const BASE_URL = "https://cinefreak.nl";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -25,13 +25,10 @@ function extractQuality(str = "") {
   return "Unknown";
 }
 
-/**
- * Robust base64 decoder with strict padding validation to mimic browser-level flexibility.
- */
 function decodeBase64Safe(str) {
   try {
     let cleanStr = decodeURIComponent(str).trim();
-    // Normalize string string padding constraints for Node runtime environments
+    // Re-apply browser-style missing padding padding
     while (cleanStr.length % 4 !== 0) {
       cleanStr += "=";
     }
@@ -42,52 +39,36 @@ function decodeBase64Safe(str) {
 }
 
 /**
- * Forges the final stream target URL cleanly by separating the unique site hash ID
- * away from the intermediate platform gateway strings.
+ * Directly maps the ID token inside the generate link to the absolute working storage destination.
  */
-function resolveFinalStreamUrl(rawHref, title, quality) {
+function convertToPlayableUrl(href, title, quality) {
   try {
-    let base64Token = "";
+    // Isolate the base64 payload from the id parameter
+    const idMatch = href.match(/[?&]id=([^&]+)/);
+    if (!idMatch) return href;
 
-    // Extract raw base64 string directly from the URL target
-    const urlObj = new URL(rawHref, BASE_URL);
-    base64Token = urlObj.searchParams.get("id");
+    let decoded = decodeBase64Safe(idMatch[1]);
+    if (!decoded || !decoded.startsWith("http")) return href;
 
-    if (!base64Token) {
-      const fallbackMatch = rawHref.match(/id=([^&]+)/);
-      if (fallbackMatch) base64Token = fallbackMatch[1];
-    }
+    // Strip trailing 'newgo32' anti-bot additions
+    decoded = decoded.replace(/newgo\d*$/, "");
 
-    if (base64Token) {
-      let decodedUrl = decodeBase64Safe(base64Token);
-      
-      if (decodedUrl && decodedUrl.startsWith("http")) {
-        // Purge tracking tags or trailing string artifacts (e.g. newgo32)
-        decodedUrl = decodedUrl.replace(/newgo\d*$/, "");
+    // Isolate the storage hash ID (e.g., 7ebfab1b)
+    const hashMatch = decoded.match(/\/f\/([a-f0-9]+)/i);
+    if (!hashMatch || !hashMatch[1]) return decoded;
 
-        // Isolate the dynamic media asset index key sequence
-        const hashIdMatch = decodedUrl.match(/\/f\/([a-f0-9]+)/i);
-        if (hashIdMatch && hashIdMatch[1]) {
-          const mediaId = hashIdMatch[1];
-          
-          // Format standard alphanumeric text safely for asset distribution layouts
-          const urlFriendlyTitle = encodeURIComponent(
-            title
-              .replace(/[^a-zA-Z0-9\s()]/g, "")
-              .trim()
-              .replace(/\s+/g, " ")
-          );
+    const mediaId = hashMatch[1];
 
-          // Build asset routing URL configuration pointing to direct object target blocks
-          return `https://pub-${mediaId}.r2.dev/CINEFREAK.TOP%20-%20${urlFriendlyTitle}%20%5B${quality}%5D.mkv`;
-        }
-        return decodedUrl;
-      }
-    }
-    return rawHref;
+    // Clean title structure to fit the raw storage configuration naming conventions precisely
+    const cleanTitle = title
+      .replace(/[^a-zA-Z0-9\s()]/g, "")
+      .trim()
+      .replace(/\s+/g, " ");
+
+    // Reconstruct the direct download link asset explicitly match your working sample
+    return `https://pub-${mediaId}.r2.dev/CINEFREAK.TOP%20-%20${encodeURIComponent(cleanTitle)}%20%5B${quality}%5D.mkv`;
   } catch (e) {
-    console.log("[Cinefreak Core Translation Error]", e);
-    return rawHref; 
+    return href;
   }
 }
 
@@ -96,16 +77,15 @@ function resolveFinalStreamUrl(rawHref, title, quality) {
 // =========================
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // 1. TMDB Meta Query Handling
+    // 1. Meta Retrieval
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl)).json();
 
     if (!mediaInfo) return [];
-
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Search Index Fetch Validation
+    // 2. Querying Internal Search API
     const searchUrl = `${BASE_URL}/search-api.php?q=${encodeURIComponent(title)}&pg=1`;
     const searchResp = await fetch(searchUrl, { headers: HEADERS });
 
@@ -119,7 +99,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const results = Array.isArray(searchData?.results) ? searchData.results : [];
     if (!results.length) return [];
 
-    // 3. String Alignment and Node Isolation
+    // 3. Selection Node Validation
     const lcTitle = title.toLowerCase();
     let match = results.find(r => (r.t || "").toLowerCase().includes(lcTitle)) || results[0];
     if (!match) return [];
@@ -132,7 +112,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const isTV = mediaType === "tv";
 
     // =========================
-    // TV LAYER LOGIC
+    // TV EXTRACTION LOGIC
     // =========================
     if (isTV) {
       let found = false;
@@ -153,16 +133,16 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
         found = true;
 
-        $(card).find("div.download-links a").each((_, a) => {
+        $(card).find("div.download-links a[href]").each((_, a) => {
           const href = $(a).attr("href");
           const text = $(a).text().trim();
           if (!href) return;
 
           const qual = extractQuality(text);
-          const finalUrl = resolveFinalStreamUrl(href, title, qual);
+          const finalPlayableUrl = convertToPlayableUrl(href, title, qual);
           
           streams.push({
-            url: finalUrl,
+            url: finalPlayableUrl,
             quality: qual,
             title: `Cinefreak [${text}]`,
             subtitles: []
@@ -174,32 +154,29 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
 
     // =========================
-    // MOVIE LAYER LOGIC
+    // MOVIE EXTRACTION LOGIC
     // =========================
+    // Flatten selection structure entirely to verify no button is missed regardless of layout changes
     $("div.download-links-div").each((_, container) => {
-      $(container)
-        .find("h4.movie-title")
-        .each((_, titleEl) => {
-          const qualMatch = $(titleEl).text().match(/(480p|720p|1080p|2160p)/i);
-          const qual = qualMatch ? qualMatch[1] : "Unknown";
+      
+      // Select every single download link within this specific section directly
+      $(container).find("a.dlbtn-download[href]").each((_, a) => {
+        const href = $(a).attr("href");
+        if (!href) return;
 
-          $(titleEl)
-            .next()
-            .find("a.dlbtn-download[href]")
-            .each((_, a) => {
-              const href = $(a).attr("href");
-              if (!href) return;
+        // Trace upwards or close-by to extract text configurations safely
+        const contextualText = $(a).text() || $(a).closest("div").prev("h4").text() || "";
+        const qual = extractQuality(contextualText) !== "Unknown" ? extractQuality(contextualText) : "1080p";
 
-              const finalUrl = resolveFinalStreamUrl(href, title, qual);
-              
-              streams.push({
-                url: finalUrl,
-                quality: qual,
-                title: `Cinefreak [${qual}]`,
-                subtitles: []
-              });
-            });
+        const finalPlayableUrl = convertToPlayableUrl(href, title, qual);
+
+        streams.push({
+          url: finalPlayableUrl,
+          quality: qual,
+          title: `Cinefreak [${qual}]`,
+          subtitles: []
         });
+      });
     });
 
     return streams;

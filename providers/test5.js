@@ -1,6 +1,6 @@
 const cheerio = require('cheerio-without-node-native');
 // dudefilms.js
-// DudeFilms - Hindi/Bollywood/South Indian movie & series site (dudefilms.sarl)
+// DudeFilms - Hindi/Bollywood/South Indian movie & series site
 
 const BASE_URL = "https://dudefilms.irish";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -19,61 +19,47 @@ function extractQuality(url) {
 }
 
 /**
- * Resolves intermediate HubCloud landing pages down to the final stream/download links
+ * Universal resolver for Filepress, Gkyfilehost, Gdflix, and Dtflix
  */
-async function resolveHubCloud(landingUrl) {
+async function resolveGenericHost(url, providerName) {
   try {
-    const hubHeaders = {
-      "User-Agent": HEADERS["User-Agent"],
-      "Referer": BASE_URL
-    };
-
-    // 1. Fetch the HubCloud landing page HTML (the one from your screenshots)
-    const res = await fetch(landingUrl, { headers: hubHeaders });
+    const res = await fetch(url, { headers: { "User-Agent": HEADERS["User-Agent"] } });
     const html = await res.text();
     const $ = cheerio.load(html);
     
-    const resolvedStreams = [];
+    const streams = [];
 
-    // Strategy A: Find the ultra-fast direct cloud CDN server link
-    $('a[href*="hubcloud.cx"]').each((i, el) => {
+    // Look for common direct stream/download link patterns used by these specific templates
+    // Pattern 1: Look for explicit stream, watch online, or fast download buttons
+    $('a[href*="/download/"], a[href*="/stream/"], a.btn-success, a.btn-primary').each((i, el) => {
       const href = $(el).attr('href');
-      if (href) {
-        resolvedStreams.push({
+      if (href && href.startsWith('http')) {
+        streams.push({
           url: href,
-          quality: extractQuality(href),
-          title: "DudeFilms (HubCloud HighSpeed)"
+          quality: extractQuality(url),
+          title: `DudeFilms (${providerName})`
         });
       }
     });
 
-    // Strategy B: Find the obsession stream link
-    $('a[href*="obobsession.buzz"]').each((i, el) => {
-      const href = $(el).attr('href');
-      if (href) {
-        resolvedStreams.push({
-          url: href,
-          quality: extractQuality(href),
-          title: "DudeFilms (Obsession Stream)"
-        });
-      }
-    });
+    // Pattern 2: Fallback to searching all anchors on the landing page if Pattern 1 yields nothing
+    if (streams.length === 0) {
+      $('a').each((i, el) => {
+        const href = $(el).attr('href');
+        // Filter out typical UI layout paths, only grab apparent stream links
+        if (href && href.startsWith('http') && !href.includes('login') && !href.includes('register') && !href.includes('telegram')) {
+          streams.push({
+            url: href,
+            quality: extractQuality(url),
+            title: `DudeFilms (${providerName} Alt)`
+          });
+        }
+      });
+    }
 
-    // Strategy C: Fallback to the Pixeldrain mirror
-    $('a[href*="pixeldrain.dev"]').each((i, el) => {
-      const href = $(el).attr('href');
-      if (href) {
-        resolvedStreams.push({
-          url: href,
-          quality: extractQuality(href),
-          title: "DudeFilms (Pixeldrain Mirror)"
-        });
-      }
-    });
-
-    return resolvedStreams;
+    return streams;
   } catch (err) {
-    console.error("[HubCloud Resolver Error]", err);
+    console.error(`[Resolver Error - ${providerName}]`, err);
     return [];
   }
 }
@@ -142,9 +128,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                 if (!epMatch || parseInt(epMatch[1]) !== episode) continue;
 
                 const epUrl = $seasonPage(epBtn).attr("href");
-                if (!epUrl) continue;
-
-                if (epUrl.includes("hubcloud") || epUrl.includes("gkyfilehost")) {
+                if (epUrl) {
                   intermediateLinks.push(epUrl);
                 }
                 found = true;
@@ -156,7 +140,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
       }
     } else {
-      // Movie: gather redirect landing urls
+      // Movie: gather redirect landing urls from the page buttons
       const maxButtons = $page("a.maxbutton").toArray();
       for (const btn of maxButtons) {
         try {
@@ -177,23 +161,35 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     // 4. Resolve the intermediate links into true playable streams
     const finalStreams = [];
     for (const rawUrl of intermediateLinks) {
-      if (rawUrl.includes("hubcloud")) {
-        const resolved = await resolveHubCloud(rawUrl);
+      if (rawUrl.includes("filepress")) {
+        const resolved = await resolveGenericHost(rawUrl, "Filepress");
+        finalStreams.push(...resolved);
+      } else if (rawUrl.includes("gkyfilehost")) {
+        const resolved = await resolveGenericHost(rawUrl, "GkyFileHost");
+        finalStreams.push(...resolved);
+      } else if (rawUrl.includes("dtflix")) {
+        const resolved = await resolveGenericHost(rawUrl, "DtFlix");
+        finalStreams.push(...resolved);
+      } else if (rawUrl.includes("gdflix")) {
+        const resolved = await resolveGenericHost(rawUrl, "GdFlix");
+        finalStreams.push(...resolved);
+      } else if (rawUrl.includes("gofile")) {
+        const resolved = await resolveGenericHost(rawUrl, "GoFile");
         finalStreams.push(...resolved);
       } else {
-        // Fallback placeholder for other domain types (like gkyfilehost) if they match clean urls
+        // Fallback placeholder if it's already a direct streaming format
         finalStreams.push({
           url: rawUrl,
           quality: extractQuality(rawUrl),
-          title: "DudeFilms (Direct)",
-          subtitles: []
+          title: "DudeFilms (Direct Link)"
         });
       }
     }
 
-    return finalStreams;
+    // Filter out duplicates and empty results before returning
+    return finalStreams.filter(stream => stream.url);
   } catch (e) {
-    console.error("[DudeFilms]", e);
+    console.error("[DudeFilms Global Error]", e);
     return [];
   }
 }

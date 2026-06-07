@@ -1,5 +1,5 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (Endpoint & Path Resolution Fix)
+// Nuvio-compatible Cinefreak scraper (Domain Alignment Fix)
 
 const BASE_URL = "https://cinefreak.nl";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -45,10 +45,10 @@ function convertToPlayableUrl(href, title, quality) {
     let decoded = decodeBase64Safe(idMatch[1]);
     if (!decoded || !decoded.startsWith("http")) return href;
 
-    // Strip trailing 'newgo32' obfuscations
+    // Strip trailing 'newgo' verification additions
     decoded = decoded.replace(/newgo\d*$/, "");
 
-    // Extract storage identifier block (e.g., 3e201c40e5b044049bbe8bee37c098e6)
+    // Isolate storage hash segment
     const hashMatch = decoded.match(/\/f\/([a-f0-9]+)/i);
     if (!hashMatch || !hashMatch[1]) return decoded;
 
@@ -59,7 +59,7 @@ function convertToPlayableUrl(href, title, quality) {
       .trim()
       .replace(/\s+/g, " ");
 
-    // Forges the direct R2 object URL format verified in your devtools logs
+    // Reconstruct direct R2 asset download url
     return `https://pub-${mediaId}.r2.dev/CINEFREAK.TOP%20-%20${encodeURIComponent(cleanTitle)}%20%5B${quality}%5D.mkv`;
   } catch (e) {
     return href;
@@ -71,7 +71,7 @@ function convertToPlayableUrl(href, title, quality) {
 // =========================
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // 1. Fetch metadata name parameters from TMDB
+    // 1. Resolve asset title from TMDB
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl)).json();
 
@@ -94,18 +94,16 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const results = Array.isArray(searchData?.results) ? searchData.results : [];
     if (!results.length) return [];
 
-    // Filter and match standard names against data lists
     const lcTitle = title.toLowerCase();
     let match = results.find(r => (r.t || "").toLowerCase().includes(lcTitle)) || results[0];
     if (!match || !match.l) return [];
 
-    // Fix landing URL format mapping to guarantee proper server parsing routing
+    // Format page routing safely
     let pageUrl = match.l.startsWith("http") ? match.l : `${BASE_URL}/${match.l}`;
     if (!pageUrl.endsWith("/")) {
       pageUrl += "/";
     }
 
-    // 3. Request the actual layout page HTML string content
     const pageHtml = await (await fetch(pageUrl, { headers: HEADERS })).text();
     const $ = cheerio.load(pageHtml);
 
@@ -157,8 +155,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     // =========================
     // MOVIE EXTRACTION
     // =========================
-    $("div.download-links-div").each((_, container) => {
-      $(container).find("a.dlbtn-download[href]").each((_, a) => {
+    // Check both potential container class structures across both domains
+    $("div.download-links-div, div.download-links").each((_, container) => {
+      $(container).find("a[href*='generate.php']").each((_, a) => {
         const href = $(a).attr("href");
         if (!href) return;
 

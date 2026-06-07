@@ -1,5 +1,5 @@
 // cinefreak.js
-// Nuvio-compatible Cinefreak scraper (Fully fixed stream asset resolver)
+// Nuvio-compatible Cinefreak scraper (iframe-aware extraction fix)
 
 const BASE_URL = "https://cinefreak.nl";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
@@ -34,23 +34,54 @@ function decodeBase64Safe(str) {
 }
 
 /**
- * Deep-extracts the actual streaming file URL from the landing host page.
- * Parses the internal script patterns or configurations to catch the asset target.
+ * Deep resolves the final playable media stream link by piercing through
+ * embedded cross-origin iframes (like Vagaverse) and hunting script vars.
  */
 async function resolveFinalStreamUrl(url) {
   try {
-    // 1. Fetch the actual content of the landing host page instead of just HEAD headers
+    // 1. Fetch intermediate landing host content
     const response = await fetch(url, { headers: HEADERS });
     const htmlText = await response.text();
 
-    // If it's already a direct video file link or didn't hit the landing page, return the final URL
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("video/") || url.includes(".r2.dev")) {
       return response.url || url;
     }
 
-    // 2. Scan the webpage HTML body scripts for common source patterns or the R2 CDN host
-    // Matches patterns like "url": "...", file: "...", or direct .dev bucket links embedded inside the script config
+    const $ = cheerio.load(htmlText);
+    
+    // 2. PIERCE IFRAMES: Look for embedded players (e.g., stream.vagaverse.net)
+    let embeddedFrameSrc = $("iframe").attr("src");
+    
+    if (embeddedFrameSrc) {
+      if (embeddedFrameSrc.startsWith("//")) {
+        embeddedFrameSrc = "https:" + embeddedFrameSrc;
+      }
+      
+      // Look for deeply nested direct target IDs passed to the embed platform
+      const deepIdMatch = embeddedFrameSrc.match(/[?&]id=([^&]+)/);
+      if (deepIdMatch) {
+        const fullyDecodedTarget = decodeURIComponent(deepIdMatch[1]);
+        if (fullyDecodedTarget.startsWith("http")) {
+          // If the nested ID is already the source target asset, resolve it directly
+          return await resolveFinalStreamUrl(fullyDecodedTarget);
+        }
+      }
+      
+      // Fallback: Fetch the frame content itself to hunt variables inside it
+      try {
+        const frameResponse = await fetch(embeddedFrameSrc, { headers: HEADERS });
+        const frameHtml = await frameResponse.text();
+        
+        const r2Regex = /(https:\/\/pub-[a-f0-9]+\.r2\.dev\/[^"'\s]+)/i;
+        const frameMatch = frameHtml.match(r2Regex);
+        if (frameMatch) return frameMatch[1].replace(/\\/g, "");
+      } catch (frameErr) {
+        console.log("[Frame parsing error]", frameErr);
+      }
+    }
+
+    // 3. Static Code Sweep (Standard Patterns)
     const sourceRegexes = [
       /["'](https:\/\/pub-[a-f0-9]+\.r2\.dev\/[^"']+)["']/i,
       /file\s*:\s*["']([^"']+\.(?:mkv|mp4|m3u8)[^"']*)["']/i,
@@ -60,19 +91,14 @@ async function resolveFinalStreamUrl(url) {
     for (const regex of sourceRegexes) {
       const match = htmlText.match(regex);
       if (match && match[1]) {
-        // Clean any backslash escapes common in JSON/JS variables
         return match[1].replace(/\\/g, "");
       }
     }
 
-    // 3. Fallback: Check if the landing page contains standard HTML5 video elements or download anchors
-    const $ = cheerio.load(htmlText);
-    const videoSrc = $("video").attr("src") || $("video source").attr("src") || $("a.download-btn").attr("href");
-    if (videoSrc && videoSrc.startsWith("http")) {
-      return videoSrc;
-    }
+    // 4. Dom fallback for standard player tags
+    const videoSrc = $("video").attr("src") || $("video source").attr("src");
+    if (videoSrc && videoSrc.startsWith("http")) return videoSrc;
 
-    // If nothing structural is found, default to the followed page location
     return response.url || url;
   } catch (e) {
     console.log("[Cinefreak Extraction Error]", e);
@@ -95,10 +121,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     if (!title) return [];
 
     // 2. Search API
-    const searchUrl = `${BASE_URL}/search-api.php?q=${encodeURIComponent(
-      title
-    )}&pg=1`;
-
+    const searchUrl = `${BASE_URL}/search-api.php?q=${encodeURIComponent(title)}&pg=1`;
     const searchResp = await fetch(searchUrl, { headers: HEADERS });
 
     let searchData;
@@ -108,25 +131,15 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       return [];
     }
 
-    const results = Array.isArray(searchData?.results)
-      ? searchData.results
-      : [];
-
+    const results = Array.isArray(searchData?.results) ? searchData.results : [];
     if (!results.length) return [];
 
     // 3. Match
     const lcTitle = title.toLowerCase();
-
-    let match =
-      results.find(r => (r.t || "").toLowerCase().includes(lcTitle)) ||
-      results[0];
-
+    let match = results.find(r => (r.t || "").toLowerCase().includes(lcTitle)) || results[0];
     if (!match) return [];
 
-    const pageUrl = match.l.startsWith("http")
-      ? match.l
-      : `${BASE_URL}/${match.l}/`;
-
+    const pageUrl = match.l.startsWith("http") ? match.l : `${BASE_URL}/${match.l}/`;
     const pageHtml = await (await fetch(pageUrl, { headers: HEADERS })).text();
     const $ = cheerio.load(pageHtml);
 
@@ -143,49 +156,34 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       $("div.ep-card").each((_, card) => {
         if (found) return;
 
-        const seasonText = $(card)
-          .find("span.season-number")
-          .text()
-          .match(/S(\d+)/);
-
+        const seasonText = $(card).find("span.season-number").text().match(/S(\d+)/);
         const cardSeason = seasonText ? parseInt(seasonText[1]) : 1;
-
         if (cardSeason !== parseInt(season || 1)) return;
 
-        const epText = $(card)
-          .find("span.episode-badge")
-          .text();
-
+        const epText = $(card).find("span.episode-badge").text();
         const epMatch = epText.match(/Episode\s+([\d\-]+)/i);
         if (!epMatch) return;
 
-        const epNums = epMatch[1]
-          .split("-")
-          .map(n => parseInt(n.trim()))
-          .filter(Boolean);
-
+        const epNums = epMatch[1].split("-").map(n => parseInt(n.trim())).filter(Boolean);
         if (!epNums.includes(parseInt(episode || 1))) return;
 
         found = true;
 
-        $(card)
-          .find("div.download-links a")
-          .each((_, a) => {
-            const href = $(a).attr("href");
-            const text = $(a).text().trim();
+        $(card).find("div.download-links a").each((_, a) => {
+          const href = $(a).attr("href");
+          const text = $(a).text().trim();
+          if (!href) return;
 
-            if (!href) return;
-
-            const p = resolveFinalStreamUrl(href).then(finalUrl => {
-              streams.push({
-                url: finalUrl,
-                quality: extractQuality(text),
-                title: `Cinefreak [${text}]`,
-                subtitles: []
-              });
+          const p = resolveFinalStreamUrl(href).then(finalUrl => {
+            streams.push({
+              url: finalUrl,
+              quality: extractQuality(text),
+              title: `Cinefreak [${text}]`,
+              subtitles: []
             });
-            tvPromises.push(p);
           });
+          tvPromises.push(p);
+        });
       });
 
       await Promise.all(tvPromises);
@@ -201,10 +199,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       $(container)
         .find("h4.movie-title")
         .each((_, titleEl) => {
-          const qualMatch = $(titleEl)
-            .text()
-            .match(/(480p|720p|1080p|2160p)/i);
-
+          const qualMatch = $(titleEl).text().match(/(480p|720p|1080p|2160p)/i);
           const qual = qualMatch ? qualMatch[1] : "Unknown";
 
           $(titleEl)
@@ -216,13 +211,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
               let targetUrl = href;
 
-              // Base64 token translation logic
               try {
                 const idMatch = href.match(/id=([^&]+)/);
                 if (idMatch) {
                   let decoded = decodeBase64Safe(idMatch[1]);
                   if (decoded && decoded.startsWith("http")) {
-                    // Strips off trailing "newgo32" obfuscators
                     targetUrl = decoded.replace(/newgo\d*$/, "");
                   }
                 }
@@ -230,7 +223,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                 console.log("[base64 error]", e);
               }
 
-              // Concurrently run deep stream extraction
               const p = resolveFinalStreamUrl(targetUrl).then(finalUrl => {
                 streams.push({
                   url: finalUrl,

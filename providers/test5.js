@@ -17,74 +17,81 @@ function extractQuality(url) {
 }
 
 /**
- * Parses the raw HTML of a host page to handle JavaScript obfuscation dynamically
+ * Precision Host Resolver built from actual DevTools logs
  */
-async function bypassHostPage(landingUrl, providerName) {
+async function resolveHostPage(landingUrl) {
   try {
     const res = await fetch(landingUrl, { headers: { "User-Agent": HEADERS["User-Agent"], "Referer": BASE_URL } });
     const html = await res.text();
     const $ = cheerio.load(html);
     const streams = [];
 
-    // 1. Resolve HubCloud FSL Server Link (Requires Live Minute Append)
+    // 1. FILEPRESS RESOLVER: Extract ID from URL structure and map directly to CDN
+    if (landingUrl.includes('filepress')) {
+      const fileIdMatch = landingUrl.match(/\/file\/([a-zA-Z0-9]+)/);
+      if (fileIdMatch) {
+        streams.push({
+          url: `https://new5.filepress.wiki/api/file/download/${fileIdMatch[1]}`,
+          quality: extractQuality(landingUrl),
+          title: "DudeFilms (Filepress HighSpeed Server)"
+        });
+      }
+    }
+
+    // 2. HUBCLOUD FSL RESOLVER: Emulate live minute token attachment
     const fslAnchor = $('#fsl');
     if (fslAnchor.length) {
       let rawHref = fslAnchor.attr('href');
       if (rawHref && rawHref.startsWith('http')) {
-        // Match the live page logic: append current minute timestamp
         const currentMinute = new Date().getMinutes();
-        const verifiedUrl = `${rawHref}&${currentMinute}`;
+        const authenticatedUrl = rawHref.includes('?') ? `${rawHref}&${currentMinute}` : `${rawHref}?${currentMinute}`;
         streams.push({
-          url: verifiedUrl,
+          url: authenticatedUrl,
           quality: extractQuality(landingUrl),
-          title: `DudeFilms (${providerName} - FSL Stream)`
+          title: "DudeFilms (HubCloud FSL Stream Server)"
         });
       }
     }
 
-    // 2. Resolve Pixeldrain Obfuscated Variable Mirror
-    const pxlAnchor = $('#pxl-1');
-    if (pxlAnchor.length) {
-      // Find the script directly following or near the anchor that overwrites the URL variable
-      const scriptBlock = $('script').text();
-      const pxlMatch = scriptBlock.match(/var\s+pxl\s*=\s*['"]([^'"]+)['"]/);
+    // 3. PIXELDRAIN RESOLVER: Extract dynamic script variable hidden inside page text
+    const scriptText = $('script').text();
+    if (scriptText.includes('var pxl =')) {
+      const pxlMatch = scriptText.match(/var\s+pxl\s*=\s*['"]([^'"]+)['"]/);
       if (pxlMatch && pxlMatch[1]) {
         streams.push({
           url: pxlMatch[1],
           quality: extractQuality(landingUrl),
-          title: `DudeFilms (${providerName} - Pixeldrain)`
+          title: "DudeFilms (Pixeldrain Mirror Server)"
         });
       }
     }
 
-    // 3. Resolve Direct 10Gbps Cloud/Server Links
+    // 4. CLOUD BACKUPS: Capture active 10Gbps or BusyCDN elements cleanly
     $('a[href*="hubcloud.cx"], a[href*="busycdn.xyz"]').each((i, el) => {
       const href = $(el).attr('href');
       if (href && href.startsWith('http')) {
         streams.push({
           url: href,
           quality: extractQuality(href),
-          title: `DudeFilms (${providerName} - HighSpeed)`
+          title: "DudeFilms (Cloud Multi-Mirror Server)"
         });
       }
     });
 
     return streams;
   } catch (err) {
-    console.error(`[Bypass Error - ${providerName}]`, err);
+    console.error(`[Scraper Error Context]`, err);
     return [];
   }
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    // 1. Get title from TMDB
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl)).json();
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Search Index
     const searchUrl = `${BASE_URL}/page/1/?s=${encodeURIComponent(title)}`;
     const searchHtml = await (await fetch(searchUrl, { headers: HEADERS})).text();
     const $ = cheerio.load(searchHtml);
@@ -104,8 +111,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     if (!match) match = results[0];
 
     const pageUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
-
-    // 3. Load Main Video Page Frame
     const pageHtml = await (await fetch(pageUrl, { headers: HEADERS})).text();
     const $page = cheerio.load(pageHtml);
     const hostLandingLinks = [];
@@ -149,7 +154,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
       }
     } else {
-      // Movie Landing Extraction
       const maxButtons = $page("a.maxbutton").toArray();
       for (const btn of maxButtons) {
         try {
@@ -167,30 +171,29 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       }
     }
 
-    // 4. Resolve the links via structural extraction rules
     const finalStreams = [];
     for (const rawUrl of hostLandingLinks) {
-      if (rawUrl.includes("hubcloud") || rawUrl.includes("gkyfilehost") || rawUrl.includes("dtflix") || rawUrl.includes("gdflix")) {
-        const resolved = await bypassHostPage(rawUrl, "HubCloud/Clone");
+      if (rawUrl.includes("hubcloud") || rawUrl.includes("filepress") || rawUrl.includes("gkyfilehost") || rawUrl.includes("dtflix") || rawUrl.includes("gdflix")) {
+        const resolved = await resolveHostPage(rawUrl);
         finalStreams.push(...resolved);
       } else {
         finalStreams.push({
           url: rawUrl,
           quality: extractQuality(rawUrl),
-          title: "DudeFilms (Direct Alternative)"
+          title: "DudeFilms (Direct Alternative Link)"
         });
       }
     }
 
-    // Filter out root paths, dead variables, or duplicates
     return finalStreams.filter((item, pos, self) => 
       item.url && 
       !item.url.endsWith('/admin') && 
-      !item.url.endsWith('.fans/') &&
+      !item.url.endsWith('.fans/') && 
+      !item.url.includes('t.me/') &&
       self.findIndex(v => v.url === item.url) === pos
     );
   } catch (e) {
-    console.error("[DudeFilms Global Fail]", e);
+    console.error("[Global Error Catch]", e);
     return [];
   }
 }

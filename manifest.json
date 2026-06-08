@@ -34,7 +34,7 @@
       "description": "High-Speed Direct Streaming for Movies (IMDb ID Extract)",
       "version": "1.1.4",
       "author": "Mukesh",
-      "supportedTypes": ["movie"],
+      "supportedTypes": ["movie", "tv"],
       "filename": "providers/corsaroviola.js",
       "enabled": true,
       "resources": ["stream"],

@@ -1,193 +1,95 @@
-// ============================================================
-// torrentio.js — deoffuscato
-// Provider per stream via Torrentio + TMDB
-// ============================================================
+const cheerio = require('cheerio-without-node-native');
+// desicinemas.js
+// Desicinemas - Hindi/Punjabi/Bollywood movie site (desicinemas.to)
+// Uses a Cloudflare Worker proxy for requests
+// Stream links: found from .MovieList .OptionBx items → iframe extraction
 
-const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706"
-const TORRENTIO_API = "https://torrentio.strem.fun/sort=qualitysize|qualityfilter=480p,scr,cam";
-
+const BASE_URL = "https://desicinemas.to";
+const PROXY = "https://desicinemas.phisherdesicinema.workers.dev/";
+const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-  "Accept": "application/json, text/plain, */*"
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:139.0) Gecko/20100101 Firefox/139.0",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.5",
+  "Referer": BASE_URL,
+  "Connection": "keep-alive",
+  "Cache-Control": "no-cache"
 };
 
-// Utility async helper (equivalente di __async / generatori)
-var __async = (thisArg, args, generator) => {
-  return new Promise((resolve, reject) => {
-    var onFulfilled = (value) => {
-      try { step(generator.next(value)); }
-      catch (e) { reject(e); }
-    };
-    var onRejected = (value) => {
-      try { step(generator.throw(value)); }
-      catch (e) { reject(e); }
-    };
-    var step = (result) =>
-      result.done
-        ? resolve(result.value)
-        : Promise.resolve(result.value).then(onFulfilled, onRejected);
-    step((generator = generator.apply(thisArg, args)).next());
-  });
-};
-
-// -----------------------------------------------------------
-// Estrae la qualità video dalla stringa descrittiva del flusso
-// -----------------------------------------------------------
-function extractQuality(title = "") {
-  const t = title.toLowerCase();
-  if (t.includes("2160p") || t.includes("4k")) return "4K";
-  if (t.includes("1080p")) return "1080p";
-  if (t.includes("720p"))  return "720p";
-  if (t.includes("480p"))  return "480p";
+function extractQuality(url) {
+  const u = (url || "").toLowerCase();
+  if (u.includes("2160p") || u.includes("4k")) return "4K";
+  if (u.includes("1080p")) return "1080p";
+  if (u.includes("720p")) return "720p";
+  if (u.includes("480p")) return "480p";
   return "Unknown";
 }
 
-// -----------------------------------------------------------
-// Lista di tracker per i magnet link
-// -----------------------------------------------------------
-var TRACKERS = [
-  "udp://tracker.opentrackr.org:1337/announce",
-  "udp://open.stealth.si:80/announce",
-  "udp://tracker.torrent.eu.org:451/announce",
-  "udp://exodus.desync.com:6969/announce"
-];
+async function getStreams(tmdbId, mediaType, season, episode) {
+  try {
+    // 1. Get title from TMDB
+    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const mediaInfo = await (await fetch(tmdbUrl)).json();
+    const title = mediaInfo.title || mediaInfo.name;
+    if (!title) return [];
 
-// -----------------------------------------------------------
-// Costruisce un magnet link partendo dall'infoHash
-// -----------------------------------------------------------
-function buildMagnet(infoHash) {
-  if (!infoHash) return "";
-  const trackerParams = TRACKERS
-    .map(t => "&tr=" + encodeURIComponent(t))
-    .join("");
-  return "magnet:?xt=urn:btih:" + infoHash + trackerParams;
+    // 2. Search via proxy
+    const searchUrl = `${PROXY}?url=${encodeURIComponent(`${BASE_URL}/?s=${encodeURIComponent(title)}`)}`;
+    const searchHtml = await (await fetch(searchUrl, { headers: HEADERS})).text();
+    const $ = cheerio.load(searchHtml);
+
+    const results = [];
+    $(".MovieList li, .MovieList .TPostMv").each((i, el) => {
+      const href = $("a", el).attr("href");
+      const t = $("h2", el).text().trim();
+      if (href) results.push({ title: t, url: href });
+    });
+
+    if (!results.length) return [];
+
+    const lcTitle = title.toLowerCase();
+    let match = results.find(r => r.title.toLowerCase().includes(lcTitle));
+    if (!match) match = results[0];
+
+    const pageUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
+    const proxyPageUrl = `${PROXY}?url=${encodeURIComponent(pageUrl)}`;
+
+    // 3. Load page via proxy to get option boxes
+    const pageHtml = await (await fetch(proxyPageUrl, { headers: HEADERS})).text();
+    const $page = cheerio.load(pageHtml);
+
+    const streams = [];
+
+    const optionBoxes = $page(".MovieList .OptionBx, .OptionBx").toArray();
+    for (const box of optionBoxes) {
+      try {
+        const linkEl = $page("a", box);
+        const link = linkEl.attr("href");
+        if (!link) continue;
+
+        // Fetch the embed page
+        const embedHtml = await (await fetch(link, { headers: HEADERS})).text();
+        const $embed = cheerio.load(embedHtml);
+        const iframeSrc = $embed("iframe").attr("src");
+        if (!iframeSrc) continue;
+
+        const name = $page("p.AAIco-dns", box).text().trim() || "Desicinemas";
+        streams.push({
+          url: iframeSrc,
+          quality: extractQuality(iframeSrc),
+          title: `Desicinemas [${name}]`,
+          subtitles: []
+        });
+      } catch (e) {}
+    }
+
+    return streams;
+  } catch (e) {
+    console.error("[Desicinemas]", e);
+    return [];
+  }
 }
 
-// -----------------------------------------------------------
-// Recupera l'IMDB ID tramite TMDB API
-// @param {string} tmdbId   - ID TMDB del titolo
-// @param {string} mediaType - "movie" oppure "tv"
-// -----------------------------------------------------------
-function getTmdbId(imdbId, type) {
-  return __async(this, null, function* () {
-    const normalizedType = String(type).toLowerCase();
-    console.warn("[TORRENTIO] Ricerca url in corso")
-    const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
-    try {
-      const response = yield fetch(findUrl);
-      if (!response.ok) return null;
-      const data = yield response.json();
-      if (!data) return null;
-      if (normalizedType === "movie" && data.movie_results && data.movie_results.length > 0) {
-        return data.movie_results[0].id.toString();
-      } else if (normalizedType === "tv" && data.tv_results && data.tv_results.length > 0) {
-        return data.tv_results[0].id.toString();
-      }
-      return null;
-    } catch (e) {
-      console.error("[TorrentIO] Conversion error:", e);
-      return null;
-    }
-  });
-
-// -----------------------------------------------------------
-// Chiama l'API di Torrentio e restituisce i flussi
-// @param {string}      imdbId  - IMDB ID
-// @param {number|null} season  - stagione (solo per TV)
-// @param {number|null} episode - episodio (solo per TV)
-// -----------------------------------------------------------
-function invokeTorrentio(imdbId, season, episode) {
-  return __async(this, null, function* () {
-    try {
-      const isTv = season != null && episode != null;
-      const url = isTv
-        ? TORRENTIO_API + "/stream/series/" + imdbId + ":" + season + ":" + episode + ".json"
-        : TORRENTIO_API + "/stream/movie/" + imdbId + ".json";
-
-      console.log("[TORRENTIO] Fetching:", url);
-
-      const response = yield fetch(url, { headers: HEADERS, skipSizeCheck: true });
-      const body = yield response.json();
-
-      if (!body || !body.streams) {
-        console.log("[TORRENTIO] No streams");
-        return [];
-      }
-
-      const results = [];
-
-      // Parole chiave che indicano audio/lingua italiana
-      const ITA_KEYWORDS = [
-        "ita", "italian", "italiano",
-        "dual", "multi",          // spesso includono l'italiano
-        "ita/eng", "eng/ita"
-      ];
-
-      for (const stream of body.streams.slice(0, 15)) {
-        try {
-          const title      = stream.title || "";
-          const titleLower = title.toLowerCase();
-
-          // Filtra: tieni solo stream con traccia italiana
-          const hasItalian = ITA_KEYWORDS.some(kw => titleLower.includes(kw));
-          if (!hasItalian) continue;
-
-          const quality = extractQuality(title);
-          const seeders = (title.match(/👤\s*(\d+)/) ?? [])[1] || "?";
-          const magnet  = buildMagnet(stream.infoHash);
-
-          if (!magnet) continue;
-
-          results.push({
-            url:       magnet,
-            quality:   quality,
-            title:     "🇮🇹 " + quality + " | 👤 " + seeders,
-            subtitles: []
-          });
-        } catch (_) { /* salta stream malformato */ }
-      }
-
-      return results;
-
-    } catch (err) {
-      console.log("[TORRENTIO] Error:", err);
-      return [];
-    }
-  });
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams };
 }
-
-// -----------------------------------------------------------
-// Funzione principale esportata
-// @param {string} tmdbId    - ID TMDB
-// @param {string} mediaType - "movie" | "tv"
-// @param {number} season    - stagione (TV)
-// @param {number} episode   - episodio (TV)
-// -----------------------------------------------------------
-function getStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    try {
-      const imdbId = yield getImdbId(tmdbId, mediaType);
-
-      if (!imdbId) {
-        console.log("[TORRENTIO] IMDB ID not found");
-        return [];
-      }
-
-      console.log("[TORRENTIO] IMDB ID:", imdbId);
-
-      const streams = yield invokeTorrentio(
-        imdbId,
-        mediaType === "tv" ? season  : null,
-        mediaType === "tv" ? episode : null
-      );
-
-      return streams;
-
-    } catch (err) {
-      console.log("[TORRENTIO] getStreams error:", err);
-      return [];
-    }
-  });
-}
-
-module.exports = { getStreams };

@@ -1,1 +1,193 @@
-var _0x29a685=_0x23e3;(function(_0x89e039,_0x552c41){var _0x20e006={_0xee1910:0xc6,_0x283938:0xad,_0x4f196a:0xc5,_0x3b7baf:0xc3,_0x1f4f8d:0xbd,_0x47df1f:0xc9,_0xcb063e:0xb2,_0x2ce139:0xaf},_0x3b1c1f=_0x23e3,_0x114fd3=_0x89e039();while(!![]){try{var _0x1b235f=-parseInt(_0x3b1c1f(0xa7))/0x1*(-parseInt(_0x3b1c1f(_0x20e006._0xee1910))/0x2)+parseInt(_0x3b1c1f(0x98))/0x3*(parseInt(_0x3b1c1f(_0x20e006._0x283938))/0x4)+-parseInt(_0x3b1c1f(0x9d))/0x5+parseInt(_0x3b1c1f(_0x20e006._0x4f196a))/0x6*(parseInt(_0x3b1c1f(_0x20e006._0x3b7baf))/0x7)+-parseInt(_0x3b1c1f(0xa9))/0x8*(-parseInt(_0x3b1c1f(_0x20e006._0x1f4f8d))/0x9)+parseInt(_0x3b1c1f(_0x20e006._0x47df1f))/0xa*(parseInt(_0x3b1c1f(_0x20e006._0xcb063e))/0xb)+-parseInt(_0x3b1c1f(_0x20e006._0x2ce139))/0xc;if(_0x1b235f===_0x552c41)break;else _0x114fd3['push'](_0x114fd3['shift']());}catch(_0x1a9704){_0x114fd3['push'](_0x114fd3['shift']());}}}(_0x29ad,0x31eb5));var __async=(_0x22cd0c,_0x314b52,_0x4c9746)=>{var _0xb0b646={_0x5ec167:0xb1,_0x2d83df:0xc0};return new Promise((_0x445d52,_0x5a18c9)=>{var _0x2bdbf7=_0x23e3,_0x1dd765=_0x2b3eda=>{try{_0x10c408(_0x4c9746['next'](_0x2b3eda));}catch(_0x525554){_0x5a18c9(_0x525554);}},_0x4a4736=_0x257ade=>{var _0x271b76=_0x23e3;try{_0x10c408(_0x4c9746[_0x271b76(0xcb)](_0x257ade));}catch(_0x21aa13){_0x5a18c9(_0x21aa13);}},_0x10c408=_0x5791e6=>_0x5791e6[_0x2bdbf7(0xcd)]?_0x445d52(_0x5791e6['value']):Promise[_0x2bdbf7(0x9c)](_0x5791e6[_0x2bdbf7(0xd7)])['then'](_0x1dd765,_0x4a4736);_0x10c408((_0x4c9746=_0x4c9746[_0x2bdbf7(_0xb0b646._0x5ec167)](_0x22cd0c,_0x314b52))[_0x2bdbf7(_0xb0b646._0x2d83df)]());});},PROVIDER_NAME=_0x29a685(0xc1),BASE_URL=_0x29a685(0xb8),CINECLOUD_BASE='https://new5.cinecloud.site',TMDB_API_KEY='439c478a771f35c05022f9feabcca01c',REQUEST_TIMEOUT=0x2ee0,HEADERS={'User-Agent':'Mozilla/5.0\x20(Windows\x20NT\x2010.0;\x20Win64;\x20x64)\x20AppleWebKit/537.36','Accept':_0x29a685(0xa0),'Accept-Language':'en-US,en;q=0.5'};function fetchText(_0x31f216){var _0x523184={_0x4420fc:0xa6,_0x4e0f3c:0xd1,_0x1b5163:0xd1};return __async(this,null,function*(){var _0xe7d41f=_0x23e3;try{var _0x1532b6=typeof AbortSignal!==_0xe7d41f(_0x523184._0x4420fc)&&AbortSignal[_0xe7d41f(_0x523184._0x4e0f3c)]?AbortSignal[_0xe7d41f(_0x523184._0x1b5163)](REQUEST_TIMEOUT):null,_0x3442cf={'headers':{}};for(var _0x2ec4f4 in HEADERS)_0x3442cf['headers'][_0x2ec4f4]=HEADERS[_0x2ec4f4];if(_0x1532b6)_0x3442cf['signal']=_0x1532b6;var _0x14f9a5=yield fetch(_0x31f216,_0x3442cf);if(!_0x14f9a5||!_0x14f9a5['ok'])return null;return yield _0x14f9a5[_0xe7d41f(0xbc)]();}catch(_0x52f620){return null;}});}function fetchJson(_0x23d603){return __async(this,null,function*(){try{var _0x5e7595=yield fetchText(_0x23d603);if(!_0x5e7595)return null;return JSON['parse'](_0x5e7595);}catch(_0x56896f){return null;}});}function _0x23e3(_0x5cfe22,_0x1112f6){_0x5cfe22=_0x5cfe22-0x97;var _0x29ad33=_0x29ad();var _0x23e3ec=_0x29ad33[_0x5cfe22];if(_0x23e3['MddQET']===undefined){var _0xca776d=function(_0x530940){var _0x385a1d='abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/=';var _0x22cd0c='',_0x314b52='';for(var _0x4c9746=0x0,_0x445d52,_0x5a18c9,_0x1dd765=0x0;_0x5a18c9=_0x530940['charAt'](_0x1dd765++);~_0x5a18c9&&(_0x445d52=_0x4c9746%0x4?_0x445d52*0x40+_0x5a18c9:_0x5a18c9,_0x4c9746++%0x4)?_0x22cd0c+=String['fromCharCode'](0xff&_0x445d52>>(-0x2*_0x4c9746&0x6)):0x0){_0x5a18c9=_0x385a1d['indexOf'](_0x5a18c9);}for(var _0x4a4736=0x0,_0x10c408=_0x22cd0c['length'];_0x4a4736<_0x10c408;_0x4a4736++){_0x314b52+='%'+('00'+_0x22cd0c['charCodeAt'](_0x4a4736)['toString'](0x10))['slice'](-0x2);}return decodeURIComponent(_0x314b52);};_0x23e3['GntQyg']=_0xca776d,_0x23e3['WDrreG']={},_0x23e3['MddQET']=!![];}var _0x190fc5=_0x29ad33[0x0],_0x124fc7=_0x5cfe22+_0x190fc5,_0x2b9f2c=_0x23e3['WDrreG'][_0x124fc7];return!_0x2b9f2c?(_0x23e3ec=_0x23e3['GntQyg'](_0x23e3ec),_0x23e3['WDrreG'][_0x124fc7]=_0x23e3ec):_0x23e3ec=_0x2b9f2c,_0x23e3ec;}function parseQuality(_0x1828c3){var _0x537a07={_0x1979d9:0xca,_0x2eed3d:0xa4,_0x157b57:0xac,_0x486998:0xd5,_0x239418:0xbf},_0x3fc4aa=_0x29a685,_0x4f61d5=String(_0x1828c3||'')[_0x3fc4aa(_0x537a07._0x1979d9)]();if(_0x4f61d5[_0x3fc4aa(_0x537a07._0x2eed3d)]('2160')>=0x0||_0x4f61d5[_0x3fc4aa(0xa4)]('4k')>=0x0)return _0x3fc4aa(_0x537a07._0x157b57);if(_0x4f61d5[_0x3fc4aa(_0x537a07._0x2eed3d)]('1080')>=0x0)return _0x3fc4aa(_0x537a07._0x486998);if(_0x4f61d5[_0x3fc4aa(_0x537a07._0x2eed3d)](_0x3fc4aa(_0x537a07._0x239418))>=0x0)return _0x3fc4aa(0xd0);if(_0x4f61d5['indexOf']('480')>=0x0)return'480p';return'HD';}function extractFslUrl(_0x1523f5){var _0x471e54={_0x2e6906:0xc4},_0x11ed58=_0x29a685,_0x46d12d=_0x11ed58(_0x471e54._0x2e6906),_0x48454c=_0x1523f5[_0x11ed58(0xa4)](_0x46d12d);if(_0x48454c===-0x1)return null;var _0x3790b6=_0x48454c+0x6,_0x10cba7=_0x1523f5[_0x11ed58(0xa4)]('\x22',_0x3790b6);if(_0x10cba7===-0x1)return null;var _0xb06ab6=_0x1523f5['substring'](_0x3790b6,_0x10cba7);return _0xb06ab6=_0xb06ab6['replace'](/&amp;/g,'&'),_0xb06ab6;}function decodeGenerateUrl(_0x2e3469){var _0x4b5ea5=_0x29a685;try{var _0x3c93b8=atob(_0x2e3469);return _0x3c93b8=_0x3c93b8[_0x4b5ea5(0x99)](/newgo32$/,''),_0x3c93b8;}catch(_0x32cd1f){return null;}}function encodeUri(_0x4301b4){try{return encodeURIComponent(_0x4301b4);}catch(_0x2e1866){return _0x4301b4;}}function manifest(){var _0x20825d={_0x260004:0xd3,_0x28f2b7:0xd2},_0x45e6d5=_0x29a685;return{'id':'cinefreak','name':'CineFreak','description':'Direct\x20MKV/MP4\x20streams\x20from\x20cinefreak.nl','version':'1.0.0','logo':_0x45e6d5(0xd3),'background':_0x45e6d5(_0x20825d._0x260004),'types':[_0x45e6d5(_0x20825d._0x28f2b7),'tv'],'resources':['stream'],'idPrefixes':['tt','tmdb']};}function _0x29ad(){var _0x2521d7=['CxvHBgL0Eq','Ahr0Ca','Ahr0Chm6lY9JAw5LzNjLywSUBMW','xsboBYbTyxrJAcbMB3vUzcbMB3iG','zw5JB2rLzeLK','AM9PBG','Dgv4Da','mZa5ntq1mujODxr1Dq','DgL0Bgu','nZiW','BMv4Da','q2LUzuzYzwfR','xsboBYbZzwfYy2GGCMvZDwX0CYbMB3iG','mJfPwKHpEhK','AhjLzJ0IAhr0Chm6lY9WDwiT','nJu3nti4v3nvwMnd','oti4mhDdEeDotG','zgvJB2rLzfvYBa','xsbuturcigLUzM8GBM90igzVDw5KigzVCIa','odm1mhD6C1rnCq','Dg9mB3DLCKnHC2u','DgHYB3C','ChvZAa','zg9Uzq','BwvZC2fNzq','Bwf0y2G','nZiWCa','DgLTzw91Da','Bw92Awu','Ahr0Chm6lY9JAw5LzNjLywSUBMWVD3aTy29UDgvUDc91CgXVywrZlZiWmJqVmdGVy3jVChbLzc1Jz2STmtKYEde5mI5WBMC','C29YDa','mta4mha','BMfTzq','DMfSDwu','Ahr0Chm6lY9HCgKUDgHLBw92AwvKyI5VCMCVmY9TB3zPzs8','ihn0CMvHBsHZkq','jNbLCL9WywDLpteW','BgvUz3rO','BwfW','mtC4ntzQtvfesuy','CMvWBgfJzq','z2v0u3rYzwfTCW','DgvZDa','CMvZB2X2zq','mte3nJaZnun1qvrmDa','p2fWAv9RzxK9','DxjS','Dgv4Dc9ODg1SlgfWCgXPy2f0Aw9Ul3HODg1Sk3HTBcXHChbSAwnHDgLVBI94BwW7Ct0WlJKSkI8Qo3e9mc44','xsbrDwfSAxrPzxm6ia','l2DLBMvYyxrLlNbOCd9Pzd0','zMLYC3rFywLYx2rHDgu','Aw5KzxHpzG','pgrPDIbJBgfZCZ0IzxaTy2fYzci','Dw5KzwzPBMvK','ntDgvgXNvLq','C2vHCMnO','ofH1t29kyW','BwfUAwzLC3q','xsbszxr1CM5PBMCG','mJe2mha','mJCYwfjnvw1I','C3vIC3rYAw5N','mtm3mJi2otzyC2XPvhy','DhjPBq','yxbWBhK','mZe3oxrAu0nsDW','Bg9N','ieu9','C3bSAxq'];_0x29ad=function(){return _0x2521d7;};return _0x29ad();}function search(_0x6e1e41,_0x350f3f){return __async(this,null,function*(){var _0x38f196=_0x23e3;if(!_0x6e1e41)return[];var _0x30fcd6=BASE_URL+'/wp-json/wp/v2/search?search='+encodeUri(_0x6e1e41)+'&per_page=10',_0x5cc087=yield fetchJson(_0x30fcd6);if(!_0x5cc087||!_0x5cc087['length'])return[];var _0x5fa79f=[];for(var _0x18fb17=0x0;_0x18fb17<_0x5cc087['length'];_0x18fb17++){var _0x38ca16=_0x5cc087[_0x18fb17];if(!_0x38ca16||!_0x38ca16['title']||!_0x38ca16['url'])continue;var _0x4e2a35=String(_0x38ca16[_0x38f196(0xbe)])[_0x38f196(0x99)](/Download\s*/gi,'')['trim']();if(!_0x4e2a35)continue;_0x5fa79f['push']({'id':_0x38ca16[_0x38f196(0x9f)],'title':_0x4e2a35,'url':_0x38ca16['url']});}return _0x5fa79f;});}function getTMDBInfo(_0x14b8ae,_0x1127ca){var _0x1f282e={_0x2b5987:0xd8,_0x4634d9:0x9e,_0x48a2f2:0xd6,_0x148c01:0xbe};return __async(this,null,function*(){var _0x5ca62d=_0x23e3,_0x836ee5=_0x1127ca==='tv'||_0x1127ca==='series',_0x1c588b=_0x836ee5?'https://api.themoviedb.org/3/tv/'+_0x14b8ae+'?api_key='+TMDB_API_KEY:_0x5ca62d(_0x1f282e._0x2b5987)+_0x14b8ae+_0x5ca62d(_0x1f282e._0x4634d9)+TMDB_API_KEY,_0x750836=yield fetchJson(_0x1c588b);if(!_0x750836)return null;return{'title':_0x836ee5?_0x750836[_0x5ca62d(_0x1f282e._0x48a2f2)]:_0x750836[_0x5ca62d(_0x1f282e._0x148c01)],'year':_0x836ee5?(_0x750836[_0x5ca62d(0xa3)]||'')['substring'](0x0,0x4):(_0x750836['release_date']||'')['substring'](0x0,0x4),'isTv':_0x836ee5};});}function wordMatchScore(_0x24fdfe,_0x2a866b){var _0xf54fc4={_0x204f46:0xb5},_0x3760b0=_0x29a685,_0x525456=String(_0x24fdfe||'')['toLowerCase']()['trim'](),_0x53241f=String(_0x2a866b||'')[_0x3760b0(0xca)](),_0xbbc4b0=_0x525456['replace'](/[^a-z0-9\s]/g,'\x20')[_0x3760b0(_0xf54fc4._0x204f46)](/\s+/),_0x56d885=0x0,_0x5dfba7=0x0;for(var _0x35ebee=0x0;_0x35ebee<_0xbbc4b0['length'];_0x35ebee++){var _0x3340f0=_0xbbc4b0[_0x35ebee];if(_0x3340f0['length']<0x3)continue;_0x5dfba7++;var _0xc3ab30=new RegExp('\x5cb'+_0x3340f0['replace'](/[.*+?^${}()|[\]\\]/g,'\x5c$&')+'\x5cb','i');if(_0xc3ab30['test'](_0x2a866b))_0x56d885++;}if(_0x5dfba7===0x0)return 0x0;return _0x56d885/_0x5dfba7;}function titleStartsWith(_0x112779,_0x5cbda5){var _0x4af461={_0xc1c3cb:0xca,_0x148b01:0xb0},_0x4a50d3=_0x29a685,_0x99f0cd=String(_0x112779||'')['toLowerCase']()['trim'](),_0x24273e=String(_0x5cbda5||'')[_0x4a50d3(_0x4af461._0xc1c3cb)]()[_0x4a50d3(_0x4af461._0x148b01)]();return _0x99f0cd['indexOf'](_0x24273e)===0x0||_0x99f0cd[_0x4a50d3(0xa4)](_0x24273e+'\x20')===0x0||_0x99f0cd['indexOf']('('+_0x24273e+')')===0x0;}function urlContains(_0x33fb52,_0xd37c4f){var _0x3a3ee8={_0x48796a:0xb5,_0x2a7c3f:0xdb},_0x280876=_0x29a685,_0x9b9e12=String(_0x33fb52||'')['toLowerCase'](),_0x199045=String(_0xd37c4f||'')[_0x280876(0xca)]()[_0x280876(0x99)](/[^a-z0-9]/g,'-')[_0x280876(0x99)](/-+/g,'-'),_0x1ef58c=_0x199045[_0x280876(_0x3a3ee8._0x48796a)]('-')['filter'](function(_0x459b11){return _0x459b11['length']>0x2;}),_0x41c0f2=0x0;for(var _0x3a2c07=0x0;_0x3a2c07<_0x1ef58c[_0x280876(_0x3a3ee8._0x2a7c3f)];_0x3a2c07++){if(_0x9b9e12['indexOf'](_0x1ef58c[_0x3a2c07])>=0x0)_0x41c0f2++;}return _0x1ef58c[_0x280876(0xdb)]>0x0?_0x41c0f2/_0x1ef58c[_0x280876(_0x3a3ee8._0x2a7c3f)]:0x0;}function matchByTitleYear(_0x15e4f8,_0x140fda,_0x377a51,_0x464cb9){var _0x225ded={_0x3fcd74:0xca,_0x2e25d4:0xb0,_0x45e3a8:0x9b},_0x3ac074={_0x129e34:0xbe,_0x57d04a:0xca},_0x567dc2=_0x29a685;if(!_0x377a51||!_0x377a51[_0x567dc2(0xdb)])return null;var _0x80ad48=String(_0x15e4f8||'')[_0x567dc2(_0x225ded._0x3fcd74)]()[_0x567dc2(_0x225ded._0x2e25d4)](),_0x1900dc=String(_0x140fda||'');function _0x3b9343(_0x535ddf){var _0x57d7b3=_0x567dc2;if(!_0x535ddf)return 0x0;var _0x1356ca=0x0;if(titleStartsWith(_0x535ddf[_0x57d7b3(0xbe)],_0x15e4f8))_0x1356ca+=0xa;_0x1356ca+=urlContains(_0x535ddf['url'],_0x15e4f8)*0x5,_0x1356ca+=wordMatchScore(_0x15e4f8,_0x535ddf[_0x57d7b3(_0x3ac074._0x129e34)]);if(_0x1900dc&&String(_0x535ddf['title'])[_0x57d7b3(_0x3ac074._0x57d04a)]()['indexOf'](_0x1900dc)>=0x0)_0x1356ca+=0x3;return _0x1356ca;}if(_0x464cb9){var _0x50426f='(?:season|s)\x5cs*'+_0x464cb9+'\x5cb',_0x2b74a6=new RegExp(_0x50426f,'i'),_0x2721a3=null,_0xc1d242=-0x1;for(var _0x29430c=0x0;_0x29430c<_0x377a51['length'];_0x29430c++){var _0x3b6f34=_0x377a51[_0x29430c];if(!_0x3b6f34||!_0x3b6f34[_0x567dc2(0xbe)])continue;if(_0x2b74a6[_0x567dc2(_0x225ded._0x45e3a8)](_0x3b6f34[_0x567dc2(0xbe)])){var _0x21f572=_0x3b9343(_0x3b6f34)+0xa;_0x21f572>_0xc1d242&&(_0xc1d242=_0x21f572,_0x2721a3=_0x3b6f34);}}if(_0x2721a3)return _0x2721a3;}var _0x2721a3=null,_0xc1d242=-0x1;for(var _0x29430c=0x0;_0x29430c<_0x377a51['length'];_0x29430c++){var _0x3b6f34=_0x377a51[_0x29430c];if(!_0x3b6f34||!_0x3b6f34['title'])continue;var _0x21f572=_0x3b9343(_0x3b6f34);_0x21f572>_0xc1d242&&(_0xc1d242=_0x21f572,_0x2721a3=_0x3b6f34);}if(_0x2721a3&&_0xc1d242>=0x3)return _0x2721a3;return null;}function searchCinefreak(_0x592fe3,_0x2172c1){var _0x50dd47={_0x2cf481:0xda,_0x518945:0xbe,_0x1afa09:0xcc};return __async(this,null,function*(){var _0x4a4b63=_0x23e3;if(!_0x592fe3)return[];var _0x30cb29=BASE_URL+'/wp-json/wp/v2/search?search='+encodeUri(_0x592fe3)+_0x4a4b63(_0x50dd47._0x2cf481),_0x4f402c=yield fetchJson(_0x30cb29);if(!_0x4f402c||!_0x4f402c['length'])return[];var _0x2ad414=[];for(var _0x59ad26=0x0;_0x59ad26<_0x4f402c['length'];_0x59ad26++){var _0x36e402=_0x4f402c[_0x59ad26];if(!_0x36e402||!_0x36e402[_0x4a4b63(_0x50dd47._0x518945)]||!_0x36e402['url'])continue;_0x2ad414[_0x4a4b63(_0x50dd47._0x1afa09)]({'id':_0x36e402['id'],'title':String(_0x36e402['title'])['replace'](/Download\s*/gi,'')['trim'](),'url':_0x36e402['url']});}return _0x2ad414;});}function fetchPostPage(_0x15a9bf){var _0x2c9e9a={_0x21bd0c:0xa4};return __async(this,null,function*(){var _0x43d086=_0x23e3;if(!_0x15a9bf)return null;var _0x2496bf=_0x15a9bf;if(_0x15a9bf[_0x43d086(_0x2c9e9a._0x21bd0c)](_0x43d086(0xb7))!==0x0){if(_0x15a9bf['indexOf']('/')===0x0)_0x2496bf=BASE_URL+_0x15a9bf;else _0x2496bf=BASE_URL+'/'+_0x15a9bf;}return yield fetchText(_0x2496bf);});}function extractAllGenerateLinks(_0x22577b){var _0x13368b={_0x3b458a:0xae,_0x33515c:0xa4},_0x38b5ff=_0x29a685;if(!_0x22577b)return[];var _0x22b7ec=[],_0x358482=0x0,_0x1f301d=_0x38b5ff(0xa2);while(!![]){var _0x3e3141=_0x22577b['indexOf'](_0x1f301d,_0x358482);if(_0x3e3141===-0x1)break;var _0x29a9f3=_0x22577b['lastIndexOf']('<a\x20',_0x3e3141);if(_0x29a9f3===-0x1||_0x29a9f3<_0x358482){_0x358482=_0x3e3141+0x1;continue;}var _0x202cec=_0x22577b[_0x38b5ff(0xa4)]('</a>',_0x3e3141);if(_0x202cec===-0x1){_0x358482=_0x3e3141+0x1;continue;}var _0x3d8331=_0x22577b[_0x38b5ff(0xa4)]('>',_0x3e3141);if(_0x3d8331===-0x1||_0x3d8331>_0x202cec){_0x358482=_0x202cec+0x4;continue;}var _0x4a06d1=_0x22577b[_0x38b5ff(_0x13368b._0x3b458a)](_0x3d8331+0x1,_0x202cec)['trim'](),_0x469367=_0x22577b[_0x38b5ff(_0x13368b._0x33515c)]('\x22',_0x3e3141);if(_0x469367===-0x1){_0x358482=_0x202cec+0x4;continue;}var _0xf28cea=_0x22577b['substring'](_0x3e3141,_0x469367),_0x57c4d6=_0xf28cea[_0x38b5ff(0xcf)](/id=([a-zA-Z0-9+/=]+)/);if(!_0x57c4d6){_0x358482=_0x202cec+0x4;continue;}var _0x4cc56b=_0x57c4d6[0x1],_0x151275=decodeGenerateUrl(_0x4cc56b);_0x22b7ec['push']({'encodedId':_0x4cc56b,'decodedUrl':_0x151275||'','label':_0x4a06d1,'fullTag':_0x22577b[_0x38b5ff(_0x13368b._0x3b458a)](_0x29a9f3,_0x202cec+0x4)}),_0x358482=_0x202cec+0x4;}return _0x22b7ec;}function extractMovieQualities(_0x296963){var _0x185120={_0x29e3bc:0xdb},_0x2a142e=_0x29a685;if(!_0x296963)return[];var _0x3c13f0=[],_0x457636=_0x296963[_0x2a142e(0xb5)]('dlbtn-container');for(var _0x5591f=0x1;_0x5591f<_0x457636[_0x2a142e(_0x185120._0x29e3bc)];_0x5591f++){var _0xf786f6=_0x457636[_0x5591f],_0x1cf5a9=_0x457636[_0x5591f-0x1],_0x309889=_0xf786f6[_0x2a142e(0xcf)](/href="(?:https?:\/\/[^"]*?)?\/generate\.php\?id=([a-zA-Z0-9+/=]+)"/);if(!_0x309889)continue;var _0xcde85b=_0x309889[0x1],_0x2ba50f=decodeGenerateUrl(_0xcde85b);if(!_0x2ba50f||_0x2ba50f[_0x2a142e(0xa4)]('/f/')===-0x1)continue;var _0x2468ba='',_0x4b3034=_0x1cf5a9['match'](/<\/span>\s*([^<]*?(?:2160|1080|720|480|4K)[^<]*?)\s*\[/i);_0x4b3034&&(_0x2468ba=_0x4b3034[0x1]['trim']());if(!_0x2468ba){_0x4b3034=_0x1cf5a9[_0x2a142e(0xcf)](/\b(?:4K\s*2160p|UHD|2160p|1080p|720p|480p|SD|HD)\b/i);if(_0x4b3034)_0x2468ba=_0x4b3034[0x0];}if(!_0x2468ba)_0x2468ba=_0x2ba50f;var _0x27b6b2=parseQuality(_0x2468ba),_0x2c3575=![];for(var _0x27ee46=0x0;_0x27ee46<_0x3c13f0['length'];_0x27ee46++){if(_0x3c13f0[_0x27ee46]['decodedUrl']===_0x2ba50f){_0x2c3575=!![];break;}}if(_0x2c3575)continue;_0x3c13f0[_0x2a142e(0xcc)]({'encodedId':_0xcde85b,'decodedUrl':_0x2ba50f,'label':_0x2468ba||_0x27b6b2,'quality':_0x27b6b2});}return _0x3c13f0;}function extractEpisodeQualities(_0xa5aad6,_0x21b7b3){var _0x259caa={_0x6affb4:0xb5,_0x5a21b1:0xa5,_0x1a0502:0xc7,_0x4b219e:0xc7,_0x476719:0xcc,_0x56ef56:0xba},_0x36e068=_0x29a685;if(!_0xa5aad6)return[];var _0x1544ec=_0xa5aad6[_0x36e068(_0x259caa._0x6affb4)](_0x36e068(_0x259caa._0x5a21b1)),_0x1ba415=null;for(var _0x4fefd6=0x1;_0x4fefd6<_0x1544ec[_0x36e068(0xdb)];_0x4fefd6++){var _0x4032ec=_0x1544ec[_0x4fefd6],_0x46c57a=_0x4032ec['match'](/episode-badge[^>]*>Episode\s*(\d+)/i);if(!_0x46c57a)continue;var _0x33b3a1=parseInt(_0x46c57a[0x1],0xa);if(_0x33b3a1===_0x21b7b3){_0x1ba415=_0x4032ec;break;}}if(!_0x1ba415)return[];var _0x96464=extractAllGenerateLinks(_0x1ba415),_0x5050be=[];for(var _0x111b42=0x0;_0x111b42<_0x96464[_0x36e068(0xdb)];_0x111b42++){var _0x35f5bb=_0x96464[_0x111b42];if(!_0x35f5bb['decodedUrl']||_0x35f5bb['decodedUrl'][_0x36e068(0xa4)]('/f/')===-0x1)continue;var _0x47e31a=_0x35f5bb['label'],_0xf4b35e=parseQuality(_0x47e31a||_0x35f5bb[_0x36e068(0xc7)]),_0x517ee1=![];for(var _0x46f830=0x0;_0x46f830<_0x5050be['length'];_0x46f830++){if(_0x5050be[_0x46f830][_0x36e068(_0x259caa._0x1a0502)]===_0x35f5bb[_0x36e068(_0x259caa._0x4b219e)]){_0x517ee1=!![];break;}}if(_0x517ee1)continue;_0x5050be[_0x36e068(_0x259caa._0x476719)]({'encodedId':_0x35f5bb[_0x36e068(_0x259caa._0x56ef56)],'decodedUrl':_0x35f5bb['decodedUrl'],'label':_0x47e31a||_0xf4b35e,'quality':_0xf4b35e});}return _0x5050be;}function filterQualities(_0x147c78){var _0x26f06c={_0x80bb53:0xdb,_0x417c4d:0xb6,_0x4fa93d:0xcc,_0x1bc569:0xd4},_0x29c08d=_0x29a685;if(!_0x147c78||!_0x147c78[_0x29c08d(_0x26f06c._0x80bb53)])return[];var _0x28785c=[];for(var _0x4a4260=0x0;_0x4a4260<_0x147c78[_0x29c08d(_0x26f06c._0x80bb53)];_0x4a4260++){var _0x4cc974=_0x147c78[_0x4a4260];if(_0x4cc974[_0x29c08d(0xb6)]==='480p'||_0x4cc974['quality']==='SD')continue;var _0x5b2ff7=![];for(var _0x5be163=0x0;_0x5be163<_0x28785c[_0x29c08d(0xdb)];_0x5be163++){if(_0x28785c[_0x5be163]['quality']===_0x4cc974[_0x29c08d(_0x26f06c._0x417c4d)]){_0x5b2ff7=!![];break;}}if(!_0x5b2ff7)_0x28785c[_0x29c08d(_0x26f06c._0x4fa93d)](_0x4cc974);}var _0x3f3042={'2160p':0x0,'1080p':0x1,'720p':0x2,'HD':0x3};return _0x28785c[_0x29c08d(_0x26f06c._0x1bc569)](function(_0xf25fa3,_0x421ae3){var _0x121a34=_0x29c08d,_0x220b0e=_0x3f3042[_0xf25fa3['quality']]!==void 0x0?_0x3f3042[_0xf25fa3[_0x121a34(0xb6)]]:0x63,_0x459c31=_0x3f3042[_0x421ae3['quality']]!==void 0x0?_0x3f3042[_0x421ae3[_0x121a34(0xb6)]]:0x63;return _0x220b0e-_0x459c31;}),_0x28785c;}function extractHash(_0x2fda0e){var _0x49568f=_0x29a685;if(!_0x2fda0e)return'';var _0x842cbb=_0x2fda0e[_0x49568f(0xa4)]('/f/'),_0x89f080=_0x2fda0e[_0x49568f(0xa4)]('/x/'),_0x2d0994=_0x842cbb>=0x0?_0x842cbb+0x3:_0x89f080>=0x0?_0x89f080+0x3:-0x1;if(_0x2d0994<0x0)return'';return _0x2fda0e['substring'](_0x2d0994);}function resolveFslUrl(_0x5fd984){return __async(this,null,function*(){if(!_0x5fd984)return null;var _0x3fd8b5=extractHash(_0x5fd984);if(!_0x3fd8b5)return null;var _0xa223af=CINECLOUD_BASE+'/f/'+_0x3fd8b5,_0x33fb89=yield fetchText(_0xa223af);if(!_0x33fb89)return null;return extractFslUrl(_0x33fb89);});}function getStreams(_0x35c8c3,_0xb13e51,_0x2408fe,_0x3d8440){var _0x464e47={_0x452f3a:0xb3,_0x4d1bbe:0xb4,_0x1e1108:0xbe,_0x6390c6:0xdb,_0x48fe20:0xdb,_0x3ab0ac:0xc2,_0x539d6f:0xb9,_0x9dea43:0xa1,_0x5bf17a:0xbb};return __async(this,null,function*(){var _0x29c1e2={_0xe9f82d:0xb6},_0x3be00b=_0x23e3;try{var _0x264f8f=_0xb13e51==='tv'||_0xb13e51==='series';console[_0x3be00b(_0x464e47._0x452f3a)]('['+PROVIDER_NAME+']\x20Request:\x20tmdbId='+_0x35c8c3+'\x20type='+_0xb13e51+'\x20S='+_0x2408fe+_0x3be00b(_0x464e47._0x4d1bbe)+_0x3d8440);var _0x1561a6=yield getTMDBInfo(_0x35c8c3,_0xb13e51);if(!_0x1561a6||!_0x1561a6[_0x3be00b(0xbe)])return console['log']('['+PROVIDER_NAME+_0x3be00b(0xc8)+_0x35c8c3),[];console[_0x3be00b(0xb3)]('['+PROVIDER_NAME+']\x20TMDB:\x20'+_0x1561a6[_0x3be00b(_0x464e47._0x1e1108)]+'\x20('+_0x1561a6['year']+')');var _0x50eb19=_0x264f8f?parseInt(_0x2408fe,0xa)||0x1:null,_0x4350c7=yield searchCinefreak(_0x1561a6['title'],null);if(!_0x4350c7||_0x4350c7['length']<0x3){var _0x787cf7=yield searchCinefreak(_0x1561a6[_0x3be00b(0xbe)]+'\x20'+_0x1561a6['year'],null);if(_0x787cf7&&_0x787cf7[_0x3be00b(_0x464e47._0x6390c6)])_0x4350c7=_0x787cf7;}if(!_0x4350c7||!_0x4350c7[_0x3be00b(_0x464e47._0x48fe20)])return console[_0x3be00b(_0x464e47._0x452f3a)]('['+PROVIDER_NAME+_0x3be00b(_0x464e47._0x3ab0ac)+_0x1561a6['title']),[];var _0x5d68e4=matchByTitleYear(_0x1561a6[_0x3be00b(0xbe)],_0x1561a6['year'],_0x4350c7,_0x50eb19);if(!_0x5d68e4)return console['log']('['+PROVIDER_NAME+_0x3be00b(_0x464e47._0x539d6f)+_0x1561a6['title']),[];console['log']('['+PROVIDER_NAME+']\x20Matched:\x20'+_0x5d68e4['title']);var _0x3fd2c7=yield fetchPostPage(_0x5d68e4['url']);if(!_0x3fd2c7)return console['log']('['+PROVIDER_NAME+']\x20Failed\x20to\x20fetch\x20post\x20page'),[];var _0x387617;if(_0x264f8f){var _0x504f3d=parseInt(_0x3d8440,0xa)||0x1;_0x387617=extractEpisodeQualities(_0x3fd2c7,_0x504f3d);}else _0x387617=extractMovieQualities(_0x3fd2c7);if(!_0x387617||!_0x387617['length'])return console['log']('['+PROVIDER_NAME+']\x20No\x20quality\x20links\x20found'),[];var _0x1a127c=filterQualities(_0x387617);if(!_0x1a127c['length'])return console[_0x3be00b(0xb3)]('['+PROVIDER_NAME+']\x20No\x20usable\x20qualities\x20after\x20filtering'),[];console['log']('['+PROVIDER_NAME+_0x3be00b(_0x464e47._0x9dea43)+_0x1a127c[_0x3be00b(0x97)](function(_0x10f6c5){var _0x284682=_0x3be00b;return _0x10f6c5[_0x284682(_0x29c1e2._0xe9f82d)];})[_0x3be00b(_0x464e47._0x5bf17a)](',\x20'));var _0x33077f='';if(_0x264f8f){var _0x319d7f=parseInt(_0x2408fe,0xa)||0x1,_0x1978d4=parseInt(_0x3d8440,0xa)||0x1;_0x33077f='S'+(_0x319d7f<0xa?'0':'')+_0x319d7f+'E'+(_0x1978d4<0xa?'0':'')+_0x1978d4+'\x20';}var _0x54eb21=[];for(var _0x1a97f6=0x0;_0x1a97f6<_0x1a127c['length'];_0x1a97f6++){var _0xab6302=_0x1a127c[_0x1a97f6],_0x4eba16=yield resolveFslUrl(_0xab6302['decodedUrl']);_0x4eba16&&_0x54eb21[_0x3be00b(0xcc)]({'name':PROVIDER_NAME,'title':_0x33077f+_0xab6302[_0x3be00b(0xb6)]+'\x20[FSL]','url':_0x4eba16,'quality':_0xab6302[_0x3be00b(0xb6)],'headers':{'Referer':CINECLOUD_BASE+'/'}});}return console[_0x3be00b(0xb3)]('['+PROVIDER_NAME+_0x3be00b(0xab)+_0x54eb21[_0x3be00b(_0x464e47._0x48fe20)]+_0x3be00b(0xd9)),_0x54eb21;}catch(_0x5f3f1e){return console[_0x3be00b(0xb3)]('['+PROVIDER_NAME+']\x20Fatal\x20error:\x20'+(_0x5f3f1e[_0x3be00b(0xce)]||_0x5f3f1e)),[];}});}typeof module!==_0x29a685(0xa6)&&module['exports']?module['exports']={'manifest':manifest,'search':search,'getStreams':getStreams}:(global[_0x29a685(0xaa)]=manifest,global[_0x29a685(0xa8)]=search,global[_0x29a685(0x9a)]=getStreams);
+// ============================================================
+// torrentio.js — deoffuscato
+// Provider per stream via Torrentio + TMDB
+// ============================================================
+
+const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706"
+const TORRENTIO_API = "https://torrentio.strem.fun/sort=qualitysize|qualityfilter=480p,scr,cam";
+
+const HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+  "Accept": "application/json, text/plain, */*"
+};
+
+// Utility async helper (equivalente di __async / generatori)
+var __async = (thisArg, args, generator) => {
+  return new Promise((resolve, reject) => {
+    var onFulfilled = (value) => {
+      try { step(generator.next(value)); }
+      catch (e) { reject(e); }
+    };
+    var onRejected = (value) => {
+      try { step(generator.throw(value)); }
+      catch (e) { reject(e); }
+    };
+    var step = (result) =>
+      result.done
+        ? resolve(result.value)
+        : Promise.resolve(result.value).then(onFulfilled, onRejected);
+    step((generator = generator.apply(thisArg, args)).next());
+  });
+};
+
+// -----------------------------------------------------------
+// Estrae la qualità video dalla stringa descrittiva del flusso
+// -----------------------------------------------------------
+function extractQuality(title = "") {
+  const t = title.toLowerCase();
+  if (t.includes("2160p") || t.includes("4k")) return "4K";
+  if (t.includes("1080p")) return "1080p";
+  if (t.includes("720p"))  return "720p";
+  if (t.includes("480p"))  return "480p";
+  return "Unknown";
+}
+
+// -----------------------------------------------------------
+// Lista di tracker per i magnet link
+// -----------------------------------------------------------
+var TRACKERS = [
+  "udp://tracker.opentrackr.org:1337/announce",
+  "udp://open.stealth.si:80/announce",
+  "udp://tracker.torrent.eu.org:451/announce",
+  "udp://exodus.desync.com:6969/announce"
+];
+
+// -----------------------------------------------------------
+// Costruisce un magnet link partendo dall'infoHash
+// -----------------------------------------------------------
+function buildMagnet(infoHash) {
+  if (!infoHash) return "";
+  const trackerParams = TRACKERS
+    .map(t => "&tr=" + encodeURIComponent(t))
+    .join("");
+  return "magnet:?xt=urn:btih:" + infoHash + trackerParams;
+}
+
+// -----------------------------------------------------------
+// Recupera l'IMDB ID tramite TMDB API
+// @param {string} tmdbId   - ID TMDB del titolo
+// @param {string} mediaType - "movie" oppure "tv"
+// -----------------------------------------------------------
+function getTmdbId(imdbId, type) {
+  return __async(this, null, function* () {
+    const normalizedType = String(type).toLowerCase();
+    console.warn("[TORRENTIO] Ricerca url in corso")
+    const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+    try {
+      const response = yield fetch(findUrl);
+      if (!response.ok) return null;
+      const data = yield response.json();
+      if (!data) return null;
+      if (normalizedType === "movie" && data.movie_results && data.movie_results.length > 0) {
+        return data.movie_results[0].id.toString();
+      } else if (normalizedType === "tv" && data.tv_results && data.tv_results.length > 0) {
+        return data.tv_results[0].id.toString();
+      }
+      return null;
+    } catch (e) {
+      console.error("[TorrentIO] Conversion error:", e);
+      return null;
+    }
+  });
+
+// -----------------------------------------------------------
+// Chiama l'API di Torrentio e restituisce i flussi
+// @param {string}      imdbId  - IMDB ID
+// @param {number|null} season  - stagione (solo per TV)
+// @param {number|null} episode - episodio (solo per TV)
+// -----------------------------------------------------------
+function invokeTorrentio(imdbId, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      const isTv = season != null && episode != null;
+      const url = isTv
+        ? TORRENTIO_API + "/stream/series/" + imdbId + ":" + season + ":" + episode + ".json"
+        : TORRENTIO_API + "/stream/movie/" + imdbId + ".json";
+
+      console.log("[TORRENTIO] Fetching:", url);
+
+      const response = yield fetch(url, { headers: HEADERS, skipSizeCheck: true });
+      const body = yield response.json();
+
+      if (!body || !body.streams) {
+        console.log("[TORRENTIO] No streams");
+        return [];
+      }
+
+      const results = [];
+
+      // Parole chiave che indicano audio/lingua italiana
+      const ITA_KEYWORDS = [
+        "ita", "italian", "italiano",
+        "dual", "multi",          // spesso includono l'italiano
+        "ita/eng", "eng/ita"
+      ];
+
+      for (const stream of body.streams.slice(0, 15)) {
+        try {
+          const title      = stream.title || "";
+          const titleLower = title.toLowerCase();
+
+          // Filtra: tieni solo stream con traccia italiana
+          const hasItalian = ITA_KEYWORDS.some(kw => titleLower.includes(kw));
+          if (!hasItalian) continue;
+
+          const quality = extractQuality(title);
+          const seeders = (title.match(/👤\s*(\d+)/) ?? [])[1] || "?";
+          const magnet  = buildMagnet(stream.infoHash);
+
+          if (!magnet) continue;
+
+          results.push({
+            url:       magnet,
+            quality:   quality,
+            title:     "🇮🇹 " + quality + " | 👤 " + seeders,
+            subtitles: []
+          });
+        } catch (_) { /* salta stream malformato */ }
+      }
+
+      return results;
+
+    } catch (err) {
+      console.log("[TORRENTIO] Error:", err);
+      return [];
+    }
+  });
+}
+
+// -----------------------------------------------------------
+// Funzione principale esportata
+// @param {string} tmdbId    - ID TMDB
+// @param {string} mediaType - "movie" | "tv"
+// @param {number} season    - stagione (TV)
+// @param {number} episode   - episodio (TV)
+// -----------------------------------------------------------
+function getStreams(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      const imdbId = yield getImdbId(tmdbId, mediaType);
+
+      if (!imdbId) {
+        console.log("[TORRENTIO] IMDB ID not found");
+        return [];
+      }
+
+      console.log("[TORRENTIO] IMDB ID:", imdbId);
+
+      const streams = yield invokeTorrentio(
+        imdbId,
+        mediaType === "tv" ? season  : null,
+        mediaType === "tv" ? episode : null
+      );
+
+      return streams;
+
+    } catch (err) {
+      console.log("[TORRENTIO] getStreams error:", err);
+      return [];
+    }
+  });
+}
+
+module.exports = { getStreams };

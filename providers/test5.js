@@ -17,7 +17,7 @@ function extractQuality(url) {
 }
 
 /**
- * Precision Host Resolver built from actual DevTools logs
+ * Handles the dynamic redirection layers from your DevTools captures
  */
 async function resolveHostPage(landingUrl) {
   try {
@@ -26,19 +26,20 @@ async function resolveHostPage(landingUrl) {
     const $ = cheerio.load(html);
     const streams = [];
 
-    // 1. FILEPRESS RESOLVER: Extract ID from URL structure and map directly to CDN
+    // 1. FILEPRESS: Convert landing pages to the direct API streams showing on your TV
     if (landingUrl.includes('filepress')) {
       const fileIdMatch = landingUrl.match(/\/file\/([a-zA-Z0-9]+)/);
       if (fileIdMatch) {
+        const directApiUrl = `https://new5.filepress.wiki/api/file/download/${fileIdMatch[1]}`;
         streams.push({
-          url: `https://new5.filepress.wiki/api/file/download/${fileIdMatch[1]}`,
+          url: directApiUrl,
           quality: extractQuality(landingUrl),
-          title: "DudeFilms (Filepress HighSpeed Server)"
+          title: "DudeFilms (Filepress Direct Stream)"
         });
       }
     }
 
-    // 2. HUBCLOUD FSL RESOLVER: Emulate live minute token attachment
+    // 2. HUBCLOUD FSL: Automatically calculate and append the live minute token
     const fslAnchor = $('#fsl');
     if (fslAnchor.length) {
       let rawHref = fslAnchor.attr('href');
@@ -48,12 +49,12 @@ async function resolveHostPage(landingUrl) {
         streams.push({
           url: authenticatedUrl,
           quality: extractQuality(landingUrl),
-          title: "DudeFilms (HubCloud FSL Stream Server)"
+          title: "DudeFilms (HubCloud FSL Server)"
         });
       }
     }
 
-    // 3. PIXELDRAIN RESOLVER: Extract dynamic script variable hidden inside page text
+    // 3. PIXELDRAIN: Pull the true variable mirror out of the background script
     const scriptText = $('script').text();
     if (scriptText.includes('var pxl =')) {
       const pxlMatch = scriptText.match(/var\s+pxl\s*=\s*['"]([^'"]+)['"]/);
@@ -61,26 +62,25 @@ async function resolveHostPage(landingUrl) {
         streams.push({
           url: pxlMatch[1],
           quality: extractQuality(landingUrl),
-          title: "DudeFilms (Pixeldrain Mirror Server)"
+          title: "DudeFilms (Pixeldrain Mirror)"
         });
       }
     }
 
-    // 4. CLOUD BACKUPS: Capture active 10Gbps or BusyCDN elements cleanly
+    // 4. CDNs: Capture high-speed lines (like busycdn)
     $('a[href*="hubcloud.cx"], a[href*="busycdn.xyz"]').each((i, el) => {
       const href = $(el).attr('href');
       if (href && href.startsWith('http')) {
         streams.push({
           url: href,
           quality: extractQuality(href),
-          title: "DudeFilms (Cloud Multi-Mirror Server)"
+          title: "DudeFilms (HighSpeed CDN)"
         });
       }
     });
 
     return streams;
   } catch (err) {
-    console.error(`[Scraper Error Context]`, err);
     return [];
   }
 }
@@ -176,11 +176,19 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (rawUrl.includes("hubcloud") || rawUrl.includes("filepress") || rawUrl.includes("gkyfilehost") || rawUrl.includes("dtflix") || rawUrl.includes("gdflix")) {
         const resolved = await resolveHostPage(rawUrl);
         finalStreams.push(...resolved);
+      } else if (rawUrl.includes("gofile.io")) {
+        // Blocks unplayable gofile landing folders from touching your TV player
+        if (rawUrl.includes("/d/")) continue; 
+        finalStreams.push({
+          url: rawUrl,
+          quality: extractQuality(rawUrl),
+          title: "DudeFilms (Gofile Direct)"
+        });
       } else {
         finalStreams.push({
           url: rawUrl,
           quality: extractQuality(rawUrl),
-          title: "DudeFilms (Direct Alternative Link)"
+          title: "DudeFilms (Direct Link)"
         });
       }
     }
@@ -193,7 +201,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       self.findIndex(v => v.url === item.url) === pos
     );
   } catch (e) {
-    console.error("[Global Error Catch]", e);
     return [];
   }
 }

@@ -11,7 +11,7 @@ const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
   "Accept": "*/*",
   "Referer": BASE_URL,
-  "Cookie": "m8k85jmc80m8q7ms1c6207m96i"
+  "Cookie": "aGooz=m8k85jmc80m8q7ms1c6207m96i"
 };
 
 function extractQuality(url) {

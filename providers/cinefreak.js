@@ -1,19 +1,17 @@
 const cheerio = require('cheerio-without-node-native');
-// desicinemas.js
-// Desicinemas - Hindi/Punjabi/Bollywood movie site (desicinemas.to)
-// Uses a Cloudflare Worker proxy for requests
-// Stream links: found from .MovieList .OptionBx items → iframe extraction
+// goojara.js
+// Goojara - English movie & series site (ww1.goojara.to)
+// Search: POST to /xmre.php with form data z, x, q
+// Episodes: GET season page /?s={seasonNum}  then div.seho elements
+// Stream: #drl a links → redirect with Cookie → final embed URL
 
-const BASE_URL = "https://desicinemas.to";
-const PROXY = "https://desicinemas.phisherdesicinema.workers.dev/";
+const BASE_URL = "https://ww1.goojara.to";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:139.0) Gecko/20100101 Firefox/139.0",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.5",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
+  "Accept": "*/*",
   "Referer": BASE_URL,
-  "Connection": "keep-alive",
-  "Cache-Control": "no-cache"
+  "Cookie": "m8k85jmc80m8q7ms1c6207m96i"
 };
 
 function extractQuality(url) {
@@ -33,59 +31,132 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Search via proxy
-    const searchUrl = `${PROXY}?url=${encodeURIComponent(`${BASE_URL}/?s=${encodeURIComponent(title)}`)}`;
-    const searchHtml = await (await fetch(searchUrl, { headers: HEADERS})).text();
+    // 2. Search via POST
+    const searchBody = new URLSearchParams({
+      z: "Mwxxa3Vnaw",
+      x: "b3716e05ff",
+      q: title
+    });
+
+    const searchResp = await fetch(`${BASE_URL}/xmre.php`, {
+      method: "POST",
+      headers: {
+        ...HEADERS,
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body: searchBody.toString()});
+
+    const searchHtml = await searchResp.text();
     const $ = cheerio.load(searchHtml);
 
     const results = [];
-    $(".MovieList li, .MovieList .TPostMv").each((i, el) => {
-      const href = $("a", el).attr("href");
-      const t = $("h2", el).text().trim();
+    $("li a").each((i, a) => {
+      const href = $(a).attr("href");
+      const t = $(a).text().trim();
       if (href) results.push({ title: t, url: href });
     });
 
     if (!results.length) return [];
 
+    const isTV = mediaType === "tv";
     const lcTitle = title.toLowerCase();
     let match = results.find(r => r.title.toLowerCase().includes(lcTitle));
     if (!match) match = results[0];
 
-    const pageUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
-    const proxyPageUrl = `${PROXY}?url=${encodeURIComponent(pageUrl)}`;
+    // Get the actual show page
+    const matchUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
 
-    // 3. Load page via proxy to get option boxes
-    const pageHtml = await (await fetch(proxyPageUrl, { headers: HEADERS})).text();
-    const $page = cheerio.load(pageHtml);
+    // Need to fetch the intermediate page to get the real show URL
+    const matchPageHtml = await (await fetch(matchUrl, { headers: HEADERS})).text();
+    const $match = cheerio.load(matchPageHtml);
+    const showHref = $match("div.snfo h1 a").attr("href") || matchUrl;
+    const showUrl = showHref.startsWith("http") ? showHref : `${BASE_URL}${showHref}`;
+
+    // 3. Load show page
+    const showHtml = await (await fetch(showUrl, { headers: HEADERS})).text();
+    const $show = cheerio.load(showHtml);
+
+    let targetUrl = showUrl;
+
+    if (isTV) {
+      // Get season link
+      const seasonLink = $show("#sesh a.ste").attr("href") || "";
+      if (!seasonLink) return [];
+
+      const totalSeasons = parseInt(seasonLink.split("?s=")[1]) || 1;
+
+      if (season > totalSeasons) return [];
+
+      const seasonHref = seasonLink.split("?s=")[0] + `?s=${season}`;
+      const seasonUrl = seasonHref.startsWith("http") ? seasonHref : `${BASE_URL}${seasonHref}`;
+
+      const seasonHtml = await (await fetch(seasonUrl, { headers: HEADERS})).text();
+      const $season = cheerio.load(seasonHtml);
+
+      let epUrl = "";
+      $season("div.seho").each((i, el) => {
+        if (epUrl) return;
+        const epText = $season("span.sea", el).text().replace(/^0/, "").trim();
+        const epNum = parseInt(epText);
+        if (epNum === episode) {
+          const href = $season("a", el).attr("href");
+          epUrl = href ? (href.startsWith("http") ? href : `${BASE_URL}${href}`) : "";
+        }
+      });
+
+      if (!epUrl) return [];
+      targetUrl = epUrl;
+    }
+
+    // 4. Load player page and get #drl links
+    const playerResp = await fetch(targetUrl, {
+      headers: { ...HEADERS, Referer: "https://www.goojara.to", Cookie: "" }});
+    const playerHtml = await playerResp.text();
+    const $player = cheerio.load(playerHtml);
+
+    // Extract cookies from response for subsequent requests
+    const setCookie = playerResp.headers.get ? playerResp.headers.get("set-cookie") : "";
+    // Parse _3chk() from HTML
+    const chkMatch = playerHtml.match(/_3chk\(\s*'([^']+)'\s*,\s*'([^']+)'/);
+    const cookieStr = setCookie ? `${setCookie.split(";")[0]}${chkMatch ? `; ${chkMatch[1]}=${chkMatch[2]}` : ""}` : "";
 
     const streams = [];
 
-    const optionBoxes = $page(".MovieList .OptionBx, .OptionBx").toArray();
-    for (const box of optionBoxes) {
+    const drlLinks = $player("#drl a").toArray();
+    for (const a of drlLinks) {
+      const href = $player(a).attr("href") || "";
+      if (!href) continue;
       try {
-        const linkEl = $page("a", box);
-        const link = linkEl.attr("href");
-        if (!link) continue;
-
-        // Fetch the embed page
-        const embedHtml = await (await fetch(link, { headers: HEADERS})).text();
-        const $embed = cheerio.load(embedHtml);
-        const iframeSrc = $embed("iframe").attr("src");
-        if (!iframeSrc) continue;
-
-        const name = $page("p.AAIco-dns", box).text().trim() || "Desicinemas";
-        streams.push({
-          url: iframeSrc,
-          quality: extractQuality(iframeSrc),
-          title: `Desicinemas [${name}]`,
-          subtitles: []
-        });
+        // Follow the redirect to get the embed URL
+        const redirectResp = await fetch(href, {
+          headers: {
+            ...HEADERS,
+            Referer: BASE_URL,
+            Cookie: cookieStr
+          },
+          redirect: "manual"});
+        const embedUrl = redirectResp.headers.get ? redirectResp.headers.get("location") : "";
+        if (embedUrl && embedUrl.startsWith("http")) {
+          streams.push({
+            name: "Goojara",
+            url: embedUrl,
+            quality: "720p",
+            title: `Goojara`,
+            subtitles: [],
+            behaviorHints: {
+              notWebReady: true,
+              proxyHeaders: {
+                request: Object.assign({}, HEADERS)
+              }
+            }
+          });
+        }
       } catch (e) {}
     }
 
     return streams;
   } catch (e) {
-    console.error("[Desicinemas]", e);
+    console.error("[Goojara]", e);
     return [];
   }
 }

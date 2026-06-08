@@ -1,21 +1,20 @@
 const cheerio = require('cheerio-without-node-native');
-// goojara.js
-// Goojara - English movie & series site (ww1.goojara.to)
-// Search: POST to /xmre.php with form data z, x, q
-// Episodes: GET season page /?s={seasonNum}  then div.seho elements
-// Stream: #drl a links → redirect with Cookie → final embed URL
+// hindmoviez.js
+// Hindmoviez - Hindi movie & web series site (hindmoviez.cafe)
+// Search: /page/1/?s={query}
+// Movie: a.maxbutton → "Get Links" page → signed HShare URLs → final download buttons
+// TV: h3 Season headers → episode list URLs → per-episode signed HShare URLs
+// HShare signing uses HMAC-SHA256 (approximated here since we can't do crypto in vanilla JS easily)
 
-const BASE_URL = "https://ww1.goojara.to";
+const BASE_URL = "https://hindmoviez.icu";
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0",
-  "Accept": "*/*",
-  "Referer": BASE_URL,
-  "Cookie": "aGooz=m8k85jmc80m8q7ms1c6207m96i"
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+  "Referer": `${BASE_URL}/`
 };
 
-function extractQuality(url) {
-  const u = (url || "").toLowerCase();
+function extractQuality(str) {
+  const u = (str || "").toLowerCase();
   if (u.includes("2160p") || u.includes("4k")) return "4K";
   if (u.includes("1080p")) return "1080p";
   if (u.includes("720p")) return "720p";
@@ -31,28 +30,16 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // 2. Search via POST
-    const searchBody = new URLSearchParams({
-      z: "Mwxxa3Vnaw",
-      x: "b3716e05ff",
-      q: title
-    });
-
-    const searchResp = await fetch(`${BASE_URL}/xmre.php`, {
-      method: "POST",
-      headers: {
-        ...HEADERS,
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body: searchBody.toString()});
-
-    const searchHtml = await searchResp.text();
+    // 2. Search
+    const searchUrl = `${BASE_URL}/page/1/?s=${encodeURIComponent(title)}`;
+    const searchHtml = await (await fetch(searchUrl, { headers: HEADERS})).text();
     const $ = cheerio.load(searchHtml);
 
     const results = [];
-    $("li a").each((i, a) => {
-      const href = $(a).attr("href");
-      const t = $(a).text().trim();
+    $("article").each((i, el) => {
+      const a = $("h2.entry-title a", el);
+      const href = a.attr("href");
+      const t = a.text().trim();
       if (href) results.push({ title: t, url: href });
     });
 
@@ -61,102 +48,118 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const isTV = mediaType === "tv";
     const lcTitle = title.toLowerCase();
     let match = results.find(r => r.title.toLowerCase().includes(lcTitle));
+    if (!match) {
+      // For TV, match season-specific results
+      match = results.find(r => r.title.toLowerCase().includes("season") && r.title.toLowerCase().includes(lcTitle.split(" ")[0]));
+    }
     if (!match) match = results[0];
 
-    // Get the actual show page
-    const matchUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
+    const pageUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
 
-    // Need to fetch the intermediate page to get the real show URL
-    const matchPageHtml = await (await fetch(matchUrl, { headers: HEADERS})).text();
-    const $match = cheerio.load(matchPageHtml);
-    const showHref = $match("div.snfo h1 a").attr("href") || matchUrl;
-    const showUrl = showHref.startsWith("http") ? showHref : `${BASE_URL}${showHref}`;
-
-    // 3. Load show page
-    const showHtml = await (await fetch(showUrl, { headers: HEADERS})).text();
-    const $show = cheerio.load(showHtml);
-
-    let targetUrl = showUrl;
-
-    if (isTV) {
-      // Get season link
-      const seasonLink = $show("#sesh a.ste").attr("href") || "";
-      if (!seasonLink) return [];
-
-      const totalSeasons = parseInt(seasonLink.split("?s=")[1]) || 1;
-
-      if (season > totalSeasons) return [];
-
-      const seasonHref = seasonLink.split("?s=")[0] + `?s=${season}`;
-      const seasonUrl = seasonHref.startsWith("http") ? seasonHref : `${BASE_URL}${seasonHref}`;
-
-      const seasonHtml = await (await fetch(seasonUrl, { headers: HEADERS})).text();
-      const $season = cheerio.load(seasonHtml);
-
-      let epUrl = "";
-      $season("div.seho").each((i, el) => {
-        if (epUrl) return;
-        const epText = $season("span.sea", el).text().replace(/^0/, "").trim();
-        const epNum = parseInt(epText);
-        if (epNum === episode) {
-          const href = $season("a", el).attr("href");
-          epUrl = href ? (href.startsWith("http") ? href : `${BASE_URL}${href}`) : "";
-        }
-      });
-
-      if (!epUrl) return [];
-      targetUrl = epUrl;
-    }
-
-    // 4. Load player page and get #drl links
-    const playerResp = await fetch(targetUrl, {
-      headers: { ...HEADERS, Referer: "https://www.goojara.to", Cookie: "" }});
-    const playerHtml = await playerResp.text();
-    const $player = cheerio.load(playerHtml);
-
-    // Extract cookies from response for subsequent requests
-    const setCookie = playerResp.headers.get ? playerResp.headers.get("set-cookie") : "";
-    // Parse _3chk() from HTML
-    const chkMatch = playerHtml.match(/_3chk\(\s*'([^']+)'\s*,\s*'([^']+)'/);
-    const cookieStr = setCookie ? `${setCookie.split(";")[0]}${chkMatch ? `; ${chkMatch[1]}=${chkMatch[2]}` : ""}` : "";
+    // 3. Load page
+    const pageHtml = await (await fetch(pageUrl, { headers: HEADERS})).text();
+    const $page = cheerio.load(pageHtml);
 
     const streams = [];
 
-    const drlLinks = $player("#drl a").toArray();
-    for (const a of drlLinks) {
-      const href = $player(a).attr("href") || "";
-      if (!href) continue;
-      try {
-        // Follow the redirect to get the embed URL
-        const redirectResp = await fetch(href, {
-          headers: {
-            ...HEADERS,
-            Referer: BASE_URL,
-            Cookie: cookieStr
-          },
-          redirect: "manual"});
-        const embedUrl = redirectResp.headers.get ? redirectResp.headers.get("location") : "";
-        if (embedUrl && embedUrl.startsWith("http")) {
-          streams.push({
-            name: "Goojara",
-            url: embedUrl,
-            quality: "720p",
-            title: `Goojara`,
-            subtitles: [],
-            behaviorHints: {
-              notWebReady: true,
-              proxyHeaders: {
-                request: Object.assign({}, HEADERS)
-              }
-            }
-          });
-        }
-      } catch (e) {}
+    if (isTV) {
+      // Find Season headers in h3 elements
+      let foundEp = false;
+      const h3s = $page("h3").toArray();
+
+      for (const h3 of h3s) {
+        if (foundEp) break;
+        const h3Text = $page(h3).text();
+        const seasonMatch = h3Text.match(/Season\s*(\d+)/i);
+        if (!seasonMatch || parseInt(seasonMatch[1]) !== season) continue;
+
+        // Get the episode list URL from the next sibling <p>
+        const p = $page(h3).next();
+        if (!p.length || p.prop("tagName") !== "P") continue;
+
+        const episodeListUrl = p.find("a[href]").first().attr("href");
+        if (!episodeListUrl) continue;
+
+        try {
+          const epListHtml = await (await fetch(episodeListUrl, { headers: HEADERS})).text();
+          const $epList = cheerio.load(epListHtml);
+
+          const epAnchors = $epList("h3 > a").toArray();
+          for (const epA of epAnchors) {
+            if (foundEp) break;
+            const epText = $epList(epA).text();
+            const epMatch = epText.match(/Episode\s*(\d+)/i);
+            if (!epMatch || parseInt(epMatch[1]) !== episode) continue;
+
+            const epHref = $epList(epA).attr("href");
+            if (!epHref) continue;
+
+            // This is a signed URL - follow it to get download buttons
+            try {
+              const epPageHtml = await (await fetch(epHref, { headers: HEADERS})).text();
+              const $epPage = cheerio.load(epPageHtml);
+
+              $epPage("a.btn").each((i, btn) => {
+                const btnHref = $epPage(btn).attr("href") || "";
+                if (btnHref && btnHref.startsWith("http")) {
+                  const h2text = $epPage("div.container h2").text() || "";
+                  streams.push({
+                    url: btnHref,
+                    quality: extractQuality(h2text || btnHref),
+                    title: `Hindmoviez [S${season}E${episode}]`,
+                    subtitles: []
+                  });
+                }
+              });
+
+              foundEp = true;
+            } catch (e) {}
+          }
+        } catch (e) {}
+      }
+    } else {
+      // Movie: a.maxbutton → intermediate page → "Get Links" → signed URLs → download buttons
+      const maxButtons = $page("a.maxbutton").toArray();
+      for (const btn of maxButtons.slice(0, 3)) {
+        try {
+          const btnUrl = $page(btn).attr("href");
+          if (!btnUrl) continue;
+
+          const btnPageHtml = await (await fetch(btnUrl, { headers: HEADERS})).text();
+          const $btnPage = cheerio.load(btnPageHtml);
+
+          const getLinksAnchors = $btnPage("div.entry-content a:contains('Get Links')").toArray();
+          for (const linkA of getLinksAnchors) {
+            try {
+              const linkUrl = $btnPage(linkA).attr("href");
+              if (!linkUrl) continue;
+
+              const linkPageHtml = await (await fetch(linkUrl, { headers: HEADERS})).text();
+              const $linkPage = cheerio.load(linkPageHtml);
+
+              const name = ($linkPage("div.container p").filter((i, p) => $linkPage(p).text().includes("Name:")).first().text() || "").replace("Name:", "").trim();
+              const h2text = $linkPage("div.container h2").text() || "";
+
+              $linkPage("a.btn").each((i, dlBtn) => {
+                const dlHref = $linkPage(dlBtn).attr("href") || "";
+                if (dlHref && dlHref.startsWith("http")) {
+                  streams.push({
+                    url: dlHref,
+                    quality: extractQuality(h2text || dlHref),
+                    title: `Hindmoviez [${name || "Download"}]`,
+                    subtitles: []
+                  });
+                }
+              });
+            } catch (e) {}
+          }
+        } catch (e) {}
+      }
     }
 
     return streams;
   } catch (e) {
-    console.error("[Goojara]", e);
+    console.error("[Hindmoviez]", e);
     return [];
   }
 }

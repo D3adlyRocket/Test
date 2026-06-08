@@ -9,14 +9,13 @@ const BASE_URL = 'https://icv.stremio-italia.eu/eyJ0bWRiX2tleSI6IjU0NjJmNzg0Njlm
 const MAX_RESULTS = 10;
 const QUALITY_RANKING = { '4K': 4, '1080p': 3, '720p': 2, '480p': 1, 'Unknown': 0 };
 
-// Language map for formatting tags
+// Language map for formatting tags to text shorthand strings
 const LANGUAGES = [
-    [/\bita\b|italiano?/i, '🇮🇹'],
-    [/\beng\b|english/i, '🇬🇧'],
-    [/\bspa\b|spanish|espa/i, '🇪🇸'],
-    [/\bfre\b|\bfra\b|french/i, '🇫🇷'],
-    [/\bger\b|\bdeu\b|german/i, '🇩🇪'],
-    [/\bmulti\b/i, '🌐']
+    [/\beng\b|english/i, 'ENG'],
+    [/\bita\b|italiano?/i, 'ITA'],
+    [/\bspa\b|spanish|espa/i, 'SPA'],
+    [/\bfre\b|\bfra\b|french/i, 'FRA'],
+    [/\bger\b|\bdeu\b|german/i, 'GER'],
 ];
 
 /**
@@ -54,12 +53,16 @@ function formatSize(bytes) {
  */
 function parseLanguages(text) {
     let matches = [];
-    for (let [regex, flag] of LANGUAGES) {
-        if (regex.test(text) && matches.indexOf(flag) === -1) {
-            matches.push(flag);
+    for (let [regex, code] of LANGUAGES) {
+        if (regex.test(text) && matches.indexOf(code) === -1) {
+            matches.push(code);
         }
     }
-    return matches.join(' ') || '🇮🇹';
+    // If text contains 'multi' but didn't catch specific codes, default list
+    if (/\bmulti\b/i.test(text) && matches.length === 0) {
+        return 'ENG • ITA';
+    }
+    return matches.join(' • ') || 'ITA';
 }
 
 /**
@@ -100,31 +103,26 @@ function formatStreamItem(stream, meta) {
         
     let formattedSize = formatSize(bytes);
     let isCached = innerMeta.cached === true;
-    let languageFlags = parseLanguages(filename);
+    let languageString = parseLanguages(filename);
     let tags = parseAttributes(filename);
     
     let cacheIcon = isCached ? '⚡ ' : '';
-    let extraDetails = [
-        seeders ? '🌱 ' + seeders : '',
-        formattedSize ? '💾 ' + formattedSize : '',
-        ...tags
-    ].filter(Boolean);
+    let formatString = tags.join(' | ') || 'Digital';
     
     let displayTitle = meta && meta.title ? meta.title : filename;
-    let displayYear = meta && meta.year ? ` (${meta.year})` : '';
+    let displayYear = meta && meta.year ? ` - ${meta.year}` : '';
     
     return {
         '_quality': quality,
         '_seeders': seeders,
         '_cached': isCached,
-        'name': `${cacheIcon}🔮 ${quality} · 🌱${seeders} · ${languageFlags}`,
+        // Match Layout: CorsaroViola | ⚡ Quality | 👥 Seeders | 🌍 Language
+        'name': `CorsaroViola | ${cacheIcon}${quality} | 👥 ${seeders} | 🌍 ${languageString}`,
+        // Subheading Layout
         'title': [
-            isCached ? '⚡ TorBox cached' : '',
             `🎬 ${displayTitle}${displayYear}`,
-            `📁 ${filename}`,
-            extraDetails.join(' · '),
-            `🗣️ ${languageFlags} · 📡 CorsaroViola`
-        ].filter(Boolean).join('\n'),
+            `🎞️ ${formatString} | 💾 ${formattedSize || 'N/A'}`
+        ].join('\n'),
         'url': stream.url,
         'quality': quality,
         'size': formattedSize,

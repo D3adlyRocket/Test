@@ -1,119 +1,165 @@
-"use strict";
+const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
+const TMDB_BASE = 'https://api.themoviedb.org/3';
+const PROVIDER_ID = 'VidSrc';
 
-const PROVIDER_NAME = "WebStreamrMBG";
-const DEFAULT_MANIFEST_URL = "https://87d6a6ef6b58-webstreamrmbg.baby-beamup.club/manifest.json";
-
-function configuredBaseUrl() {
-  const raw = process.env.WEBSTREAMRMBG_MANIFEST_URL
-    || process.env.WEBSTREAMRMBG_BASE_URL
-    || DEFAULT_MANIFEST_URL;
-  if (!raw) {
-    return "";
+async function safeFetch(url, options = {}) {
+  if (typeof fetchv2 === 'function') {
+    const headers = options.headers || {};
+    const method = options.method || 'GET';
+    const body = options.body || null;
+    try {
+      return await fetchv2(url, headers, method, body, true, options.encoding || 'utf-8');
+    } catch {
+    }
   }
-  return raw.replace(/\/manifest\.json$/i, "").replace(/\/+$/, "");
+  return fetch(url, options);
 }
 
-function streamId(tmdbId, imdbId, mediaType, season, episode) {
-  const baseId = tmdbId ? `tmdb:${tmdbId}` : imdbId;
-  if ((mediaType === "series" || mediaType === "tv") && season != null && episode != null) {
-    return `${baseId}:${season}:${episode}`;
+function inferQualityScore(text) {
+  const value = String(text || '').toLowerCase();
+  if (value.includes('2160') || value.includes('4k')) return 2160;
+  if (value.includes('1440')) return 1440;
+  if (value.includes('1080')) return 1080;
+  if (value.includes('720')) return 720;
+  if (value.includes('480')) return 480;
+  if (value.includes('360')) return 360;
+  return 0;
+}
+
+function toQualityLabel(score) {
+  if (score >= 2160) return '2160p';
+  if (score >= 1440) return '1440p';
+  if (score >= 1080) return '1080p';
+  return 'Auto';
+}
+
+function maxResolutionFromM3u8Text(text) {
+  const input = String(text || '');
+  let maxY = 0;
+  const re = /RESOLUTION=\s*\d+\s*x\s*(\d+)/gi;
+  let m;
+  // eslint-disable-next-line no-cond-assign
+  while ((m = re.exec(input)) !== null) {
+    const y = Number(m[1]);
+    if (Number.isFinite(y) && y > maxY) maxY = y;
   }
-  return baseId;
+  return maxY;
 }
 
-async function fetchWebStreamrStreams(tmdbId, mediaType, season, episode, imdbId) {
-  const baseUrl = configuredBaseUrl();
-  const id = streamId(tmdbId, imdbId, mediaType, season, episode);
-  if (!baseUrl || !id) {
-    return [];
-  }
-
-  const stremioType = mediaType === "tv" ? "series" : mediaType;
-  const url = `${baseUrl}/stream/${encodeURIComponent(stremioType)}/${encodeURIComponent(id)}.json`;
-  const response = await fetch(url, {
-    headers: {
-      "Accept": "application/json",
-      "User-Agent": "Doom-addon/2.1"
-    },
-    redirect: "follow"
-  });
-  if (!response.ok) {
-    throw new Error(`${PROVIDER_NAME} returned HTTP ${response.status}`);
-  }
-
-  const payload = await response.json();
-  return Array.isArray(payload.streams) ? payload.streams : [];
-}
-
-function streamText(stream) {
-  const behaviorHints = stream && stream.behaviorHints;
-  return [
-    stream && stream.name,
-    stream && stream.title,
-    stream && stream.description,
-    stream && stream.quality,
-    stream && stream.language,
-    behaviorHints && behaviorHints.filename,
-    behaviorHints && behaviorHints.bingeGroup
-  ].filter(Boolean).join(" ");
-}
-
-function isSeekableCandidate(stream) {
-  return !/\bno\s*seek\b/i.test(streamText(stream));
-}
-
-function hasAllowedLanguage(stream) {
-  return /\b(?:hindi|hin|english|eng|dual|multi|original)\b|en_hi|hi_en|\u{1F1FA}\u{1F1F8}|\u{1F1EE}\u{1F1F3}/iu.test(streamText(stream));
-}
-
-function firstUsefulTitleLine(stream) {
-  return String(stream.title || stream.description || stream.name || "")
-    .split(/\r?\n/)
-    .map((line) => line
-      .replace(/\bno\s*seek\b/ig, "")
-      .replace(/\s*[\u26A0\uFE0F]+\s*/g, " ")
-      .trim())
-    .find((line) => line && !/^\s*(?:\u{1F4BE}|size|source|\u{1F517})/iu.test(line));
-}
-
-function normalizeWebStreamrStream(stream) {
-  if (!stream || !stream.url) {
-    return null;
-  }
-
-  const behaviorHints = Object.assign({}, stream.behaviorHints || {});
-  const filename = behaviorHints.filename || firstUsefulTitleLine(stream);
-  if (filename) {
-    behaviorHints.filename = filename;
-  }
-
-  return {
-    name: stream.name || PROVIDER_NAME,
-    title: stream.title || stream.description || stream.name || PROVIDER_NAME,
-    description: stream.description || stream.title || stream.name || PROVIDER_NAME,
-    url: stream.url,
-    quality: stream.quality,
-    language: stream.language,
-    size: stream.size,
-    videoSize: stream.videoSize || behaviorHints.videoSize,
-    behaviorHints,
-    headers: stream.headers
-  };
-}
-
-async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, imdbId = "") {
+async function detectPlaylistMaxQuality(url, headers) {
   try {
-    const streams = await fetchWebStreamrStreams(tmdbId, mediaType, season, episode, imdbId);
-    return streams
-      .filter((stream) => stream && stream.url)
-      .filter(isSeekableCandidate)
-      .filter(hasAllowedLanguage)
-      .map(normalizeWebStreamrStream)
-      .filter(Boolean);
-  } catch (error) {
-    console.error(`[${PROVIDER_NAME}] ${error.message || error}`);
+    const res = await safeFetch(url, { headers: headers || {} });
+    const text = res && res.ok ? await res.text() : '';
+    return maxResolutionFromM3u8Text(text);
+  } catch {
+    return 0;
+  }
+}
+
+function tmdbFetch(path) {
+  return safeFetch(`${TMDB_BASE}${path}?api_key=${TMDB_API_KEY}`)
+    .then(r => (r && r.ok ? r.json() : null))
+    .catch(() => null);
+}
+
+async function getImdbId(tmdbId, mediaType) {
+  const type = mediaType === 'tv' ? 'tv' : 'movie';
+  if (type === 'movie') {
+    const movie = await tmdbFetch(`/movie/${tmdbId}`);
+    return movie && movie.imdb_id ? movie.imdb_id : null;
+  }
+
+  const tv = await tmdbFetch(`/tv/${tmdbId}`);
+  if (!tv) return null;
+  const ext = await tmdbFetch(`/tv/${tmdbId}/external_ids`);
+  return ext && ext.imdb_id ? ext.imdb_id : null;
+}
+
+async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum) {
+  const headersCloud = {
+    Referer: 'https://cloudorchestranova.com/',
+    Origin: 'https://cloudorchestranova.com',
+    'User-Agent': 'Mozilla/5.0'
+  };
+
+  const embedUrl = mediaType === 'tv'
+    ? `https://vidsrc-embed.ru/embed/tv?imdb=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
+    : `https://vidsrc-embed.ru/embed/${encodeURIComponent(imdbId)}`;
+
+  const embedRes = await safeFetch(embedUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const embedHtml = embedRes && embedRes.ok ? await embedRes.text() : '';
+  const iframeSrc = (embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/) || [])[1];
+  if (!iframeSrc) return [];
+
+  const iframeRes = await safeFetch(`https:${iframeSrc}`, {
+    headers: {
+      'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) Gecko/20100101 Firefox/145.0',
+      accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'accept-language': 'en-US,en;q=0.5',
+      referer: 'https://vidsrc-embed.ru/',
+      'upgrade-insecure-requests': '1'
+    }
+  });
+  const iframeHtml = iframeRes && iframeRes.ok ? await iframeRes.text() : '';
+  const prorcpSrc = (iframeHtml.match(/src:\s*["']([^"']+)["']/) || [])[1];
+  if (!prorcpSrc) return [];
+
+  const cloudRes = await safeFetch(`https://cloudorchestranova.com${prorcpSrc}`, { headers: { referer: 'https://cloudorchestranova.com/' } });
+  const cloudHtml = cloudRes && cloudRes.ok ? await cloudRes.text() : '';
+
+  const hidden = cloudHtml.match(/<div id="([^"]+)"[^>]*style=["']display\s*:\s*none;?["'][^>]*>([a-zA-Z0-9:\/.,{}\-_=+ ]+)<\/div>/);
+  const divId = hidden ? hidden[1] : null;
+  const divText = hidden ? hidden[2] : null;
+  if (!divId || !divText) return [];
+
+  const decRes = await safeFetch('https://enc-dec.app/api/dec-cloudnestra', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: divText, div_id: divId })
+  });
+  const decJson = decRes && decRes.ok ? await decRes.json() : null;
+  const urls = decJson && Array.isArray(decJson.result) ? decJson.result : [];
+  if (urls.length === 0) return [];
+
+  const results = [];
+  for (let idx = 0; idx < urls.length; idx++) {
+    const streamUrl = urls[idx];
+    if (!streamUrl) continue;
+
+    const scoreFromUrl = inferQualityScore(streamUrl);
+    const maxFromPlaylist = await detectPlaylistMaxQuality(streamUrl, headersCloud);
+    const assumed = streamUrl.includes('.m3u8') ? 1080 : 0;
+    const score = Math.max(scoreFromUrl, maxFromPlaylist, assumed);
+    if (score < 1080) continue;
+
+    results.push({
+      name: `${PROVIDER_ID} - Server ${idx + 1}`,
+      url: streamUrl,
+      quality: toQualityLabel(score),
+      headers: headersCloud,
+      provider: PROVIDER_ID,
+      _score: score
+    });
+  }
+
+  return results
+    .sort((a, b) => b._score - a._score)
+    .map(({ _score, ...rest }) => rest);
+}
+
+async function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
+  try {
+    const type = mediaType === 'tv' ? 'tv' : 'movie';
+    const imdbId = await getImdbId(tmdbId, type);
+    if (!imdbId) return [];
+    return await resolveCloudnestraStreams(imdbId, type, seasonNum, episodeNum);
+  } catch {
     return [];
   }
 }
 
-module.exports = { getStreams };
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+}

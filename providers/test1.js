@@ -3,7 +3,15 @@ const TMDB_BASE = 'https://api.themoviedb.org/3';
 const PROVIDER_ID = 'VidSrc';
 
 async function safeFetch(url, options = {}) {
-  // fetchv2 was undefined in your logs, so fallback directly to standard fetch
+  // Graceful fallback if fetchv2 isn't available in the runtime environment
+  if (typeof fetchv2 === 'function') {
+    const headers = options.headers || {};
+    const method = options.method || 'GET';
+    const body = options.body || null;
+    try {
+      return await fetchv2(url, headers, method, body, true, options.encoding || 'utf-8');
+    } catch {}
+  }
   return fetch(url, options);
 }
 
@@ -26,33 +34,32 @@ function toQualityLabel(score) {
 }
 
 /**
- * Native local decryption function replacing the dead enc-dec.app API
+ * Local client-side decryption fallback to replace the dead 404 API endpoint
  */
 function decryptCloudorchestranova(encryptedText, divId) {
   try {
-    // 1. Standard Base64 Decode
+    // Standard Base64 Decode
     let decoded = atob(encryptedText);
     
-    // 2. Cloudorchestranova's common rotation cipher using the divId length or characters
-    // If it's a simple character reversal:
+    // Attempt standard string reversal decryption
     let reversed = decoded.split('').reverse().join('');
     
-    // If the string looks like valid JSON or a URL list, return it
     if (reversed.includes('http')) {
-      return JSON.parse(reversed);
+      try { return JSON.parse(reversed); } catch {}
+      // Fallback extraction regex if string contains raw links rather than strict array notation
+      const matches = reversed.match(/(https?:\/\/[^\s",\]}]+)/g);
+      if (matches) return matches;
     }
     
-    // Fallback: If it's a standard URL array packed in base64 without reversal
-    if (decoded.includes('http') || decoded.includes('[')) {
-      return JSON.parse(decoded);
+    if (decoded.includes('http')) {
+      try { return JSON.parse(decoded); } catch {}
+      const matches = decoded.match(/(https?:\/\/[^\s",\]}]+)/g);
+      if (matches) return matches;
     }
     
-    // Universal fallback fallback link extraction if JSON parsing struggles
-    const urlRegex = /(https?:\/\/[^\s",\]}]+)/g;
-    const matches = decoded.match(urlRegex) || reversed.match(urlRegex);
-    return matches ? matches : [];
+    return [];
   } catch (e) {
-    console.error("Local decryption failed:", e);
+    console.error("Local decoding exception:", e);
     return [];
   }
 }
@@ -80,7 +87,7 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
   const headersCloud = {
     'Referer': 'https://cloudorchestranova.com/',
     'Origin': 'https://cloudorchestranova.com',
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
   };
 
   const embedUrl = mediaType === 'tv'
@@ -109,34 +116,47 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
   const hidden = cloudHtml.match(/<div id="([^"]+)"[^>]*style=["']display\s*:\s*none;?["'][^>]*>([a-zA-Z0-9:\/.,{}\-_=+ ]+)<\/div>/);
   const divId = hidden ? hidden[1] : null;
   const divText = hidden ? hidden[2] : null;
+  
   if (!divId || !divText) return [];
 
-  // FIXED: Using our custom local decryptor instead of the dead 404 API endpoint
+  // Decrypt content locally using client utility methods
   const rawUrls = decryptCloudorchestranova(divText, divId);
   const urls = Array.isArray(rawUrls) ? rawUrls : [rawUrls];
   if (urls.length === 0) return [];
 
   const results = [];
   for (let idx = 0; idx < urls.length; idx++) {
-    let streamUrl = urls[idx];
+    const streamUrl = urls[idx];
     if (!streamUrl) continue;
 
     const scoreFromUrl = inferQualityScore(streamUrl);
     const assumed = streamUrl.includes('.m3u8') ? 1080 : 0;
     const score = Math.max(scoreFromUrl, assumed);
 
-    // Formats stream links with standard header tags appended if Nuvio's player needs them strings-wise
+    // Bypassing CORS blocks on media pipelines often requires specific URL string suffixes 
+    // to instruct underlying platform HTTP clients to attach required headers.
+    const appendedHeadersUrl = `${streamUrl}|Referer=https://cloudorchestranova.com/&Origin=https://cloudorchestranova.com`;
+
     results.push({
       name: `${PROVIDER_ID} - Server ${idx + 1}`,
-      url: streamUrl,
+      url: appendedHeadersUrl, // Standard format header injection string suffix
       quality: toQualityLabel(score),
       headers: headersCloud,
+      behaviorHints: {
+        notStream: false,
+        proxyHeaders: {
+          "referer": "https://cloudorchestranova.com/",
+          "origin": "https://cloudorchestranova.com"
+        }
+      },
       provider: PROVIDER_ID,
       _score: score
     });
   }
 
-  return results.sort((a, b) => b._score - a._score).map(({ _score, ...rest }) => rest);
+  return results
+    .sort((a, b) => b._score - a._score)
+    .map(({ _score, ...rest }) => rest);
 }
 
 async function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {

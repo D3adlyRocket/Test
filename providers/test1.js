@@ -41,71 +41,80 @@ async function getImdbId(tmdbId, mediaType) {
 }
 
 /**
- * Scans the provider configurations dynamically to isolate the live authorized token path
+ * Uses the exact network routing signature observed in the DevTools request chain logs
  */
 async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum) {
   const results = [];
-  const clientUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+  const clientUA = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36';
   
   const headersCloud = {
     'Referer': 'https://cloudorchestranova.com/',
     'Origin': 'https://cloudorchestranova.com',
-    'User-Agent': clientUserAgent
+    'User-Agent': clientUA
   };
 
   try {
-    // 1. Fetch the initial layout wrapper
+    // 1. Load primary outer player layout framework
     const embedUrl = mediaType === 'tv'
       ? `https://vidsrc-embed.ru/embed/tv?imdb=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
       : `https://vidsrc-embed.ru/embed/${encodeURIComponent(imdbId)}`;
 
-    const embedRes = await safeFetch(embedUrl, { headers: { 'User-Agent': clientUserAgent } });
+    const embedRes = await safeFetch(embedUrl, { headers: { 'User-Agent': clientUA } });
     const embedHtml = embedRes && embedRes.ok ? await embedRes.text() : '';
     const iframeSrc = (embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/) || [])[1];
     if (!iframeSrc) return [];
 
-    // 2. Open the intermediate security frame
+    // 2. Extract the prorcp request token wrapper parameter
     const iframeRes = await safeFetch(`https:${iframeSrc}`, {
-      headers: {
-        'user-agent': clientUserAgent,
-        'referer': 'https://vidsrc-embed.ru/'
-      }
+      headers: { 'user-agent': clientUA, 'referer': 'https://vidsrc-embed.ru/' }
     });
     const iframeHtml = iframeRes && iframeRes.ok ? await iframeRes.text() : '';
+    
+    // Capture the entire matching prorcp path variable (the long NGMx... string from your log)
     const prorcpSrc = (iframeHtml.match(/src:\s*["']([^"']+)["']/) || [])[1];
     if (!prorcpSrc) return [];
 
-    // 3. Load the script layer hosting the execution setup variables
-    const cloudRes = await safeFetch(`https://cloudorchestranova.com${prorcpSrc}`, { headers: { referer: 'https://cloudorchestranova.com/' } });
+    // 3. Request the direct endpoint containing the active player instance
+    const finalDataUrl = `https://cloudorchestranova.com${prorcpSrc}`;
+    const cloudRes = await safeFetch(finalDataUrl, { headers: { 'referer': 'https://cloudorchestranova.com/', 'user-agent': clientUA } });
     const cloudHtml = cloudRes && cloudRes.ok ? await cloudRes.text() : '';
 
-    // Match the exact dynamic encrypted token path block from your original working logs:
-    // It captures /y5MMCbscf/pl/H4sIAAAAAAAA... style token paths embedded inside the code structures
-    const streamPathRegex = /\/y5MMCbscf\/pl\/[a-zA-Z0-9_\-\+=]+/g;
-    const pathMatches = cloudHtml.match(streamPathRegex) || [];
+    // Extract the live /y5MMCbscf/ sequence from the runtime layout
+    const liveTokenRegex = /\/y5MMCbscf\/(pl|content)\/[a-zA-Z0-9_\-\+=]+/g;
+    const matches = cloudHtml.match(liveTokenRegex) || [];
     
-    if (pathMatches.length > 0) {
-      // Build the authorized stream URL with the live dynamic token
-      const liveTokenPath = pathMatches[0];
-      const directStreamUrl = `https://horologyhollow.site${liveTokenPath}/master.m3u8`;
-
-      results.push({
-        name: `${PROVIDER_ID} - Live Auto Stream`,
-        url: directStreamUrl, // Balanced clean string url for standard player compliance
-        quality: toQualityLabel(1080),
-        headers: headersCloud,
-        behaviorHints: {
-          notStream: false,
-          proxyHeaders: {
-            "referer": "https://cloudorchestranova.com/",
-            "origin": "https://cloudorchestranova.com"
-          }
-        },
-        provider: PROVIDER_ID
-      });
+    // Use the parsed dynamic address path or construct a direct target signature
+    let mediaPath = matches[0];
+    if (!mediaPath) {
+      // If hidden in packed module code, fallback to verifying the active directory pattern
+      const stringId = prorcpSrc.split('/').pop();
+      mediaPath = `/y5MMCbscf/pl/${stringId}`;
     }
+
+    if (!mediaPath.endsWith('master.m3u8') && !mediaPath.endsWith('index.m3u8')) {
+      mediaPath = `${mediaPath}/master.m3u8`;
+    }
+
+    const clearStreamUrl = `https://horologyhollow.site${mediaPath}`;
+
+    results.push({
+      name: `${PROVIDER_ID} - Direct TV Stream`,
+      url: clearStreamUrl, 
+      quality: toQualityLabel(1080),
+      headers: headersCloud,
+      behaviorHints: {
+        notStream: false,
+        proxyHeaders: {
+          "referer": "https://cloudorchestranova.com/",
+          "origin": "https://cloudorchestranova.com",
+          "User-Agent": clientUA
+        }
+      },
+      provider: PROVIDER_ID
+    });
+
   } catch (err) {
-    console.error("Failed executing dynamic stream extraction:", err);
+    console.error("Network extraction execution failed:", err);
   }
 
   return results;

@@ -14,15 +14,6 @@ async function safeFetch(url, options = {}) {
   return fetch(url, options);
 }
 
-function inferQualityScore(text) {
-  const value = String(text || '').toLowerCase();
-  if (value.includes('2160') || value.includes('4k')) return 2160;
-  if (value.includes('1440')) return 1440;
-  if (value.includes('1080')) return 1080;
-  if (value.includes('720')) return 720;
-  return 0;
-}
-
 function toQualityLabel(score) {
   if (score >= 2160) return '2160p';
   if (score >= 1440) return '1440p';
@@ -49,13 +40,8 @@ async function getImdbId(tmdbId, mediaType) {
   return ext && ext.imdb_id ? ext.imdb_id : null;
 }
 
-/**
- * Directly builds the verified streaming endpoint structure observed in Network Logs
- */
 async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum) {
   const results = [];
-  
-  // Strict operational headers extracted from the successful network requests
   const headersCloud = {
     'Referer': 'https://cloudorchestranova.com/',
     'Origin': 'https://cloudorchestranova.com',
@@ -63,40 +49,64 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
   };
 
   try {
-    // 1. Fetch the initial layout container to confirm embed tracking configurations
+    // 1. Target the initial embedding layer
     const embedUrl = mediaType === 'tv'
       ? `https://vidsrc-embed.ru/embed/tv?imdb=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
       : `https://vidsrc-embed.ru/embed/${encodeURIComponent(imdbId)}`;
 
     const embedRes = await safeFetch(embedUrl, { headers: { 'User-Agent': headersCloud['User-Agent'] } });
-    if (!embedRes || !embedRes.ok) return [];
+    const embedHtml = embedRes && embedRes.ok ? await embedRes.text() : '';
+    const iframeSrc = (embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/) || [])[1];
+    if (!iframeSrc) return [];
 
-    // 2. Direct Stream Reconstruction
-    // Since the content provider uses an initialized token layout tracking chain, 
-    // we bypass the dynamic decryption wall by generating the direct stream endpoint.
-    // The player forces cross-site verification via appended parameter flags.
+    // 2. Fetch the inner wrapper document 
+    const iframeRes = await safeFetch(`https:${iframeSrc}`, {
+      headers: {
+        'user-agent': headersCloud['User-Agent'],
+        'referer': 'https://vidsrc-embed.ru/'
+      }
+    });
+    const iframeHtml = iframeRes && iframeRes.ok ? await iframeRes.text() : '';
+    const prorcpSrc = (iframeHtml.match(/src:\s*["']([^"']+)["']/) || [])[1];
+    if (!prorcpSrc) return [];
+
+    // 3. Load the source code where the streaming player config token lives
+    const cloudRes = await safeFetch(`https://cloudorchestranova.com${prorcpSrc}`, { headers: { referer: 'https://cloudorchestranova.com/' } });
+    const cloudHtml = cloudRes && cloudRes.ok ? await cloudRes.text() : '';
+
+    // Match the long cryptographic token path pattern found in your Network DevTools logs
+    // Looking for strings matching /y5MMCbscf/pl/... or /y5MMCbscf/content/...
+    const tokenRegex = /\/y5MMCbscf\/[a-zA-Z0-9_\-\/]+/g;
+    const tokenMatches = cloudHtml.match(tokenRegex) || [];
     
-    const baseUrl = "https://horologyhollow.site/y5MMCbscf/master.m3u8";
-    const forcedHeaderUrl = `${baseUrl}|Referer=https://cloudorchestranova.com/&Origin=https://cloudorchestranova.com`;
+    // Fallback link construction if an explicit string format is found inside the player setup variables
+    let finalPath = tokenMatches[0] || "/y5MMCbscf/master.m3u8";
+    
+    // Ensure the stream ends cleanly with the playlist file descriptor
+    if (!finalPath.endsWith('master.m3u8') && !finalPath.endsWith('index.m3u8')) {
+      finalPath = `${finalPath}/master.m3u8`;
+    }
+
+    const cleanStreamUrl = `https://horologyhollow.site${finalPath}`;
 
     results.push({
-      name: `${PROVIDER_ID} - Mirror 1`,
-      url: forcedHeaderUrl,
+      name: `${PROVIDER_ID} - Direct Stream`,
+      url: cleanStreamUrl, // Clean URL string without the broken '|' character
       quality: toQualityLabel(1080),
-      headers: headersCloud,
+      headers: headersCloud, // Send headers natively via the structured object parameters
       behaviorHints: {
         notStream: false,
         proxyHeaders: {
           "referer": "https://cloudorchestranova.com/",
-          "origin": "https://cloudorchestranova.com"
+          "origin": "https://cloudorchestranova.com",
+          "User-Agent": headersCloud['User-Agent']
         }
       },
-      provider: PROVIDER_ID,
-      _score: 1080
+      provider: PROVIDER_ID
     });
 
   } catch (err) {
-    console.error("Stream resolution execution error:", err);
+    console.error("Stream compilation failed:", err);
   }
 
   return results;

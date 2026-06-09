@@ -112,7 +112,7 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
   const divText = hidden ? hidden[2] : null;
   if (!divId || !divText) return [];
 
-  const decRes = await safeFetch('https://enc-dec.app/api/dec-cloudnestra', {
+  const decRes = await safeFetch('https://enc-dec.app/api/dec-cloudorchestranova', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: divText, div_id: divId })

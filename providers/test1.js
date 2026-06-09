@@ -40,59 +40,72 @@ async function getImdbId(tmdbId, mediaType) {
   return ext && ext.imdb_id ? ext.imdb_id : null;
 }
 
+/**
+ * Scans the provider configurations dynamically to isolate the live authorized token path
+ */
 async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum) {
   const results = [];
+  const clientUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
   
-  // Clean headers expected by players
   const headersCloud = {
-    'Referer': 'https://vidsrc.me/',
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36'
+    'Referer': 'https://cloudorchestranova.com/',
+    'Origin': 'https://cloudorchestranova.com',
+    'User-Agent': clientUserAgent
   };
 
   try {
-    // Construct the endpoint using a highly reliable public VidSrc data resolver link
-    // This handles the JavaScript ciphers server-side and drops a clean stream
-    const targetId = mediaType === 'tv' 
-      ? `${imdbId}&s=${seasonNum || 1}&e=${episodeNum || 1}`
-      : `${imdbId}`;
-      
-    const apiUrl = `https://api.vidsrc.cc/v1/${mediaType === 'tv' ? 'tv' : 'movie'}/${targetId}`;
+    // 1. Fetch the initial layout wrapper
+    const embedUrl = mediaType === 'tv'
+      ? `https://vidsrc-embed.ru/embed/tv?imdb=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
+      : `https://vidsrc-embed.ru/embed/${encodeURIComponent(imdbId)}`;
 
-    const apiRes = await safeFetch(apiUrl);
-    const apiData = apiRes && apiRes.ok ? await apiRes.json() : null;
+    const embedRes = await safeFetch(embedUrl, { headers: { 'User-Agent': clientUserAgent } });
+    const embedHtml = embedRes && embedRes.ok ? await embedRes.text() : '';
+    const iframeSrc = (embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/) || [])[1];
+    if (!iframeSrc) return [];
 
-    if (apiData && apiData.stream_url) {
+    // 2. Open the intermediate security frame
+    const iframeRes = await safeFetch(`https:${iframeSrc}`, {
+      headers: {
+        'user-agent': clientUserAgent,
+        'referer': 'https://vidsrc-embed.ru/'
+      }
+    });
+    const iframeHtml = iframeRes && iframeRes.ok ? await iframeRes.text() : '';
+    const prorcpSrc = (iframeHtml.match(/src:\s*["']([^"']+)["']/) || [])[1];
+    if (!prorcpSrc) return [];
+
+    // 3. Load the script layer hosting the execution setup variables
+    const cloudRes = await safeFetch(`https://cloudorchestranova.com${prorcpSrc}`, { headers: { referer: 'https://cloudorchestranova.com/' } });
+    const cloudHtml = cloudRes && cloudRes.ok ? await cloudRes.text() : '';
+
+    // Match the exact dynamic encrypted token path block from your original working logs:
+    // It captures /y5MMCbscf/pl/H4sIAAAAAAAA... style token paths embedded inside the code structures
+    const streamPathRegex = /\/y5MMCbscf\/pl\/[a-zA-Z0-9_\-\+=]+/g;
+    const pathMatches = cloudHtml.match(streamPathRegex) || [];
+    
+    if (pathMatches.length > 0) {
+      // Build the authorized stream URL with the live dynamic token
+      const liveTokenPath = pathMatches[0];
+      const directStreamUrl = `https://horologyhollow.site${liveTokenPath}/master.m3u8`;
+
       results.push({
-        name: `${PROVIDER_ID} - Multi Server`,
-        url: apiData.stream_url, // This provides the complete, working URL with the fresh crypto tokens attached
+        name: `${PROVIDER_ID} - Live Auto Stream`,
+        url: directStreamUrl, // Balanced clean string url for standard player compliance
         quality: toQualityLabel(1080),
         headers: headersCloud,
         behaviorHints: {
           notStream: false,
           proxyHeaders: {
-            "referer": "https://vidsrc.me/",
-            "User-Agent": headersCloud['User-Agent']
+            "referer": "https://cloudorchestranova.com/",
+            "origin": "https://cloudorchestranova.com"
           }
         },
         provider: PROVIDER_ID
       });
-    } else {
-      // Fallback API resolver variant if the primary source is busy
-      const fallbackUrl = mediaType === 'tv'
-        ? `https://vidsrc.xyz/embed/tv?imdb=${imdbId}&season=${seasonNum || 1}&episode=${episodeNum || 1}`
-        : `https://vidsrc.xyz/embed/movie?imdb=${imdbId}`;
-        
-      results.push({
-        name: `${PROVIDER_ID} - Stream Mirror`,
-        url: fallbackUrl,
-        quality: toQualityLabel(1080),
-        headers: headersCloud,
-        provider: PROVIDER_ID
-      });
     }
-
   } catch (err) {
-    console.error("Stream compilation failed:", err);
+    console.error("Failed executing dynamic stream extraction:", err);
   }
 
   return results;

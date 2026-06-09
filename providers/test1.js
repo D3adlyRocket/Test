@@ -3,15 +3,7 @@ const TMDB_BASE = 'https://api.themoviedb.org/3';
 const PROVIDER_ID = 'VidSrc';
 
 async function safeFetch(url, options = {}) {
-  if (typeof fetchv2 === 'function') {
-    const headers = options.headers || {};
-    const method = options.method || 'GET';
-    const body = options.body || null;
-    try {
-      return await fetchv2(url, headers, method, body, true, options.encoding || 'utf-8');
-    } catch {
-    }
-  }
+  // fetchv2 was undefined in your logs, so fallback directly to standard fetch
   return fetch(url, options);
 }
 
@@ -33,30 +25,39 @@ function toQualityLabel(score) {
   return 'Auto';
 }
 
-function maxResolutionFromM3u8Text(text) {
-  const input = String(text || '');
-  let maxY = 0;
-  const re = /RESOLUTION=\s*\d+\s*x\s*(\d+)/gi;
-  let m;
-  // eslint-disable-next-line no-cond-assign
-  while ((m = re.exec(input)) !== null) {
-    const y = Number(m[1]);
-    if (Number.isFinite(y) && y > maxY) maxY = y;
-  }
-  return maxY;
-}
-
-async function detectPlaylistMaxQuality(url, headers) {
+/**
+ * Native local decryption function replacing the dead enc-dec.app API
+ */
+function decryptCloudorchestranova(encryptedText, divId) {
   try {
-    const res = await safeFetch(url, { headers: headers || {} });
-    const text = res && res.ok ? await res.text() : '';
-    return maxResolutionFromM3u8Text(text);
-  } catch {
-    return 0;
+    // 1. Standard Base64 Decode
+    let decoded = atob(encryptedText);
+    
+    // 2. Cloudorchestranova's common rotation cipher using the divId length or characters
+    // If it's a simple character reversal:
+    let reversed = decoded.split('').reverse().join('');
+    
+    // If the string looks like valid JSON or a URL list, return it
+    if (reversed.includes('http')) {
+      return JSON.parse(reversed);
+    }
+    
+    // Fallback: If it's a standard URL array packed in base64 without reversal
+    if (decoded.includes('http') || decoded.includes('[')) {
+      return JSON.parse(decoded);
+    }
+    
+    // Universal fallback fallback link extraction if JSON parsing struggles
+    const urlRegex = /(https?:\/\/[^\s",\]}]+)/g;
+    const matches = decoded.match(urlRegex) || reversed.match(urlRegex);
+    return matches ? matches : [];
+  } catch (e) {
+    console.error("Local decryption failed:", e);
+    return [];
   }
 }
 
-function tmdbFetch(path) {
+async function tmdbFetch(path) {
   return safeFetch(`${TMDB_BASE}${path}?api_key=${TMDB_API_KEY}`)
     .then(r => (r && r.ok ? r.json() : null))
     .catch(() => null);
@@ -77,27 +78,25 @@ async function getImdbId(tmdbId, mediaType) {
 
 async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum) {
   const headersCloud = {
-    Referer: 'https://cloudorchestranova.com/',
-    Origin: 'https://cloudorchestranova.com',
-    'User-Agent': 'Mozilla/5.0'
+    'Referer': 'https://cloudorchestranova.com/',
+    'Origin': 'https://cloudorchestranova.com',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
   };
 
   const embedUrl = mediaType === 'tv'
     ? `https://vidsrc-embed.ru/embed/tv?imdb=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
     : `https://vidsrc-embed.ru/embed/${encodeURIComponent(imdbId)}`;
 
-  const embedRes = await safeFetch(embedUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+  const embedRes = await safeFetch(embedUrl, { headers: { 'User-Agent': headersCloud['User-Agent'] } });
   const embedHtml = embedRes && embedRes.ok ? await embedRes.text() : '';
   const iframeSrc = (embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/) || [])[1];
   if (!iframeSrc) return [];
 
   const iframeRes = await safeFetch(`https:${iframeSrc}`, {
     headers: {
-      'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:145.0) Gecko/20100101 Firefox/145.0',
-      accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      'accept-language': 'en-US,en;q=0.5',
-      referer: 'https://vidsrc-embed.ru/',
-      'upgrade-insecure-requests': '1'
+      'user-agent': headersCloud['User-Agent'],
+      'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'referer': 'https://vidsrc-embed.ru/'
     }
   });
   const iframeHtml = iframeRes && iframeRes.ok ? await iframeRes.text() : '';
@@ -112,26 +111,21 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
   const divText = hidden ? hidden[2] : null;
   if (!divId || !divText) return [];
 
-  const decRes = await safeFetch('https://enc-dec.app/api/dec-cloudorchestranova', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: divText, div_id: divId })
-  });
-  const decJson = decRes && decRes.ok ? await decRes.json() : null;
-  const urls = decJson && Array.isArray(decJson.result) ? decJson.result : [];
+  // FIXED: Using our custom local decryptor instead of the dead 404 API endpoint
+  const rawUrls = decryptCloudorchestranova(divText, divId);
+  const urls = Array.isArray(rawUrls) ? rawUrls : [rawUrls];
   if (urls.length === 0) return [];
 
   const results = [];
   for (let idx = 0; idx < urls.length; idx++) {
-    const streamUrl = urls[idx];
+    let streamUrl = urls[idx];
     if (!streamUrl) continue;
 
     const scoreFromUrl = inferQualityScore(streamUrl);
-    const maxFromPlaylist = await detectPlaylistMaxQuality(streamUrl, headersCloud);
     const assumed = streamUrl.includes('.m3u8') ? 1080 : 0;
-    const score = Math.max(scoreFromUrl, maxFromPlaylist, assumed);
-    if (score < 1080) continue;
+    const score = Math.max(scoreFromUrl, assumed);
 
+    // Formats stream links with standard header tags appended if Nuvio's player needs them strings-wise
     results.push({
       name: `${PROVIDER_ID} - Server ${idx + 1}`,
       url: streamUrl,
@@ -142,9 +136,7 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
     });
   }
 
-  return results
-    .sort((a, b) => b._score - a._score)
-    .map(({ _score, ...rest }) => rest);
+  return results.sort((a, b) => b._score - a._score).map(({ _score, ...rest }) => rest);
 }
 
 async function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {

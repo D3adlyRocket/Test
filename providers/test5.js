@@ -7,6 +7,7 @@ console.log('[VidFast] Initializing VidFast scraper');
 const TMDB_API_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const VIDFAST_BASE = 'https://vidfast.pro';
+const ENCRYPT_API = 'https://enc-dec.app/api/enc-vidfast';
 const DECRYPT_API = 'https://enc-dec.app/api';
 const ALLOWED_SERVERS = ['Alpha', 'Cobra', 'Max', 'Oscar', 'vEdge', 'vFast', 'vRapid'];
 

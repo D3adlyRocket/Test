@@ -1,285 +1,406 @@
-/**
- * vidlink - Built from src/vidlink/
- * Generated: 2026-05-24T13:07:23.110Z
- */
-var __defProp = Object.defineProperty;
-var __defProps = Object.defineProperties;
-var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
-var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __spreadValues = (a, b) => {
-  for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop))
-      __defNormalProp(a, prop, b[prop]);
-  if (__getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
-    }
-  return a;
-};
-var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
+// VidFast Scraper for Nuvio Local Scrapers
+// React Native compatible version
 
-// src/vidlink/constants.js
-var VIDLINK_API = "https://vidlink.pro";
-var DECRYPT_API = "https://enc-dec.app/api";
-var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
-var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  "Connection": "keep-alive",
-  "Referer": "https://vidlink.pro/",
-  "Origin": "https://vidlink.pro"
-};
+console.log('[VidFast] Initializing VidFast scraper');
 
-// Helpers to calculate automated properties based on file attributes
-function formatBytes(bytes) {
-  if (!bytes || isNaN(bytes)) return "Variable Size";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  while (bytes >= 1024 && i < units.length - 1) {
-    bytes /= 1024;
-    i++;
-  }
-  return `${bytes.toFixed(2)} ${units[i]}`;
-}
+// Constants
+const TMDB_API_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
+const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+const VIDFAST_BASE = 'https://vidfast.pro';
+const ENCRYPT_API = 'https://enc-dec.app/api';
+const DECRYPT_API = 'https://enc-dec.app/api';
+const ALLOWED_SERVERS = ['Alpha', 'Cobra', 'Max', 'Oscar', 'vEdge', 'vFast', 'vRapid'];
 
-function calculateCalculatedFallbackSize(quality, durationText) {
-  const mins = parseInt(durationText) || 90;
-  const norm = String(quality || "").toLowerCase();
-  let bitrateKbps = 5200;
-  
-  if (norm.includes("4k") || norm.includes("2160")) bitrateKbps = 16000;
-  else if (norm.includes("1080") || norm.includes("fhd")) bitrateKbps = 5200;
-  else if (norm.includes("720") || norm.includes("hd")) bitrateKbps = 2500;
-  else if (norm.includes("480") || norm.includes("sd")) bitrateKbps = 1200;
-
-  const dynamicVariance = 0.94 + ((mins % 9) / 100);
-  const calculatedBytes = ((bitrateKbps * dynamicVariance) * 1000 / 8) * (mins * 60);
-  return formatBytes(calculatedBytes);
-}
-
-// Dynamic fallback lookup meta agent
-async function getTmdbMetadata(id, type, season, episode) {
-  let fallbackName = "Unknown Title";
-  let fallbackDuration = type === "tv" ? "45 min" : "90 min";
-  
-  try {
-    const endpoint = type === "movie" ? "movie" : "tv";
-    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}`;
-    
-    const response = await fetch(url);
-    if (!response.ok) return { name: fallbackName, year: "N/A", duration: fallbackDuration };
-    const data = await response.json();
-
-    let duration = fallbackDuration;
-    if (type === "movie" && data.runtime) {
-      duration = `${data.runtime} min`;
-    } else if (type === "tv") {
-      const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
-      const epRes = await fetch(epUrl);
-      if (epRes.ok) {
-        const epData = await epRes.json();
-        if (epData.runtime) duration = `${epData.runtime} min`;
-        else if (data.episode_run_time && data.episode_run_time.length > 0) {
-           duration = `${data.episode_run_time[0]} min`;
-        }
-      }
-    }
-
-    return {
-      name: data.title || data.name || fallbackName,
-      year: (data.release_date || data.first_air_date || "").split("-")[0] || "N/A",
-      duration: duration
-    };
-  } catch (e) {
-    return { name: fallbackName, year: "N/A", duration: fallbackDuration };
-  }
-}
-
-// src/vidlink/utils.js
-function generateM3u8(_0) {
-  return __async(this, arguments, function* (masterUrl, headers = {}) {
+// Parse HLS master playlist to extract quality variants
+async function parseM3U8Playlist(playlistUrl) {
     try {
-      console.log(`[M3U8] Parsing master m3u8: ${masterUrl}`);
-      const resp = yield fetch(masterUrl, { headers });
-      const text = yield resp.text();
-      const baseUri = masterUrl.substring(0, masterUrl.lastIndexOf("/")) + "/";
-      const results = [];
-      const regex = /#EXT-X-STREAM-INF:.*?RESOLUTION=(\d+x\d+).*?\n([^\n]+)/g;
-      let match;
-      while ((match = regex.exec(text)) !== null) {
-        const height = parseInt(match[1].split("x")[1]);
-        if (height < 720)
-          continue;
-        const res = height + "p";
-        let url = match[2].trim();
-        if (!url.startsWith("http")) {
-          if (url.startsWith("/")) {
-            const root = new URL(masterUrl).origin;
-            url = root + url;
-          } else {
-            url = baseUri + url;
-          }
-        }
-        results.push({
-          quality: res,
-          url
-        });
-      }
-      return results;
-    } catch (err) {
-      console.warn(`[M3U8] Error parsing M3U8, returning empty.`, err);
-      return [];
-    }
-  });
-}
-
-// src/vidlink/index.js
-function getStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    console.log(`[Vidlink] Fetching streams for ${mediaType} ${tmdbId}`);
-    try {
-      const encUrl = `${DECRYPT_API}/enc-vidlink?text=${tmdbId}`;
-      const encResp = yield fetch(encUrl);
-      const encJson = yield encResp.json();
-      const encData = encJson.result;
-      if (!encData) {
-        console.log(`[Vidlink] No encrypted ID returned`);
-        return [];
-      }
-      const isMovie = mediaType !== "tv" && season == null;
-      const normType = isMovie ? "movie" : "tv";
-
-      // 1. Core Dynamic Context Metadata Lookup
-      const meta = yield getTmdbMetadata(tmdbId, normType, season, episode);
-
-      const epUrl = isMovie ? `${VIDLINK_API}/api/b/movie/${encData}` : `${VIDLINK_API}/api/b/tv/${encData}/${season}/${episode}`;
-      console.log(`[Vidlink] Fetching playlist from: ${epUrl}`);
-      const epResp = yield fetch(epUrl, { headers: HEADERS });
-      const epJson = yield epResp.json();
-      const playlist = epJson && epJson.stream && epJson.stream.playlist;
-      if (!playlist) {
-        console.log(`[Vidlink] No playlist in response`);
-        return [];
-      }
-
-      const streams = [];
-
-      // Helper function to turn dynamic qualities into the beautiful layout cards
-      const pushFormattedStream = (rawQuality, streamUrl) => {
-         // Resolve UI strings
-         let displayQuality = "1080p FHD";
-         let cleanQuality = "1080P";
-         
-         const qLower = String(rawQuality).toLowerCase();
-         if (qLower.includes("2160") || qLower.includes("4k")) {
-             displayQuality = "4K UHD";
-             cleanQuality = "2160P";
-         } else if (qLower.includes("1080")) {
-             displayQuality = "1080p FHD";
-             cleanQuality = "1080P";
-         } else if (qLower.includes("720")) {
-             displayQuality = "720p HD";
-             cleanQuality = "720P";
-         } else if (qLower.includes("auto")) {
-             displayQuality = "Auto Dynamic";
-             cleanQuality = "Auto";
-         }
-
-         const calculatedSize = calculateCalculatedFallbackSize(cleanQuality, meta.duration);
-         const mediaLabel = meta.name + (!isMovie ? " S" + season + "E" + episode : "");
-
-         // FIX LAYOUT SEPARATION DUPLICATION
-         const headerName = `VidLink | ${displayQuality} | Main Mirror`;
-         
-         const dropdownTitle = 
-             "🎬 " + mediaLabel + " - " + meta.year + "\n" +
-             "⚡ " + cleanQuality + " | 🌍 Original | 💾 " + calculatedSize + "\n" +
-             "🎞️ M3U8 | ⏱️ " + meta.duration + " | 📌 Main Mirror";
-
-         streams.push({
-            name: headerName,      // Row 1 only
-            title: dropdownTitle,  // Dropdown card elements to bypass duplicating blocks
-            url: streamUrl,
-            quality: rawQuality,
-            type: "m3u8",
+        const response = await fetch(playlistUrl, {
             headers: {
-              "User-Agent": HEADERS["User-Agent"],
-              "Referer": `${VIDLINK_API}/`,
-              "Origin": VIDLINK_API
-            },
-            provider: "vidlink"
-         });
-      };
-
-      // 2. Add base master profile
-      pushFormattedStream("Auto", playlist);
-
-      // 3. Loop through individual variant qualities returned from the .m3u8 index parser
-      try {
-        const extraStreams = yield generateM3u8(playlist, {
-          "Referer": `${VIDLINK_API}/`,
-          "User-Agent": HEADERS["User-Agent"]
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                'Referer': 'https://vidfast.pro/'
+            }
         });
-        extraStreams.forEach((s) => {
-          pushFormattedStream(s.quality, s.url);
-        });
-      } catch (err) {
-        console.warn(`[Vidlink] Failed to parse extra qualities for ${playlist}`);
-      }
-      
-      console.log(`[Vidlink] Found playlist stream`);
-      return streams.map((s) => __spreadProps(__spreadValues({}, s), { quality: getSortedQuality(s.quality) }));
+        
+        if (!response.ok) return null;
+        
+        const playlistText = await response.text();
+        
+        // Check if it's a master playlist (contains #EXT-X-STREAM-INF)
+        if (!playlistText.includes('#EXT-X-STREAM-INF')) {
+            return null; // Not a master playlist, it's a single quality stream
+        }
+        
+        const variants = [];
+        const lines = playlistText.split('\n');
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            
+            if (line.startsWith('#EXT-X-STREAM-INF')) {
+                // Extract resolution
+                const resolutionMatch = line.match(/RESOLUTION=(\d+)x(\d+)/i);
+                const bandwidthMatch = line.match(/BANDWIDTH=(\d+)/i);
+                
+                // Next line should be the URL
+                const urlLine = lines[i + 1]?.trim();
+                if (!urlLine || urlLine.startsWith('#')) continue;
+                
+                // Build full URL if relative
+                let variantUrl = urlLine;
+                if (!urlLine.startsWith('http')) {
+                    const baseUrl = playlistUrl.substring(0, playlistUrl.lastIndexOf('/') + 1);
+                    variantUrl = baseUrl + urlLine;
+                }
+                
+                // Determine quality from resolution
+                let quality = 'Unknown';
+                if (resolutionMatch) {
+                    const height = parseInt(resolutionMatch[2]);
+                    if (height >= 2160) quality = '2160p';
+                    else if (height >= 1440) quality = '1440p';
+                    else if (height >= 1080) quality = '1080p';
+                    else if (height >= 720) quality = '720p';
+                    else if (height >= 480) quality = '480p';
+                    else if (height >= 360) quality = '360p';
+                    else quality = `${height}p`;
+                }
+                
+                variants.push({
+                    url: variantUrl,
+                    quality: quality,
+                    bandwidth: bandwidthMatch ? parseInt(bandwidthMatch[1]) : 0
+                });
+            }
+        }
+        
+        return variants.length > 0 ? variants : null;
     } catch (error) {
-      console.error(`[Vidlink] Error: ${error.message}`);
-      return [];
+        return null;
     }
-  });
 }
-function getSortedQuality(quality) {
-  if (!quality)
-    return "Auto";
-  const q = quality.toLowerCase();
-  if (q.includes("auto")) {
-    return "Auto";
-  }
-  if (q.includes("2160") || q.includes("4k") || q.includes("uhd")) {
-    return "\u200B" + quality;
-  }
-  if (q.includes("1080") || q.includes("fhd")) {
-    return "\u200B\u200B" + quality;
-  }
-  if (q.includes("720") || q.includes("hd")) {
-    return "\u200B\u200B\u200B" + quality;
-  }
-  if (q.includes("480") || q.includes("sd")) {
-    return "\u200B\u200B\u200B\u200B" + quality;
-  }
-  if (q.includes("360")) {
-    return "\u200B\u200B\u200B\u200B\u200B" + quality;
-  }
-  return "\u200B\u200B\u200B\u200B" + quality;
+
+// Get TMDB details
+function getTMDBDetails(tmdbId, mediaType) {
+    const endpoint = mediaType === 'tv' ? 'tv' : 'movie';
+    const url = `${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    
+    return fetch(url).then(function(response) {
+        return response.json();
+    }).then(function(data) {
+        const isTv = mediaType === 'tv';
+        return {
+            title: isTv ? data.name : data.title,
+            year: (isTv ? data.first_air_date : data.release_date)?.substring(0, 4) || '',
+            mediaType: isTv ? 'tv' : 'movie'
+        };
+    });
 }
-module.exports = { getStreams };
+
+// Main scraping function
+async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
+    try {
+        // Build page URL
+        const pageUrl = mediaInfo.mediaType === 'tv'
+            ? `${VIDFAST_BASE}/tv/${tmdbId}/${seasonNum}/${episodeNum}`
+            : `${VIDFAST_BASE}/movie/${tmdbId}`;
+
+        // Headers
+        const headers = {
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'Origin': 'https://vidfast.pro',
+            'Referer': pageUrl,
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'cross-site',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+            'X-Requested-With': 'XMLHttpRequest'
+        };
+
+        // Step 1: Fetch page
+        const pageResponse = await fetch(pageUrl, { headers });
+        
+        if (!pageResponse.ok) {
+            console.log(`[VidFast] Page fetch failed: HTTP ${pageResponse.status}`);
+            return [];
+        }
+        
+        const pageText = await pageResponse.text();
+
+        // Step 2: Extract encrypted data
+        let rawData = null;
+        
+        // Look for __NEXT_DATA__ script tag
+        const nextDataMatch = pageText.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
+        if (nextDataMatch) {
+            try {
+                const jsonData = JSON.parse(nextDataMatch[1]);
+                const propsStr = JSON.stringify(jsonData);
+                const dataMatch = propsStr.match(/"en":"([^"]+)"/);
+                if (dataMatch) rawData = dataMatch[1];
+            } catch (e) {
+                // Continue to fallback patterns
+            }
+        }
+        
+        // Fallback patterns
+        if (!rawData) {
+            const patterns = [
+                /"en":"([^"]+)"/,
+                /'en':'([^']+)'/,
+                /\\"en\\":\\"([^"]+)\\"/,
+                /data\s*=\s*"([^"]+)"/
+            ];
+            
+            for (const pattern of patterns) {
+                const match = pageText.match(pattern);
+                if (match) {
+                    rawData = match[1];
+                    break;
+                }
+            }
+        }
+
+        if (!rawData) {
+            console.log('[VidFast] Could not extract data from page');
+            return [];
+        }
+
+        // Step 3: Get servers and stream URLs
+        const apiUrl = `${ENCRYPT_API}?text=${encodeURIComponent(rawData)}&version=1`;
+        const apiResponse = await fetch(apiUrl);
+        
+        if (!apiResponse.ok) {
+            console.log('[VidFast] enc-vidfast API failed');
+            return [];
+        }
+        
+        const apiData = await apiResponse.json();
+
+        if (apiData.status !== 200 || !apiData.result) {
+            console.log('[VidFast] enc-vidfast API returned error');
+            return [];
+        }
+
+        const apiServers = apiData.result.servers;
+        const streamBase = apiData.result.stream;
+        const token = apiData.result.token;
+
+        // Update headers with token if provided
+        if (token) {
+            headers['X-CSRF-Token'] = token;
+        }
+
+        // Step 4: Fetch and decrypt servers list
+        const serversResponse = await fetch(apiServers, { 
+            method: 'POST',
+            headers 
+        });
+        const serversEncrypted = await serversResponse.text();
+        
+        const decryptResponse = await fetch(DECRYPT_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: serversEncrypted, version: '1' })
+        });
+        const decryptData = await decryptResponse.json();
+        let serverList = decryptData.result;
+
+        if (!serverList || !Array.isArray(serverList) || serverList.length === 0) {
+            console.log('[VidFast] No servers available');
+            return [];
+        }
+
+        // Apply server filtering
+        if (typeof ALLOWED_SERVERS !== 'undefined') {
+            serverList = serverList.filter(s => ALLOWED_SERVERS.includes(s.name));
+            console.log(`[VidFast] Filtered to allowed servers: ${serverList.length} remaining`);
+        }
+        
+        if (typeof FILTER_DESCRIPTION !== 'undefined') {
+            serverList = serverList.filter(s => 
+                s.description && s.description.includes(FILTER_DESCRIPTION)
+            );
+            console.log(`[VidFast] Filtered by description "${FILTER_DESCRIPTION}": ${serverList.length} remaining`);
+        }
+        
+        if (typeof BLOCKED_SERVERS !== 'undefined') {
+            serverList = serverList.filter(s => !BLOCKED_SERVERS.includes(s.name));
+            console.log(`[VidFast] Blocked servers removed: ${serverList.length} remaining`);
+        }
+
+        if (serverList.length === 0) {
+            console.log('[VidFast] No servers after filtering');
+            return [];
+        }
+
+        console.log(`[VidFast] Found ${serverList.length} server(s)`);
+
+        // Step 5: Fetch and decrypt streams from each server
+        const rawStreams = [];
+
+        for (let i = 0; i < serverList.length; i++) {
+            const serverObj = serverList[i];
+            const server = serverObj.data;
+            const serverName = serverObj.name || `Server ${i + 1}`;
+            const apiStream = `${streamBase}/${server}`;
+
+            try {
+                const streamResponse = await fetch(apiStream, { 
+                    method: 'POST',
+                    headers 
+                });
+
+                if (!streamResponse.ok) {
+                    continue;
+                }
+
+                const streamEncrypted = await streamResponse.text();
+                
+                const streamDecryptResponse = await fetch(DECRYPT_API, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: streamEncrypted, version: '1' })
+                });
+                const streamDecryptData = await streamDecryptResponse.json();
+                const data = streamDecryptData.result;
+
+                if (!data.url) {
+                    continue;
+                }
+
+                // Determine quality from response data
+                let quality = 'Unknown';
+                
+                if (data.quality) {
+                    quality = data.quality;
+                    if (/2160|4k/i.test(quality)) quality = '4K';
+                    else if (/1440/i.test(quality)) quality = '1440p';
+                    else if (/1080/i.test(quality)) quality = '1080p';
+                    else if (/720/i.test(quality)) quality = '720p';
+                    else if (/480/i.test(quality)) quality = '480p';
+                    else if (/360/i.test(quality)) quality = '360p';
+                    else if (/auto|adaptive/i.test(quality)) quality = 'Auto';
+                } else if (data.label) {
+                    quality = data.label;
+                    if (/2160|4k/i.test(quality)) quality = '4K';
+                    else if (/1440/i.test(quality)) quality = '1440p';
+                    else if (/1080/i.test(quality)) quality = '1080p';
+                    else if (/720/i.test(quality)) quality = '720p';
+                    else if (/480/i.test(quality)) quality = '480p';
+                    else if (/360/i.test(quality)) quality = '360p';
+                    else if (/auto|adaptive/i.test(quality)) quality = 'Auto';
+                } else if (data.url.includes('.m3u8')) {
+                    quality = 'Auto';
+                } else {
+                    const qualityMatch = data.url.match(/(\d{3,4})[pP]/);
+                    if (qualityMatch) quality = `${qualityMatch[1]}p`;
+                }
+
+                rawStreams.push({
+                    serverName: serverName,
+                    url: data.url,
+                    quality: quality,
+                    isM3U8: data.url.includes('.m3u8')
+                });
+            } catch (error) {
+                continue;
+            }
+        }
+
+        // Step 6: Parse m3u8 playlists in parallel
+        const parsePromises = rawStreams.map(async function(stream) {
+            if (!stream.isM3U8) {
+                return [stream]; // Return as single-item array for consistency
+            }
+            
+            const variants = await parseM3U8Playlist(stream.url);
+            if (variants && variants.length > 0) {
+                return variants.map(v => ({
+                    serverName: stream.serverName,
+                    url: v.url,
+                    quality: v.quality,
+                    isM3U8: false
+                }));
+            }
+            return [stream]; // Fallback to original
+        });
+
+        const parsedStreamArrays = await Promise.all(parsePromises);
+        const allParsedStreams = parsedStreamArrays.flat();
+
+        // Step 7: Build final stream objects
+        const streams = allParsedStreams.map(function(stream) {
+            return {
+                name: `VidFast ${stream.serverName} - ${stream.quality}`,
+                title: `${mediaInfo.title} (${mediaInfo.year})`,
+                url: stream.url,
+                quality: stream.quality,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                    'Referer': 'https://vidfast.pro/'
+                },
+                provider: 'vidfast'
+            };
+        });
+
+        // Deduplicate by URL
+        const uniqueStreams = [];
+        const seenUrls = new Set();
+
+        streams.forEach(function(stream) {
+            if (!seenUrls.has(stream.url)) {
+                seenUrls.add(stream.url);
+                uniqueStreams.push(stream);
+            }
+        });
+
+        // Sort by quality
+        uniqueStreams.sort(function(a, b) {
+            const qualityOrder = {
+                'Adaptive': 4000,
+                '2160p': 2160,
+                '1440p': 1440,
+                '1080p': 1080,
+                '720p': 720,
+                '480p': 480,
+                '360p': 360,
+                'Unknown': 0
+            };
+            return (qualityOrder[b.quality] || 0) - (qualityOrder[a.quality] || 0);
+        });
+
+        console.log(`[VidFast] Returning ${uniqueStreams.length} stream(s)`);
+        return uniqueStreams;
+    } catch (error) {
+        console.error(`[VidFast] Error: ${error.message}`);
+        return [];
+    }
+}
+
+// Main function
+function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
+    console.log(`[VidFast] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}${seasonNum ? `, S${seasonNum}E${episodeNum}` : ''}`);
+
+    return getTMDBDetails(tmdbId, mediaType).then(function(mediaInfo) {
+        if (!mediaInfo) {
+            console.log('[VidFast] Failed to get TMDB details');
+            return [];
+        }
+
+        console.log(`[VidFast] Title: "${mediaInfo.title}" (${mediaInfo.year})`);
+
+        return scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum);
+    }).catch(function(error) {
+        console.error(`[VidFast] Error: ${error.message}`);
+        return [];
+    });
+}
+
+// Export the main function
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { getStreams };
+} else {
+    global.getStreams = getStreams;
+}

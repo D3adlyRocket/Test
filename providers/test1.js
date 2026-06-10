@@ -101,8 +101,15 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     return streams;
 }
 
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
-} else {
-  global.getStreams = getStreams;
+if (require.main === module) {
+  (async () => {
+    const streams = await getStreams(
+      "872585", // Oppenheimer TMDB ID
+      "movie"
+    );
+
+    console.log(JSON.stringify(streams, null, 2));
+  })();
 }
+
+module.exports = { getStreams };

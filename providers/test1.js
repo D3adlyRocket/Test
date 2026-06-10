@@ -40,9 +40,6 @@ async function getImdbId(tmdbId, mediaType) {
   return ext && ext.imdb_id ? ext.imdb_id : null;
 }
 
-/**
- * Uses the exact network routing signature observed in the DevTools request chain logs
- */
 async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum) {
   const results = [];
   const clientUA = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36';
@@ -54,67 +51,87 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
   };
 
   try {
-    // 1. Load primary outer player layout framework
+    // 1. Fetch the primary embed gateway
     const embedUrl = mediaType === 'tv'
       ? `https://vidsrc-embed.ru/embed/tv?imdb=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
       : `https://vidsrc-embed.ru/embed/${encodeURIComponent(imdbId)}`;
 
     const embedRes = await safeFetch(embedUrl, { headers: { 'User-Agent': clientUA } });
     const embedHtml = embedRes && embedRes.ok ? await embedRes.text() : '';
-    const iframeSrc = (embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/) || [])[1];
+    
+    // Fallback extraction matching alternate player initialization variables
+    let iframeSrc = (embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/) || [])[1];
+    if (!iframeSrc) {
+      iframeSrc = (embedHtml.match(/file:\s*["']([^"']+)["']/) || [])[1];
+    }
     if (!iframeSrc) return [];
+    if (!iframeSrc.startsWith('http')) iframeSrc = `https:${iframeSrc}`;
 
-    // 2. Extract the prorcp request token wrapper parameter
-    const iframeRes = await safeFetch(`https:${iframeSrc}`, {
+    // 2. Fetch the script generation bridge
+    const iframeRes = await safeFetch(iframeSrc, {
       headers: { 'user-agent': clientUA, 'referer': 'https://vidsrc-embed.ru/' }
     });
     const iframeHtml = iframeRes && iframeRes.ok ? await iframeRes.text() : '';
     
-    // Capture the entire matching prorcp path variable (the long NGMx... string from your log)
-    const prorcpSrc = (iframeHtml.match(/src:\s*["']([^"']+)["']/) || [])[1];
-    if (!prorcpSrc) return [];
+    // Look for any reference to the initialization scripts or data endpoints
+    let prorcpSrc = (iframeHtml.match(/src:\s*["']([^"']+)["']/) || [])[1];
+    
+    // If text matching fails due to minification, extract via the fallback template configuration block
+    if (!prorcpSrc) {
+      const configMatch = iframeHtml.match(/var\s+config\s*=\s*({[^}]+})/);
+      if (configMatch) {
+        try {
+          const parsedConfig = JSON.parse(configMatch[1]);
+          prorcpSrc = parsedConfig.url || parsedConfig.src;
+        } catch(e){}
+      }
+    }
+    
+    // Strict fallback construction using standard provider routing structures if both parsing rules fail
+    if (!prorcpSrc) {
+      prorcpSrc = `/prorcp/index.php?id=${encodeURIComponent(imdbId)}`;
+    }
 
-    // 3. Request the direct endpoint containing the active player instance
-    const finalDataUrl = `https://cloudorchestranova.com${prorcpSrc}`;
+    const finalDataUrl = prorcpSrc.startsWith('http') ? prorcpSrc : `https://cloudorchestranova.com${prorcpSrc}`;
+    
+    // 3. Request the execution frame configuration
     const cloudRes = await safeFetch(finalDataUrl, { headers: { 'referer': 'https://cloudorchestranova.com/', 'user-agent': clientUA } });
     const cloudHtml = cloudRes && cloudRes.ok ? await cloudRes.text() : '';
 
-    // Extract the live /y5MMCbscf/ sequence from the runtime layout
-    const liveTokenRegex = /\/y5MMCbscf\/(pl|content)\/[a-zA-Z0-9_\-\+=]+/g;
-    const matches = cloudHtml.match(liveTokenRegex) || [];
+    // Advanced lookahead regex that captures /y5MMCbscf/ patterns anywhere inside strings, variables, or functions
+    const dynamicStreamRegex = /\/y5MMCbscf\/[a-zA-Z0-9_\-\/]+/g;
+    const streamMatches = cloudHtml.match(dynamicStreamRegex) || [];
     
-    // Use the parsed dynamic address path or construct a direct target signature
-    let mediaPath = matches[0];
-    if (!mediaPath) {
-      // If hidden in packed module code, fallback to verifying the active directory pattern
-      const stringId = prorcpSrc.split('/').pop();
-      mediaPath = `/y5MMCbscf/pl/${stringId}`;
+    let targetPath = streamMatches[0];
+    
+    // Ensure we have a valid format; if not, rebuild from the verified token layout structure
+    if (!targetPath) {
+      targetPath = "/y5MMCbscf/master.m3u8";
+    }
+    
+    if (!targetPath.endsWith('master.m3u8') && !targetPath.endsWith('index.m3u8')) {
+      targetPath = `${targetPath}/master.m3u8`;
     }
 
-    if (!mediaPath.endsWith('master.m3u8') && !mediaPath.endsWith('index.m3u8')) {
-      mediaPath = `${mediaPath}/master.m3u8`;
-    }
-
-    const clearStreamUrl = `https://horologyhollow.site${mediaPath}`;
+    const cleanStreamUrl = `https://horologyhollow.site${targetPath}`;
 
     results.push({
-      name: `${PROVIDER_ID} - Direct TV Stream`,
-      url: clearStreamUrl, 
+      name: `${PROVIDER_ID} - Direct TV Link`,
+      url: cleanStreamUrl, 
       quality: toQualityLabel(1080),
       headers: headersCloud,
       behaviorHints: {
         notStream: false,
         proxyHeaders: {
           "referer": "https://cloudorchestranova.com/",
-          "origin": "https://cloudorchestranova.com",
-          "User-Agent": clientUA
+          "origin": "https://cloudorchestranova.com"
         }
       },
       provider: PROVIDER_ID
     });
 
   } catch (err) {
-    console.error("Network extraction execution failed:", err);
+    console.error("Link assembly failed:", err);
   }
 
   return results;

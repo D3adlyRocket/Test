@@ -1,223 +1,285 @@
-const cheerio = require('cheerio-without-node-native');
-
-// dudefilms.js
-// DudeFilms - Hindi/Bollywood/South Indian movie & series site (dudefilms.sarl)
-// Uses Cinemeta for metadata enhancement
-
-const BASE_URL = "https://dudefilms.irish";
-const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-  "Referer": `${BASE_URL}/`
+/**
+ * vidlink - Built from src/vidlink/
+ * Generated: 2026-05-24T13:07:23.110Z
+ */
+var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
 };
 
-function extractQuality(url) {
-  const u = (url || "").toLowerCase();
-  if (u.includes("2160p") || u.includes("4k")) return "4K";
-  if (u.includes("1080p")) return "1080p";
-  if (u.includes("720p")) return "720p";
-  if (u.includes("480p")) return "480p";
-  return "Unknown";
-}
+// src/vidlink/constants.js
+var VIDLINK_API = "https://vidlink.pro";
+var DECRYPT_API = "https://enc-dec.app/api";
+var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
+var HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Connection": "keep-alive",
+  "Referer": "https://vidlink.pro/",
+  "Origin": "https://vidlink.pro"
+};
 
-/**
- * Bypasses GoFile to grab the direct, playable .mkv/.mp4 link 
- * Requires requesting an anonymous token first.
- */
-async function resolveGofile(url) {
-  if (!url || !url.includes('gofile.io')) return url;
-  
-  try {
-    // 1. Generate an anonymous account token
-    const accountRes = await (await fetch("https://api.gofile.io/accounts", {
-      method: "POST"
-    })).json();
-    const token = accountRes.data.token;
-
-    // 2. Fetch the folder/file contents using the token
-    const contentId = url.split('/').pop();
-    const contentRes = await (await fetch(`https://api.gofile.io/contents/${contentId}?wt=4fd6sg89d7s6`, {
-      method: "GET",
-      headers: { "Authorization": `Bearer ${token}` }
-    })).json();
-
-    // 3. Extract the direct cold-storage link (as seen in Screenshot 1)
-    const children = contentRes.data.children;
-    const fileKey = Object.keys(children)[0];
-    return children[fileKey].link;
-  } catch (e) {
-    console.error("[GoFile Bypass Failed]", e);
-    return url; // Fallback to original url if API fails
+// Helpers to calculate automated properties based on file attributes
+function formatBytes(bytes) {
+  if (!bytes || isNaN(bytes)) return "Variable Size";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (bytes >= 1024 && i < units.length - 1) {
+    bytes /= 1024;
+    i++;
   }
+  return `${bytes.toFixed(2)} ${units[i]}`;
 }
 
-/**
- * Automates the AJAX payload found in your screenshot to get the hidden link.
- */
-async function extractStreamFromButton(btnUrl) {
-  if (!btnUrl) return null;
+function calculateCalculatedFallbackSize(quality, durationText) {
+  const mins = parseInt(durationText) || 90;
+  const norm = String(quality || "").toLowerCase();
+  let bitrateKbps = 5200;
+  
+  if (norm.includes("4k") || norm.includes("2160")) bitrateKbps = 16000;
+  else if (norm.includes("1080") || norm.includes("fhd")) bitrateKbps = 5200;
+  else if (norm.includes("720") || norm.includes("hd")) bitrateKbps = 2500;
+  else if (norm.includes("480") || norm.includes("sd")) bitrateKbps = 1200;
+
+  const dynamicVariance = 0.94 + ((mins % 9) / 100);
+  const calculatedBytes = ((bitrateKbps * dynamicVariance) * 1000 / 8) * (mins * 60);
+  return formatBytes(calculatedBytes);
+}
+
+// Dynamic fallback lookup meta agent
+async function getTmdbMetadata(id, type, season, episode) {
+  let fallbackName = "Unknown Title";
+  let fallbackDuration = type === "tv" ? "45 min" : "90 min";
   
   try {
-    const btnHtml = await (await fetch(btnUrl, { headers: HEADERS })).text();
+    const endpoint = type === "movie" ? "movie" : "tv";
+    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}`;
+    
+    const response = await fetch(url);
+    if (!response.ok) return { name: fallbackName, year: "N/A", duration: fallbackDuration };
+    const data = await response.json();
 
-    // 1. Look for the 24-char hex ID sent in the POST payload
-    const idMatch = btnHtml.match(/["']?id["']?\s*:\s*["']([a-f0-9]{24})["']/i) ||
-                    btnHtml.match(/data-id=["']([a-f0-9]{24})["']/i);
-
-    if (idMatch) {
-      const payloadId = idMatch[1];
-      
-      // Based on your network tab, the endpoint name starts with 'download'
-      const postUrl = new URL('/download', btnUrl).href; 
-
-      const apiRes = await fetch(postUrl, {
-        method: 'POST',
-        headers: {
-          ...HEADERS,
-          'Content-Type': 'application/json',
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          captchaValue: null,
-          id: payloadId,
-          method: "indexDownlaod" // Spelled exactly like your payload screenshot
-        })
-      });
-
-      const apiData = await apiRes.json();
-      let finalUrl = apiData.url || apiData.link;
-
-      if (finalUrl) {
-        return await resolveGofile(finalUrl);
+    let duration = fallbackDuration;
+    if (type === "movie" && data.runtime) {
+      duration = `${data.runtime} min`;
+    } else if (type === "tv") {
+      const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
+      const epRes = await fetch(epUrl);
+      if (epRes.ok) {
+        const epData = await epRes.json();
+        if (epData.runtime) duration = `${epData.runtime} min`;
+        else if (data.episode_run_time && data.episode_run_time.length > 0) {
+           duration = `${data.episode_run_time[0]} min`;
+        }
       }
     }
 
-    // 2. Fallback: If no AJAX ID is found, check for traditional href links
-    const $btn = cheerio.load(btnHtml);
-    let fallbackUrl = null;
-    $btn("a.maxbutton").each((i, a) => {
-      const href = $btn(a).attr("href");
-      if (href && href.startsWith("http")) fallbackUrl = href;
-    });
-
-    if (fallbackUrl) {
-       return await resolveGofile(fallbackUrl);
-    }
-
+    return {
+      name: data.title || data.name || fallbackName,
+      year: (data.release_date || data.first_air_date || "").split("-")[0] || "N/A",
+      duration: duration
+    };
   } catch (e) {
-    console.error("[Extraction Error on URL:]", btnUrl, e);
+    return { name: fallbackName, year: "N/A", duration: fallbackDuration };
   }
-
-  // 3. Absolute fallback
-  return await resolveGofile(btnUrl);
 }
 
-async function getStreams(tmdbId, mediaType, season, episode) {
-  try {
-    // 1. Get title from TMDB
-    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    const mediaInfo = await (await fetch(tmdbUrl)).json();
-    const title = mediaInfo.title || mediaInfo.name;
-    if (!title) return [];
-
-    // 2. Search DudeFilms
-    const searchUrl = `${BASE_URL}/page/1/?s=${encodeURIComponent(title)}`;
-    const searchHtml = await (await fetch(searchUrl, { headers: HEADERS})).text();
-    const $ = cheerio.load(searchHtml);
-
-    const results = [];
-    $("div.simple-grid-grid-post").each((i, el) => {
-      const href = $("h3 a", el).attr("href");
-      const t = $("h3", el).text().trim();
-      if (href) results.push({ title: t, url: href });
-    });
-
-    if (!results.length) return [];
-
-    const isTV = mediaType === "tv";
-    const lcTitle = title.toLowerCase();
-    let match = results.find(r => r.title.toLowerCase().includes(lcTitle));
-    if (!match) match = results[0];
-
-    const pageUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
-
-    // 3. Load show/movie page
-    const pageHtml = await (await fetch(pageUrl, { headers: HEADERS})).text();
-    const $page = cheerio.load(pageHtml);
-    const streams = [];
-
-    if (isTV) {
-      let found = false;
-      const h4s = $page("h4").toArray();
-
-      for (const h4 of h4s) {
-        if (found) break;
-        const h4Text = $page(h4).text();
-        const seasonMatch = h4Text.match(/\bSeason\s*(\d+)\b/i);
-        if (!seasonMatch || parseInt(seasonMatch[1]) !== season) continue;
-
-        let sibling = $page(h4).next();
-        while (sibling.length && sibling.prop("tagName") === "P") {
-          const seasonButtons = sibling.find("a.maxbutton").toArray();
-          for (const btn of seasonButtons) {
-            if (found) break;
-            const seasonPageUrl = $page(btn).attr("href");
-            if (!seasonPageUrl) continue;
-
-            try {
-              const seasonPageHtml = await (await fetch(seasonPageUrl, { headers: HEADERS})).text();
-              const $seasonPage = cheerio.load(seasonPageHtml);
-
-              const epButtons = $seasonPage("a.maxbutton-ep").toArray();
-              for (const epBtn of epButtons) {
-                const epText = $seasonPage(epBtn).text();
-                const epMatch = epText.match(/(?:Episode|Ep|E)\s*(\d+)/i);
-                if (!epMatch || parseInt(epMatch[1]) !== episode) continue;
-
-                const epUrl = $seasonPage(epBtn).attr("href");
-                const finalStreamUrl = await extractStreamFromButton(epUrl);
-                
-                if (finalStreamUrl) {
-                  streams.push({
-                    url: finalStreamUrl,
-                    quality: extractQuality(finalStreamUrl) || extractQuality(epUrl),
-                    title: `DudeFilms [S${season}E${episode}]`,
-                    subtitles: []
-                  });
-                  found = true;
-                  break;
-                }
-              }
-            } catch (e) {}
+// src/vidlink/utils.js
+function generateM3u8(_0) {
+  return __async(this, arguments, function* (masterUrl, headers = {}) {
+    try {
+      console.log(`[M3U8] Parsing master m3u8: ${masterUrl}`);
+      const resp = yield fetch(masterUrl, { headers });
+      const text = yield resp.text();
+      const baseUri = masterUrl.substring(0, masterUrl.lastIndexOf("/")) + "/";
+      const results = [];
+      const regex = /#EXT-X-STREAM-INF:.*?RESOLUTION=(\d+x\d+).*?\n([^\n]+)/g;
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        const height = parseInt(match[1].split("x")[1]);
+        if (height < 720)
+          continue;
+        const res = height + "p";
+        let url = match[2].trim();
+        if (!url.startsWith("http")) {
+          if (url.startsWith("/")) {
+            const root = new URL(masterUrl).origin;
+            url = root + url;
+          } else {
+            url = baseUri + url;
           }
-          sibling = sibling.next();
         }
+        results.push({
+          quality: res,
+          url
+        });
       }
-    } else {
-      // Movie logic
-      const maxButtons = $page("a.maxbutton").toArray();
-      for (const btn of maxButtons) {
-        const btnUrl = $page(btn).attr("href");
-        const finalStreamUrl = await extractStreamFromButton(btnUrl);
-        
-        if (finalStreamUrl) {
-          streams.push({
-            url: finalStreamUrl,
-            quality: extractQuality(finalStreamUrl) || extractQuality(btnUrl),
-            title: `DudeFilms`,
-            subtitles: []
-          });
-        }
-      }
+      return results;
+    } catch (err) {
+      console.warn(`[M3U8] Error parsing M3U8, returning empty.`, err);
+      return [];
     }
+  });
+}
 
-    return streams;
-  } catch (e) {
-    console.error("[DudeFilms]", e);
-    return [];
+// src/vidlink/index.js
+function getStreams(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    console.log(`[Vidlink] Fetching streams for ${mediaType} ${tmdbId}`);
+    try {
+      const encUrl = `${DECRYPT_API}/enc-vidlink?text=${tmdbId}`;
+      const encResp = yield fetch(encUrl);
+      const encJson = yield encResp.json();
+      const encData = encJson.result;
+      if (!encData) {
+        console.log(`[Vidlink] No encrypted ID returned`);
+        return [];
+      }
+      const isMovie = mediaType !== "tv" && season == null;
+      const normType = isMovie ? "movie" : "tv";
+
+      // 1. Core Dynamic Context Metadata Lookup
+      const meta = yield getTmdbMetadata(tmdbId, normType, season, episode);
+
+      const epUrl = isMovie ? `${VIDLINK_API}/api/b/movie/${encData}` : `${VIDLINK_API}/api/b/tv/${encData}/${season}/${episode}`;
+      console.log(`[Vidlink] Fetching playlist from: ${epUrl}`);
+      const epResp = yield fetch(epUrl, { headers: HEADERS });
+      const epJson = yield epResp.json();
+      const playlist = epJson && epJson.stream && epJson.stream.playlist;
+      if (!playlist) {
+        console.log(`[Vidlink] No playlist in response`);
+        return [];
+      }
+
+      const streams = [];
+
+      // Helper function to turn dynamic qualities into the beautiful layout cards
+      const pushFormattedStream = (rawQuality, streamUrl) => {
+         // Resolve UI strings
+         let displayQuality = "1080p FHD";
+         let cleanQuality = "1080P";
+         
+         const qLower = String(rawQuality).toLowerCase();
+         if (qLower.includes("2160") || qLower.includes("4k")) {
+             displayQuality = "4K UHD";
+             cleanQuality = "2160P";
+         } else if (qLower.includes("1080")) {
+             displayQuality = "1080p FHD";
+             cleanQuality = "1080P";
+         } else if (qLower.includes("720")) {
+             displayQuality = "720p HD";
+             cleanQuality = "720P";
+         } else if (qLower.includes("auto")) {
+             displayQuality = "Auto Dynamic";
+             cleanQuality = "Auto";
+         }
+
+         const calculatedSize = calculateCalculatedFallbackSize(cleanQuality, meta.duration);
+         const mediaLabel = meta.name + (!isMovie ? " S" + season + "E" + episode : "");
+
+         // FIX LAYOUT SEPARATION DUPLICATION
+         const headerName = `Vidlink | ${displayQuality} | Main Mirror`;
+         
+         const dropdownTitle = 
+             "🎬 " + mediaLabel + " - " + meta.year + "\n" +
+             "⚡ " + cleanQuality + " | 🌍 Original | 💾 " + calculatedSize + "\n" +
+             "🎞️ M3U8 | ⏱️ " + meta.duration + " | 📌 Main Mirror";
+
+         streams.push({
+            name: headerName,      // Row 1 only
+            title: dropdownTitle,  // Dropdown card elements to bypass duplicating blocks
+            url: streamUrl,
+            quality: rawQuality,
+            type: "m3u8",
+            headers: {
+              "User-Agent": HEADERS["User-Agent"],
+              "Referer": `${VIDLINK_API}/`,
+              "Origin": VIDLINK_API
+            },
+            provider: "vidlink"
+         });
+      };
+
+      // 2. Add base master profile
+      pushFormattedStream("Auto", playlist);
+
+      // 3. Loop through individual variant qualities returned from the .m3u8 index parser
+      try {
+        const extraStreams = yield generateM3u8(playlist, {
+          "Referer": `${VIDLINK_API}/`,
+          "User-Agent": HEADERS["User-Agent"]
+        });
+        extraStreams.forEach((s) => {
+          pushFormattedStream(s.quality, s.url);
+        });
+      } catch (err) {
+        console.warn(`[Vidlink] Failed to parse extra qualities for ${playlist}`);
+      }
+      
+      console.log(`[Vidlink] Found playlist stream`);
+      return streams.map((s) => __spreadProps(__spreadValues({}, s), { quality: getSortedQuality(s.quality) }));
+    } catch (error) {
+      console.error(`[Vidlink] Error: ${error.message}`);
+      return [];
+    }
+  });
+}
+function getSortedQuality(quality) {
+  if (!quality)
+    return "Auto";
+  const q = quality.toLowerCase();
+  if (q.includes("auto")) {
+    return "Auto";
   }
+  if (q.includes("2160") || q.includes("4k") || q.includes("uhd")) {
+    return "\u200B" + quality;
+  }
+  if (q.includes("1080") || q.includes("fhd")) {
+    return "\u200B\u200B" + quality;
+  }
+  if (q.includes("720") || q.includes("hd")) {
+    return "\u200B\u200B\u200B" + quality;
+  }
+  if (q.includes("480") || q.includes("sd")) {
+    return "\u200B\u200B\u200B\u200B" + quality;
+  }
+  if (q.includes("360")) {
+    return "\u200B\u200B\u200B\u200B\u200B" + quality;
+  }
+  return "\u200B\u200B\u200B\u200B" + quality;
 }
-
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
-}
+module.exports = { getStreams };

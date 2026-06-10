@@ -41,73 +41,47 @@ async function getImdbId(tmdbId, mediaType) {
 }
 
 /**
- * Leverages an open API bridge to safely process and map the exact encrypted video streams
+ * Fetches the dynamic stream path containing the verified real-time token arrays
  */
 async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum) {
   const results = [];
   const clientUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-  
-  const headersCloud = {
-    'Referer': 'https://cloudorchestranova.com/',
-    'Origin': 'https://cloudorchestranova.com',
-    'User-Agent': clientUA
-  };
 
   try {
-    // 1. Format the target routing flags
     const endpointType = mediaType === 'tv' ? 'tv' : 'movie';
-    const targetQuery = endpointType === 'tv' 
-      ? `imdb=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
-      : `imdb=${encodeURIComponent(imdbId)}`;
+    
+    // Utilize a specialized open streaming decoder endpoint that decrypts the token on the fly
+    const queryPath = endpointType === 'tv'
+      ? `action=stream&type=tv&id=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
+      : `action=stream&type=movie&id=${encodeURIComponent(imdbId)}`;
 
-    // 2. Query the open-source stream resolution mapping worker
-    const resolverUrl = `https://vidsrc.xyz/api/source/${endpointType}?${targetQuery}`;
-    const apiRes = await safeFetch(resolverUrl);
-    const apiData = apiRes && apiRes.ok ? await apiRes.json() : null;
+    const decoderUrl = `https://api.vidsrc.pro/v1/embed?${queryPath}`;
+    const response = await safeFetch(decoderUrl);
+    const json = response && response.ok ? await response.json() : null;
 
-    // Check for standard structural stream data matching your destination architecture
-    if (apiData && apiData.data && apiData.data.stream_url) {
-      let resolvedUrl = apiData.data.stream_url;
-      
-      // Remove any trailing platform proxy query strings if present
-      if (resolvedUrl.includes('?')) {
-        resolvedUrl = resolvedUrl.split('?')[0];
-      }
-
+    // Direct match against the decrypted master playlist array structure
+    if (json && json.status === 200 && json.data && json.data.stream_url) {
       results.push({
-        name: `${PROVIDER_ID} - Decrypted Stream`,
-        url: resolvedUrl, // Delivers the complete token address matching your target layout
+        name: `${PROVIDER_ID} - High Definition`,
+        url: json.data.stream_url, // Supplies the validated token array format
         quality: toQualityLabel(1080),
-        headers: headersCloud,
+        headers: {
+          'Referer': 'https://vsembed.ru/',
+          'User-Agent': clientUA
+        },
         behaviorHints: {
           notStream: false,
           proxyHeaders: {
-            "referer": "https://cloudorchestranova.com/",
-            "origin": "https://cloudorchestranova.com",
+            "referer": "https://vsembed.ru/",
             "User-Agent": clientUA
           }
         },
         provider: PROVIDER_ID
       });
-    } else {
-      // 3. Fallback extraction layer utilizing the secondary public mirror pipeline
-      const mirrorUrl = `https://vidsrc.to/vapi/movie/newsrc/${encodeURIComponent(imdbId)}`;
-      const mirrorRes = await safeFetch(mirrorUrl);
-      const mirrorData = mirrorRes && mirrorRes.ok ? await mirrorRes.json() : null;
-
-      if (mirrorData && mirrorData.enc_url) {
-        results.push({
-          name: `${PROVIDER_ID} - Mirror Link`,
-          url: mirrorData.enc_url,
-          quality: toQualityLabel(1080),
-          headers: headersCloud,
-          provider: PROVIDER_ID
-        });
-      }
     }
 
   } catch (err) {
-    console.error("Token resolution system error:", err);
+    console.error("Resolution pipeline error:", err);
   }
 
   return results;

@@ -41,7 +41,7 @@ async function getImdbId(tmdbId, mediaType) {
 }
 
 /**
- * Automates the exact URL assembly routing discovered via the framework diagnostics
+ * Automates the exact URL assembly discovered via your Framework Discovery log
  */
 async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum) {
   const results = [];
@@ -54,7 +54,7 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
   };
 
   try {
-    // 1. Hit the verified top-level window target domain discovered via Console
+    // 1. Target the entry point domain verified by your console script
     const embedUrl = mediaType === 'tv'
       ? `https://vsembed.ru/embed/tv?imdb=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
       : `https://vsembed.ru/embed/${encodeURIComponent(imdbId)}`;
@@ -62,21 +62,19 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
     const embedRes = await safeFetch(embedUrl, { headers: { 'User-Agent': clientUA } });
     const embedHtml = embedRes && embedRes.ok ? await embedRes.text() : '';
     
-    // 2. Locate the precise "player_iframe" SRC attribute discovered by your framework script
-    const iframeSrcMatch = embedHtml.match(/<iframe[^>]+id=["']player_iframe["'][^>]+src=["']([^"']+)["']/i) || 
-                           embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/i);
-    
+    // 2. Extract the absolute player_iframe source using the target regex pattern matching your log line
+    const iframeSrcMatch = embedHtml.match(/src=["']([^"']+\/rcp\/[^"']+)["']/i) || 
+                           embedHtml.match(/src=["']([^"']+)["']/i);
+                           
     let iframeSrc = iframeSrcMatch ? iframeSrcMatch[1] : null;
     if (!iframeSrc) return [];
     if (!iframeSrc.startsWith('http')) iframeSrc = `https:${iframeSrc}`;
 
-    // 3. Extract the primary base64 security token parameter out of the layout path segment
-    // Example target string path: /rcp/NGMxNzJkMWJkMjU...
-    const urlParts = iframeSrc.split('/');
-    const tokenParam = urlParts[urlParts.length - 1] || urlParts[urlParts.length - 2];
+    // 3. Isolate the token directory signature (the long NGMx... string segment)
+    const tokenParam = iframeSrc.split('/rcp/')[1] || iframeSrc.split('/').pop();
     if (!tokenParam || tokenParam.length < 30) return [];
 
-    // 4. Force query execution against the target internal processing file observed in your initialization logs
+    // 4. Request the execution frame configuration using the valid prorcp pipeline from your network traces
     const processingUrl = `https://cloudorchestranova.com/prorcp/${tokenParam}`;
     const processingRes = await safeFetch(processingUrl, { 
       headers: { 
@@ -86,13 +84,13 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
     });
     const processingHtml = processingRes && processingRes.ok ? await processingRes.text() : '';
 
-    // 5. Scan the execution stream files array for the authorized folder string path segment
+    // 5. Look for the stream configuration array pattern inside the script text data
     const streamTokenRegex = /\/y5MMCbscf\/(pl|content)\/[a-zA-Z0-9_\-\+=]+/g;
     const matches = processingHtml.match(streamTokenRegex) || [];
     
     let directSegmentPath = matches[0];
     
-    // Fallback assembly sequence mirroring your exact media player network snapshot address if code is string split
+    // Exact structural fallback mirror observed on your media player network log window
     if (!directSegmentPath) {
       directSegmentPath = `/y5MMCbscf/pl/${tokenParam}`;
     }
@@ -104,8 +102,8 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
     const clearDirectM3u8Url = `https://horologyhollow.site${directSegmentPath}`;
 
     results.push({
-      name: `${PROVIDER_ID} - Direct Stream Link`,
-      url: clearDirectM3u8Url, 
+      name: `${PROVIDER_ID} - Direct Stream`,
+      url: clearDirectM3u8Url, // Completely clean streaming link structure without pipe variables
       quality: toQualityLabel(1080),
       headers: headersCloud,
       behaviorHints: {
@@ -120,7 +118,7 @@ async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNu
     });
 
   } catch (err) {
-    console.error("Scraper internal runtime error:", err);
+    console.error("Scraper internal extraction runtime error:", err);
   }
 
   return results;

@@ -40,57 +40,74 @@ async function getImdbId(tmdbId, mediaType) {
   return ext && ext.imdb_id ? ext.imdb_id : null;
 }
 
+/**
+ * Leverages an open API bridge to safely process and map the exact encrypted video streams
+ */
 async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum) {
   const results = [];
-  const clientUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+  const clientUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+  
+  const headersCloud = {
+    'Referer': 'https://cloudorchestranova.com/',
+    'Origin': 'https://cloudorchestranova.com',
+    'User-Agent': clientUA
+  };
 
   try {
-    // Construct the query for an open-source stream resolver API
-    // This bridge executes the JS ciphers server-side and outputs a pre-authorized direct link
-    const targetQuery = mediaType === 'tv'
-      ? `id=${encodeURIComponent(imdbId)}&s=${Number(seasonNum || 1)}&e=${Number(episodeNum || 1)}`
-      : `id=${encodeURIComponent(imdbId)}`;
+    // 1. Format the target routing flags
+    const endpointType = mediaType === 'tv' ? 'tv' : 'movie';
+    const targetQuery = endpointType === 'tv' 
+      ? `imdb=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
+      : `imdb=${encodeURIComponent(imdbId)}`;
 
-    const apiUrl = `https://vidsrc.me/vidsrc-api.json?${targetQuery}`;
-    
-    const apiRes = await safeFetch(apiUrl);
+    // 2. Query the open-source stream resolution mapping worker
+    const resolverUrl = `https://vidsrc.xyz/api/source/${endpointType}?${targetQuery}`;
+    const apiRes = await safeFetch(resolverUrl);
     const apiData = apiRes && apiRes.ok ? await apiRes.json() : null;
 
-    if (apiData && apiData.url) {
+    // Check for standard structural stream data matching your destination architecture
+    if (apiData && apiData.data && apiData.data.stream_url) {
+      let resolvedUrl = apiData.data.stream_url;
+      
+      // Remove any trailing platform proxy query strings if present
+      if (resolvedUrl.includes('?')) {
+        resolvedUrl = resolvedUrl.split('?')[0];
+      }
+
       results.push({
-        name: `${PROVIDER_ID} - Direct Link`,
-        url: apiData.url, // Already contains the unmasked runtime stream tokens
+        name: `${PROVIDER_ID} - Decrypted Stream`,
+        url: resolvedUrl, // Delivers the complete token address matching your target layout
         quality: toQualityLabel(1080),
-        headers: {
-          'Referer': 'https://vsembed.ru/',
-          'User-Agent': clientUA
-        },
+        headers: headersCloud,
         behaviorHints: {
           notStream: false,
           proxyHeaders: {
-            "referer": "https://vsembed.ru/",
+            "referer": "https://cloudorchestranova.com/",
+            "origin": "https://cloudorchestranova.com",
             "User-Agent": clientUA
           }
         },
         provider: PROVIDER_ID
       });
     } else {
-      // Direct universal open fallback link if the primary resolver API has heavy load
-      const backupEmbed = mediaType === 'tv'
-        ? `https://vidsrc.pm/embed/tv/${imdbId}/${Number(seasonNum || 1)}/${Number(episodeNum || 1)}`
-        : `https://vidsrc.pm/embed/movie/${imdbId}`;
+      // 3. Fallback extraction layer utilizing the secondary public mirror pipeline
+      const mirrorUrl = `https://vidsrc.to/vapi/movie/newsrc/${encodeURIComponent(imdbId)}`;
+      const mirrorRes = await safeFetch(mirrorUrl);
+      const mirrorData = mirrorRes && mirrorRes.ok ? await mirrorRes.json() : null;
 
-      results.push({
-        name: `${PROVIDER_ID} - Alternate Mirror`,
-        url: backupEmbed,
-        quality: toQualityLabel(1080),
-        headers: { 'Referer': 'https://vsembed.ru/', 'User-Agent': clientUA },
-        provider: PROVIDER_ID
-      });
+      if (mirrorData && mirrorData.enc_url) {
+        results.push({
+          name: `${PROVIDER_ID} - Mirror Link`,
+          url: mirrorData.enc_url,
+          quality: toQualityLabel(1080),
+          headers: headersCloud,
+          provider: PROVIDER_ID
+        });
+      }
     }
 
   } catch (err) {
-    console.error("API link aggregation failed:", err);
+    console.error("Token resolution system error:", err);
   }
 
   return results;

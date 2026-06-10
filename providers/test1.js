@@ -41,47 +41,87 @@ async function getImdbId(tmdbId, mediaType) {
 }
 
 /**
- * Fetches the dynamic stream path containing the verified real-time token arrays
+ * Replicates the network resolution pipeline to extract the dynamic play tokens
  */
 async function resolveCloudnestraStreams(imdbId, mediaType, seasonNum, episodeNum) {
   const results = [];
   const clientUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
   try {
-    const endpointType = mediaType === 'tv' ? 'tv' : 'movie';
+    // Step 1: Hit the entry point domain verified via DevTools Console
+    const embedUrl = mediaType === 'tv'
+      ? `https://vsembed.ru/embed/tv?imdb=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
+      : `https://vsembed.ru/embed/${encodeURIComponent(imdbId)}`;
+
+    const embedRes = await safeFetch(embedUrl, { headers: { 'User-Agent': clientUA } });
+    const embedHtml = embedRes && embedRes.ok ? await embedRes.text() : '';
+
+    // Step 2: Extract the inner player_iframe route
+    const iframeSrcMatch = embedHtml.match(/src=["']([^"']+\/rcp\/[^"']+)["']/i) || 
+                           embedHtml.match(/<iframe[^>]+src=["']([^"']+)["']/i);
     
-    // Utilize a specialized open streaming decoder endpoint that decrypts the token on the fly
-    const queryPath = endpointType === 'tv'
-      ? `action=stream&type=tv&id=${encodeURIComponent(imdbId)}&season=${Number(seasonNum || 1)}&episode=${Number(episodeNum || 1)}`
-      : `action=stream&type=movie&id=${encodeURIComponent(imdbId)}`;
+    let iframeSrc = iframeSrcMatch ? iframeSrcMatch[1] : null;
+    if (!iframeSrc) return [];
+    if (!iframeSrc.startsWith('http')) iframeSrc = `https:${iframeSrc}`;
 
-    const decoderUrl = `https://api.vidsrc.pro/v1/embed?${queryPath}`;
-    const response = await safeFetch(decoderUrl);
-    const json = response && response.ok ? await response.json() : null;
+    // Step 3: Isolate the NGMx... initialization directory segment
+    const tokenParam = iframeSrc.split('/rcp/')[1] || iframeSrc.split('/').pop();
+    if (!tokenParam || tokenParam.length < 20) return [];
 
-    // Direct match against the decrypted master playlist array structure
-    if (json && json.status === 200 && json.data && json.data.stream_url) {
-      results.push({
-        name: `${PROVIDER_ID} - High Definition`,
-        url: json.data.stream_url, // Supplies the validated token array format
-        quality: toQualityLabel(1080),
-        headers: {
-          'Referer': 'https://vsembed.ru/',
-          'User-Agent': clientUA
-        },
-        behaviorHints: {
-          notStream: false,
-          proxyHeaders: {
-            "referer": "https://vsembed.ru/",
-            "User-Agent": clientUA
-          }
-        },
-        provider: PROVIDER_ID
-      });
+    // Step 4: Force query execution against the target internal backend controller
+    const processingUrl = `https://cloudorchestranova.com/prorcp/${tokenParam}`;
+    const processingRes = await safeFetch(processingUrl, { 
+      headers: { 
+        'Referer': `https://cloudorchestranova.com/rcp/${tokenParam}`,
+        'Origin': 'https://cloudorchestranova.com',
+        'User-Agent': clientUA 
+      } 
+    });
+    const processingHtml = processingRes && processingRes.ok ? await processingRes.text() : '';
+
+    // Step 5: Extract the inflated stream token string (H4sIAAAAA...) from the layout script
+    // This matches any character string assigned following the playlist layout markers
+    const complexTokenMatch = processingHtml.match(/\/y5MMCbscf\/pl\/([a-zA-Z0-9_\-\+=.]+)/) || 
+                              processingHtml.match(/["'](H4sIAAAAA[^"']+)["']/);
+
+    let finalPlayToken = complexTokenMatch ? complexTokenMatch[1] : null;
+
+    // Fallback if the string is clean inside text arrays
+    if (!finalPlayToken) {
+      const longStringRegex = /H4sIAAAAA[a-zA-Z0-9_\-\+=.]+/g;
+      const foundStrings = processingHtml.match(longStringRegex) || [];
+      if (foundStrings.length > 0) {
+        finalPlayToken = foundStrings[0];
+      }
     }
 
+    if (!finalPlayToken) return [];
+
+    // Step 6: Assemble the complete destination manifest URI
+    const targetStreamUrl = `https://horologyhollow.site/y5MMCbscf/pl/${finalPlayToken}/master.m3u8`;
+
+    results.push({
+      name: `${PROVIDER_ID} - High Definition`,
+      url: targetStreamUrl,
+      quality: toQualityLabel(1080),
+      headers: {
+        'Referer': 'https://cloudorchestranova.com/',
+        'Origin': 'https://cloudorchestranova.com',
+        'User-Agent': clientUA
+      },
+      behaviorHints: {
+        notStream: false,
+        proxyHeaders: {
+          "referer": "https://cloudorchestranova.com/",
+          "origin": "https://cloudorchestranova.com",
+          "User-Agent": clientUA
+        }
+      },
+      provider: PROVIDER_ID
+    });
+
   } catch (err) {
-    console.error("Resolution pipeline error:", err);
+    console.error("Extraction routing failed:", err);
   }
 
   return results;

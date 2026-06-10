@@ -212,7 +212,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
          const mediaLabel = meta.name + (!isMovie ? " S" + season + "E" + episode : "");
 
          // FIX LAYOUT SEPARATION DUPLICATION
-         const headerName = `Vidlink | ${displayQuality} | Main Mirror`;
+         const headerName = `VidLink | ${displayQuality} | Main Mirror`;
          
          const dropdownTitle = 
              "🎬 " + mediaLabel + " - " + meta.year + "\n" +

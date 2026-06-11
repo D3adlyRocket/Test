@@ -97,15 +97,15 @@ function cleanText(str) {
   return str.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "").trim();
 }
 
-// FIXED: Returns "Auto" if no structural resolution tags are discovered 
 function extractQuality(item, overrideQuality) {
   if (overrideQuality) {
      const q = String(overrideQuality).toLowerCase();
-     if (q.includes("2160") || q.includes("4k")) return "4k";
+     if (q.includes("2160") || q.includes("4k")) return "4K";
      if (q.includes("1080")) return "1080p";
      if (q.includes("720")) return "720p";
      if (q.includes("480")) return "480p";
-     return overrideQuality.toLowerCase();
+     if (q.includes("360")) return "360p";
+     return overrideQuality;
   }
   
   const checkString = (
@@ -114,13 +114,14 @@ function extractQuality(item, overrideQuality) {
     (item.url || "")
   ).toLowerCase();
   
-  if (checkString.includes("2160p") || checkString.includes("4k") || checkString.includes("uhd")) return "4k";
+  if (checkString.includes("2160p") || checkString.includes("4k") || checkString.includes("uhd")) return "4K";
   if (checkString.includes("1080p") || checkString.includes("fhd")) return "1080p";
   if (checkString.includes("720p") || checkString.includes("hd")) return "720p";
   if (checkString.includes("480p") || checkString.includes("sd")) return "480p";
+  if (checkString.includes("360p")) return "360p";
   
   const match = checkString.match(/(\d{3,4}p)/);
-  if (match) return match[0].toLowerCase();
+  if (match) return match[0];
   
   return "Auto";
 }
@@ -139,36 +140,38 @@ function extractLanguage(titleText, urlText) {
     return parenMatch[1].charAt(0).toUpperCase() + parenMatch[1].slice(1);
   }
   
-  return "Original";
+  return "Original Audio";
 }
 
-// FIXED: Restored VixSrc Bitrate estimation fallback mapping calculations
-function extractFileSize(item, metaDuration, parsedQuality) {
-  const rawTitle = item.title || "";
-  const sizeMatch = rawTitle.match(/(\d+(?:\.\d+)?\s*[GgMm][Bb])/);
+function extractFileSize(item) {
+  const checkString = ((item.title || "") + " " + (item.name || "") + " " + (item.url || ""));
+  const sizeMatch = checkString.match(/(\d+(?:\.\d+)?\s*[GgMm][Bb])/);
   if (sizeMatch) {
      return sizeMatch[1].toUpperCase();
   }
+  return "Dynamic Size"; 
+}
 
-  // Fallback structural estimation math
-  try {
-     const durationMinutes = parseInt(metaDuration) || 90;
-     const qualityStr = (parsedQuality || "").toLowerCase();
-     
-     // Dynamic Average megabits per second configurations
-     let mbps = 4.5; // Default standard 1080p baseline estimation
-     if (qualityStr.includes("4k") || qualityStr.includes("2160")) mbps = 12.0;
-     else if (qualityStr.includes("720")) mbps = 2.2;
-     else if (qualityStr.includes("480")) mbps = 1.0;
-
-     // Calculate estimated gigabytes based on runtime duration
-     const totalSeconds = durationMinutes * 60;
-     const totalGigabytes = (totalSeconds * (mbps * 1000000 / 8)) / (1024 * 1024 * 1024);
-     
-     return `${totalGigabytes.toFixed(1)} GB`;
-  } catch (err) {
-     return "-";
+// Parses tags out of available titles/filenames
+function extractReleaseInfo(item) {
+  const checkString = ((item.title || "") + " " + (item.name || "") + " " + (item.url || ""));
+  const tags = [];
+  
+  // Tag matches
+  if (/web-?rip|web-?dl|bluray|hdrip/i.test(checkString)) {
+    const m = checkString.match(/(web-?rip|web-?dl|bluray|hdrip)/i);
+    if (m) tags.push(m[1].replace('-', ''));
   }
+  if (/x264|h264|x265|hevc/i.test(checkString)) {
+    const m = checkString.match(/(x264|h264|x265|hevc)/i);
+    if (m) tags.push(m[1].toLowerCase());
+  }
+  if (/5\.1|7\.1|aac|ddp/i.test(checkString)) {
+    const m = checkString.match(/(5\.1|7\.1|aac|ddp)/i);
+    if (m) tags.push(m[1]);
+  }
+  
+  return tags.length > 0 ? tags.join(" • ") : "Mirror Link";
 }
 
 function generateM3u8(_0) {
@@ -242,18 +245,19 @@ function getStreams(tmdbId, mediaType, season, episode) {
          const cleanQualityLabel = finalQuality.toUpperCase();
          
          const detectedLanguage = extractLanguage(cleanTitleString, streamUrl);
-         const parsedSize = extractFileSize(rawItem, meta.duration, finalQuality);
+         const parsedSize = extractFileSize(rawItem);
+         const releaseInfo = extractReleaseInfo(rawItem);
          
          const mediaLabel = meta.name + (mediaType === "tv" ? " S" + season + "E" + episode : "");
          const containerFormat = isM3u8 ? "M3U8" : streamUrl.includes(".mp4") ? "MP4" : "MKV";
 
-         // Clean interface layout configuration
+         // Clean interface layout format
          const headerName = `NoTorrent | ${finalQuality} | ${detectedLanguage}`;
          
          const dropdownTitle = 
              "🎬 " + mediaLabel + " - " + meta.year + "\n" +
              "⚡ " + cleanQualityLabel + " | 🌍 " + detectedLanguage + " | 💾 " + parsedSize + "\n" +
-             "🎞️ " + containerFormat + " | ⏱️ " + meta.duration + " | 📌 Mirror Link";
+             "🎞️ " + containerFormat + " | ⏱️ " + meta.duration + " | 📌 " + releaseInfo;
 
          streams.push({
             name: headerName,
@@ -298,29 +302,17 @@ function getStreams(tmdbId, mediaType, season, episode) {
   });
 }
 
+// FIXED: Cleaned up sorting whitespaces to match exactly against layout engine strings
 function getSortedQuality(quality) {
-  if (!quality)
-    return "Auto";
+  if (!quality) return "Auto";
   const q = quality.toLowerCase();
-  if (q.includes("auto")) {
-    return "Auto";
-  }
-  if (q.includes("2160") || q.includes("4k") || q.includes("uhd")) {
-    return "\u200B" + quality;
-  }
-  if (q.includes("1080") || q.includes("fhd")) {
-    return "\u200B\u200B" + quality;
-  }
-  if (q.includes("720") || q.includes("hd")) {
-    return "\u200B\u200B\u200B" + quality;
-  }
-  if (q.includes("480") || q.includes("sd")) {
-    return "\u200B\u200B\u200B\u200B" + quality;
-  }
-  if (q.includes("360")) {
-    return "\u200B\u200B\u200B\u200B\u200B" + quality;
-  }
-  return "\u200B\u200B\u200B\u200B" + quality;
+  if (q.includes("auto")) return "Auto";
+  if (q.includes("2160") || q.includes("4k")) return quality;
+  if (q.includes("1080")) return quality;
+  if (q.includes("720")) return quality;
+  if (q.includes("480")) return quality;
+  if (q.includes("360")) return quality;
+  return quality;
 }
 
 module.exports = { getStreams };

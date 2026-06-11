@@ -2,7 +2,7 @@
 // Fixed Nuvio-compatible Movies4u provider  
   
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";  
-const FALLBACK_URL = "https://new1.movies4u.finance";  
+const FALLBACK_URL = "https://new2.movies4u.finance";  
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";  
 const HUB_CLOUD_API = "https://hc-zf3c.vercel.app";
 

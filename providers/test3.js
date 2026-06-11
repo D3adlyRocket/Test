@@ -1,446 +1,260 @@
-var MAIN_URL = "https://www.bollyzone.to";
-var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
-var DATE_RE = /\b\d{1,2}(?:st|nd|rd|th)?\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}\b/;
+var TRACKERS = [
+  "udp://tracker.opentrackr.org:1337/announce",
+  "udp://tracker.coppersurfer.tk:6969/announce",
+  "udp://tracker.leechers-paradise.org:6969/announce",
+  "udp://p4p.arenabg.ch:1337/announce",
+  "udp://tracker.internetwarriors.net:1337/announce",
+  "udp://tracker.cyberia.is:6969/announce",
+  "udp://tracker.tiny-vps.com:6969/announce",
+  "udp://exodus.desync.com:6969/announce",
+  "https://tracker.bt-hash.com:443/announce",
+  "udp://open.demonii.com:1337/announce"
+];
+
+var NYAA_CATEGORIES = {
+  ALL: "1_0",
+  ENGLISH: "1_2"
+};
+
+var EPISODE_PATTERNS = [
+  { re: /S(\d+)\s*E(\d+)/i, seasonGroup: 1, epGroup: 2 },
+  { re: /S(\d+)\s*\.\s*E(\d+)/i, seasonGroup: 1, epGroup: 2 },
+  { re: /Season\s+(\d+)\s+Episode\s+(\d+)/i, seasonGroup: 1, epGroup: 2 },
+  { re: /(\d+)x(\d+)/i, seasonGroup: 1, epGroup: 2 },
+  { re: /\[(\d+)\]$/i, seasonGroup: null, epGroup: 1 },
+  { re: /\bE(\d+)\b/i, seasonGroup: null, epGroup: 1 },
+  { re: /\bEP(\d+)\b/i, seasonGroup: null, epGroup: 1 },
+  { re: /\bEpisodes?\s*(\d+)\b/i, seasonGroup: null, epGroup: 1 },
+  { re: /\[(\d+)v\d\]/i, seasonGroup: null, epGroup: 1 }
+];
+
+var DASH_EP_PATTERN = /-\s*(\d{1,2})\b(?!\s*[pP])/i;
+var BATCH_PATTERN = /\b(batch|complete|season\s+\d+\s+pack)\b/i;
+var RANGE_PATTERN = /S(\d+)\s*E(\d+)\s*[-–]\s*E?(\d+)/i;
+var RES_PATTERN = /\b(4K|2160p|1080p|720p|480p|360p)\b/i;
+var TRUSTED_PATTERN = /\b(trusted|v2|remaster)\b/i;
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    var title = await getTmdbTitle(tmdbId, mediaType);
-    if (!title) return [];
+    if (mediaType !== "tv") return [];
 
-    var searchResults = await searchShow(title);
-    if (!searchResults || searchResults.length === 0) return [];
+    var titles = await getTitles(tmdbId);
+    if (!titles || titles.length === 0) return [];
 
-    var bestMatch = findBestMatch(searchResults, title, mediaType);
-    if (!bestMatch) return [];
-
-    if (mediaType === "movie") {
-      return await resolveMovie(bestMatch.url);
-    }
-
-    return await resolveEpisode(bestMatch.url, season, episode);
-  } catch (e) {
-    console.error("Bollyzon error:", e.message || e);
-    return [];
-  }
-}
-
-async function getTmdbTitle(tmdbId, mediaType) {
-  try {
-    var url = "https://api.themoviedb.org/3/" + mediaType + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
-    var resp = await fetch(url, {
-      headers: { "User-Agent": UA }
-    });
-    var data = await resp.json();
-    return data.title || data.name || null;
-  } catch (e) {
-    console.error("TMDB fetch failed:", e.message);
-    return null;
-  }
-}
-
-async function searchShow(query) {
-  try {
-    var url = MAIN_URL + "/?s=" + encodeURIComponent(query);
-    var html = await fetchPage(url);
-    if (!html || html.indexOf("404") !== -1) return null;
-
-    var $ = cheerio.load(html);
+    var seen = {};
     var results = [];
-    $("ul.MovieList li.TPostMv").each(function(i, el) {
-      var titleEl = $(el).find("h2.Title");
-      var anchor = $(el).find("a").first();
-      var title = titleEl.text().trim();
-      var href = anchor.attr("href");
-      var img = $(el).find("img").first();
-      var poster = img.attr("data-src") || img.attr("src") || "";
 
-      if (title && href) {
+    for (var ti = 0; ti < titles.length; ti++) {
+      var query = titles[ti] + " S" + padZero(season, 2);
+      var rssItems = await searchNyaa(query, NYAA_CATEGORIES.ENGLISH);
+      if (!rssItems || rssItems.length === 0) {
+        rssItems = await searchNyaa(query, NYAA_CATEGORIES.ALL);
+      }
+
+      for (var ri = 0; ri < rssItems.length; ri++) {
+        var item = rssItems[ri];
+        if (seen[item.infoHash]) continue;
+        seen[item.infoHash] = true;
+
+        var match = matchEpisode(item.title, season, episode);
+        if (!match) continue;
+
+        var quality = parseQuality(item.title);
+        var magnet = buildMagnet(item.infoHash, item.title);
+
         results.push({
-          title: title,
-          url: href,
-          poster: poster
-        });
-      }
-    });
-    return results.length > 0 ? results : null;
-  } catch (e) {
-    console.error("Search failed:", e.message);
-    return null;
-  }
-}
-
-function findBestMatch(results, targetTitle, mediaType) {
-  var best = null;
-  var bestScore = 0;
-  var target = targetTitle.toLowerCase().trim();
-
-  for (var i = 0; i < results.length; i++) {
-    var title = results[i].title.toLowerCase().trim();
-    var score = similarity(title, target);
-    if (score > bestScore) {
-      bestScore = score;
-      best = results[i];
-    }
-  }
-
-  return bestScore >= 0.5 ? best : null;
-}
-
-function similarity(a, b) {
-  if (a === b) return 1;
-  if (!a || !b) return 0;
-
-  var aNorm = a.replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-  var bNorm = b.replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
-
-  if (aNorm === bNorm) return 0.95;
-
-  if (aNorm.indexOf(bNorm) !== -1 || bNorm.indexOf(aNorm) !== -1) {
-    var ratio = Math.min(aNorm.length, bNorm.length) / Math.max(aNorm.length, bNorm.length);
-    if (ratio >= 0.8) return 0.85;
-  }
-
-  var dist = levenshtein(aNorm, bNorm);
-  var maxLen = Math.max(aNorm.length, bNorm.length);
-  return maxLen > 0 ? 1 - dist / maxLen : 0;
-}
-
-function levenshtein(s1, s2) {
-  var m = s1.length, n = s2.length;
-  var dp = [];
-  for (var i = 0; i <= m; i++) {
-    dp[i] = [i];
-  }
-  for (var j = 0; j <= n; j++) {
-    dp[0][j] = j;
-  }
-  for (var i = 1; i <= m; i++) {
-    for (var j = 1; j <= n; j++) {
-      var cost = s1[i - 1] === s2[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
-    }
-  }
-  return dp[m][n];
-}
-
-async function resolveMovie(url) {
-  try {
-    var html = await fetchPage(url);
-    if (!html) return [];
-
-    var $ = cheerio.load(html);
-    var title = $("h1").first().text().trim() || "Movie";
-    var episodes = [];
-
-    $(".MovieList .OptionBx").each(function(i, el) {
-      var name = $(el).find("p.AAIco-dns").text().trim() || "Stream " + (i + 1);
-      var link = $(el).find("a").attr("href");
-      if (link) {
-        episodes.push({ name: name, url: link });
-      }
-    });
-
-    if (episodes.length === 0) return [];
-
-    var results = [];
-    for (var ei = 0; ei < episodes.length; ei++) {
-      var streamUrl = await resolveVideoUrl(episodes[ei].url);
-      if (streamUrl) {
-        results.push({
-          title: title,
-          name: episodes[ei].name,
-          url: streamUrl,
-          quality: null,
-          provider: "Bollyzon",
-          type: "movie"
-        });
-      }
-    }
-    return results;
-  } catch (e) {
-    console.error("Movie resolve failed:", e.message);
-    return [];
-  }
-}
-
-async function resolveEpisode(showUrl, season, episode) {
-  try {
-    var episodes = await getEpisodeList(showUrl);
-    if (!episodes || episodes.length === 0) return [];
-
-    var targetEp = null;
-    var reqEp = parseInt(episode, 10);
-
-    if (!isNaN(reqEp)) {
-      var idx = reqEp - 1;
-      if (idx >= 0 && idx < episodes.length) targetEp = episodes[idx];
-    }
-
-    if (!targetEp && episodes.length > 0) targetEp = episodes[0];
-    if (!targetEp) return [];
-
-    return await resolveEpisodePage(targetEp.url, targetEp.name);
-  } catch (e) {
-    console.error("Episode resolve failed:", e.message);
-    return [];
-  }
-}
-
-async function getEpisodeList(showUrl) {
-  try {
-    var html = await fetchPage(showUrl);
-    if (!html) return null;
-
-    var $ = cheerio.load(html);
-    var title = $("meta[property=og:title]").attr("content") || $("h1").first().text().trim() || "Show";
-
-    var lastPage = 1;
-    var navLinks = $("section > nav > div > a");
-    navLinks.each(function(i, el) {
-      var num = parseInt($(el).text().trim(), 10);
-      if (!isNaN(num) && num > lastPage) lastPage = num;
-    });
-
-    var episodes = [];
-
-    for (var p = 1; p <= lastPage; p++) {
-      var pageHtml = p === 1 ? html : await fetchPage(showUrl.replace(/\/?$/, "") + "/page/" + p + "/");
-      if (!pageHtml) continue;
-
-      var $page = p === 1 ? $ : cheerio.load(pageHtml);
-      $page("ul.MovieList li").each(function(i, el) {
-        var epUrl = $page(el).find("a").attr("href");
-        if (!epUrl) return;
-
-        var epTitleEl = $page(el).find("a h2");
-        var epTitle = epTitleEl.text().trim();
-        var match = epTitle ? epTitle.match(DATE_RE) : null;
-        var epName = match ? match[0] : (epTitle || "Episode");
-        episodes.push({ name: epName, url: epUrl });
-      });
-    }
-
-    return episodes.length > 0 ? episodes : null;
-  } catch (e) {
-    console.error("Episode list failed:", e.message);
-    return null;
-  }
-}
-
-async function resolveEpisodePage(epUrl, epName) {
-  try {
-    var html = await fetchPage(epUrl);
-    if (!html) return [];
-
-    var $ = cheerio.load(html);
-    var results = [];
-
-    $(".MovieList .OptionBx").each(function(i, el) {
-      var name = $(el).find("p.AAIco-dns").text().trim() || "Stream " + (i + 1);
-      var link = $(el).find("a").attr("href");
-      if (link) {
-        results.push({ name: name, url: link });
-      }
-    });
-
-    if (results.length === 0) return [];
-
-    var streams = [];
-    for (var ri = 0; ri < results.length; ri++) {
-      var streamUrl = await resolveVideoUrl(results[ri].url);
-      if (streamUrl) {
-        streams.push({
-          title: epName + " - " + results[ri].name,
-          name: epName,
-          url: streamUrl,
-          quality: null,
-          provider: "Bollyzon",
+          title: item.title,
+          name: item.title,
+          url: magnet,
+          infoHash: item.infoHash.toLowerCase(),
+          quality: quality,
+          size: item.size,
+          seeders: item.seeders,
+          provider: "Nyaa",
           type: "tv"
         });
       }
+
+      if (results.length > 0) break;
     }
-    return streams;
+
+    results.sort(function(a, b) {
+      var sa = a.seeders || 0;
+      var sb = b.seeders || 0;
+      return sb - sa;
+    });
+
+    return results;
   } catch (e) {
-    console.error("Episode page resolve failed:", e.message);
+    console.error("Nyaa plugin error:", e.message || e);
     return [];
   }
 }
 
-async function resolveVideoUrl(initialUrl) {
+async function getTitles(tmdbId) {
+  var titles = [];
   try {
-    var iframeUrl = await resolveIframeSrc(initialUrl);
-    if (!iframeUrl) return null;
+    var resp = await fetch("https://api.themoviedb.org/3/tv/" + tmdbId + "?api_key=" + TMDB_API_KEY);
+    var data = await resp.json();
+    if (!data) return titles;
 
-    var m3u8Url = await extractM3u8(iframeUrl);
-    if (m3u8Url) return m3u8Url;
+    if (data.name) titles.push(data.name);
+    if (data.original_name && data.original_name !== data.name) titles.push(data.original_name);
 
-    return iframeUrl;
-  } catch (e) {
-    console.error("Video URL resolve failed:", e.message);
-    return null;
-  }
-}
-
-async function resolveIframeSrc(initialUrl) {
-  try {
-    var resp = await fetch(initialUrl, {
-      method: "GET",
-      headers: {
-        "User-Agent": UA,
-        "Referer": MAIN_URL,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5"
-      },
-      redirect: "manual"
-    });
-    var html = await resp.text();
-    if (!html) return null;
-
-    var $ = cheerio.load(html);
-
-    var proceedLink = $("#Proceed a[href], a.button.button1, a.button1").first().attr("href");
-    if (!proceedLink) {
-      proceedLink = $("iframe").attr("src");
-    }
-    if (!proceedLink) return null;
-
-    return await followMetaRefresh(proceedLink);
-  } catch (e) {
-    console.error("Iframe resolve failed:", e.message);
-    return null;
-  }
-}
-
-async function followMetaRefresh(startUrl) {
-  try {
-    var resp1 = await fetch(startUrl, {
-      method: "GET",
-      headers: { "User-Agent": UA },
-      redirect: "manual"
-    });
-    var html1 = await resp1.text();
-    if (!html1) return null;
-
-    var $1 = cheerio.load(html1);
-    var metaContent = $1("meta[http-equiv=refresh]").attr("content");
-    if (!metaContent) return startUrl;
-
-    var refreshUrl = metaContent;
-    var urlIdx = refreshUrl.indexOf("url=");
-    if (urlIdx !== -1) {
-      refreshUrl = refreshUrl.substring(urlIdx + 4);
-    }
-    var urlIdx2 = refreshUrl.indexOf("URL=");
-    if (urlIdx2 !== -1) {
-      refreshUrl = refreshUrl.substring(urlIdx2 + 4);
-    }
-    refreshUrl = refreshUrl.trim().replace(/^['"]/, "").replace(/['"]$/, "");
-
-    if (!refreshUrl) return startUrl;
-
-    if (!refreshUrl.startsWith("http")) {
-      var base = getBaseUrl(startUrl);
-      if (refreshUrl.startsWith("//")) {
-        refreshUrl = "https:" + refreshUrl;
-      } else if (refreshUrl.startsWith("/")) {
-        refreshUrl = base + refreshUrl;
-      } else {
-        refreshUrl = base + "/" + refreshUrl;
+    var altResp = await fetch("https://api.themoviedb.org/3/tv/" + tmdbId + "/alternative_titles?api_key=" + TMDB_API_KEY);
+    var altData = await altResp.json();
+    if (altData && altData.results) {
+      for (var i = 0; i < altData.results.length; i++) {
+        var alt = altData.results[i];
+        if (alt.title && titles.indexOf(alt.title) === -1) {
+          titles.push(alt.title);
+        }
       }
     }
-
-    var resp2 = await fetch(refreshUrl, {
-      method: "GET",
-      headers: { "User-Agent": UA },
-      redirect: "manual"
-    });
-
-    var cookies = resp2.headers.get("set-cookie") || "";
-    var cookieVal = cookies.split(";")[0] || "";
-
-    var baseUrl = getBaseUrl(refreshUrl);
-    var headers = { "User-Agent": UA };
-    if (cookieVal) headers["Cookie"] = cookieVal;
-
-    var resp3 = await fetch(baseUrl, {
-      method: "GET",
-      headers: headers
-    });
-    var html3 = await resp3.text();
-    if (!html3) return null;
-
-    var $3 = cheerio.load(html3);
-    var iframeSrc = $3("iframe").attr("src");
-    if (!iframeSrc) return null;
-
-    if (!iframeSrc.startsWith("http")) {
-      var base2 = getBaseUrl(baseUrl);
-      if (iframeSrc.startsWith("//")) {
-        iframeSrc = "https:" + iframeSrc;
-      } else if (iframeSrc.startsWith("/")) {
-        iframeSrc = base2 + iframeSrc;
-      } else {
-        iframeSrc = base2 + "/" + iframeSrc;
-      }
-    }
-
-    return iframeSrc;
   } catch (e) {
-    console.error("Meta refresh follow failed:", e.message);
-    return null;
+    console.error("TMDB title fetch failed:", e.message);
   }
+  return titles;
 }
 
-async function extractM3u8(pageUrl) {
+async function searchNyaa(query, category) {
   try {
-    var resp = await fetch(pageUrl, {
-      method: "GET",
-      headers: {
-        "User-Agent": UA,
-        "Referer": MAIN_URL
-      }
-    });
-    var body = await resp.text();
-    if (!body) return null;
+    var encoded = encodeURIComponent(query);
+    var url = "https://nyaa.si/?page=rss&q=" + encoded + "&c=" + category + "&s=seeders&o=desc&limit=100";
+    console.log("Nyaa RSS URL:", url);
 
-    var srcMatch = body.match(/"src"\s*:\s*"(https?:\/\/[^"]*\.m3u8[^"]*)"/);
-    if (srcMatch) return srcMatch[1];
-
-    var fileMatch = body.match(/"file"\s*:\s*"(https?:\/\/[^"]*\.m3u8[^"]*)"/);
-    if (fileMatch) return fileMatch[1];
-
-    var directMatch = body.match(/(https?:\/\/[^"'\s]*\.m3u8[^"'\s]*)/);
-    if (directMatch) return directMatch[1];
-
-    return null;
-  } catch (e) {
-    console.error("M3U8 extraction failed:", e.message);
-    return null;
-  }
-}
-
-async function fetchPage(url) {
-  try {
     var resp = await fetch(url, {
-      method: "GET",
       headers: {
-        "User-Agent": UA,
-        "Referer": MAIN_URL,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.5"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/rss+xml, application/xml, text/xml, */*"
       }
     });
-    if (!resp.ok) return null;
-    return await resp.text();
+    var xml = await resp.text();
+    if (!xml || xml.length < 100) return [];
+
+    return parseRssItems(xml);
   } catch (e) {
-    console.error("Page fetch failed:", e.message);
-    return null;
+    console.error("Nyaa search failed:", e.message);
+    return [];
   }
 }
 
-function getBaseUrl(url) {
-  var m = url.match(/^(https?:\/\/[^\/]+)/);
-  return m ? m[1] : "";
+function parseRssItems(xml) {
+  var items = [];
+  var itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+  var match;
+
+  while ((match = itemRegex.exec(xml)) !== null) {
+    var block = match[1];
+    var item = {};
+
+    item.title = extractTag(block, "title");
+    item.link = extractTag(block, "link");
+    item.guid = extractTag(block, "guid");
+    item.infoHash = extractNsTag(block, "nyaa:infoHash");
+    item.seeders = parseInt(extractNsTag(block, "nyaa:seeders"), 10) || 0;
+    item.leechers = parseInt(extractNsTag(block, "nyaa:leechers"), 10) || 0;
+    item.size = extractNsTag(block, "nyaa:size") || "";
+    item.categoryId = extractNsTag(block, "nyaa:categoryId") || "";
+    item.trusted = extractNsTag(block, "nyaa:trusted") || "No";
+
+    if (item.title && item.infoHash) {
+      items.push(item);
+    }
+  }
+
+  return items;
+}
+
+function extractTag(block, tagName) {
+  var re = new RegExp("<" + tagName + "[^>]*>([\\s\\S]*?)<\\/" + tagName + ">", "i");
+  var m = re.exec(block);
+  return m ? m[1].trim() : "";
+}
+
+function extractNsTag(block, tagName) {
+  var re = new RegExp("<" + tagName.replace(":", "\\:") + "[^>]*>([\\s\\S]*?)<\\/" + tagName.replace(":", "\\:") + ">", "i");
+  var m = re.exec(block);
+  return m ? m[1].trim() : "";
+}
+
+function matchEpisode(title, requestedSeason, requestedEpisode) {
+  var reqEp = parseInt(requestedEpisode, 10);
+  var reqSeason = parseInt(requestedSeason, 10);
+
+  if (isNaN(reqEp)) return false;
+
+  var rangeMatch = title.match(RANGE_PATTERN);
+  if (rangeMatch) {
+    var rangeSeason = parseInt(rangeMatch[1], 10);
+    var rangeStart = parseInt(rangeMatch[2], 10);
+    var rangeEnd = parseInt(rangeMatch[3], 10);
+    if (rangeSeason === reqSeason && reqEp >= rangeStart && reqEp <= rangeEnd) {
+      return true;
+    }
+  }
+
+  for (var pi = 0; pi < EPISODE_PATTERNS.length; pi++) {
+    var pat = EPISODE_PATTERNS[pi];
+    var m = title.match(pat.re);
+    if (!m) continue;
+
+    if (pat.seasonGroup !== null) {
+      var foundSeason = parseInt(m[pat.seasonGroup], 10);
+      if (foundSeason !== reqSeason) continue;
+    }
+
+    var foundEp = parseInt(m[pat.epGroup], 10);
+    if (foundEp === reqEp) return true;
+  }
+
+  var dashMatch = title.match(DASH_EP_PATTERN);
+  if (dashMatch) {
+    var dashEp = parseInt(dashMatch[1], 10);
+    var knownSeasonInTitle = /\bS(\d+)\b/i.test(title);
+    if (!knownSeasonInTitle && dashEp === reqEp) {
+      return true;
+    }
+  }
+
+  var isBatch = BATCH_PATTERN.test(title);
+  if (isBatch) {
+    var batchSeasonMatch = title.match(/\bSeason\s+(\d+)\b/i);
+    if (!batchSeasonMatch) {
+      batchSeasonMatch = title.match(/S(\d+)/i);
+    }
+    if (batchSeasonMatch) {
+      var batchSeason = parseInt(batchSeasonMatch[1], 10);
+      if (batchSeason === reqSeason) return true;
+    }
+  }
+
+  return false;
+}
+
+function parseQuality(title) {
+  var m = title.match(RES_PATTERN);
+  if (m) return m[1];
+  if (/\b4K\b/i.test(title) || /\b2160\b/i.test(title)) return "2160p";
+  if (/\b1080\b/i.test(title)) return "1080p";
+  if (/\b720\b/i.test(title)) return "720p";
+  if (/\b480\b/i.test(title)) return "480p";
+  return null;
+}
+
+function buildMagnet(infoHash, title) {
+  var encodedName = encodeURIComponent(title.replace(/\[[^\]]*\]/g, "").trim());
+  var magnet = "magnet:?xt=urn:btih:" + infoHash + "&dn=" + encodedName;
+  for (var ti = 0; ti < TRACKERS.length; ti++) {
+    magnet += "&tr=" + encodeURIComponent(TRACKERS[ti]);
+  }
+  return magnet;
+}
+
+function padZero(num, len) {
+  var s = String(num);
+  while (s.length < len) s = "0" + s;
+  return s;
 }
 
 module.exports = { getStreams };

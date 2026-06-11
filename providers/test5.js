@@ -97,22 +97,31 @@ function cleanText(str) {
   return str.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "").trim();
 }
 
-// Fixed Resolution Parser: Strictly targets strings or filenames to capture real quality profiles
+// FIXED: Advanced Resolution Parser that accurately pulls structural tags from streams
 function extractQuality(titleText, urlText) {
   const checkString = ((titleText || "") + " " + (urlText || "")).toLowerCase();
   
+  // 1. Direct structural signature checks
   if (checkString.includes("2160p") || checkString.includes("4k") || checkString.includes("uhd")) return "4K UHD";
   if (checkString.includes("1080p") || checkString.includes("fhd")) return "1080p FHD";
   if (checkString.includes("720p") || checkString.includes("hd")) return "720p HD";
   if (checkString.includes("480p") || checkString.includes("sd")) return "480p SD";
-  
-  const patternMatch = checkString.match(/(\d{3,4}p)/);
-  if (patternMatch) return patternMatch[1];
+  if (checkString.includes("360p")) return "360p SD";
+
+  // 2. Generic numeric fallback mapping check (e.g., matching standalone "1080" or "720")
+  const rawMatch = checkString.match(/(\d{3,4})p?/);
+  if (rawMatch) {
+    const resValue = rawMatch[1];
+    if (resValue === "2160") return "4K UHD";
+    if (resValue === "1080") return "1080p FHD";
+    if (resValue === "720") return "720p HD";
+    if (resValue === "480") return "480p SD";
+    return resValue + "p";
+  }
   
   return "Auto";
 }
 
-// Fixed Language Parser: Directly extracts language codes (Lat, Cast, Eng, etc.) from paths/titles
 function extractLanguage(titleText, urlText) {
   const checkString = ((titleText || "") + " " + (urlText || "")).toLowerCase();
   
@@ -122,7 +131,6 @@ function extractLanguage(titleText, urlText) {
   if (checkString.includes("english") || checkString.includes("eng")) return "English";
   if (checkString.includes("multi") || checkString.includes("dual")) return "Multi Audio";
   
-  // Generic fallback block if no identifiers map perfectly
   const parenMatch = checkString.match(/\(([^)]+)\)/);
   if (parenMatch) {
     return parenMatch[1].charAt(0).toUpperCase() + parenMatch[1].slice(1);
@@ -131,7 +139,6 @@ function extractLanguage(titleText, urlText) {
   return "Original";
 }
 
-// Fixed Size Parser: Grabs the absolute file weight metrics straight from addon payload dumps
 function extractFileSize(titleText) {
   if (!titleText) return "Dynamic Size";
   const sizeMatch = titleText.match(/(\d+(?:\.\d+)?\s*[GgMm][Bb])/);
@@ -201,21 +208,21 @@ function getStreams(tmdbId, mediaType, season, episode) {
       const data = yield response.json();
       const rawList = data.streams || [];
       
-      // Fixed Stream Format Mapping Builder
       const pushFormattedStream = (rawItem, overrideQuality, streamUrl, variantHeaders, isM3u8) => {
          const rawTitle = rawItem.title || "";
          const cleanTitleString = cleanText(rawTitle);
          
-         // Real structural parameter evaluation
-         const displayQuality = extractQuality(cleanTitleString, streamUrl);
+         // Dynamically parse actual resolution tags from stream info context
+         const displayQuality = overrideQuality ? extractQuality(overrideQuality, overrideQuality) : extractQuality(cleanTitleString, streamUrl);
          const cleanQuality = displayQuality.replace(" FHD", "").replace(" UHD", "").replace(" HD", "").replace(" SD", "").toUpperCase();
+         
          const detectedLanguage = extractLanguage(cleanTitleString, streamUrl);
          const parsedSize = extractFileSize(rawTitle);
          
          const mediaLabel = meta.name + (mediaType === "tv" ? " S" + season + "E" + episode : "");
          const containerFormat = isM3u8 ? "M3U8" : streamUrl.includes(".mp4") ? "MP4" : "MKV";
 
-         // Clean interface segregation (Zero duplication markup structures)
+         // UI Interface Separation (Zero Duplication configuration rule)
          const headerName = `NoTorrent | ${displayQuality} | Mirror Link`;
          
          const dropdownTitle = 
@@ -244,10 +251,10 @@ function getStreams(tmdbId, mediaType, season, episode) {
         const headers = Object.assign({}, ((_c = item.behaviorHints) == null ? void 0 : _c.headers) || {}, proxyHeaders);
         const isM3u8 = item.url.includes(".m3u8");
         
-        // 1. Process Core Asset Profile directly out of true payload metrics
+        // 1. Core stream item processor
         pushFormattedStream(item, null, item.url, headers, isM3u8);
         
-        // 2. Fetch Multi-Variant sub profiles if dealing with multi-quality index links
+        // 2. Adaptive M3U8 child quality listing parser block
         if (isM3u8) {
           try {
             const extraStreams = yield generateM3u8(item.url, headers);

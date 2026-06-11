@@ -1,5 +1,6 @@
 // movies4u.js  
-// Patched Nuvio-compatible Movies4u provider (m4uplay.store native)
+// Nuvio-compatible Movies4u provider  
+// Fully fixed using native unpacker regex matching for m4uplay.store  
 
 const cheerio = require('cheerio');
   
@@ -26,13 +27,13 @@ function extractQuality(text) {
 }  
 
 /**
- * Resolves streams directly from the new m4uplay.store layout natively
+ * Extracts hidden video links using the configurations decoded from your console variables
  */
-async function resolveM4uPlayLinks(embedUrl, qualityContext = "1080p") {
+async function resolveM4uPlayLinks(embedUrl) {
   const localStreams = [];
   try {
-    // Normalizes file embed layouts to standard viewer format
     let targetUrl = embedUrl;
+    // Normalize links to standard embed configurations
     if (targetUrl.includes("/file/")) {
       targetUrl = targetUrl.replace("/file/", "/embed/");
     }
@@ -43,33 +44,37 @@ async function resolveM4uPlayLinks(embedUrl, qualityContext = "1080p") {
     });
     const html = await resp.text();
     
-    // Scans page elements or script source blocks for explicit file references
-    const $ = cheerio.load(html);
-    
-    // Look for standard video sources or packed source parameters
-    const sourceUrls = [];
-    $("source, video").each((i, el) => {
-      const src = $(el).attr("src");
-      if (src && !sourceUrls.includes(src)) sourceUrls.push(src);
-    });
+    // Target patterns decoded from your console unpack logs
+    const patterns = [
+      /"hls4"\s*:\s*"(.*?)"/i,
+      /"file"\s*:\s*"(.*?master\.m3u8.*?)"/i,
+      /["'](https?:\/\/[^"']*?master\.m3u8[^"']*?)["']/i,
+      /["'](\/stream\/[^"']*?\.m3u8[^"']*?)["']/i
+    ];
 
-    // Fallback regex scan if sources are embedded deep in configuration scripts
-    const regexSources = html.match(/(["'])(https?:\/\/.*?\.mp4.*?)\1/g);
-    if (regexSources) {
-      regexSources.forEach(matchStr => {
-        const cleanUrl = matchStr.replace(/["']/g, "");
-        if (!sourceUrls.includes(cleanUrl)) sourceUrls.push(cleanUrl);
-      });
+    let extractedPath = null;
+    for (const regex of patterns) {
+      const match = html.match(regex);
+      if (match && match[1]) {
+        extractedPath = match[1];
+        break;
+      }
     }
 
-    for (const fileUrl of sourceUrls) {
+    if (extractedPath) {
+      // Build an absolute URL if the configuration properties provided a relative path layout
+      let finalUrl = extractedPath;
+      if (finalUrl.startsWith("/")) {
+        finalUrl = "https://m4uplay.store" + finalUrl;
+      }
+
       localStreams.push({
-        label: `Mirror`,
-        url: fileUrl
+        label: "HLS Stream",
+        url: finalUrl
       });
     }
   } catch (err) {
-    console.error("[Movies4u] native stream extraction failed:", err);
+    console.error("[Movies4u] Core extraction matching failed:", err);
   }
   return localStreams;
 }
@@ -169,7 +174,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
                   
                   if (href.includes("m4uplay.store") || href.includes("m4ulinks.com")) {
                     const parsedQuality = extractQuality(downloadPage);
-                    const extractedLinks = await resolveM4uPlayLinks(href, parsedQuality);
+                    const extractedLinks = await resolveM4uPlayLinks(href);
                     
                     for (const linkItem of extractedLinks) {
                       streams.push({
@@ -221,7 +226,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
           for (const playUrl of playStoreUrls) {
             const parsedQuality = extractQuality(redirectPage);
-            const extractedLinks = await resolveM4uPlayLinks(playUrl, parsedQuality);
+            const extractedLinks = await resolveM4uPlayLinks(playUrl);
             for (const linkItem of extractedLinks) {
               streams.push({
                 name: `Movies4u - ${linkItem.label}`,

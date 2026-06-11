@@ -1,12 +1,10 @@
 // movies4u.js  
-// Fully fixed Nuvio-compatible Movies4u provider  
+// Patched Nuvio-compatible Movies4u provider (m4uplay.store native)
 
 const cheerio = require('cheerio');
   
-// FIXED: Completely hardcoded to bypass the problematic GitHub override
 const BASE_DOMAIN = "https://new2.movies4u.finance";  
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";  
-const HUB_CLOUD_API = "https://hc-zf3c.vercel.app";
 
 const HEADERS = {  
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",  
@@ -14,7 +12,6 @@ const HEADERS = {
 };  
   
 async function getBaseUrl() {  
-  // Directly returns your working domain without hitting the broken GitHub repository
   return BASE_DOMAIN;  
 }  
   
@@ -29,24 +26,52 @@ function extractQuality(text) {
 }  
 
 /**
- * Uses the external Vercel Extractor API to get direct FSL/CDN download links
+ * Resolves streams directly from the new m4uplay.store layout natively
  */
-async function resolveAllHubCloudLinks(hubCloudUrl) {
+async function resolveM4uPlayLinks(embedUrl, qualityContext = "1080p") {
+  const localStreams = [];
   try {
-    const apiURL = `${HUB_CLOUD_API}/api/extract?url=${encodeURIComponent(hubCloudUrl)}`;
-    const resp = await fetch(apiURL, {
-      headers: { "Accept": "application/json" },
-      skipSizeCheck: true
+    // Normalizes file embed layouts to standard viewer format
+    let targetUrl = embedUrl;
+    if (targetUrl.includes("/file/")) {
+      targetUrl = targetUrl.replace("/file/", "/embed/");
+    }
+
+    const resp = await fetch(targetUrl, { 
+      headers: { "User-Agent": HEADERS["User-Agent"], "Referer": BASE_DOMAIN },
+      skipSizeCheck: true 
     });
-    const data = await resp.json();
+    const html = await resp.text();
     
-    if (data && data.links && data.links.length > 0) {
-      return data.links; 
+    // Scans page elements or script source blocks for explicit file references
+    const $ = cheerio.load(html);
+    
+    // Look for standard video sources or packed source parameters
+    const sourceUrls = [];
+    $("source, video").each((i, el) => {
+      const src = $(el).attr("src");
+      if (src && !sourceUrls.includes(src)) sourceUrls.push(src);
+    });
+
+    // Fallback regex scan if sources are embedded deep in configuration scripts
+    const regexSources = html.match(/(["'])(https?:\/\/.*?\.mp4.*?)\1/g);
+    if (regexSources) {
+      regexSources.forEach(matchStr => {
+        const cleanUrl = matchStr.replace(/["']/g, "");
+        if (!sourceUrls.includes(cleanUrl)) sourceUrls.push(cleanUrl);
+      });
+    }
+
+    for (const fileUrl of sourceUrls) {
+      localStreams.push({
+        label: `Mirror`,
+        url: fileUrl
+      });
     }
   } catch (err) {
-    console.error("[Movies4u] HubCloud resolution failed:", err);
+    console.error("[Movies4u] native stream extraction failed:", err);
   }
-  return [];
+  return localStreams;
 }
   
 // =======================  
@@ -141,17 +166,18 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
               while (nextNode.length && !["h3", "h4", "h5"].includes(nextNode[0].name)) {
                 if (nextNode[0].name === "a") {
                   const href = nextNode.attr("href") || "";
-                  // Accept both raw Hubcloud URLs and interim m4ulinks pages to maximize matching
-                  if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4ulinks.com")) {
+                  
+                  if (href.includes("m4uplay.store") || href.includes("m4ulinks.com")) {
+                    const parsedQuality = extractQuality(downloadPage);
+                    const extractedLinks = await resolveM4uPlayLinks(href, parsedQuality);
                     
-                    const extractedLinks = await resolveAllHubCloudLinks(href);
                     for (const linkItem of extractedLinks) {
                       streams.push({
-                        name: `Movies4u (Series) - ${linkItem.label || 'Direct'}`,
+                        name: `Movies4u (Series) - ${linkItem.label}`,
                         title: `${title} - S${season || 1}E${episode || 1}`,
-                        quality: extractQuality(downloadPage),
+                        quality: parsedQuality,
                         url: linkItem.url,
-                        headers: { "User-Agent": HEADERS["User-Agent"] },
+                        headers: { "User-Agent": HEADERS["User-Agent"], "Referer": "https://m4uplay.store/" },
                         subtitles: []
                       });
                     }
@@ -185,24 +211,24 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           const innerHtml = await innerResp.text();
           const $inner = cheerio.load(innerHtml);
           
-          const hubCloudUrls = [];
+          const playStoreUrls = [];
           $inner("a[href]").each((i, el) => {
             const href = $(el).attr("href") || "";
-            // Gathers intermediate redirect elements as well as explicit direct links
-            if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4ulinks.com/number")) {
-              if (!hubCloudUrls.includes(href)) hubCloudUrls.push(href);
+            if (href.includes("m4uplay.store") || href.includes("m4ulinks.com/number")) {
+              if (!playStoreUrls.includes(href)) playStoreUrls.push(href);
             }
           });
 
-          for (const hubUrl of hubCloudUrls) {
-            const extractedLinks = await resolveAllHubCloudLinks(hubUrl);
+          for (const playUrl of playStoreUrls) {
+            const parsedQuality = extractQuality(redirectPage);
+            const extractedLinks = await resolveM4uPlayLinks(playUrl, parsedQuality);
             for (const linkItem of extractedLinks) {
               streams.push({
-                name: `Movies4u - ${linkItem.label || 'Direct'}`,
+                name: `Movies4u - ${linkItem.label}`,
                 title: `${title}`,
-                quality: extractQuality(redirectPage), 
+                quality: parsedQuality, 
                 url: linkItem.url,
-                headers: { "User-Agent": HEADERS["User-Agent"] },
+                headers: { "User-Agent": HEADERS["User-Agent"], "Referer": "https://m4uplay.store/" },
                 subtitles: []
               });
             }

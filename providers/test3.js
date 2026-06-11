@@ -1,32 +1,21 @@
 // movies4u.js  
-// Fixed Nuvio-compatible Movies4u provider  
+// Fully fixed Nuvio-compatible Movies4u provider  
 
-// CRITICAL: Ensure cheerio is imported so the HTML parser doesn't crash
 const cheerio = require('cheerio');
   
-const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";  
-const FALLBACK_URL = "https://new2.movies4u.finance";  
+// FIXED: Completely hardcoded to bypass the problematic GitHub override
+const BASE_DOMAIN = "https://new2.movies4u.finance";  
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";  
 const HUB_CLOUD_API = "https://hc-zf3c.vercel.app";
 
 const HEADERS = {  
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",  
-  "Referer": FALLBACK_URL  
+  "Referer": BASE_DOMAIN  
 };  
   
-let cachedBaseUrl = null;  
-  
 async function getBaseUrl() {  
-  if (cachedBaseUrl) return cachedBaseUrl;  
-  try {  
-    const resp = await fetch(DOMAINS_URL, { skipSizeCheck: true });  
-    const data = await resp.json();  
-    // Force fallback if the remote repository has broken or empty entries
-    cachedBaseUrl = data.movies4u || data.movies4uhd || FALLBACK_URL;  
-  } catch (_) {  
-    cachedBaseUrl = FALLBACK_URL;  
-  }  
-  return cachedBaseUrl;  
+  // Directly returns your working domain without hitting the broken GitHub repository
+  return BASE_DOMAIN;  
 }  
   
 function extractQuality(text) {  
@@ -141,7 +130,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           const epPageHtml = await epPageResp.text();
           const $epPage = cheerio.load(epPageHtml);
           
-          // Use a traditional loop or process items sequential/parallelly to support await
           const targetNodes = $epPage("h5, h4, h3").toArray();
 
           for (const el of targetNodes) {
@@ -153,9 +141,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
               while (nextNode.length && !["h3", "h4", "h5"].includes(nextNode[0].name)) {
                 if (nextNode[0].name === "a") {
                   const href = nextNode.attr("href") || "";
-                  if (href.includes("hubcloud") || href.includes("hub-cloud")) {
+                  // Accept both raw Hubcloud URLs and interim m4ulinks pages to maximize matching
+                  if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4ulinks.com")) {
                     
-                    // FIXED: Await resolving links directly instead of using dangling asynchronous .then() chains
                     const extractedLinks = await resolveAllHubCloudLinks(href);
                     for (const linkItem of extractedLinks) {
                       streams.push({
@@ -200,7 +188,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           const hubCloudUrls = [];
           $inner("a[href]").each((i, el) => {
             const href = $(el).attr("href") || "";
-            if (href.includes("hubcloud") || href.includes("hub-cloud")) {
+            // Gathers intermediate redirect elements as well as explicit direct links
+            if (href.includes("hubcloud") || href.includes("hub-cloud") || href.includes("m4ulinks.com/number")) {
               if (!hubCloudUrls.includes(href)) hubCloudUrls.push(href);
             }
           });

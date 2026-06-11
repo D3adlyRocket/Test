@@ -97,15 +97,15 @@ function cleanText(str) {
   return str.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "").trim();
 }
 
-// Highly customized extraction layout tags to strictly fit Nuvio header matching
+// FIXED: Returns "Auto" if no structural resolution tags are discovered 
 function extractQuality(item, overrideQuality) {
   if (overrideQuality) {
      const q = String(overrideQuality).toLowerCase();
-     if (q.includes("2160") || q.includes("4k")) return "4K UHD";
-     if (q.includes("1080")) return "1080p FHD";
-     if (q.includes("720")) return "720p HD";
-     if (q.includes("480")) return "480p SD";
-     return overrideQuality;
+     if (q.includes("2160") || q.includes("4k")) return "4k";
+     if (q.includes("1080")) return "1080p";
+     if (q.includes("720")) return "720p";
+     if (q.includes("480")) return "480p";
+     return overrideQuality.toLowerCase();
   }
   
   const checkString = (
@@ -114,21 +114,15 @@ function extractQuality(item, overrideQuality) {
     (item.url || "")
   ).toLowerCase();
   
-  if (checkString.includes("2160p") || checkString.includes("4k") || checkString.includes("uhd")) return "4K UHD";
-  if (checkString.includes("1080p") || checkString.includes("fhd")) return "1080p FHD";
-  if (checkString.includes("720p") || checkString.includes("hd")) return "720p HD";
-  if (checkString.includes("480p") || checkString.includes("sd")) return "480p SD";
+  if (checkString.includes("2160p") || checkString.includes("4k") || checkString.includes("uhd")) return "4k";
+  if (checkString.includes("1080p") || checkString.includes("fhd")) return "1080p";
+  if (checkString.includes("720p") || checkString.includes("hd")) return "720p";
+  if (checkString.includes("480p") || checkString.includes("sd")) return "480p";
   
   const match = checkString.match(/(\d{3,4}p)/);
-  if (match) {
-     if (match[0] === "2160p") return "4K UHD";
-     if (match[0] === "1080p") return "1080p FHD";
-     if (match[0] === "720p") return "720p HD";
-     if (match[0] === "480p") return "480p SD";
-     return match[0];
-  }
+  if (match) return match[0].toLowerCase();
   
-  return "1080p FHD";
+  return "Auto";
 }
 
 function extractLanguage(titleText, urlText) {
@@ -148,24 +142,33 @@ function extractLanguage(titleText, urlText) {
   return "Original";
 }
 
-// Converts direct raw byte properties when direct MP4 video data blocks miss string descriptions
-function extractFileSize(item) {
+// FIXED: Restored VixSrc Bitrate estimation fallback mapping calculations
+function extractFileSize(item, metaDuration, parsedQuality) {
   const rawTitle = item.title || "";
   const sizeMatch = rawTitle.match(/(\d+(?:\.\d+)?\s*[GgMm][Bb])/);
   if (sizeMatch) {
      return sizeMatch[1].toUpperCase();
   }
-  
-  // Checking direct native payload size values passed from direct http responses
-  const bytes = item.fileSize || (item.behaviorHints && item.behaviorHints.fileSize);
-  if (bytes && !isNaN(bytes)) {
-     const gb = bytes / (1024 * 1024 * 1024);
-     if (gb >= 0.1) return `${gb.toFixed(1)} GB`;
-     const mb = bytes / (1024 * 1024);
-     return `${mb.toFixed(0)} MB`;
+
+  // Fallback structural estimation math
+  try {
+     const durationMinutes = parseInt(metaDuration) || 90;
+     const qualityStr = (parsedQuality || "").toLowerCase();
+     
+     // Dynamic Average megabits per second configurations
+     let mbps = 4.5; // Default standard 1080p baseline estimation
+     if (qualityStr.includes("4k") || qualityStr.includes("2160")) mbps = 12.0;
+     else if (qualityStr.includes("720")) mbps = 2.2;
+     else if (qualityStr.includes("480")) mbps = 1.0;
+
+     // Calculate estimated gigabytes based on runtime duration
+     const totalSeconds = durationMinutes * 60;
+     const totalGigabytes = (totalSeconds * (mbps * 1000000 / 8)) / (1024 * 1024 * 1024);
+     
+     return `${totalGigabytes.toFixed(1)} GB`;
+  } catch (err) {
+     return "-";
   }
-  
-  return "Dynamic Size";
 }
 
 function generateM3u8(_0) {
@@ -236,15 +239,15 @@ function getStreams(tmdbId, mediaType, season, episode) {
          const cleanTitleString = cleanText(rawTitle);
          
          const finalQuality = extractQuality(rawItem, overrideQuality);
-         const cleanQualityLabel = finalQuality.replace(" FHD", "").replace(" UHD", "").replace(" HD", "").replace(" SD", "").toUpperCase();
+         const cleanQualityLabel = finalQuality.toUpperCase();
          
          const detectedLanguage = extractLanguage(cleanTitleString, streamUrl);
-         const parsedSize = extractFileSize(rawItem);
+         const parsedSize = extractFileSize(rawItem, meta.duration, finalQuality);
          
          const mediaLabel = meta.name + (mediaType === "tv" ? " S" + season + "E" + episode : "");
          const containerFormat = isM3u8 ? "M3U8" : streamUrl.includes(".mp4") ? "MP4" : "MKV";
 
-         // UPDATED HEADER CONFIGURATION: NoTorrent | Quality | Language
+         // Clean interface layout configuration
          const headerName = `NoTorrent | ${finalQuality} | ${detectedLanguage}`;
          
          const dropdownTitle = 
@@ -256,7 +259,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
             name: headerName,
             title: dropdownTitle,
             url: streamUrl,
-            quality: finalQuality, // Synced completely to avoid layout leakage
+            quality: finalQuality, 
             type: isM3u8 ? "m3u8" : containerFormat === "MP4" || containerFormat === "MKV" ? "video" : null,
             headers: Object.keys(variantHeaders).length > 0 ? variantHeaders : void 0,
             provider: "notorrent"

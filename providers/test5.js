@@ -97,15 +97,27 @@ function cleanText(str) {
   return str.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "").trim();
 }
 
-// RESTORED FROM ORIGINAL SCRIPT: Exact pattern matching for stream items
-function extractQuality(titleText) {
-  const raw = titleText || "";
-  const match = raw.match(/(\d{3,4}p)/);
-  if (match)
-    return match[0];
-  if (raw.toUpperCase().includes("FREE"))
-    return "Auto";
-  return "Unknown";
+// FIXED OMNI-RESOLUTION EXTRACTION ENGINE: Scans item metadata fields explicitly
+function extractQuality(item, overrideQuality) {
+  if (overrideQuality) return overrideQuality;
+  
+  // Combine all possible stream strings where Stremio addons dump resolution properties
+  const checkString = (
+    (item.name || "") + " " + 
+    (item.title || "") + " " + 
+    (item.url || "")
+  ).toLowerCase();
+  
+  if (checkString.includes("2160p") || checkString.includes("4k") || checkString.includes("uhd")) return "4K UHD";
+  if (checkString.includes("1080p") || checkString.includes("fhd")) return "1080p FHD";
+  if (checkString.includes("720p") || checkString.includes("hd")) return "720p HD";
+  if (checkString.includes("480p") || checkString.includes("sd")) return "480p SD";
+  
+  const match = checkString.match(/(\d{3,4}p)/);
+  if (match) return match[0];
+  
+  if (checkString.includes("free")) return "Auto";
+  return "1080p FHD"; // Default safe standard fallback for NoTorrent streams
 }
 
 function extractLanguage(titleText, urlText) {
@@ -194,14 +206,18 @@ function getStreams(tmdbId, mediaType, season, episode) {
       const data = yield response.json();
       const rawList = data.streams || [];
 
-      // Unified Stream Injector Engine
-      const pushFormattedStream = (rawItem, evaluatedQuality, streamUrl, variantHeaders, isM3u8) => {
+      const pushFormattedStream = (rawItem, overrideQuality, streamUrl, variantHeaders, isM3u8) => {
          const rawTitle = rawItem.title || "";
          const cleanTitleString = cleanText(rawTitle);
          
-         // RESTORED FIX: Dynamically match original script quality mapping architecture
-         const finalQuality = evaluatedQuality || extractQuality(cleanTitleString);
-         const cleanQualityLabel = finalQuality.toUpperCase();
+         // Extract via unified metadata map checks
+         const finalQuality = extractQuality(rawItem, overrideQuality);
+         
+         // Normalize string label transformations for Nuvio layouts
+         let cleanQualityLabel = finalQuality.toUpperCase();
+         if (!cleanQualityLabel.includes("P") && !cleanQualityLabel.includes("K")) {
+            cleanQualityLabel = "AUTO";
+         }
          
          const detectedLanguage = extractLanguage(cleanTitleString, streamUrl);
          const parsedSize = extractFileSize(rawTitle);
@@ -209,7 +225,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
          const mediaLabel = meta.name + (mediaType === "tv" ? " S" + season + "E" + episode : "");
          const containerFormat = isM3u8 ? "M3U8" : streamUrl.includes(".mp4") ? "MP4" : "MKV";
 
-         // UI Interface Separation (Fixes Duplication issues flawlessly)
+         // UI Interface Separation Architecture
          const headerName = `NoTorrent | ${finalQuality} | Mirror Link`;
          
          const dropdownTitle = 
@@ -236,9 +252,10 @@ function getStreams(tmdbId, mediaType, season, episode) {
           
         const rawTitle = item.title || "";
         const cleanTitleString = cleanText(rawTitle);
-        const quality = extractQuality(cleanTitleString);
         
-        // Skip low quality assets dynamically based on original setup rules
+        // Scan item components to determine the stream's core quality layout rules
+        const quality = extractQuality(item, null);
+        
         if (quality.toLowerCase().includes("p")) {
           const h = parseInt(quality);
           if (!isNaN(h) && h < 720)
@@ -249,10 +266,10 @@ function getStreams(tmdbId, mediaType, season, episode) {
         const headers = Object.assign({}, ((_c = item.behaviorHints) == null ? void 0 : _c.headers) || {}, proxyHeaders);
         const isM3u8 = item.url.includes(".m3u8");
         
-        // 1. Core stream item processor using stream data values directly
+        // 1. Process Master Profile Item link natively
         pushFormattedStream(item, isM3u8 ? "Auto" : quality, item.url, headers, isM3u8);
         
-        // 2. Child adaptive list generator block
+        // 2. Map structural live dynamic variant parsing values accurately 
         if (isM3u8) {
           try {
             const extraStreams = yield generateM3u8(item.url, headers);

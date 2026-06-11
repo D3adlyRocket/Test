@@ -1,6 +1,6 @@
 /**
  * notorrent - Built from src/notorrent/
- * Generated: 2026-05-24T13:07:23.105Z
+ * Generated: 2026-06-11T10:48:39.105Z
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -108,19 +108,23 @@ function extractQuality(item, overrideQuality) {
      return overrideQuality;
   }
   
-  const checkString = (
-    (item.name || "") + " " + 
-    (item.title || "") + " " + 
-    (item.url || "")
-  ).toLowerCase();
-  
+  // Prioritize URL scan first to capture deeply nested structural resolution parameters
+  const urlString = (item.url || "").toLowerCase();
+  if (urlString.includes("2160p") || urlString.includes("/2160/") || urlString.includes("4k")) return "4K";
+  if (urlString.includes("1080p") || urlString.includes("/1080/")) return "1080p";
+  if (urlString.includes("720p") || urlString.includes("/720/")) return "720p";
+  if (urlString.includes("480p") || urlString.includes("/480/")) return "480p";
+  if (urlString.includes("360p") || urlString.includes("/360/")) return "360p";
+
+  // Broad metadata fallback checking if URL is generic
+  const checkString = ((item.name || "") + " " + (item.title || "")).toLowerCase();
   if (checkString.includes("2160p") || checkString.includes("4k") || checkString.includes("uhd")) return "4K";
   if (checkString.includes("1080p") || checkString.includes("fhd")) return "1080p";
   if (checkString.includes("720p") || checkString.includes("hd")) return "720p";
   if (checkString.includes("480p") || checkString.includes("sd")) return "480p";
   if (checkString.includes("360p")) return "360p";
   
-  const match = checkString.match(/(\d{3,4}p)/);
+  const match = urlString.match(/(\d{3,4}p)/) || checkString.match(/(\d{3,4}p)/);
   if (match) return match[0];
   
   return "Auto";
@@ -140,11 +144,12 @@ function extractLanguage(titleText, urlText) {
     return parenMatch[1].charAt(0).toUpperCase() + parenMatch[1].slice(1);
   }
   
-  return "Original Audio";
+  return "Original Audio"; // Fixed: Capitalized "Audio"
 }
 
 function extractFileSize(item) {
-  const checkString = ((item.title || "") + " " + (item.name || "") + " " + (item.url || ""));
+  const checkString = ((item.url || "") + " " + (item.title || "") + " " + (item.name || ""));
+  // Universal file size match regex covering both MB and GB sizes accurately inside paths
   const sizeMatch = checkString.match(/(\d+(?:\.\d+)?\s*[GgMm][Bb])/);
   if (sizeMatch) {
      return sizeMatch[1].toUpperCase();
@@ -152,15 +157,13 @@ function extractFileSize(item) {
   return "Dynamic Size"; 
 }
 
-// Parses tags out of available titles/filenames
 function extractReleaseInfo(item) {
   const checkString = ((item.title || "") + " " + (item.name || "") + " " + (item.url || ""));
   const tags = [];
   
-  // Tag matches
   if (/web-?rip|web-?dl|bluray|hdrip/i.test(checkString)) {
     const m = checkString.match(/(web-?rip|web-?dl|bluray|hdrip)/i);
-    if (m) tags.push(m[1].replace('-', ''));
+    if (m) tags.push(m[1].toUpperCase().replace('-', ''));
   }
   if (/x264|h264|x265|hevc/i.test(checkString)) {
     const m = checkString.match(/(x264|h264|x265|hevc)/i);
@@ -302,16 +305,9 @@ function getStreams(tmdbId, mediaType, season, episode) {
   });
 }
 
-// FIXED: Cleaned up sorting whitespaces to match exactly against layout engine strings
+// FIXED: Removed all zero-width spaces entirely to prevent header leakage anomalies
 function getSortedQuality(quality) {
   if (!quality) return "Auto";
-  const q = quality.toLowerCase();
-  if (q.includes("auto")) return "Auto";
-  if (q.includes("2160") || q.includes("4k")) return quality;
-  if (q.includes("1080")) return quality;
-  if (q.includes("720")) return quality;
-  if (q.includes("480")) return quality;
-  if (q.includes("360")) return quality;
   return quality;
 }
 

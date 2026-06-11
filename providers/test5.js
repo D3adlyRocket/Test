@@ -46,33 +46,6 @@ var __async = (__this, __arguments, generator) => {
 var NOTORRENT_API = "https://addon-osvh.onrender.com";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 
-// Helper size calculating layout engines
-function formatBytes(bytes) {
-  if (!bytes || isNaN(bytes)) return "Variable Size";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  while (bytes >= 1024 && i < units.length - 1) {
-    bytes /= 1024;
-    i++;
-  }
-  return `${bytes.toFixed(2)} ${units[i]}`;
-}
-
-function calculateCalculatedFallbackSize(quality, durationText) {
-  const mins = parseInt(durationText) || 90;
-  const norm = String(quality || "").toLowerCase();
-  let bitrateKbps = 5200;
-  
-  if (norm.includes("4k") || norm.includes("2160")) bitrateKbps = 16000;
-  else if (norm.includes("1080") || norm.includes("fhd")) bitrateKbps = 5200;
-  else if (norm.includes("720") || norm.includes("hd")) bitrateKbps = 2500;
-  else if (norm.includes("480") || norm.includes("sd")) bitrateKbps = 1200;
-
-  const dynamicVariance = 0.94 + ((mins % 9) / 100);
-  const calculatedBytes = ((bitrateKbps * dynamicVariance) * 1000 / 8) * (mins * 60);
-  return formatBytes(calculatedBytes);
-}
-
 // src/notorrent/utils.js
 function getImdbIdAndMetadata(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
@@ -124,14 +97,45 @@ function cleanText(str) {
   return str.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "").trim();
 }
 
-function extractQuality(titleText) {
-  const raw = titleText || "";
-  const match = raw.match(/(\d{3,4}p)/);
-  if (match)
-    return match[0];
-  if (raw.toUpperCase().includes("FREE"))
-    return "Auto";
-  return "Unknown";
+// Fixed Resolution Parser: Strictly targets strings or filenames to capture real quality profiles
+function extractQuality(titleText, urlText) {
+  const checkString = ((titleText || "") + " " + (urlText || "")).toLowerCase();
+  
+  if (checkString.includes("2160p") || checkString.includes("4k") || checkString.includes("uhd")) return "4K UHD";
+  if (checkString.includes("1080p") || checkString.includes("fhd")) return "1080p FHD";
+  if (checkString.includes("720p") || checkString.includes("hd")) return "720p HD";
+  if (checkString.includes("480p") || checkString.includes("sd")) return "480p SD";
+  
+  const patternMatch = checkString.match(/(\d{3,4}p)/);
+  if (patternMatch) return patternMatch[1];
+  
+  return "Auto";
+}
+
+// Fixed Language Parser: Directly extracts language codes (Lat, Cast, Eng, etc.) from paths/titles
+function extractLanguage(titleText, urlText) {
+  const checkString = ((titleText || "") + " " + (urlText || "")).toLowerCase();
+  
+  if (checkString.includes("latino") || checkString.includes("/lat/") || checkString.includes(".lat.")) return "Latino";
+  if (checkString.includes("castellano") || checkString.includes("/cast/") || checkString.includes(".cast.")) return "Castellano";
+  if (checkString.includes("spanish") || checkString.includes("esp")) return "Spanish";
+  if (checkString.includes("english") || checkString.includes("eng")) return "English";
+  if (checkString.includes("multi") || checkString.includes("dual")) return "Multi Audio";
+  
+  // Generic fallback block if no identifiers map perfectly
+  const parenMatch = checkString.match(/\(([^)]+)\)/);
+  if (parenMatch) {
+    return parenMatch[1].charAt(0).toUpperCase() + parenMatch[1].slice(1);
+  }
+  
+  return "Original";
+}
+
+// Fixed Size Parser: Grabs the absolute file weight metrics straight from addon payload dumps
+function extractFileSize(titleText) {
+  if (!titleText) return "Dynamic Size";
+  const sizeMatch = titleText.match(/(\d+(?:\.\d+)?\s*[GgMm][Bb])/);
+  return sizeMatch ? sizeMatch[1].toUpperCase() : "Dynamic Size";
 }
 
 function generateM3u8(_0) {
@@ -178,7 +182,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
     console.log(`[NoTorrent] Searching for ${mediaType} ${tmdbId}`);
     const streams = [];
     try {
-      // 1. Fetch Dynamic Context Metadata via Unified Lookup Agent
       const meta = yield getImdbIdAndMetadata(tmdbId, mediaType, season, episode);
       if (!meta.imdbId) {
         console.warn(`[NoTorrent] Failed to map IMDB ID.`);
@@ -198,45 +201,35 @@ function getStreams(tmdbId, mediaType, season, episode) {
       const data = yield response.json();
       const rawList = data.streams || [];
       
-      // Inline Stream Injector Function
-      const pushFormattedStream = (rawQuality, streamUrl, headers, isM3u8) => {
-         let displayQuality = "1080p FHD";
-         let cleanQuality = "1080P";
+      // Fixed Stream Format Mapping Builder
+      const pushFormattedStream = (rawItem, overrideQuality, streamUrl, variantHeaders, isM3u8) => {
+         const rawTitle = rawItem.title || "";
+         const cleanTitleString = cleanText(rawTitle);
          
-         const qLower = String(rawQuality).toLowerCase();
-         if (qLower.includes("2160") || qLower.includes("4k")) {
-             displayQuality = "4K UHD";
-             cleanQuality = "2160P";
-         } else if (qLower.includes("1080")) {
-             displayQuality = "1080p FHD";
-             cleanQuality = "1080P";
-         } else if (qLower.includes("720")) {
-             displayQuality = "720p HD";
-             cleanQuality = "720P";
-         } else if (qLower.includes("auto")) {
-             displayQuality = "Auto Dynamic";
-             cleanQuality = "Auto";
-         }
-
-         const calculatedSize = calculateCalculatedFallbackSize(cleanQuality, meta.duration);
+         // Real structural parameter evaluation
+         const displayQuality = extractQuality(cleanTitleString, streamUrl);
+         const cleanQuality = displayQuality.replace(" FHD", "").replace(" UHD", "").replace(" HD", "").replace(" SD", "").toUpperCase();
+         const detectedLanguage = extractLanguage(cleanTitleString, streamUrl);
+         const parsedSize = extractFileSize(rawTitle);
+         
          const mediaLabel = meta.name + (mediaType === "tv" ? " S" + season + "E" + episode : "");
          const containerFormat = isM3u8 ? "M3U8" : streamUrl.includes(".mp4") ? "MP4" : "MKV";
 
-         // RESOLVE DUPLICATION MATRIX: Split heading from description blocks
-         const headerName = `NoTorrent | ${displayQuality} | Main Mirror`;
+         // Clean interface segregation (Zero duplication markup structures)
+         const headerName = `NoTorrent | ${displayQuality} | Mirror Link`;
          
          const dropdownTitle = 
              "🎬 " + mediaLabel + " - " + meta.year + "\n" +
-             "⚡ " + cleanQuality + " | 🌍 Original | 💾 " + calculatedSize + "\n" +
-             "🎞️ " + containerFormat + " | ⏱️ " + meta.duration + " | 📌 Main Mirror";
+             "⚡ " + cleanQuality + " | 🌍 " + detectedLanguage + " | 💾 " + parsedSize + "\n" +
+             "🎞️ " + containerFormat + " | ⏱️ " + meta.duration + " | 📌 Mirror Link";
 
          streams.push({
             name: headerName,
             title: dropdownTitle,
             url: streamUrl,
-            quality: rawQuality,
+            quality: overrideQuality || displayQuality,
             type: isM3u8 ? "m3u8" : containerFormat === "MP4" || containerFormat === "MKV" ? "video" : null,
-            headers: Object.keys(headers).length > 0 ? headers : void 0,
+            headers: Object.keys(variantHeaders).length > 0 ? variantHeaders : void 0,
             provider: "notorrent"
          });
       };
@@ -247,29 +240,19 @@ function getStreams(tmdbId, mediaType, season, episode) {
         if (item.url.includes("github.com") || item.url.includes("googleusercontent"))
           continue;
           
-        const rawTitle = item.title || "";
-        const cleanTitleString = cleanText(rawTitle);
-        const quality = extractQuality(cleanTitleString);
-        
-        if (quality.toLowerCase().includes("p")) {
-          const h = parseInt(quality);
-          if (!isNaN(h) && h < 720)
-            continue;
-        }
-        
         const proxyHeaders = ((_b = (_a = item.behaviorHints) == null ? void 0 : _a.proxyHeaders) == null ? void 0 : _b.request) || {};
         const headers = Object.assign({}, ((_c = item.behaviorHints) == null ? void 0 : _c.headers) || {}, proxyHeaders);
         const isM3u8 = item.url.includes(".m3u8");
         
-        // 2. Add Base Profile Stream
-        pushFormattedStream(isM3u8 ? "Auto" : quality, item.url, headers, isM3u8);
+        // 1. Process Core Asset Profile directly out of true payload metrics
+        pushFormattedStream(item, null, item.url, headers, isM3u8);
         
-        // 3. Fallback Parse Sub-Qualities for Multi-Variant adaptive streams
+        // 2. Fetch Multi-Variant sub profiles if dealing with multi-quality index links
         if (isM3u8) {
           try {
             const extraStreams = yield generateM3u8(item.url, headers);
             extraStreams.forEach((s) => {
-               pushFormattedStream(s.quality, s.url, headers, true);
+               pushFormattedStream(item, s.quality, s.url, headers, true);
             });
           } catch (e) {
           }

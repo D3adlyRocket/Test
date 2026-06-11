@@ -97,11 +97,17 @@ function cleanText(str) {
   return str.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "").trim();
 }
 
-// FIXED OMNI-RESOLUTION EXTRACTION ENGINE: Scans item metadata fields explicitly
+// Highly customized extraction layout tags to strictly fit Nuvio header matching
 function extractQuality(item, overrideQuality) {
-  if (overrideQuality) return overrideQuality;
+  if (overrideQuality) {
+     const q = String(overrideQuality).toLowerCase();
+     if (q.includes("2160") || q.includes("4k")) return "4K UHD";
+     if (q.includes("1080")) return "1080p FHD";
+     if (q.includes("720")) return "720p HD";
+     if (q.includes("480")) return "480p SD";
+     return overrideQuality;
+  }
   
-  // Combine all possible stream strings where Stremio addons dump resolution properties
   const checkString = (
     (item.name || "") + " " + 
     (item.title || "") + " " + 
@@ -114,10 +120,15 @@ function extractQuality(item, overrideQuality) {
   if (checkString.includes("480p") || checkString.includes("sd")) return "480p SD";
   
   const match = checkString.match(/(\d{3,4}p)/);
-  if (match) return match[0];
+  if (match) {
+     if (match[0] === "2160p") return "4K UHD";
+     if (match[0] === "1080p") return "1080p FHD";
+     if (match[0] === "720p") return "720p HD";
+     if (match[0] === "480p") return "480p SD";
+     return match[0];
+  }
   
-  if (checkString.includes("free")) return "Auto";
-  return "1080p FHD"; // Default safe standard fallback for NoTorrent streams
+  return "1080p FHD";
 }
 
 function extractLanguage(titleText, urlText) {
@@ -137,10 +148,24 @@ function extractLanguage(titleText, urlText) {
   return "Original";
 }
 
-function extractFileSize(titleText) {
-  if (!titleText) return "Dynamic Size";
-  const sizeMatch = titleText.match(/(\d+(?:\.\d+)?\s*[GgMm][Bb])/);
-  return sizeMatch ? sizeMatch[1].toUpperCase() : "Dynamic Size";
+// Converts direct raw byte properties when direct MP4 video data blocks miss string descriptions
+function extractFileSize(item) {
+  const rawTitle = item.title || "";
+  const sizeMatch = rawTitle.match(/(\d+(?:\.\d+)?\s*[GgMm][Bb])/);
+  if (sizeMatch) {
+     return sizeMatch[1].toUpperCase();
+  }
+  
+  // Checking direct native payload size values passed from direct http responses
+  const bytes = item.fileSize || (item.behaviorHints && item.behaviorHints.fileSize);
+  if (bytes && !isNaN(bytes)) {
+     const gb = bytes / (1024 * 1024 * 1024);
+     if (gb >= 0.1) return `${gb.toFixed(1)} GB`;
+     const mb = bytes / (1024 * 1024);
+     return `${mb.toFixed(0)} MB`;
+  }
+  
+  return "Dynamic Size";
 }
 
 function generateM3u8(_0) {
@@ -210,23 +235,17 @@ function getStreams(tmdbId, mediaType, season, episode) {
          const rawTitle = rawItem.title || "";
          const cleanTitleString = cleanText(rawTitle);
          
-         // Extract via unified metadata map checks
          const finalQuality = extractQuality(rawItem, overrideQuality);
-         
-         // Normalize string label transformations for Nuvio layouts
-         let cleanQualityLabel = finalQuality.toUpperCase();
-         if (!cleanQualityLabel.includes("P") && !cleanQualityLabel.includes("K")) {
-            cleanQualityLabel = "AUTO";
-         }
+         const cleanQualityLabel = finalQuality.replace(" FHD", "").replace(" UHD", "").replace(" HD", "").replace(" SD", "").toUpperCase();
          
          const detectedLanguage = extractLanguage(cleanTitleString, streamUrl);
-         const parsedSize = extractFileSize(rawTitle);
+         const parsedSize = extractFileSize(rawItem);
          
          const mediaLabel = meta.name + (mediaType === "tv" ? " S" + season + "E" + episode : "");
          const containerFormat = isM3u8 ? "M3U8" : streamUrl.includes(".mp4") ? "MP4" : "MKV";
 
-         // UI Interface Separation Architecture
-         const headerName = `NoTorrent | ${finalQuality} | Mirror Link`;
+         // UPDATED HEADER CONFIGURATION: NoTorrent | Quality | Language
+         const headerName = `NoTorrent | ${finalQuality} | ${detectedLanguage}`;
          
          const dropdownTitle = 
              "🎬 " + mediaLabel + " - " + meta.year + "\n" +
@@ -237,7 +256,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
             name: headerName,
             title: dropdownTitle,
             url: streamUrl,
-            quality: finalQuality,
+            quality: finalQuality, // Synced completely to avoid layout leakage
             type: isM3u8 ? "m3u8" : containerFormat === "MP4" || containerFormat === "MKV" ? "video" : null,
             headers: Object.keys(variantHeaders).length > 0 ? variantHeaders : void 0,
             provider: "notorrent"
@@ -250,26 +269,14 @@ function getStreams(tmdbId, mediaType, season, episode) {
         if (item.url.includes("github.com") || item.url.includes("googleusercontent"))
           continue;
           
-        const rawTitle = item.title || "";
-        const cleanTitleString = cleanText(rawTitle);
-        
-        // Scan item components to determine the stream's core quality layout rules
-        const quality = extractQuality(item, null);
-        
-        if (quality.toLowerCase().includes("p")) {
-          const h = parseInt(quality);
-          if (!isNaN(h) && h < 720)
-            continue;
-        }
-        
         const proxyHeaders = ((_b = (_a = item.behaviorHints) == null ? void 0 : _a.proxyHeaders) == null ? void 0 : _b.request) || {};
         const headers = Object.assign({}, ((_c = item.behaviorHints) == null ? void 0 : _c.headers) || {}, proxyHeaders);
         const isM3u8 = item.url.includes(".m3u8");
         
-        // 1. Process Master Profile Item link natively
+        const quality = extractQuality(item, null);
+        
         pushFormattedStream(item, isM3u8 ? "Auto" : quality, item.url, headers, isM3u8);
         
-        // 2. Map structural live dynamic variant parsing values accurately 
         if (isM3u8) {
           try {
             const extraStreams = yield generateM3u8(item.url, headers);

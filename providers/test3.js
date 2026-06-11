@@ -1,6 +1,6 @@
 // movies4u.js  
 // Nuvio-compatible Movies4u provider  
-// Fully fixed using native unpacker regex matching for m4uplay.store  
+// Reinforced native extraction bypassing intermediate shortener shells
 
 const cheerio = require('cheerio');
   
@@ -27,15 +27,43 @@ function extractQuality(text) {
 }  
 
 /**
- * Extracts hidden video links using the configurations decoded from your console variables
+ * Resolves streams directly by reconstructing the layout from your network capture logs
  */
-async function resolveM4uPlayLinks(embedUrl) {
+async function resolveM4uPlayLinks(inputUrl) {
   const localStreams = [];
   try {
-    let targetUrl = embedUrl;
-    // Normalize links to standard embed configurations
-    if (targetUrl.includes("/file/")) {
-      targetUrl = targetUrl.replace("/file/", "/embed/");
+    let targetUrl = inputUrl;
+
+    // REINFORCED LOGIC: If the link is an intermediate m4ulinks shell page,
+    // we need to inspect it or extract identifiers to map it directly to the media server.
+    if (targetUrl.includes("m4ulinks.com") || targetUrl.includes("/file/")) {
+      // If it's a file path, normalize it to the direct responsive embed interface
+      if (targetUrl.includes("/file/")) {
+        targetUrl = targetUrl.replace("/file/", "/embed/");
+      } else {
+        // Fetch the intermediate page to follow redirects or extract destination parameters
+        const bridgeResp = await fetch(targetUrl, { headers: HEADERS, skipSizeCheck: true });
+        const bridgeHtml = await bridgeResp.text();
+        
+        // Scan for explicit references to the storage server hidden in scripts or anchors
+        const storeMatch = bridgeHtml.match(/href=["'](https:\/\/m4uplay\.store\/file\/[a-zA-Z0-9]+)/i) || 
+                           bridgeHtml.match(/["'](https:\/\/m4uplay\.store\/embed\/[a-zA-Z0-9]+)/i);
+                           
+        if (storeMatch && storeMatch[1]) {
+          targetUrl = storeMatch[1].replace("/file/", "/embed/");
+        } else {
+          // Alternative fallback rule: extract alphanumeric variables from URL parameters if present
+          const tokenMatch = bridgeHtml.match(/file_code=([a-zA-Z0-9]+)/) || bridgeHtml.match(/file\/([a-zA-Z0-9]+)/);
+          if (tokenMatch && tokenMatch[1]) {
+            targetUrl = `https://m4uplay.store/embed/${tokenMatch[1]}`;
+          }
+        }
+      }
+    }
+
+    // Ensure we are hitting the secure media storage server layout
+    if (!targetUrl.includes("m4uplay.store")) {
+      return [];
     }
 
     const resp = await fetch(targetUrl, { 
@@ -44,7 +72,7 @@ async function resolveM4uPlayLinks(embedUrl) {
     });
     const html = await resp.text();
     
-    // Target patterns decoded from your console unpack logs
+    // Target configuration object properties verified from your console image dump logs
     const patterns = [
       /"hls4"\s*:\s*"(.*?)"/i,
       /"file"\s*:\s*"(.*?master\.m3u8.*?)"/i,
@@ -62,7 +90,6 @@ async function resolveM4uPlayLinks(embedUrl) {
     }
 
     if (extractedPath) {
-      // Build an absolute URL if the configuration properties provided a relative path layout
       let finalUrl = extractedPath;
       if (finalUrl.startsWith("/")) {
         finalUrl = "https://m4uplay.store" + finalUrl;

@@ -97,29 +97,15 @@ function cleanText(str) {
   return str.replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "").trim();
 }
 
-// FIXED: Advanced Resolution Parser that accurately pulls structural tags from streams
-function extractQuality(titleText, urlText) {
-  const checkString = ((titleText || "") + " " + (urlText || "")).toLowerCase();
-  
-  // 1. Direct structural signature checks
-  if (checkString.includes("2160p") || checkString.includes("4k") || checkString.includes("uhd")) return "4K UHD";
-  if (checkString.includes("1080p") || checkString.includes("fhd")) return "1080p FHD";
-  if (checkString.includes("720p") || checkString.includes("hd")) return "720p HD";
-  if (checkString.includes("480p") || checkString.includes("sd")) return "480p SD";
-  if (checkString.includes("360p")) return "360p SD";
-
-  // 2. Generic numeric fallback mapping check (e.g., matching standalone "1080" or "720")
-  const rawMatch = checkString.match(/(\d{3,4})p?/);
-  if (rawMatch) {
-    const resValue = rawMatch[1];
-    if (resValue === "2160") return "4K UHD";
-    if (resValue === "1080") return "1080p FHD";
-    if (resValue === "720") return "720p HD";
-    if (resValue === "480") return "480p SD";
-    return resValue + "p";
-  }
-  
-  return "Auto";
+// RESTORED FROM ORIGINAL SCRIPT: Exact pattern matching for stream items
+function extractQuality(titleText) {
+  const raw = titleText || "";
+  const match = raw.match(/(\d{3,4}p)/);
+  if (match)
+    return match[0];
+  if (raw.toUpperCase().includes("FREE"))
+    return "Auto";
+  return "Unknown";
 }
 
 function extractLanguage(titleText, urlText) {
@@ -207,14 +193,15 @@ function getStreams(tmdbId, mediaType, season, episode) {
       }
       const data = yield response.json();
       const rawList = data.streams || [];
-      
-      const pushFormattedStream = (rawItem, overrideQuality, streamUrl, variantHeaders, isM3u8) => {
+
+      // Unified Stream Injector Engine
+      const pushFormattedStream = (rawItem, evaluatedQuality, streamUrl, variantHeaders, isM3u8) => {
          const rawTitle = rawItem.title || "";
          const cleanTitleString = cleanText(rawTitle);
          
-         // Dynamically parse actual resolution tags from stream info context
-         const displayQuality = overrideQuality ? extractQuality(overrideQuality, overrideQuality) : extractQuality(cleanTitleString, streamUrl);
-         const cleanQuality = displayQuality.replace(" FHD", "").replace(" UHD", "").replace(" HD", "").replace(" SD", "").toUpperCase();
+         // RESTORED FIX: Dynamically match original script quality mapping architecture
+         const finalQuality = evaluatedQuality || extractQuality(cleanTitleString);
+         const cleanQualityLabel = finalQuality.toUpperCase();
          
          const detectedLanguage = extractLanguage(cleanTitleString, streamUrl);
          const parsedSize = extractFileSize(rawTitle);
@@ -222,19 +209,19 @@ function getStreams(tmdbId, mediaType, season, episode) {
          const mediaLabel = meta.name + (mediaType === "tv" ? " S" + season + "E" + episode : "");
          const containerFormat = isM3u8 ? "M3U8" : streamUrl.includes(".mp4") ? "MP4" : "MKV";
 
-         // UI Interface Separation (Zero Duplication configuration rule)
-         const headerName = `NoTorrent | ${displayQuality} | Mirror Link`;
+         // UI Interface Separation (Fixes Duplication issues flawlessly)
+         const headerName = `NoTorrent | ${finalQuality} | Mirror Link`;
          
          const dropdownTitle = 
              "🎬 " + mediaLabel + " - " + meta.year + "\n" +
-             "⚡ " + cleanQuality + " | 🌍 " + detectedLanguage + " | 💾 " + parsedSize + "\n" +
+             "⚡ " + cleanQualityLabel + " | 🌍 " + detectedLanguage + " | 💾 " + parsedSize + "\n" +
              "🎞️ " + containerFormat + " | ⏱️ " + meta.duration + " | 📌 Mirror Link";
 
          streams.push({
             name: headerName,
             title: dropdownTitle,
             url: streamUrl,
-            quality: overrideQuality || displayQuality,
+            quality: finalQuality,
             type: isM3u8 ? "m3u8" : containerFormat === "MP4" || containerFormat === "MKV" ? "video" : null,
             headers: Object.keys(variantHeaders).length > 0 ? variantHeaders : void 0,
             provider: "notorrent"
@@ -247,14 +234,25 @@ function getStreams(tmdbId, mediaType, season, episode) {
         if (item.url.includes("github.com") || item.url.includes("googleusercontent"))
           continue;
           
+        const rawTitle = item.title || "";
+        const cleanTitleString = cleanText(rawTitle);
+        const quality = extractQuality(cleanTitleString);
+        
+        // Skip low quality assets dynamically based on original setup rules
+        if (quality.toLowerCase().includes("p")) {
+          const h = parseInt(quality);
+          if (!isNaN(h) && h < 720)
+            continue;
+        }
+        
         const proxyHeaders = ((_b = (_a = item.behaviorHints) == null ? void 0 : _a.proxyHeaders) == null ? void 0 : _b.request) || {};
         const headers = Object.assign({}, ((_c = item.behaviorHints) == null ? void 0 : _c.headers) || {}, proxyHeaders);
         const isM3u8 = item.url.includes(".m3u8");
         
-        // 1. Core stream item processor
-        pushFormattedStream(item, null, item.url, headers, isM3u8);
+        // 1. Core stream item processor using stream data values directly
+        pushFormattedStream(item, isM3u8 ? "Auto" : quality, item.url, headers, isM3u8);
         
-        // 2. Adaptive M3U8 child quality listing parser block
+        // 2. Child adaptive list generator block
         if (isM3u8) {
           try {
             const extraStreams = yield generateM3u8(item.url, headers);

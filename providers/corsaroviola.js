@@ -1,228 +1,237 @@
-/**
- * CorsaroViola Stream Provider Module
- */
+const cheerio = require('cheerio-without-node-native');
+// multimovies.js
+// MultiMovies - Hindi/Bollywood/Anime provider via multimovies.autos with WordPress player extraction
 
-const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-const TMDB_API_KEY = '024c5dee9af18585c60e92fa104e3f8c';
-const BASE_URL = 'https://icv.stremio-italia.eu/eyJ0bWRiX2tleSI6IjU0NjJmNzg0NjlmM2Q4MGJmNTIwMTY0NTI5NGMxNmU0IiwidXNlX3RvcmJveCI6dHJ1ZSwidG9yYm94X2tleSI6IjQxM2Q3ZDE3LTdlZWQtNDg1NC04NjQxLTg4MGViMTMwNThjZSIsInVzZV9jb3JzYXJvbmVybyI6ZmFsc2UsInVzZV91aW5kZXgiOmZhbHNlLCJ1c2Vfa25hYmVuIjp0cnVlLCJ1c2VfdG9ycmVudGdhbGF4eSI6dHJ1ZSwidXNlX3RvcnJlbnRpbyI6dHJ1ZSwidXNlX21lZGlhZnVzaW9uIjp0cnVlLCJ1c2VfY29tZXQiOnRydWUsInVzZV9zdHJlbXRocnVfdG9yeiI6dHJ1ZSwidXNlX21ldGVvciI6dHJ1ZSwidXNlX3JhcmJnIjp0cnVlLCJ1c2VfamFja2V0dCI6dHJ1ZSwiZnVsbF9pdGEiOnRydWUsImRiX29ubHkiOmZhbHNlLCJ1c2VfZ2xvYmFsX2NhY2hlIjpmYWxzZSwib25seV9kZWJyaWRfY2FjaGUiOmZhbHNlLCJoeWJyaWRfbW9kZSI6dHJ1ZSwibWF4X3Jlc19saW1pdCI6MywiZXhjbHVkZV83MjBwIjp0cnVlLCJleGNsdWRlX3NkIjp0cnVlLCJleGNsdWRlX3Vua25vd24iOnRydWUsImV4Y2x1ZGVfZHYiOnRydWV9';
+const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
+const FALLBACK_URL = "https://multimovies.homes";
+const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 
-const MAX_RESULTS = 10;
-const QUALITY_RANKING = { '4K': 4, '1080p': 3, '720p': 2, '480p': 1, 'Unknown': 0 };
+const HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+};
 
-// Language map for formatting tags to text shorthand strings
-const LANGUAGES = [
-    [/\beng\b|english/i, 'ENG'],
-    [/\bita\b|italiano?/i, 'ITA'],
-    [/\bspa\b|spanish|espa/i, 'SPA'],
-    [/\bfre\b|\bfra\b|french/i, 'FRA'],
-    [/\bger\b|\bdeu\b|german/i, 'GER'],
-];
+let cachedBaseUrl = null;
 
-/**
- * Helper to determine stream resolution quality
- */
-function getQuality(filename, metaQuality) {
-    let lowerFile = String(filename || '').toLowerCase();
-    if (lowerFile.includes('2160') || lowerFile === '4k' || lowerFile.includes('uhd')) return '4K';
-    if (lowerFile.includes('1080')) return '1080p';
-    if (lowerFile.includes('720')) return '720p';
-
-    let lowerMeta = String(metaQuality || '').toLowerCase();
-    return lowerMeta.includes('2160') || lowerMeta.includes('4k') || lowerMeta.includes('uhd') 
-        ? '4K' 
-        : lowerMeta.includes('1080') ? '1080p' : 'Unknown';
+async function getBaseUrl() {
+  if (cachedBaseUrl) return cachedBaseUrl;
+  try {
+    const resp = await fetch(DOMAINS_URL);
+    const data = await resp.json();
+    cachedBaseUrl = data.MultiMovies || FALLBACK_URL;
+  } catch(e) {
+    cachedBaseUrl = FALLBACK_URL;
+  }
+  return cachedBaseUrl;
 }
 
-/**
- * Helper to convert bytes to human-readable size
- */
-function formatSize(bytes) {
-    if (!bytes || bytes <= 0) return '';
-    let units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let size = bytes;
-    let unitIndex = 0;
-    while (size >= 1024 && unitIndex < units.length - 1) {
-        size /= 1024;
-        unitIndex++;
-    }
-    return size.toFixed(size < 10 ? 2 : 1) + ' ' + units[unitIndex];
-}
+async function getStreams(tmdbId, mediaType, season, episode) {
+  try {
+    const BASE_URL = await getBaseUrl();
 
-/**
- * Helper to parse language tags from title string
- */
-function parseLanguages(text) {
-    let matches = [];
-    for (let [regex, code] of LANGUAGES) {
-        if (regex.test(text) && matches.indexOf(code) === -1) {
-            matches.push(code);
-        }
-    }
-    // If text contains 'multi' but didn't catch specific codes, default list
-    if (/\bmulti\b/i.test(text) && matches.length === 0) {
-        return 'ENG • ITA';
-    }
-    return matches.join(' • ') || 'ITA';
-}
+    // Step 1: Get title from TMDB
+    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const mediaInfo = await (await fetch(tmdbUrl)).json();
+    const title = mediaInfo.title || mediaInfo.name;
+    if (!title) return [];
 
-/**
- * Helper to extract video attributes/codecs
- */
-function parseAttributes(text) {
-    let str = String(text || '');
-    let attributes = [];
-    
-    if (/\bremux\b/i.test(str)) attributes.push('REMUX');
-    if (/\b(bluray|blu-ray|bdrip|brrip|bdmux)\b/i.test(str)) attributes.push('BluRay');
-    else if (/\bweb[\s._-]?dl\b/i.test(str)) attributes.push('WEB-DL');
-    else if (/\bwebrip\b/i.test(str)) attributes.push('WEBRip');
-    
-    if (/\b(dolby\s*vision|dovi|dv)\b/i.test(str)) attributes.push('DV');
-    if (/hdr10\+?|\bhdr\b/i.test(str)) attributes.push('HDR');
-    
-    if (/\b(x265|h\.?\s?265|hevc)\b/i.test(str)) attributes.push('HEVC');
-    else if (/\b(x264|h\.?\s?264|avc)\b/i.test(str)) attributes.push('H264');
-    else if (/\bav1\b/i.test(str)) attributes.push('AV1');
-    
-    return attributes;
-}
+    // Step 2: Search MultiMovies
+    const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {
+      headers: HEADERS});
+    const searchHtml = await searchResp.text();
+    const $ = cheerio.load(searchHtml);
 
-/**
- * Maps incoming stream object to Nuvio/Stremio unified UI format
- */
-function formatStreamItem(stream, meta) {
-    let behaviorHints = stream.behaviorHints || {};
-    let innerMeta = stream._meta || {};
-    
-    let filename = behaviorHints.filename || stream.folderName || stream.filename || stream.title || 'Stream';
-    let quality = getQuality(innerMeta.quality, filename);
-    let seeders = typeof innerMeta.seeders === 'number' ? innerMeta.seeders : 0;
-    let bytes = typeof behaviorHints.videoSize === 'number' 
-        ? behaviorHints.videoSize 
-        : typeof stream.size === 'number' ? stream.size : 0;
-        
-    let formattedSize = formatSize(bytes);
-    let isCached = innerMeta.cached === true;
-    let languageString = parseLanguages(filename);
-    let tags = parseAttributes(filename);
-    
-    let cacheIcon = isCached ? '⚡ ' : '';
-    let formatString = tags.join(' | ') || 'Digital';
-    
-    let displayTitle = meta && meta.title ? meta.title : filename;
-    let displayYear = meta && meta.year ? ` - ${meta.year}` : '';
-    
-    return {
-        '_quality': quality,
-        '_seeders': seeders,
-        '_cached': isCached,
-        // Match Layout: CorsaroViola | ⚡ Quality | 👥 Seeders | 🌍 Language
-        'name': `CorsaroViola | ${cacheIcon}${quality} | 👥 ${seeders} | 🌍 ${languageString}`,
-        // Subheading Layout
-        'title': [
-            `🎬 ${displayTitle}${displayYear}`,
-            `🎞️ ${formatString} | 💾 ${formattedSize || 'N/A'}`
-        ].join('\n'),
-        'url': stream.url,
-        'quality': quality,
-        'size': formattedSize,
-        'seeders': seeders,
-        'type': 'movie',
-        'provider': 'corsaroviola',
-        'behaviorHints': {
-            'bingeGroup': `nuvio-icv-${quality}`
-        }
-    };
-}
+    const results = [];
+    $("div.result-item").each((i, el) => {
+      const a = $(el).find("article > div.details > div.title > a");
+      const href = a.attr("href");
+      const name = a.text().trim();
+      if (href && name) results.push({ href, name });
+    });
 
-/**
- * Core stream fetching function
- */
-async function getStreams(id, type, season, episode) {
-    try {
-        if (!BASE_URL) {
-            console.log('[CorsaroViola] CORSARO_VIOLA_URL non configurato');
-            return [];
-        }
-        
-        let contentType = (type === 'tv' || type === 'series') ? 'tv' : 'movie';
-        
-        // Fetch Metadata from TMDB
-        let meta = await (async () => {
-            if (!TMDB_API_KEY) return { imdb: null };
-            try {
-                let tmdbUrl = `https://api.themoviedb.org/3/${contentType}/${id}?api_key=${TMDB_API_KEY}&language=it-IT&append_to_response=external_ids`;
-                let response = await fetch(tmdbUrl, { 
-                    headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/json' } 
-                });
-                let data = await response.json();
-                let airDate = data.release_date || data.first_air_date || '';
-                
-                return {
-                    imdb: (data.external_ids && data.external_ids.imdb_id) || data.imdb_id || null,
-                    title: data.title || data.name || '',
-                    year: airDate ? airDate.slice(0, 4) : ''
-                };
-            } catch (err) {
-                return { imdb: null };
+    if (results.length === 0) return [];
+
+    const isMovie = mediaType === "movie";
+    const match = results.find(r =>
+      r.name.toLowerCase().includes(title.toLowerCase())
+    ) || results[0];
+
+    // Step 3: Load content page
+    const pageResp = await fetch(match.href, { headers: HEADERS});
+    const pageHtml = await pageResp.text();
+    const $p = cheerio.load(pageHtml);
+
+    const streams = [];
+
+    if (!isMovie && mediaType === "tv") {
+      // TV Series: get episode list
+      const episodes = [];
+      $p("#seasons ul.episodios li").each((seasonIdx, sEl) => {
+        $p(sEl).find("li").each((epIdx, epEl) => {
+          const href = $p(epEl).find("div.episodiotitle > a").attr("href");
+          if (href) {
+            episodes.push({
+              href,
+              season: seasonIdx + 1,
+              episode: epIdx + 1
+            });
+          }
+        });
+      });
+
+      // Simpler: iterate directly over all li in all episodios lists
+      if (episodes.length === 0) {
+        let seasonNum = 1;
+        $p("#seasons ul.episodios").each((sIdx, sList) => {
+          seasonNum = sIdx + 1;
+          $p(sList).find("li").each((eIdx, epEl) => {
+            const href = $p(epEl).find("div.episodiotitle > a").attr("href");
+            if (href) {
+              episodes.push({ href, season: seasonNum, episode: eIdx + 1 });
             }
-        })();
-        
-        if (!meta.imdb) {
-            console.log('[CorsaroViola] IMDB id non trovato');
-            return [];
+          });
+        });
+      }
+
+      const targetEp = episodes.find(ep =>
+        ep.season === parseInt(season || 1) && ep.episode === parseInt(episode || 1)
+      ) || episodes[0];
+
+      if (!targetEp) return [];
+
+      // Load episode page and get player options
+      const epResp = await fetch(targetEp.href, { headers: HEADERS});
+      const epHtml = await epResp.text();
+      const $ep = cheerio.load(epHtml);
+
+      const epItems = [];
+      $ep("ul#playeroptionsul li").each((i, el) => {
+        epItems.push({
+          post: $ep(el).attr("data-post"),
+          nume: $ep(el).attr("data-nume"),
+          type: $ep(el).attr("data-type")
+        });
+      });
+
+      for (const item of epItems.slice(0, 5)) {
+        if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
+        const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type, match.href);
+        if (embedUrl && !embedUrl.includes("youtube")) {
+          const resolvedUrl = await resolveEmbed(embedUrl, BASE_URL);
+          if (resolvedUrl) {
+            streams.push({
+              url: resolvedUrl,
+              quality: extractQuality(resolvedUrl),
+              title: "MultiMovies",
+              subtitles: []
+            });
+          }
         }
-        
-        // Formulate target provider endpoint
-        let endpointPath = contentType === 'tv' 
-            ? `stream/series/${meta.imdb}:${season || 1}:${episode || 1}.json` 
-            : `stream/movie/${meta.imdb}.json`;
-            
-        let res = await fetch(`${BASE_URL}/${endpointPath}`, {
-            headers: { 'User-Agent': USER_AGENT, 'Accept': 'application/json' }
-        });
-        
-        if (!res.ok) {
-            console.log('No fetch implementation found!' + res.status);
-            return [];
-        }
-        
-        let payload = await res.json();
-        let rawStreams = Array.isArray(payload.streams) ? payload.streams : [];
-        
-        // Filter, Map and Sort streams (Prioritize 4K/1080p and Cached links)
-        let processedStreams = rawStreams
-            .filter(item => item && item.url)
-            .map(item => formatStreamItem(item, meta))
-            .filter(item => item._quality === '4K' || item._quality === '1080p');
-            
-        processedStreams.sort((a, b) => {
-            let cacheDiff = (b._cached ? 1 : 0) - (a._cached ? 1 : 0);
-            if (cacheDiff !== 0) return cacheDiff;
-            
-            let qualityDiff = (QUALITY_RANKING[b._quality] || 0) - (QUALITY_RANKING[a._quality] || 0);
-            if (qualityDiff !== 0) return qualityDiff;
-            
-            return (b._seeders || 0) - (a._seeders || 0);
-        });
-        
-        // Trim results down to maximum configuration limits and clean internal keys
-        return processedStreams.slice(0, MAX_RESULTS).map(item => {
-            delete item._cached;
-            delete item._seeders;
-            delete item._quality;
-            return item;
-        });
-        
-    } catch (error) {
-        console.log('[CorsaroViola] errore: ' + (error && error.message ? error.message : error));
-        return [];
+      }
+
+      return streams;
     }
+
+    // Movie: get player options directly
+    const playerItems = [];
+    $p("ul#playeroptionsul li").each((i, el) => {
+      playerItems.push({
+        post: $p(el).attr("data-post"),
+        nume: $p(el).attr("data-nume"),
+        type: $p(el).attr("data-type")
+      });
+    });
+
+    for (const item of playerItems.slice(0, 5)) {
+      if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
+      const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type, match.href);
+      if (embedUrl && !embedUrl.includes("youtube")) {
+        const resolvedUrl = await resolveEmbed(embedUrl, BASE_URL);
+        if (resolvedUrl) {
+          streams.push({
+            url: resolvedUrl,
+            quality: extractQuality(resolvedUrl),
+            title: "MultiMovies",
+            subtitles: []
+          });
+        }
+      }
+    }
+
+    return streams;
+  } catch (e) {
+    console.error("[MultiMovies]", e);
+    return [];
+  }
 }
 
-// Export module bindings
+async function fetchEmbedUrl(baseUrl, post, nume, type, referer) {
+  try {
+    const resp = await fetch(`${baseUrl}/wp-admin/admin-ajax.php`, {
+      method: "POST",
+      headers: {
+        ...HEADERS,
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": baseUrl
+      },
+      body: `action=doo_player_ajax&post=${post}&nume=${nume}&type=${type}`});
+    const data = await resp.json();
+    const embedUrl = data.embed_url || "";
+
+    // Extract real URL from possible HTML wrappers
+    const srcMatch = embedUrl.match(/SRC="(https?:[^"]+)"/i);
+    if (srcMatch) return srcMatch[1].trim();
+
+    const urlMatch = embedUrl.match(/"(https?[^"]+)"/);
+    if (urlMatch) return urlMatch[1].trim();
+
+    return embedUrl.replace(/^"|"$/g, "").trim();
+  } catch(e) {
+    return null;
+  }
+}
+
+async function resolveEmbed(url, referer) {
+  if (!url || !url.startsWith("http")) return null;
+
+  // If it's already a direct stream
+  if (url.includes(".m3u8") || url.includes(".mp4")) return url;
+
+  // Try to load the embed page and find stream
+  try {
+    const resp = await fetch(url, {
+      headers: { ...HEADERS, "Referer": referer }});
+    const text = await resp.text();
+
+    // Check for deaddrive.xyz style
+    if (url.includes("deaddrive.xyz")) {
+      const $ = cheerio.load(text);
+      const firstServer = $("ul.list-server-items > li").first().attr("data-video");
+      return firstServer || null;
+    }
+
+    const m3u8 = text.match(/(https?:\/\/[^\s"']+\.m3u8[^\s"']*)/i);
+    if (m3u8) return m3u8[1];
+
+    const mp4 = text.match(/(https?:\/\/[^\s"']+\.mp4[^\s"']*)/i);
+    if (mp4) return mp4[1];
+
+    return url; // Return the embed URL itself as fallback
+  } catch(e) {
+    return url;
+  }
+}
+
+function extractQuality(url) {
+  const u = (url || "").toLowerCase();
+  if (u.includes("2160p") || u.includes("4k")) return "4K";
+  if (u.includes("1080p")) return "1080p";
+  if (u.includes("720p")) return "720p";
+  if (u.includes("480p")) return "480p";
+  if (u.includes("360p")) return "360p";
+  return "Unknown";
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { 'getStreams': getStreams };
-} else {
-    global['getStreams'] = getStreams;
+  module.exports = { getStreams };
 }

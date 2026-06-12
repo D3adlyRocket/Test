@@ -51,7 +51,6 @@ function parseStreamFromShortenerHtml(htmlContent) {
   return null;
 }
 
-// Fixed layout generator injecting the exact multi-line title subheadings method
 function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, season, episode) {
   const name = mediaInfo.title || mediaInfo.name || "Unknown Title";
   const dateStr = mediaInfo.release_date || mediaInfo.first_air_date || "";
@@ -61,10 +60,10 @@ function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, seas
   let audioType = "Single-Audio";
   let language = "Hindi";
   
-  // Updated language strings to use " • " instead of " / "
+  // Custom language structure with bullet point separator
   if (lowerUrl.includes("dual")) {
     audioType = "Dual-Audio";
-    language = "Hindi • English"; 
+    language = "English • Hindi"; 
   } else if (lowerUrl.includes("multi")) {
     audioType = "Multi-Audio";
     language = "Multilingual";
@@ -87,12 +86,9 @@ function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, seas
     duration = mediaInfo.runtime ? `${mediaInfo.runtime} min` : "N/A";
   }
 
-  const qIcon = declaredQuality.includes("4K") || declaredQuality.includes("2160") ? "🌟" : "💎";
-
-  // Compact title bar layout
+  const qIcon = declaredQuality.includes("4K") || declaredQuality.includes("2160") ? "🌟" : "⚡";
   const displayTitle = `FibWatch | ${declaredQuality} | ${audioType}`;
 
-  // Subheadings Layout - Swapped out "Dynamic Size" for a clean look since player shows actual size on panel
   const line1 = isTV ? `🎬 ${name} - S${season}E${episode} (${year})` : `🎬 ${name} - ${year}`;
   const line2 = `${qIcon} ${declaredQuality} | 🌍 ${language}`;
   const line3 = `🎞️ ${format} | ⏱️ ${duration} | 📌 WEB-DL`;
@@ -223,6 +219,23 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         uniqueStreams.push(formattedLayout);
       }
     }
+
+    // 5. Sort streams from highest to lowest quality
+    const qualityWeights = {
+      "4K": 5,
+      "1080p": 4,
+      "720p": 3,
+      "480p": 2,
+      "360p": 1,
+      "Unknown": 0
+    };
+
+    uniqueStreams.sort((a, b) => {
+      const weightA = qualityWeights[a.quality] || 0;
+      const weightB = qualityWeights[b.quality] || 0;
+      return weightB - weightA; // Descending order
+    });
+
     return uniqueStreams;
   } catch (e) {
     console.error("[FibWatch]", e);

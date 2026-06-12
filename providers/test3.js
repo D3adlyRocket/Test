@@ -1,13 +1,12 @@
 // movies4u.js  
 // Nuvio-compatible Movies4u provider  
-// Fully Dynamic Multi-Host Extraction Engine
+// Armed with automatic P.A.C.K.E.R. JavaScript Decryption Engine
 
 const cheerio = require('cheerio');
   
 const BASE_DOMAIN = "https://new2.movies4u.finance";  
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";  
 
-// Replicates the precise browser context signature captured in your mobile logs
 const BROWSER_HEADERS = {  
   "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",  
   "Accept": "*/*",
@@ -15,10 +14,34 @@ const BROWSER_HEADERS = {
   "Referer": "https://m4uplay.store/",
   "Origin": "https://m4uplay.store"
 };  
-  
-async function getBaseUrl() {  
-  return BASE_DOMAIN;  
-}  
+
+/**
+ * Reverses Dean Edwards JavaScript obfuscation programmatically
+ */
+function unpackJavascript(packedCode) {
+  try {
+    const pattern = /eval\(function\(p,a,c,k,e,d\).*?return p\}.*?\('(.*?)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'(.*?)'\.split\('|'\)/s;
+    const matches = packedCode.match(pattern);
+    if (!matches) return packedCode;
+
+    let [_, p, a, c, k] = matches;
+    a = parseInt(a, 10);
+    c = parseInt(c, 10);
+    k = k.split('|');
+
+    const e = (c) => (c < a ? '' : e(Math.floor(c / a))) + String.fromCharCode(c % a + 29);
+    
+    while (c--) {
+      if (k[c]) {
+        const regex = new RegExp('\\b' + e(c) + '\\b', 'g');
+        p = p.replace(regex, k[c]);
+      }
+    }
+    return p;
+  } catch (err) {
+    return packedCode;
+  }
+}
   
 function extractQuality(text) {  
   const u = (text || "").toLowerCase();  
@@ -26,12 +49,11 @@ function extractQuality(text) {
   if (u.includes("1080")) return "1080p";  
   if (u.includes("720")) return "720p";  
   if (u.includes("480")) return "480p";  
-  if (u.includes("360")) return "360p";  
   return "Unknown";  
 }  
 
 /**
- * Validates streaming files using deep network extraction configurations
+ * Resolves streams by mimicking the player's runtime context
  */
 async function resolveLockerStreams(targetUrl) {
   const localStreams = [];
@@ -41,20 +63,25 @@ async function resolveLockerStreams(targetUrl) {
       if (!tokenMatch) return [];
       const fileCode = tokenMatch[1];
 
+      // 1. Fetch the embedded media structure
       const embedUrl = `https://m4uplay.store/embed/${fileCode}`;
       const resp = await fetch(embedUrl, { headers: BROWSER_HEADERS, skipSizeCheck: true });
       const html = await resp.text();
       
-      const streamMatch = html.match(/"hls4"\s*:\s*"(.*?)"/i) || 
-                          html.match(/["'](https?:\/\/m4uplay\.store\/stream\/[^"']*?\.m3u8[^"']*?)["']/i) ||
-                          html.match(/["'](\/stream\/[^"']*?\.m3u8[^"']*?)["']/i);
+      // 2. Automatically locate and unpack the encrypted script block
+      const unpackedHtml = unpackJavascript(html);
+
+      // 3. Scan the decrypted text parameters for the structural paths discovered via DevTools
+      const streamMatch = unpackedHtml.match(/["'](https?:\/\/m4uplay\.store\/stream\/[^"']*?\.m3u8[^"']*?)["']/i) ||
+                          unpackedHtml.match(/["'](\/stream\/[^"']*?\.m3u8[^"']*?)["']/i) ||
+                          unpackedHtml.match(/"file"\s*:\s*"([^"]+)"/);
                           
       if (streamMatch && streamMatch[1]) {
         let finalUrl = streamMatch[1];
         if (finalUrl.startsWith("/")) finalUrl = "https://m4uplay.store" + finalUrl;
         
         localStreams.push({ 
-          label: "M4UPlay Stream", 
+          label: "M4UPlay Stream Server", 
           url: finalUrl 
         });
       }
@@ -75,7 +102,7 @@ async function resolveLockerStreams(targetUrl) {
       }
     }
   } catch (err) {
-    console.error("[Movies4u] Core endpoint failure:", err);
+    console.error("[Movies4u] Dynamic decrypt failure:", err);
   }
   return localStreams;
 }
@@ -131,7 +158,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const streams = [];
     const bridgeUrls = [];
 
-    // Parse out links pointing to the underlying bridge domains
     $page("a[href]").each((i, el) => {
       const href = $(el).attr("href") || "";
       if (href.includes("m4ulinks.com/number/") || href.includes("m4uplay.store/file/")) {
@@ -143,13 +169,10 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       try {
         let activeLockerUrl = bridgeUrl;
 
-        // Dynamically parse out the ID from m4ulinks instead of hardcoding a target string
         if (activeLockerUrl.includes("m4ulinks.com")) {
           const idMatch = activeLockerUrl.match(/\/number\/([a-zA-Z0-9]+)/);
           if (!idMatch) continue;
           const extractedId = idMatch[1];
-          
-          // Reconstruct the structural mirror path dynamically
           activeLockerUrl = `https://m4uplay.store/file/${extractedId}`;
         }
 
@@ -167,7 +190,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           });
         }
       } catch (err) {
-        console.error("[Movies4u] Scraper tracking exception:", err);
+        console.error("[Movies4u] Tracing extraction failure:", err);
       }
     }  
     return streams;  

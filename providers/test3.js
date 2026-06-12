@@ -1,15 +1,22 @@
 // movies4u.js  
 // Nuvio-compatible Movies4u provider  
-// Pivot Engine: Targeting Live Hubcloud & GDFlix Assets Directly
+// Authenticated Session Engine - Powered by Live DevTools Cookie Sync
 
 const cheerio = require('cheerio');
   
 const BASE_DOMAIN = "https://new2.movies4u.finance";  
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";  
 
-const HEADERS = {  
+// Your verified browser session authorization token block
+const MY_BROWSER_COOKIE = "_ga=GA1.1.2135254525.1781217316; _ym_uid=1781217317890235155; _ym_d=1781217317; _ym_isad=1; _ym_visorc=b; lang=1; _ga_48ZJD1VPGZ=GS2.1.s1781220570$o2$g1$t1781225849$j33$l0$h0; _ga_8WRLTXV0TK=GS2.1.s1781220570$o2$g1$t1781225849$j33$l0$h0";
+
+const BROWSER_HEADERS = {  
   "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",  
-  "Referer": BASE_DOMAIN  
+  "Accept": "*/*",
+  "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+  "Referer": "https://m4uplay.store/",
+  "Origin": "https://m4uplay.store",
+  "Cookie": MY_BROWSER_COOKIE // Masquerades the backend scraper as your live verified device window
 };  
   
 async function getBaseUrl() {  
@@ -21,118 +28,110 @@ function extractQuality(text) {
   if (u.includes("2160") || u.includes("4k")) return "4K";  
   if (u.includes("1080")) return "1080p";  
   if (u.includes("720")) return "720p";  
+  if (u.includes("480")) return "480p";  
   return "720p";  
 }  
 
 /**
- * Scrapes direct downloadable video streams straight out of Hubcloud or GDFlix HTML wrappers
+ * Reverses Dean Edwards JavaScript obfuscation blocks programmatically
  */
-async function resolveCloudLocker(url) {
-  const links = [];
+function unpackJavascript(packedCode) {
   try {
-    const resp = await fetch(url, { headers: { "User-Agent": HEADERS["User-Agent"] }, skipSizeCheck: true });
-    const html = await resp.text();
+    const pattern = /eval\(function\(p,a,c,k,e,d\).*?return p\}.*?\('(.*?)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'(.*?)'\.split\('|'\)/s;
+    const matches = packedCode.match(pattern);
+    if (!matches) return packedCode;
+
+    let [_, p, a, c, k] = matches;
+    a = parseInt(a, 10);
+    c = parseInt(c, 10);
+    k = k.split('|');
+
+    const e = (c) => (c < a ? '' : e(Math.floor(c / a))) + String.fromCharCode(c % a + 29);
     
-    // Look for real video download attributes or raw media stream links (.mp4 or .m3u8)
-    const matches = html.match(/(["'])(https?:\/\/.*?\.(?:mp4|m3u8)[^"']*?)\1/gi);
-    if (matches) {
-      matches.forEach(m => {
-        const clean = m.replace(/["']/g, "");
-        if (!clean.includes("analytics") && !clean.includes("google")) {
-          links.push(clean);
-        }
-      });
+    while (c--) {
+      if (k[c]) {
+        const regex = new RegExp('\\b' + e(c) + '\\b', 'g');
+        p = p.replace(regex, k[c]);
+      }
     }
-  } catch (e) {
-    console.error("Locker processing error:", e);
+    return p;
+  } catch (err) {
+    return packedCode;
   }
-  return links;
+}
+
+/**
+ * Resolves streams by mimicking the verified player context configurations
+ */
+async function resolveLockerStreams(targetUrl) {
+  const localStreams = [];
+  try {
+    if (targetUrl.includes("m4uplay.store")) {
+      const tokenMatch = targetUrl.match(/\/file\/([a-zA-Z0-9]+)/) || targetUrl.match(/\/embed\/([a-zA-Z0-9]+)/);
+      if (!tokenMatch) return [];
+      const fileCode = tokenMatch[1];
+
+      const embedUrl = `https://m4uplay.store/embed/${fileCode}`;
+      const resp = await fetch(embedUrl, { headers: BROWSER_HEADERS, skipSizeCheck: true });
+      const html = await resp.text();
+      
+      // Force unpack any client-side JavaScript restrictions hidden on the page layout
+      const unpackedHtml = unpackJavascript(html);
+
+      // Extract the absolute master stream targets verified by your network logs
+      const streamMatch = unpackedHtml.match(/["'](https?:\/\/m4uplay\.store\/stream\/[^"']*?\.m3u8[^"']*?)["']/i) ||
+                          unpackedHtml.match(/["'](\/stream\/[^"']*?\.m3u8[^"']*?)["']/i) ||
+                          unpackedHtml.match(/"file"\s*:\s*"([^"]+)"/);
+                          
+      if (streamMatch && streamMatch[1]) {
+        let finalUrl = streamMatch[1];
+        if (finalUrl.startsWith("/")) finalUrl = "https://m4uplay.store" + finalUrl;
+        
+        localStreams.push({ 
+          label: "M4UPlay Stream", 
+          url: finalUrl 
+        });
+      }
+    } 
+    else if (targetUrl.includes("gdflix") || targetUrl.includes("hubcloud")) {
+      const resp = await fetch(targetUrl, { headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] }, skipSizeCheck: true });
+      const html = await resp.text();
+      
+      const matches = html.match(/(["'])(https?:\/\/.*?\.mp4.*?)\1/g) || html.match(/(["'])(https?:\/\/.*?\.m3u8.*?)\1/g);
+      if (matches) {
+        matches.forEach(matchStr => {
+          const cleanUrl = matchStr.replace(/["']/g, "");
+          if (!cleanUrl.includes("google") && !cleanUrl.includes("analytics")) {
+            const providerLabel = targetUrl.includes("gdflix") ? "GDFlix Mirror" : "Hubcloud Mirror";
+            localStreams.push({ label: providerLabel, url: cleanUrl });
+          }
+        });
+      }
+    }
+  } catch (err) {
+    console.error("[Movies4u] Endpoint verification failure:", err);
+  }
+  return localStreams;
 }
   
 // =======================  
-// NUVIO STREAM ROUTER ENTRY
+// NUVIO CORE STREAM CONNECTOR
 // =======================  
   
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {  
   try {  
     const BASE_URL = await getBaseUrl();  
   
-    // 1. Resolve TMDB Details
+    // 1. Map Target via TMDB
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;  
     const mediaInfo = await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();  
     const title = mediaInfo.title || mediaInfo.name;  
     if (!title) return [];  
   
-    // 2. Query Movies4u Site Index
-    const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, { headers: HEADERS, skipSizeCheck: true });  
-    const searchHtml = await searchResp.text();  
-    const $ = cheerio.load(searchHtml);  
-    const results = [];  
-  
-    $("article").each((i, el) => {  
-      const a = $(el).find("a[rel='bookmark']").first();  
-      let href = a.attr("href");  
-      const name = a.text().trim();  
-      if (href && name) results.push({ href, name });  
+    // 2. Query Index Catalog
+    const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {  
+      headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] },  
+      skipSizeCheck: true  
     });  
-  
-    if (!results.length) return [];  
-    const match = results.find(r => r.name.toLowerCase().includes(title.toLowerCase())) || results[0];  
-  
-    // 3. Process the Movie Landing Page
-    const pageResp = await fetch(match.href, { headers: HEADERS, skipSizeCheck: true });  
-    const pageHtml = await pageResp.text();  
-    const $page = cheerio.load(pageHtml);  
-  
-    const streams = [];
-    const bridgeUrls = [];
-
-    // Extract out the active transit redirects pointing to m4ulinks
-    $page("a[href]").each((i, el) => {
-      const href = $page(el).attr("href") || "";
-      if (href.includes("m4ulinks.com/number/")) {
-        if (!bridgeUrls.includes(href)) bridgeUrls.push(href);
-      }
-    });
-
-    // 4. Trace the bridge pages to harvest active cloud instances
-    for (const bridgeUrl of bridgeUrls) {
-      try {
-        const bridgeResp = await fetch(bridgeUrl, { headers: HEADERS, skipSizeCheck: true });
-        const bridgeHtml = await bridgeResp.text();
-
-        // Regex pattern designed to immediately match the real .foo and .dev lockers present in the HTML output
-        const lockerRegex = /(https?:\/\/(?:hubcloud|gdflix)\.[a-z0-9]{2,6}\/[^\s"'`>]+)/gi;
-        const foundLockers = bridgeHtml.match(lockerRegex) || [];
-        const uniqueLockers = [...new Set(foundLockers)];
-
-        const quality = extractQuality(bridgeHtml);
-
-        for (const lockerUrl of uniqueLockers) {
-          const directUrls = await resolveCloudLocker(lockerUrl);
-          
-          directUrls.forEach(videoUrl => {
-            const hostLabel = lockerUrl.includes("gdflix") ? "GDFlix FastMirror" : "Hubcloud CloudPlay";
-            streams.push({
-              name: `Movies4u - ${hostLabel}`,
-              title: title,
-              quality: quality, 
-              url: videoUrl,
-              headers: { "User-Agent": HEADERS["User-Agent"], "Referer": lockerUrl },
-              subtitles: []
-            });
-          });
-        }
-      } catch (err) {
-        console.error("Bridge tracking exception:", err);
-      }
-    }  
-    return streams;  
-  
-  } catch (e) {  
-    console.error("[Movies4u Fatal Error]", e);  
-    return [];  
-  }  
-}  
-  
-module.exports = { getStreams };
+    const searchHtml = await searchResp.text();  
+    const $ = cheerio.load(searchHtml);

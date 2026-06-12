@@ -1,6 +1,6 @@
 // movies4u.js  
 // Nuvio-compatible Movies4u provider  
-// Fully verified native engine with bridge decryption bypassing
+// Patched to match modern .dev TLDs and live DOM structures
 
 const cheerio = require('cheerio');
   
@@ -27,39 +27,27 @@ function extractQuality(text) {
 }  
 
 /**
- * Resolves streams directly by unpacking obfuscated cloud host configurations
+ * Extracts raw video files natively from available cloud storage layouts
  */
 async function resolveLockerStreams(targetUrl) {
   const localStreams = [];
   try {
-    if (targetUrl.includes("m4uplay.store")) {
-      const embedUrl = targetUrl.replace("/file/", "/embed/");
-      const resp = await fetch(embedUrl, { headers: { "User-Agent": HEADERS["User-Agent"], "Referer": "https://m4uplay.store/" }, skipSizeCheck: true });
-      const html = await resp.text();
-      
-      const streamMatch = html.match(/"hls4"\s*:\s*"(.*?)"/i) || html.match(/["'](\/stream\/[^"']*?\.m3u8[^"']*?)["']/i);
-      if (streamMatch && streamMatch[1]) {
-        let finalUrl = streamMatch[1];
-        if (finalUrl.startsWith("/")) finalUrl = "https://m4uplay.store" + finalUrl;
-        localStreams.push({ label: "M4UPlay Stream", url: finalUrl });
-      }
-    } 
-    else if (targetUrl.includes("gdflix") || targetUrl.includes("hubcloud")) {
-      const resp = await fetch(targetUrl, { headers: HEADERS, skipSizeCheck: true });
-      const html = await resp.text();
-      
-      const matches = html.match(/(["'])(https?:\/\/.*?\.mp4.*?)\1/g) || html.match(/(["'])(https?:\/\/.*?\.m3u8.*?)\1/g);
-      if (matches) {
-        matches.forEach(matchStr => {
-          const cleanUrl = matchStr.replace(/["']/g, "");
-          if (!cleanUrl.includes("google") && !cleanUrl.includes("analytics")) {
-            localStreams.push({ label: targetUrl.includes("gdflix") ? "GDFlix Mirror" : "Hubcloud Mirror", url: cleanUrl });
-          }
-        });
-      }
+    const resp = await fetch(targetUrl, { headers: HEADERS, skipSizeCheck: true });
+    const html = await resp.text();
+    
+    // Scans page structures for file stream assignments
+    const matches = html.match(/(["'])(https?:\/\/.*?\.mp4.*?)\1/g) || html.match(/(["'])(https?:\/\/.*?\.m3u8.*?)\1/g);
+    if (matches) {
+      matches.forEach(matchStr => {
+        const cleanUrl = matchStr.replace(/["']/g, "");
+        if (!cleanUrl.includes("google") && !cleanUrl.includes("analytics")) {
+          const providerLabel = targetUrl.includes("gdflix") ? "GDFlix Mirror" : "Hubcloud Mirror";
+          localStreams.push({ label: providerLabel, url: cleanUrl });
+        }
+      });
     }
   } catch (err) {
-    console.error("[Movies4u] Locker error:", err);
+    console.error("[Movies4u] File extraction error:", err);
   }
   return localStreams;
 }
@@ -115,7 +103,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const streams = [];
     const bridgeUrls = [];
 
-    // Gathers the encrypted intermediate links from the document content body
     $page("a[href]").each((i, el) => {
       const href = $(el).attr("href") || "";
       if (href.includes("m4ulinks.com/number/")) {
@@ -123,35 +110,21 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       }
     });
 
-    // Process the bridge endpoints to resolve host redirects
     for (const bridgeUrl of bridgeUrls) {
       try {
-        const idMatch = bridgeUrl.match(/\/number\/(\d+)/);
-        if (!idMatch) continue;
-        const linkId = idMatch[1];
-
-        // Emulates the internal browser sync request to dump hidden configurations
         const bridgeResp = await fetch(bridgeUrl, { headers: HEADERS, skipSizeCheck: true });
         const bridgeHtml = await bridgeResp.text();
 
         const resolvedLockers = [];
 
-        // Scan the script blocks for host parameters matching your console image logs
-        const patternRegex = /(https?:\/\/(?:m4uplay\.store|hubcloud|gdflix)[^\s"'`>]+)/gi;
+        // Dynamic multi-TLD capture rule optimized for modern layout variants (.foo, .dev, .io)
+        const patternRegex = /(https?:\/\/(?:hubcloud|gdflix)\.[a-z]{2,4}\/[^\s"'`>]+)/gi;
         const detectedLinks = bridgeHtml.match(patternRegex);
         
         if (detectedLinks) {
           detectedLinks.forEach(url => {
             if (!resolvedLockers.includes(url)) resolvedLockers.push(url);
           });
-        }
-
-        // Fallback: Check if destination variables are embedded as simple text configurations
-        if (resolvedLockers.length === 0) {
-          const scriptMatches = bridgeHtml.match(/["']file_code["']\s*:\s*["']([^"']+)["']/g);
-          if (scriptMatches) {
-            resolvedLockers.push(`https://m4uplay.store/file/${linkId}`);
-          }
         }
 
         const parsedQuality = extractQuality(bridgeHtml) !== "Unknown" ? extractQuality(bridgeHtml) : extractQuality(match.href);
@@ -170,7 +143,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           }
         }
       } catch (err) {
-        console.error("[Movies4u] Bridge bypass failed:", err);
+        console.error("[Movies4u] Processing bypass failure:", err);
       }
     }
   

@@ -60,9 +60,11 @@ function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, seas
 
   let audioType = "Single-Audio";
   let language = "Hindi";
+  
+  // Updated language strings to use " • " instead of " / "
   if (lowerUrl.includes("dual")) {
     audioType = "Dual-Audio";
-    language = "Hindi / English";
+    language = "Hindi • English"; 
   } else if (lowerUrl.includes("multi")) {
     audioType = "Multi-Audio";
     language = "Multilingual";
@@ -87,18 +89,18 @@ function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, seas
 
   const qIcon = declaredQuality.includes("4K") || declaredQuality.includes("2160") ? "🌟" : "💎";
 
-  // Single-line item title (header) inside the list selection
+  // Compact title bar layout
   const displayTitle = `FibWatch | ${declaredQuality} | ${audioType}`;
 
-  // Multi-line subheadings explicitly inside the "title" property split via \n
+  // Subheadings Layout - Swapped out "Dynamic Size" for a clean look since player shows actual size on panel
   const line1 = isTV ? `🎬 ${name} - S${season}E${episode} (${year})` : `🎬 ${name} - ${year}`;
-  const line2 = `${qIcon} ${declaredQuality} | 🌍 ${language} | 💾 Dynamic Size`;
+  const line2 = `${qIcon} ${declaredQuality} | 🌍 ${language}`;
   const line3 = `🎞️ ${format} | ⏱️ ${duration} | 📌 WEB-DL`;
   const multiLineUnifiedTitle = `${line1}\n${line2}\n${line3}`;
 
   return {
-    name: displayTitle,             // The compact top header
-    title: multiLineUnifiedTitle,   // The actual subheadings container injected with lines
+    name: displayTitle,             
+    title: multiLineUnifiedTitle,   
     url: url,
     quality: declaredQuality,
     behaviorHints: { notWebReady: false },

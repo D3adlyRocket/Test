@@ -36,7 +36,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     // Step 2: Search MultiMovies
     const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {
-      headers: HEADERS});
+      headers: HEADERS
+    });
     const searchHtml = await searchResp.text();
     const $ = cheerio.load(searchHtml);
 
@@ -56,7 +57,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     ) || results[0];
 
     // Step 3: Load content page
-    const pageResp = await fetch(match.href, { headers: HEADERS});
+    const pageResp = await fetch(match.href, { headers: HEADERS });
     const pageHtml = await pageResp.text();
     const $p = cheerio.load(pageHtml);
 
@@ -65,32 +66,18 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     if (!isMovie && mediaType === "tv") {
       // TV Series: get episode list
       const episodes = [];
-      $p("#seasons ul.episodios li").each((seasonIdx, sEl) => {
-        $p(sEl).find("li").each((epIdx, epEl) => {
-          const href = $p(epEl).find("div.episodiotitle > a").attr("href");
+      
+      // Fixed: Improved structural scraping for modern Dooplay layouts
+      $p("#seasons ul.episodios").each((sIdx, sList) => {
+        const seasonNum = sIdx + 1;
+        $p(sList).find("li").each((eIdx, epEl) => {
+          // Checks both direct links and common structural variations
+          const href = $p(epEl).find("div.episodiotitle > a").attr("href") || $p(epEl).find("a").attr("href");
           if (href) {
-            episodes.push({
-              href,
-              season: seasonIdx + 1,
-              episode: epIdx + 1
-            });
+            episodes.push({ href, season: seasonNum, episode: eIdx + 1 });
           }
         });
       });
-
-      // Simpler: iterate directly over all li in all episodios lists
-      if (episodes.length === 0) {
-        let seasonNum = 1;
-        $p("#seasons ul.episodios").each((sIdx, sList) => {
-          seasonNum = sIdx + 1;
-          $p(sList).find("li").each((eIdx, epEl) => {
-            const href = $p(epEl).find("div.episodiotitle > a").attr("href");
-            if (href) {
-              episodes.push({ href, season: seasonNum, episode: eIdx + 1 });
-            }
-          });
-        });
-      }
 
       const targetEp = episodes.find(ep =>
         ep.season === parseInt(season || 1) && ep.episode === parseInt(episode || 1)
@@ -99,7 +86,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (!targetEp) return [];
 
       // Load episode page and get player options
-      const epResp = await fetch(targetEp.href, { headers: HEADERS});
+      const epResp = await fetch(targetEp.href, { headers: HEADERS });
       const epHtml = await epResp.text();
       const $ep = cheerio.load(epHtml);
 
@@ -114,14 +101,15 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       for (const item of epItems.slice(0, 5)) {
         if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
-        const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type, match.href);
+        const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type, targetEp.href);
         if (embedUrl && !embedUrl.includes("youtube")) {
           const resolvedUrl = await resolveEmbed(embedUrl, BASE_URL);
           if (resolvedUrl) {
             streams.push({
-              url: resolvedUrl,
-              quality: extractQuality(resolvedUrl),
+              url: resolvedUrl.url,
+              quality: extractQuality(resolvedUrl.url),
               title: "MultiMovies",
+              headers: resolvedUrl.headers, // Critical addition for stream playback authorization
               subtitles: []
             });
           }
@@ -148,9 +136,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         const resolvedUrl = await resolveEmbed(embedUrl, BASE_URL);
         if (resolvedUrl) {
           streams.push({
-            url: resolvedUrl,
-            quality: extractQuality(resolvedUrl),
+            url: resolvedUrl.url,
+            quality: extractQuality(resolvedUrl.url),
             title: "MultiMovies",
+            headers: resolvedUrl.headers, // Critical addition for stream playback authorization
             subtitles: []
           });
         }
@@ -172,14 +161,15 @@ async function fetchEmbedUrl(baseUrl, post, nume, type, referer) {
         ...HEADERS,
         "Content-Type": "application/x-www-form-urlencoded",
         "X-Requested-With": "XMLHttpRequest",
-        "Referer": baseUrl
+        "Referer": referer
       },
-      body: `action=doo_player_ajax&post=${post}&nume=${nume}&type=${type}`});
+      body: `action=doo_player_ajax&post=${post}&nume=${nume}&type=${type}`
+    });
     const data = await resp.json();
     const embedUrl = data.embed_url || "";
 
-    // Extract real URL from possible HTML wrappers
-    const srcMatch = embedUrl.match(/SRC="(https?:[^"]+)"/i);
+    // Extract real URL from possible HTML iframe wrappers
+    const srcMatch = embedUrl.match(/src="([^"]+)"/i) || embedUrl.match(/SRC="([^"]+)"/i);
     if (srcMatch) return srcMatch[1].trim();
 
     const urlMatch = embedUrl.match(/"(https?[^"]+)"/);
@@ -194,31 +184,46 @@ async function fetchEmbedUrl(baseUrl, post, nume, type, referer) {
 async function resolveEmbed(url, referer) {
   if (!url || !url.startsWith("http")) return null;
 
-  // If it's already a direct stream
-  if (url.includes(".m3u8") || url.includes(".mp4")) return url;
+  // Setup strict security context headers targeting the player environment
+  const targetOrigin = url.includes("technocosmos.surf") ? "https://plyr.technocosmos.surf" : new URL(url).origin;
+  const targetHeaders = {
+    ...HEADERS,
+    "Referer": url,
+    "Origin": targetOrigin
+  };
 
-  // Try to load the embed page and find stream
+  // If it's already an active manifest stream link
+  if (url.includes(".m3u8") || url.includes(".mp4") || url.includes("cf-master")) {
+    return { url, headers: targetHeaders };
+  }
+
   try {
-    const resp = await fetch(url, {
-      headers: { ...HEADERS, "Referer": referer }});
+    const resp = await fetch(url, { headers: { ...HEADERS, "Referer": referer } });
     const text = await resp.text();
 
-    // Check for deaddrive.xyz style
+    // 1. Matches your custom disguised master text file format (e.g., cf-master.1780990545.txt)
+    const masterTxtMatch = text.match(/(https?:\/\/[^\s"']+\/cf-master\.[^\s"']+\.txt)/i);
+    if (masterTxtMatch) {
+      return { url: masterTxtMatch[1], headers: targetHeaders };
+    }
+
+    // 2. Fallback check for alternative platforms (e.g., deaddrive.xyz)
     if (url.includes("deaddrive.xyz")) {
       const $ = cheerio.load(text);
       const firstServer = $("ul.list-server-items > li").first().attr("data-video");
-      return firstServer || null;
+      if (firstServer) return { url: firstServer, headers: targetHeaders };
     }
 
+    // 3. Fallback to standard formats
     const m3u8 = text.match(/(https?:\/\/[^\s"']+\.m3u8[^\s"']*)/i);
-    if (m3u8) return m3u8[1];
+    if (m3u8) return { url: m3u8[1], headers: targetHeaders };
 
     const mp4 = text.match(/(https?:\/\/[^\s"']+\.mp4[^\s"']*)/i);
-    if (mp4) return mp4[1];
+    if (mp4) return { url: mp4[1], headers: targetHeaders };
 
-    return url; // Return the embed URL itself as fallback
+    return { url, headers: targetHeaders }; 
   } catch(e) {
-    return url;
+    return { url, headers: targetHeaders };
   }
 }
 

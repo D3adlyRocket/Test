@@ -60,8 +60,8 @@ function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, seas
   let audioType = "Single-Audio";
   let language = "Hindi";
   
-  // Custom language structure with bullet point separator
-  if (lowerUrl.includes("dual")) {
+  // Enhanced language check: detects explicit "dual", "multi", or combined "hindi" + "english" tokens
+  if (lowerUrl.includes("dual") || (lowerUrl.includes("hindi") && lowerUrl.includes("english"))) {
     audioType = "Dual-Audio";
     language = "English • Hindi"; 
   } else if (lowerUrl.includes("multi")) {
@@ -73,6 +73,9 @@ function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, seas
     language = "Tamil";
   } else if (lowerUrl.includes("telugu")) {
     language = "Telugu";
+  } else if (lowerUrl.includes("english")) {
+    audioType = "Single-Audio";
+    language = "English";
   }
 
   let format = "MKV";
@@ -86,7 +89,7 @@ function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, seas
     duration = mediaInfo.runtime ? `${mediaInfo.runtime} min` : "N/A";
   }
 
-  const qIcon = declaredQuality.includes("4K") || declaredQuality.includes("2160") ? "🌟" : "⚡";
+  const qIcon = declaredQuality.includes("4K") || declaredQuality.includes("2160") ? "🌟" : "💎";
   const displayTitle = `FibWatch | ${declaredQuality} | ${audioType}`;
 
   const line1 = isTV ? `🎬 ${name} - S${season}E${episode} (${year})` : `🎬 ${name} - ${year}`;

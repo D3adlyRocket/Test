@@ -1,137 +1,274 @@
-// movies4u.js  
-// Nuvio-compatible Movies4u provider  
-// Authenticated Session Engine - Powered by Live DevTools Cookie Sync
+const cheerio = require('cheerio-without-node-native');
 
-const cheerio = require('cheerio');
+// fibwatch.js
+const BASE_URL = "https://fibwatch.art";
+const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
+const BROWSER_UA = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
+
+const HEADERS = {
+  "User-Agent": BROWSER_UA,
+  "Referer": `${BASE_URL}/`
+};
+
+const PLAYBACK_HEADERS = {
+  "User-Agent": BROWSER_UA,
+  "Referer": "https://urlshortlink.top/",
+  "Origin": "https://urlshortlink.top"
+};
+
+// FIXED QUALITY ENGINE: Returns "Auto" if no resolution strings exist
+function extractQuality(str) {
+  const u = (str || "").toLowerCase();
+  if (u.includes("2160") || u.includes("4k")) return "4K";
+  if (u.includes("1080")) return "1080p";
+  if (u.includes("720")) return "720p";
+  if (u.includes("480")) return "480p";
+  if (u.includes("360")) return "360p";
+  return "Auto";
+}
+
+function parseStreamFromShortenerHtml(htmlContent) {
+  if (!htmlContent) return null;
+  const $dl = cheerio.load(htmlContent);
+  let targetUrl = $dl("a.hidden-button.buttonDownloadnew").attr("href");
   
-const BASE_DOMAIN = "https://new2.movies4u.finance";  
-const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";  
-
-// Your verified browser session authorization token block
-const MY_BROWSER_COOKIE = "_ga=GA1.1.2135254525.1781217316; _ym_uid=1781217317890235155; _ym_d=1781217317; _ym_isad=1; _ym_visorc=b; lang=1; _ga_48ZJD1VPGZ=GS2.1.s1781220570$o2$g1$t1781225849$j33$l0$h0; _ga_8WRLTXV0TK=GS2.1.s1781220570$o2$g1$t1781225849$j33$l0$h0";
-
-const BROWSER_HEADERS = {  
-  "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",  
-  "Accept": "*/*",
-  "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
-  "Referer": "https://m4uplay.store/",
-  "Origin": "https://m4uplay.store",
-  "Cookie": MY_BROWSER_COOKIE // Masquerades the backend scraper as your live verified device window
-};  
+  if (!targetUrl) {
+    $dl("a").each((i, el) => {
+      const href = $dl(el).attr("href") || "";
+      if (href.includes("url=http")) {
+        targetUrl = href;
+        return false;
+      }
+    });
+  }
   
-async function getBaseUrl() {  
-  return BASE_DOMAIN;  
-}  
+  if (!targetUrl) {
+    const rawRegex = /https?:\/\/[^\s"'`<>]+?\.b-cdn\.net\/[^\s"'`<>]+\.(?:mkv|mp4|m3u8)/i;
+    const match = htmlContent.match(rawRegex);
+    if (match) return match[0];
+  }
   
-function extractQuality(text) {  
-  const u = (text || "").toLowerCase();  
-  if (u.includes("2160") || u.includes("4k")) return "4K";  
-  if (u.includes("1080")) return "1080p";  
-  if (u.includes("720")) return "720p";  
-  if (u.includes("480")) return "480p";  
-  return "720p";  
-}  
+  if (targetUrl) {
+    let cleaned = targetUrl.replace(/.*url=/, "").trim();
+    return decodeURIComponent(cleaned);
+  }
+  return null;
+}
 
-/**
- * Reverses Dean Edwards JavaScript obfuscation blocks programmatically
- */
-function unpackJavascript(packedCode) {
+// Parses sizes dynamically from the URL or stream string contexts
+function extractFileSize(str) {
+  const checkString = (str || "");
+  const sizeMatch = checkString.match(/(\d+(?:\.\d+)?\s*[GgMm][Bb])/);
+  if (sizeMatch) {
+     return sizeMatch[1].toUpperCase();
+  }
+  return "Dynamic Size";
+}
+
+// Dynamic info row collector parsing codec tags directly out of link components
+function extractReleaseInfo(str) {
+  const checkString = (str || "");
+  const tags = [];
+  
+  if (/web-?rip|web-?dl|bluray|hdrip/i.test(checkString)) {
+    const m = checkString.match(/(web-?rip|web-?dl|bluray|hdrip)/i);
+    if (m) tags.push(m[1].toUpperCase().replace('-', ''));
+  }
+  if (/x264|h264|x265|hevc/i.test(checkString)) {
+    const m = checkString.match(/(x264|h264|x265|hevc)/i);
+    if (m) tags.push(m[1].toLowerCase());
+  }
+  if (/5\.1|7\.1|aac|ddp/i.test(checkString)) {
+    const m = checkString.match(/(5\.1|7\.1|aac|ddp)/i);
+    if (m) tags.push(m[1]);
+  }
+  
+  return tags.length > 0 ? tags.join(" • ") : "Mirror Link";
+}
+
+function generateStreamLayout(url, title, declaredQuality, mediaInfo, isTV, season, episode) {
+  const name = mediaInfo.title || mediaInfo.name || "Unknown Title";
+  const dateStr = mediaInfo.release_date || mediaInfo.first_air_date || "";
+  const year = dateStr ? dateStr.split("-")[0] : "N/A";
+  const lowerUrl = url.toLowerCase();
+  
+  let audioType = "Original Audio"; // Fixed capitalization
+  let language = "Hindi";
+  
+  if (lowerUrl.includes("dual")) {
+    audioType = "Dual-Audio";
+    language = "Hindi / English";
+  } else if (lowerUrl.includes("multi")) {
+    audioType = "Multi-Audio";
+    language = "Multilingual";
+  } else if (lowerUrl.includes("bangla")) {
+    language = "Bangla";
+  } else if (lowerUrl.includes("tamil")) {
+    language = "Tamil";
+  } else if (lowerUrl.includes("telugu")) {
+    language = "Telugu";
+  }
+  
+  let format = "MKV";
+  if (lowerUrl.includes(".mp4")) format = "MP4";
+  if (lowerUrl.includes(".m3u8")) format = "M3U8 / HLS";
+  
+  let duration = "N/A";
+  if (isTV) {
+    duration = mediaInfo.episode_run_time?.[0] ? `${mediaInfo.episode_run_time[0]} min` : "45 min";
+  } else {
+    duration = mediaInfo.runtime ? `${mediaInfo.runtime} min` : "N/A";
+  }
+  
+  const parsedSize = extractFileSize(url);
+  const releaseInfo = extractReleaseInfo(url);
+
+  // FIXED INTERFACE HEADER: Synchronized parameters completely to remove trailing leakage
+  const displayTitle = `FibWatch | ${declaredQuality} | ${audioType}`;
+  
+  const nameRow = isTV ? `🎬 ${name} - S${season}E${episode} (${year})` : `🎬 ${name} - ${year}`;
+  const metaRow = `⚡ ${declaredQuality.toUpperCase()} | 🌍 ${language} | 💾 ${parsedSize}`;
+  const formatRow = `🎞️ ${format} | ⏱️ ${duration} | 📌 ${releaseInfo}`;
+  const fullDescription = `${nameRow}\n${metaRow}\n${formatRow}`;
+  
+  return {
+    name: displayTitle,
+    title: displayTitle,
+    description: fullDescription,
+    shortDescription: `${nameRow} • ${metaRow}`,
+    episodeDescription: fullDescription,
+    tags: [nameRow, metaRow, formatRow],
+    extra: { info: [nameRow, metaRow, formatRow] },
+    quality: declaredQuality, 
+    url: url,
+    subtitles: [],
+    headers: PLAYBACK_HEADERS
+  };
+}
+
+async function getStreams(tmdbId, mediaType, season, episode) {
   try {
-    const pattern = /eval\(function\(p,a,c,k,e,d\).*?return p\}.*?\('(.*?)'\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*'(.*?)'\.split\('|'\)/s;
-    const matches = packedCode.match(pattern);
-    if (!matches) return packedCode;
-
-    let [_, p, a, c, k] = matches;
-    a = parseInt(a, 10);
-    c = parseInt(c, 10);
-    k = k.split('|');
-
-    const e = (c) => (c < a ? '' : e(Math.floor(c / a))) + String.fromCharCode(c % a + 29);
+    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const mediaInfo = await (await fetch(tmdbUrl)).json();
+    const title = mediaInfo.title || mediaInfo.name;
+    if (!title) return [];
     
-    while (c--) {
-      if (k[c]) {
-        const regex = new RegExp('\\b' + e(c) + '\\b', 'g');
-        p = p.replace(regex, k[c]);
-      }
-    }
-    return p;
-  } catch (err) {
-    return packedCode;
-  }
-}
-
-/**
- * Resolves streams by mimicking the verified player context configurations
- */
-async function resolveLockerStreams(targetUrl) {
-  const localStreams = [];
-  try {
-    if (targetUrl.includes("m4uplay.store")) {
-      const tokenMatch = targetUrl.match(/\/file\/([a-zA-Z0-9]+)/) || targetUrl.match(/\/embed\/([a-zA-Z0-9]+)/);
-      if (!tokenMatch) return [];
-      const fileCode = tokenMatch[1];
-
-      const embedUrl = `https://m4uplay.store/embed/${fileCode}`;
-      const resp = await fetch(embedUrl, { headers: BROWSER_HEADERS, skipSizeCheck: true });
-      const html = await resp.text();
-      
-      // Force unpack any client-side JavaScript restrictions hidden on the page layout
-      const unpackedHtml = unpackJavascript(html);
-
-      // Extract the absolute master stream targets verified by your network logs
-      const streamMatch = unpackedHtml.match(/["'](https?:\/\/m4uplay\.store\/stream\/[^"']*?\.m3u8[^"']*?)["']/i) ||
-                          unpackedHtml.match(/["'](\/stream\/[^"']*?\.m3u8[^"']*?)["']/i) ||
-                          unpackedHtml.match(/"file"\s*:\s*"([^"]+)"/);
-                          
-      if (streamMatch && streamMatch[1]) {
-        let finalUrl = streamMatch[1];
-        if (finalUrl.startsWith("/")) finalUrl = "https://m4uplay.store" + finalUrl;
-        
-        localStreams.push({ 
-          label: "M4UPlay Stream", 
-          url: finalUrl 
-        });
-      }
-    } 
-    else if (targetUrl.includes("gdflix") || targetUrl.includes("hubcloud")) {
-      const resp = await fetch(targetUrl, { headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] }, skipSizeCheck: true });
-      const html = await resp.text();
-      
-      const matches = html.match(/(["'])(https?:\/\/.*?\.mp4.*?)\1/g) || html.match(/(["'])(https?:\/\/.*?\.m3u8.*?)\1/g);
-      if (matches) {
-        matches.forEach(matchStr => {
-          const cleanUrl = matchStr.replace(/["']/g, "");
-          if (!cleanUrl.includes("google") && !cleanUrl.includes("analytics")) {
-            const providerLabel = targetUrl.includes("gdflix") ? "GDFlix Mirror" : "Hubcloud Mirror";
-            localStreams.push({ label: providerLabel, url: cleanUrl });
-          }
-        });
-      }
-    }
-  } catch (err) {
-    console.error("[Movies4u] Endpoint verification failure:", err);
-  }
-  return localStreams;
-}
-  
-// =======================  
-// NUVIO CORE STREAM CONNECTOR
-// =======================  
-  
-async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {  
-  try {  
-    const BASE_URL = await getBaseUrl();  
-  
-    // 1. Map Target via TMDB
-    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;  
-    const mediaInfo = await (await fetch(tmdbUrl, { skipSizeCheck: true })).json();  
-    const title = mediaInfo.title || mediaInfo.name;  
-    if (!title) return [];  
-  
-    // 2. Query Index Catalog
-    const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {  
-      headers: { "User-Agent": BROWSER_HEADERS["User-Agent"] },  
-      skipSizeCheck: true  
-    });  
-    const searchHtml = await searchResp.text();  
+    const searchUrl = `${BASE_URL}/search?keyword=${encodeURIComponent(title)}&page_id=1`;
+    const searchHtml = await (await fetch(searchUrl, { headers: HEADERS})).text();
     const $ = cheerio.load(searchHtml);
+    const results = [];
+    
+    $("div.video-thumb").each((i, el) => {
+      const href = $("a", el).attr("href");
+      const t = $("p.hptag", el).text().trim() || $("div.video-thumb img", el).attr("alt") || "";
+      if (href) results.push({ title: t, url: href });
+    });
+    
+    if (!results.length) return [];
+    
+    const isTV = mediaType === "tv";
+    const lcTitle = title.toLowerCase();
+    let match = results.find(r => r.title.toLowerCase().includes(lcTitle));
+    if (!match) match = results[0];
+    
+    const pageUrl = match.url.startsWith("http") ? match.url : `${BASE_URL}${match.url}`;
+    const showHtml = await (await fetch(pageUrl, { headers: HEADERS})).text();
+    const $show = cheerio.load(showHtml);
+    const videoId = $show("input#video-id").attr("value");
+    if (!videoId) return [];
+    
+    const rawStreams = [];
+    
+    const processResolutionLinks = async (allLinks) => {
+      for (const item of allLinks) {
+        let url = (item.url || "").trim();
+        if (!url) continue;
+        if (!url.startsWith("http")) {
+          url = `${BASE_URL}${url}`;
+        }
+        
+        const declaredQuality = extractQuality(item.res || url);
+        
+        if (url.match(/\.(mp4|mkv|m3u8)/i)) {
+          rawStreams.push({ url, quality: declaredQuality });
+        } else {
+          try {
+            const shortenerHtml = await (await fetch(url, { headers: HEADERS })).text();
+            const extractedMediaUrl = parseStreamFromShortenerHtml(shortenerHtml);
+            if (extractedMediaUrl && extractedMediaUrl.startsWith("http")) {
+              const finalQuality = extractQuality(extractedMediaUrl) !== "Auto" ? extractQuality(extractedMediaUrl) : declaredQuality;
+              rawStreams.push({ url: extractedMediaUrl, quality: finalQuality });
+            }
+          } catch (e) {}
+        }
+      }
+    };
+    
+    if (isTV) {
+      const epDataUrl = `${BASE_URL}/ajax/episodes.php?video_id=${videoId}`;
+      const epData = await (await fetch(epDataUrl, { headers: HEADERS})).json();
+      const episodes = epData.episodes || [];
+      if (!episodes.length) return [];
+      
+      let targetEpUrl = "";
+      for (const ep of episodes) {
+        const epTitle = (ep.title || "").toLowerCase();
+        const m = epTitle.match(/s(\d{1,2})e(\d{1,3})/);
+        if (m) {
+          const epSeason = parseInt(m[1]);
+          const epEpisode = parseInt(m[2]);
+          if (epSeason === season && epEpisode === episode) {
+            targetEpUrl = ep.url ? (ep.url.startsWith("http") ? ep.url : `${BASE_URL}${ep.url}`) : "";
+            break;
+          }
+        }
+      }
+      
+      if (!targetEpUrl && episodes.length > 0) {
+        targetEpUrl = episodes[0].url ? (episodes[0].url.startsWith("http") ? episodes[0].url : `${BASE_URL}${episodes[0].url}`) : "";
+      }
+      if (!targetEpUrl) return [];
+      
+      const epHtml = await (await fetch(targetEpUrl, { headers: HEADERS})).text();
+      const $ep = cheerio.load(epHtml);
+      const epVideoId = $ep("input#video-id").attr("value");
+      if (epVideoId) {
+        const resUrl = `${BASE_URL}/ajax/resolution_switcher.php?video_id=${epVideoId}`;
+        const resData = await (await fetch(resUrl, { headers: HEADERS})).json();
+        const allLinks = [...(resData.current || []), ...(resData.popup || [])];
+        await processResolutionLinks(allLinks);
+      }
+    } else {
+      const resUrl = `${BASE_URL}/ajax/resolution_switcher.php?video_id=${videoId}`;
+      const resData = await (await fetch(resUrl, { headers: HEADERS})).json();
+      const allLinks = [...(resData.current || []), ...(resData.popup || [])];
+      await processResolutionLinks(allLinks);
+    }
+    
+    const uniqueStreams = [];
+    const seenUrls = new Set();
+    for (const entry of rawStreams) {
+      if (!seenUrls.has(entry.url)) {
+        seenUrls.add(entry.url);
+        const formattedLayout = generateStreamLayout(
+          entry.url,
+          title,
+          entry.quality,
+          mediaInfo,
+          isTV,
+          season,
+          episode
+        );
+        uniqueStreams.push(formattedLayout);
+      }
+    }
+    return uniqueStreams;
+  } catch (e) {
+    console.error("[FibWatch]", e);
+    return [];
+  }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams };
+}

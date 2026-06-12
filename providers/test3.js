@@ -1,13 +1,13 @@
 // movies4u.js  
 // Nuvio-compatible Movies4u provider  
-// Hardened Engine - Armed with browser-verified token extraction keys
+// Fully Dynamic Multi-Host Extraction Engine
 
 const cheerio = require('cheerio');
   
 const BASE_DOMAIN = "https://new2.movies4u.finance";  
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";  
 
-// Strict header profiles matching the browser environment signatures
+// Replicates the precise browser context signature captured in your mobile logs
 const BROWSER_HEADERS = {  
   "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",  
   "Accept": "*/*",
@@ -31,23 +31,20 @@ function extractQuality(text) {
 }  
 
 /**
- * Resolves streams directly using the endpoint patterns verified by the console logs
+ * Validates streaming files using deep network extraction configurations
  */
 async function resolveLockerStreams(targetUrl) {
   const localStreams = [];
   try {
     if (targetUrl.includes("m4uplay.store")) {
-      // Isolate the alpha-numeric stream identifier token
       const tokenMatch = targetUrl.match(/\/file\/([a-zA-Z0-9]+)/) || targetUrl.match(/\/embed\/([a-zA-Z0-9]+)/);
       if (!tokenMatch) return [];
       const fileCode = tokenMatch[1];
 
-      // Reconstruct the secure responsive layer URL
       const embedUrl = `https://m4uplay.store/embed/${fileCode}`;
       const resp = await fetch(embedUrl, { headers: BROWSER_HEADERS, skipSizeCheck: true });
       const html = await resp.text();
       
-      // Target both the embedded array tracks and the raw stream definitions discovered by your injection script
       const streamMatch = html.match(/"hls4"\s*:\s*"(.*?)"/i) || 
                           html.match(/["'](https?:\/\/m4uplay\.store\/stream\/[^"']*?\.m3u8[^"']*?)["']/i) ||
                           html.match(/["'](\/stream\/[^"']*?\.m3u8[^"']*?)["']/i);
@@ -57,7 +54,7 @@ async function resolveLockerStreams(targetUrl) {
         if (finalUrl.startsWith("/")) finalUrl = "https://m4uplay.store" + finalUrl;
         
         localStreams.push({ 
-          label: "M4UPlay Stream (Auto)", 
+          label: "M4UPlay Stream", 
           url: finalUrl 
         });
       }
@@ -78,7 +75,7 @@ async function resolveLockerStreams(targetUrl) {
       }
     }
   } catch (err) {
-    console.error("[Movies4u] Core endpoint validation exception:", err);
+    console.error("[Movies4u] Core endpoint failure:", err);
   }
   return localStreams;
 }
@@ -134,6 +131,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     const streams = [];
     const bridgeUrls = [];
 
+    // Parse out links pointing to the underlying bridge domains
     $page("a[href]").each((i, el) => {
       const href = $(el).attr("href") || "";
       if (href.includes("m4ulinks.com/number/") || href.includes("m4uplay.store/file/")) {
@@ -145,12 +143,14 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
       try {
         let activeLockerUrl = bridgeUrl;
 
-        // Trace intermediate bridges if we hit the raw number wrapper path
+        // Dynamically parse out the ID from m4ulinks instead of hardcoding a target string
         if (activeLockerUrl.includes("m4ulinks.com")) {
-          const idMatch = activeLockerUrl.match(/\/number\/(\d+)/);
+          const idMatch = activeLockerUrl.match(/\/number\/([a-zA-Z0-9]+)/);
           if (!idMatch) continue;
-          // Dynamically map the unique identification key right over to the streaming player architecture
-          activeLockerUrl = `https://m4uplay.store/file/7lm20bwo012t`; // Fallback mapped to confirmed layout pattern
+          const extractedId = idMatch[1];
+          
+          // Reconstruct the structural mirror path dynamically
+          activeLockerUrl = `https://m4uplay.store/file/${extractedId}`;
         }
 
         const parsedQuality = extractQuality(match.href);
@@ -167,7 +167,7 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
           });
         }
       } catch (err) {
-        console.error("[Movies4u] Core extraction exception:", err);
+        console.error("[Movies4u] Scraper tracking exception:", err);
       }
     }  
     return streams;  

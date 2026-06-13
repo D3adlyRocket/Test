@@ -36,11 +36,9 @@ var require_formatter = __commonJS({
     function formatStream2(stream, providerName) { 
       let quality = stream.quality || "1080p"; 
       let audioTag = "Single-Audio"; 
-      let language = "English";
 
       if (stream.language === "Italian" || (stream.name && stream.name.includes("ITA")) || stream.hasItalian) { 
         audioTag = "Multi-Audio"; 
-        language = "Italian • English";
       } 
 
       const finalName = `CinemaCity | ${quality} | ${audioTag}`; 
@@ -64,15 +62,15 @@ var require_formatter = __commonJS({
       var dynamicSourceTag = "📌 " + sourceParts.join(" • ");
       var qIcon = quality.includes("4K") || quality.includes("2160") ? "🌟" : "💎";
       
-      // Dynamic Runtime Formatting
+      // Dynamic Runtime Formatting directly from data layer
       let durationStr = "N/A";
       if (stream.runtime && Number.isInteger(stream.runtime) && stream.runtime > 0) {
         durationStr = `${stream.runtime} min`;
       }
 
-      // Rebuilt Subheading Layout Hierarchy
+      // Rebuilt Subheading Layout Hierarchy (Removed Italian • English text string)
       var line1 = "🎬 " + rawTitle;
-      var line2 = qIcon + " " + quality + " | 🌍 " + language + " | 🔊 " + audioTag + " | 🗃️ Server 1";
+      var line2 = qIcon + " " + quality + " | 🔊 " + audioTag + " | 🗃️ Server 1";
       var line3 = "🎞️ " + format + " | ⏱️ " + durationStr + " | " + dynamicSourceTag;
       var finalSubtitlesBlock = line1 + "\n" + line2 + "\n" + line3;
 
@@ -107,7 +105,7 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer); 
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]); 
 
-      // Create a clean base copy to strip competing visual field overrides
+      // Create clean base copy to strip competing visual field overrides
       const baseStream = __spreadValues({}, stream);
       delete baseStream.language;
       delete baseStream.languages;

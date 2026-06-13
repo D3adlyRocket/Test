@@ -1,4 +1,4 @@
-const PROVIDER_NAME = "🟡 PlayIMDb"; 
+const PROVIDER_NAME = "PlayIMDb"; 
 const BASE_API = "https://streamdata.vaplayer.ru/api.php"; 
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706"; 
 
@@ -84,6 +84,35 @@ async function getTmdbMetadata(id, type, season, episode) {
   } 
 } 
 
+function pad2(n) {
+  return (n != null && n < 10) ? '0' + n : String(n);
+}
+
+// Unified multi-line formatter matching the clean layout look
+function generateStreamLayout(url, info, qualityStr, rawQuality, audioTypeHeader, layoutLanguageDropdown, sizeStr, serverName, isTv, season, episode) {
+  var mediaLabel = info.name || "Unknown Title";
+  var year = info.year || "N/A";
+
+  var format = "MKV";
+  if (url.toLowerCase().includes(".mp4")) format = "MP4";
+  if (url.toLowerCase().includes(".m3u8")) format = "M3U8";
+
+  var displayTitle = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader;
+
+  var line1 = isTv ? "🎬 " + mediaLabel + " - S" + pad2(season) + "E" + pad2(episode) + " (" + year + ")" : "🎬 " + mediaLabel + " - " + year;
+  var line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr;
+  var line3 = "🎞️ " + format + " | ⏱️ " + info.duration + " | 📌 " + serverName;
+  var multiLineUnifiedTitle = line1 + "\n" + line2 + "\n" + line3;
+
+  return {
+    name: displayTitle,             
+    title: multiLineUnifiedTitle,   
+    url: url,
+    quality: "", // Leaving this blank satisfies the engine and stops it appending text or "- Unknown"
+    behaviorHints: { notWebReady: true }
+  };
+}
+
 async function getStreams(tmdbId, mediaType, season, episode) { 
   var streams = []; 
   try { 
@@ -153,30 +182,22 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         else if (lowerStream.includes("smartincome")) serverName = "Smart Inc"; 
         else if (lowerStream.includes("remoteincome")) serverName = "Remote Inc"; 
 
-        // 5. Detect Container Format Extensions 
-        var format = "MKV"; 
-        if (lowerStream.includes(".mp4")) format = "MP4"; 
-        else if (lowerStream.includes(".m3u8")) format = "M3U8"; 
+        // 5. Generate matching template output layout
+        var streamObj = generateStreamLayout(
+          streamUrl, 
+          meta, 
+          qualityStr, 
+          rawQuality, 
+          audioTypeHeader, 
+          layoutLanguageDropdown, 
+          sizeStr, 
+          serverName, 
+          isTv, 
+          season, 
+          episode
+        );
 
-        var mediaLabel = meta.name + (isTv ? " S" + season + "E" + episode : ""); 
-
-        var headerName = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader; 
-        
-        var dropdownTitle = "🎬 " + mediaLabel + " - " + meta.year + "\n" + 
-                            "⚡ " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr + "\n" + 
-                            "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📌 " + serverName; 
-
-        // Explicitly defining quality properties inside object mapping forces player layout to clear alternative text fields
-        var streamObj = { 
-          name: headerName, 
-          title: dropdownTitle, 
-          url: streamUrl, 
-          quality: rawQuality,
-          resolution: rawQuality,
-          type: "url",
-          behaviorHints: { notWebReady: true },
-          headers: HEADERS 
-        }; 
+        streamObj.headers = HEADERS;
 
         if (data.default_subs && Array.isArray(data.default_subs) && data.default_subs.length > 0) { 
           streamObj.subtitles = data.default_subs.map(sub => { 

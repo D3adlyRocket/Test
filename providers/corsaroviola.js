@@ -1,6 +1,6 @@
 const cheerio = require('cheerio-without-node-native');
 // multimovies.js
-// MultiMovies - Hindi/Bollywood/Anime provider via WordPress player iframe extraction
+// MultiMovies - Re-optimized hybrid extractor combining AJAX routing with direct stream mapping
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://multimovies.homes";
@@ -28,14 +28,16 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   try {
     const BASE_URL = await getBaseUrl();
 
-    // Step 1: Resolve Title from TMDB
+    // Step 1: Get title from TMDB
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl)).json();
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // Step 2: Search MultiMovies Entry
-    const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, { headers: HEADERS });
+    // Step 2: Search MultiMovies
+    const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {
+      headers: HEADERS
+    });
     const searchHtml = await searchResp.text();
     const $ = cheerio.load(searchHtml);
 
@@ -54,15 +56,17 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       r.name.toLowerCase().includes(title.toLowerCase())
     ) || results[0];
 
-    // Step 3: Load Content Landing Page
+    // Step 3: Load content page
     const pageResp = await fetch(match.href, { headers: HEADERS });
     const pageHtml = await pageResp.text();
     const $p = cheerio.load(pageHtml);
 
-    let targetUrl = match.href;
+    const streams = [];
+    let playerItems = [];
+    let contentReferer = match.href;
 
-    // Handle TV Series Structure routing down to specific episodes
     if (!isMovie && mediaType === "tv") {
+      // TV Series: get episode list
       const episodes = [];
       $p("#seasons ul.episodios").each((sIdx, sList) => {
         const seasonNum = sIdx + 1;
@@ -79,47 +83,47 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       ) || episodes[0];
 
       if (!targetEp) return [];
-      targetUrl = targetEp.href;
+      contentReferer = targetEp.href;
+
+      // Load episode page data structures
+      const epResp = await fetch(targetEp.href, { headers: HEADERS });
+      const epHtml = await epResp.text();
+      const $ep = cheerio.load(epHtml);
+
+      $ep("ul#playeroptionsul li").each((i, el) => {
+        playerItems.push({
+          post: $ep(el).attr("data-post"),
+          nume: $ep(el).attr("data-nume"),
+          type: $ep(el).attr("data-type")
+        });
+      });
+    } else {
+      // Movie: get player options directly
+      $p("ul#playeroptionsul li").each((i, el) => {
+        playerItems.push({
+          post: $p(el).attr("data-post"),
+          nume: $p(el).attr("data-nume"),
+          type: $p(el).attr("data-type")
+        });
+      });
     }
 
-    // Step 4: Extract embedded Player sources directly from DOM
-    // This bypasses broken AJAX POST actions by tracking iframes directly
-    const contentResp = await fetch(targetUrl, { headers: HEADERS });
-    const contentHtml = await contentResp.text();
-    const $c = cheerio.load(contentHtml);
-
-    const playerUrls = [];
-
-    // Extract raw iframes
-    $c("iframe").each((i, el) => {
-      const src = $c(el).attr("src") || $c(el).attr("data-src");
-      if (src && src.startsWith("http")) playerUrls.push(src);
-    });
-
-    // Fallback extract alternative player setups embedded in custom DOM elements
-    $c("ul#playeroptionsul li").each((i, el) => {
-      const embedCode = $c(el).attr("data-embed") || "";
-      const srcMatch = embedCode.match(/src="([^"]+)"/i) || embedCode.match(/SRC="([^"]+)"/i);
-      if (srcMatch && srcMatch[1].startsWith("http")) {
-        playerUrls.push(srcMatch[1].trim());
-      }
-    });
-
-    const streams = [];
-
-    // Step 5: Process and decrypt target player streams
-    for (const url of playerUrls.slice(0, 6)) {
-      if (url.includes("youtube.com") || url.includes("youtu.be")) continue;
-
-      const streamResult = await resolveEmbed(url, targetUrl);
-      if (streamResult) {
-        streams.push({
-          url: streamResult.url,
-          quality: extractQuality(streamResult.url),
-          title: streamResult.title,
-          headers: streamResult.headers, // Critical payload authorization headers parsed from your intercepts
-          subtitles: []
-        });
+    // Step 4: Execute requests using restored AJAX fallback sequence
+    for (const item of playerItems.slice(0, 5)) {
+      if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
+      
+      const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type, contentReferer);
+      if (embedUrl && !embedUrl.includes("youtube")) {
+        const resolvedUrl = await resolveEmbed(embedUrl, BASE_URL);
+        if (resolvedUrl) {
+          streams.push({
+            url: resolvedUrl.url,
+            quality: extractQuality(resolvedUrl.url),
+            title: resolvedUrl.title,
+            headers: resolvedUrl.headers,
+            subtitles: []
+          });
+        }
       }
     }
 
@@ -130,39 +134,65 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   }
 }
 
-async function resolveEmbed(embedUrl, parentReferer) {
+async function fetchEmbedUrl(baseUrl, post, nume, type, referer) {
   try {
-    // Standard contextual handshake setup
-    const initialHeaders = { ...HEADERS, "Referer": parentReferer };
-    const resp = await fetch(embedUrl, { headers: initialHeaders });
+    const resp = await fetch(`${baseUrl}/wp-admin/admin-ajax.php`, {
+      method: "POST",
+      headers: {
+        ...HEADERS,
+        "Content-Type": "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json" ? "application/x-www-form-urlencoded" : "application/x-www-form-urlencoded",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": referer
+      },
+      body: `action=doo_player_ajax&post=${post}&nume=${nume}&type=${type}`
+    });
+    const data = await resp.json();
+    const embedUrl = data.embed_url || "";
+
+    const srcMatch = embedUrl.match(/src="([^"]+)"/i) || embedUrl.match(/SRC="([^"]+)"/i);
+    if (srcMatch) return srcMatch[1].trim();
+
+    const urlMatch = embedUrl.match(/"(https?[^"]+)"/);
+    if (urlMatch) return urlMatch[1].trim();
+
+    return embedUrl.replace(/^"|"$/g, "").trim();
+  } catch(e) {
+    return null;
+  }
+}
+
+async function resolveEmbed(url, referer) {
+  if (!url || !url.startsWith("http")) return null;
+
+  try {
+    const resp = await fetch(url, { headers: { ...HEADERS, "Referer": referer } });
     const text = await resp.text();
 
-    // The definitive collection of regex patterns matching your captured endpoints
     const patterns = [
       {
         name: "MultiMovies Native",
         regex: /(https?:\/\/multimovieshg\.com\/stream\/[^\s"']+)/i,
-        headerGenerator: (url) => ({ "Referer": "https://multimovieshg.com/" })
+        headerGenerator: () => ({ "Referer": "https://multimovieshg.com/" })
       },
       {
         name: "SmoothPre Mirror",
         regex: /(https?:\/\/smoothpre\.com\/stream\/[^\s"']+)/i,
-        headerGenerator: (url) => ({ "Referer": "https://smoothpre.com/" })
+        headerGenerator: () => ({ "Referer": "https://smoothpre.com/" })
       },
       {
         name: "SprintCDN Edge",
         regex: /(https?:\/\/[^\s"']+\.sprintcdn\.[^\s"']+\/master\.m3u8[^\s"']*)/i,
-        headerGenerator: (url) => ({ "Referer": "https://nzn3.org/", "Origin": "https://nzn3.org" })
+        headerGenerator: () => ({ "Referer": "https://nzn3.org/", "Origin": "https://nzn3.org" })
       },
       {
         name: "Obfuscated Master",
         regex: /(https?:\/\/[^\s"']+\/cf-master\.[^\s"']+\.txt)/i,
-        headerGenerator: (url) => ({ "Referer": embedUrl, "Origin": new URL(embedUrl).origin })
+        headerGenerator: () => ({ "Referer": url, "Origin": new URL(url).origin })
       },
       {
         name: "Global Manifest Fallback",
         regex: /(https?:\/\/[^\s"']+\.m3u8[^\s"']*)/i,
-        headerGenerator: (url) => ({ "Referer": embedUrl })
+        headerGenerator: () => ({ "Referer": url })
       }
     ];
 
@@ -175,23 +205,22 @@ async function resolveEmbed(embedUrl, parentReferer) {
           title: pattern.name,
           headers: {
             ...HEADERS,
-            ...pattern.headerGenerator(streamUrl)
+            ...pattern.headerGenerator()
           }
         };
       }
     }
 
-    // Direct fallback if embedUrl itself is an exposed direct link
-    if (embedUrl.includes(".m3u8") || embedUrl.includes(".mp4")) {
+    if (url.includes(".m3u8") || url.includes(".mp4")) {
       return {
-        url: embedUrl,
+        url: url,
         title: "Direct Embed Link",
-        headers: { ...HEADERS, "Referer": parentReferer }
+        headers: { ...HEADERS, "Referer": referer }
       };
     }
 
     return null;
-  } catch (e) {
+  } catch(e) {
     return null;
   }
 }
@@ -199,7 +228,7 @@ async function resolveEmbed(embedUrl, parentReferer) {
 function extractQuality(url) {
   const u = (url || "").toLowerCase();
   if (u.includes("2160p") || u.includes("4k")) return "4K";
-  if (u.includes("1080p") || u.includes("index-f1") || u.includes("master.m3u8")) return "1080p"; 
+  if (u.includes("1080p") || u.includes("index-f1") || u.includes("master.m3u8")) return "1080p";
   if (u.includes("720p") || u.includes("index-f2")) return "720p";
   if (u.includes("480p")) return "480p";
   if (u.includes("360p")) return "360p";

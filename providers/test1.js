@@ -88,27 +88,28 @@ function pad2(n) {
   return (n != null && n < 10) ? '0' + n : String(n);
 }
 
-// Unified multi-line formatter matching the clean layout look
-function generateStreamLayout(url, info, qualityStr, rawQuality, audioTypeHeader, layoutLanguageDropdown, sizeStr, serverName, isTv, season, episode) {
-  var mediaLabel = info.name || "Unknown Title";
-  var year = info.year || "N/A";
+// Emulates the exact structural logic used in the VixSrc engine
+function generateStreamLayout(url, meta, qualityStr, rawQuality, audioTypeHeader, layoutLanguageDropdown, sizeStr, serverName, isTv, season, episode) {
+  var mediaLabel = meta.name || "Unknown Title";
+  var year = meta.year || "N/A";
 
   var format = "MKV";
   if (url.toLowerCase().includes(".mp4")) format = "MP4";
   if (url.toLowerCase().includes(".m3u8")) format = "M3U8";
 
-  var displayTitle = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader;
+  // Matching VixSrc's prefix template structure exactly
+  var finalHeaderName = "🎬 " + PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader;
 
   var line1 = isTv ? "🎬 " + mediaLabel + " - S" + pad2(season) + "E" + pad2(episode) + " (" + year + ")" : "🎬 " + mediaLabel + " - " + year;
-  var line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr;
-  var line3 = "🎞️ " + format + " | ⏱️ " + info.duration + " | 📌 " + serverName;
+  var line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr + " | 🗃️ " + serverName;
+  var line3 = "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📼 AVC • 🔊 AAC";
   var multiLineUnifiedTitle = line1 + "\n" + line2 + "\n" + line3;
 
   return {
-    name: displayTitle,             
+    name: finalHeaderName,             
     title: multiLineUnifiedTitle,   
     url: url,
-    quality: "", // Leaving this blank satisfies the engine and stops it appending text or "- Unknown"
+    type: "direct",
     behaviorHints: { notWebReady: true }
   };
 }
@@ -182,7 +183,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         else if (lowerStream.includes("smartincome")) serverName = "Smart Inc"; 
         else if (lowerStream.includes("remoteincome")) serverName = "Remote Inc"; 
 
-        // 5. Generate matching template output layout
+        // 5. Generate template engine mapping matching layout specifications
         var streamObj = generateStreamLayout(
           streamUrl, 
           meta, 

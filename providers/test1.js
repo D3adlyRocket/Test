@@ -160,20 +160,18 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
         var mediaLabel = meta.name + (isTv ? " S" + season + "E" + episode : ""); 
 
-        // Reverted back to clean layout style with pipes exactly as requested
         var headerName = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader; 
         
         var dropdownTitle = "🎬 " + mediaLabel + " - " + meta.year + "\n" + 
                             "⚡ " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr + "\n" + 
                             "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📌 " + serverName; 
 
-        // We fill fallback parameters directly into the core object structure to intercept layout omissions
+        // Fix: Swapped the layout target field label property from 'title' to VixSrc style 'description'
         var streamObj = { 
           name: headerName, 
-          title: dropdownTitle, 
+          description: dropdownTitle, 
           url: streamUrl, 
-          group: audioTypeHeader,
-          subname: audioTypeHeader,
+          behaviorHints: { notWebReady: true },
           headers: HEADERS 
         }; 
 

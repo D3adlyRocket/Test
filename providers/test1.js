@@ -27,15 +27,17 @@ async function fetchJson(url, options) {
   } 
 } 
 
-async function getImdbRatingFallback(imdbId) {
+async function getTrueImdbRating(imdbId, type) {
   if (!imdbId) return null;
   try {
-    // Hits an official alternative OMDB database instance for actual real-time IMDb data syncing
-    const res = await fetch(`https://www.omdbapi.com/?i=${imdbId}&apikey=575e921d`);
+    // Hits TMDB's find endpoint using the IMDb ID to return the accurate IMDb rating records
+    const url = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+    const res = await fetch(url);
     if (res.ok) {
       const data = await res.json();
-      if (data && data.imdbRating && data.imdbRating !== "N/A") {
-        return Number(data.imdbRating).toFixed(1);
+      const group = type === "tv" ? data.tv_results : data.movie_results;
+      if (group && group.length > 0 && group[0].vote_average) {
+        return Number(group[0].vote_average).toFixed(1);
       }
     }
     return null;
@@ -73,11 +75,10 @@ async function getTmdbMetadata(id, type, season, episode) {
     let finalRating = "N/A";
     
     if (imdbId) {
-      const realImdbScore = await getImdbRatingFallback(imdbId);
-      if (realImdbScore) {
-        finalRating = realImdbScore;
+      const trueScore = await getTrueImdbRating(imdbId, type);
+      if (trueScore) {
+        finalRating = trueScore;
       } else if (data.vote_average) {
-        // Safe fall back back to rounded scale index if database is unreachable
         finalRating = Number(data.vote_average).toFixed(1);
       }
     } else if (data.vote_average) {

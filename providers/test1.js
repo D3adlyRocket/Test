@@ -107,14 +107,19 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer); 
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]); 
 
-      return __spreadProps(__spreadValues({}, stream), { 
+      // Create a clean base copy to strip competing visual field overrides
+      const baseStream = __spreadValues({}, stream);
+      delete baseStream.language;
+      delete baseStream.languages;
+      delete baseStream.audioTag;
+
+      return __spreadProps(baseStream, { 
         name: finalName, 
         title: finalSubtitlesBlock, 
         providerName: "CinemaCity", 
         qualityTag: quality, 
         description: finalSubtitlesBlock, 
         originalTitle: stream.title || "Stream", 
-        language: stream.language || "", 
         _nuvio_formatted: true, 
         behaviorHints, 
         provider: stream.provider || normalizeProviderId(providerName), 

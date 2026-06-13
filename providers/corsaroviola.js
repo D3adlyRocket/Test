@@ -1,6 +1,6 @@
 const cheerio = require('cheerio-without-node-native');
 // multimovies.js
-// MultiMovies - Restored extraction framework with precise stream URL mapping
+// MultiMovies - Direct Stream Resolver using Native Player Identifiers
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://multimovies.homes";
@@ -28,13 +28,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   try {
     const BASE_URL = await getBaseUrl();
 
-    // Step 1: Get title from TMDB
+    // Step 1: Get Title from TMDB
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl)).json();
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // Step 2: Search MultiMovies
+    // Step 2: Query MultiMovies Search
     const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {
       headers: HEADERS
     });
@@ -56,7 +56,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       r.name.toLowerCase().includes(title.toLowerCase())
     ) || results[0];
 
-    // Step 3: Load content page
+    // Step 3: Extract content targets
     const pageResp = await fetch(match.href, { headers: HEADERS });
     const pageHtml = await pageResp.text();
     const $p = cheerio.load(pageHtml);
@@ -64,7 +64,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const streams = [];
 
     if (!isMovie && mediaType === "tv") {
-      // TV Series Framework
       const episodes = [];
       $p("#seasons ul.episodios li").each((seasonIdx, sEl) => {
         $p(sEl).find("li").each((epIdx, epEl) => {
@@ -107,53 +106,51 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         epItems.push({
           post: $ep(el).attr("data-post"),
           nume: $ep(el).attr("data-nume"),
-          type: $ep(el).attr("data-type")
+          type: $ep(el).attr("data-type"),
+          title: $ep(el).find("span.title").text().trim()
         });
       });
 
       for (const item of epItems.slice(0, 5)) {
-        if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
-        const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type, match.href);
-        if (embedUrl && !embedUrl.includes("youtube")) {
-          const resolvedStream = await resolveEmbed(embedUrl, BASE_URL);
-          if (resolvedStream) {
-            streams.push(resolvedStream);
-          }
+        if (!item.post || !item.nume || item.title.toLowerCase().includes("trailer")) continue;
+        const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type);
+        if (embedUrl) {
+          const streamObj = await resolveEmbed(embedUrl, item.title);
+          if (streamObj) streams.push(streamObj);
         }
       }
 
       return streams;
     }
 
-    // Movie Framework
+    // Movie Execution Path
     const playerItems = [];
     $p("ul#playeroptionsul li").each((i, el) => {
       playerItems.push({
         post: $p(el).attr("data-post"),
         nume: $p(el).attr("data-nume"),
-        type: $p(el).attr("data-type")
+        type: $p(el).attr("data-type"),
+        title: $p(el).find("span.title").text().trim()
       });
     });
 
     for (const item of playerItems.slice(0, 5)) {
-      if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
-      const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type, match.href);
-      if (embedUrl && !embedUrl.includes("youtube")) {
-        const resolvedStream = await resolveEmbed(embedUrl, BASE_URL);
-        if (resolvedStream) {
-          streams.push(resolvedStream);
-        }
+      if (!item.post || !item.nume || item.title.toLowerCase().includes("trailer")) continue;
+      const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type);
+      if (embedUrl) {
+        const streamObj = await resolveEmbed(embedUrl, item.title);
+        if (streamObj) streams.push(streamObj);
       }
     }
 
     return streams;
   } catch (e) {
-    console.error("[MultiMovies Framework Error]", e);
+    console.error("[MultiMovies Engine]", e);
     return [];
   }
 }
 
-async function fetchEmbedUrl(baseUrl, post, nume, type, referer) {
+async function fetchEmbedUrl(baseUrl, post, nume, type) {
   try {
     const resp = await fetch(`${baseUrl}/wp-admin/admin-ajax.php`, {
       method: "POST",
@@ -180,96 +177,60 @@ async function fetchEmbedUrl(baseUrl, post, nume, type, referer) {
   }
 }
 
-async function resolveEmbed(url, referer) {
-  if (!url || !url.startsWith("http")) return null;
+async function resolveEmbed(embedUrl, sourceTitle) {
+  if (!embedUrl || !embedUrl.startsWith("http")) return null;
 
   try {
-    // FIX: If the URL is already an explicit stream target found from your network captures, keep it!
-    if (url.includes("smoothpre.com/stream") || url.includes("multimovieshg.com/stream") || url.includes("sprintcdn") || url.includes(".m3u8")) {
+    // Check if the Ajax returned a direct stream payload instantly
+    if (embedUrl.includes(".m3u8") || embedUrl.includes("sprintcdn.com")) {
       return {
-        url: url,
-        quality: extractQuality(url),
-        title: "MultiMovies Stream",
-        subtitles: []
-      };
-    }
-
-    // FIX: Intercept intermediate player wrapper pages and map them to their correct stream endpoints
-    // This translates URLs like player.vidzee.wtf/embed/movie/tt... directly to the underlying streaming domains
-    if (url.includes("vidzee.wtf") || url.includes("iqsmartgames.com") || url.includes("vixsrc.to") || url.includes("ironbrookbuilders.cyou")) {
-      
-      let finalStreamUrl = url;
-      let titleLabel = "MultiMovies Engine Link";
-
-      if (url.includes("smoothpre.com") || url.includes("vidzee.wtf")) {
-        titleLabel = "SmoothPre Direct HLS";
-        // Convert the wrapper path to the direct video source domain from your screenshots
-        finalStreamUrl = url.replace("player.vidzee.wtf", "smoothpre.com").replace("/embed/movie/", "/stream/");
-      } else if (url.includes("iqsmartgames.com") || url.includes("nzn3.org")) {
-        titleLabel = "SprintCDN Master Stream";
-        // Convert iqsmartgames wrapper queries to use the real sprintcdn edge server
-        finalStreamUrl = url.replace("streams.iqsmartgames.com", "smoothpre.com").replace("/embed/movie/", "/stream/");
-      } else if (url.includes("vixsrc.to")) {
-        titleLabel = "VixSrc Video Server";
-        finalStreamUrl = url.replace("vixsrc.to", "multimovieshg.com").replace("/movie/", "/stream/");
-      }
-
-      return {
-        url: finalStreamUrl,
+        url: embedUrl,
         quality: "1080p",
-        title: titleLabel,
+        title: sourceTitle || "MultiMovies Live Stream",
         subtitles: []
       };
     }
 
-    // Fallback if text inspection works on an un-obfuscated layer
-    const resp = await fetch(url, { headers: { ...HEADERS, "Referer": referer } });
+    // Attempt direct extraction challenge
+    const resp = await fetch(embedUrl, { headers: HEADERS });
     const text = await resp.text();
 
-    const patterns = [
-      /(https?:\/\/multimovieshg\.com\/stream\/[^\s"']+)/i,
+    // Regular Expression captures matching the dynamic production layouts seen in your screenshots
+    const streamPatterns = [
       /(https?:\/\/smoothpre\.com\/stream\/[^\s"']+)/i,
+      /(https?:\/\/multimovieshg\.com\/stream\/[^\s"']+)/i,
       /(https?:\/\/[^\s"']+\.sprintcdn\.[^\s"']+\/[^\s"']+\.m3u8[^\s"']*)/i,
       /(https?:\/\/[^\s"']+\.m3u8[^\s"']*)/i
     ];
 
-    for (const regex of patterns) {
+    for (const regex of streamPatterns) {
       const match = text.match(regex);
       if (match) {
         return {
           url: match[1],
-          quality: extractQuality(match[1]),
-          title: "Decoded Direct Manifest",
+          quality: "1080p",
+          title: sourceTitle || "MultiMovies Direct Stream",
           subtitles: []
         };
       }
     }
 
-    // Final fallback safeguard so we don't drop links completely
+    // Safe Token Fallback: If cloudflare blocks text processing, output the raw, authenticated source frame.
+    // This allows webview/app-layer engines to run the embedded jwplayer.js execution flows cleanly.
     return {
-      url: url,
-      quality: "Auto Quality",
-      title: "MultiMovies Alternative Source",
+      url: embedUrl,
+      quality: "Auto",
+      title: `${sourceTitle || "Server"} Player Link`,
       subtitles: []
     };
   } catch(e) {
     return {
-      url: url,
-      quality: "Auto Quality",
-      title: "MultiMovies Backup Gateway",
+      url: embedUrl,
+      quality: "Auto",
+      title: sourceTitle || "Alternative Player",
       subtitles: []
     };
   }
-}
-
-function extractQuality(url) {
-  const u = (url || "").toLowerCase();
-  if (u.includes("2160p") || u.includes("4k")) return "4K";
-  if (u.includes("1080p") || u.includes("index-f1") || u.includes("master.m3u8")) return "1080p";
-  if (u.includes("720p") || u.includes("index-f2")) return "720p";
-  if (u.includes("480p")) return "480p";
-  if (u.includes("360p")) return "360p";
-  return "1080p";
 }
 
 if (typeof module !== 'undefined' && module.exports) {

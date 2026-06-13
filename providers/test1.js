@@ -107,7 +107,7 @@ var require_formatter = __commonJS({
         title: finalTitle, 
         providerName: "CinemaCity", 
         qualityTag: quality, 
-        description: "", 
+        description: finalTitle, // Fixed: Passes the full layout strings down to the description property
         originalTitle: stream.title || "Stream", 
         language: stream.language || "", 
         _nuvio_formatted: true, 

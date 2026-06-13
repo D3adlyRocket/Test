@@ -27,30 +27,6 @@ async function fetchJson(url, options) {
   } 
 } 
 
-function formatBytes(bytes) { 
-  if (!bytes || isNaN(bytes)) return "Variable Size"; 
-  const units = ["B", "KB", "MB", "GB"]; 
-  let i = 0; 
-  while (bytes >= 1024 && i < units.length - 1) { 
-    bytes /= 1024; 
-    i++; 
-  } 
-  return `${bytes.toFixed(2)} ${units[i]}`; 
-} 
-
-function calculateCalculatedFallbackSize(quality, durationText) { 
-  const mins = parseInt(durationText) || 90; 
-  const norm = String(quality || "").toLowerCase(); 
-  let bitrateKbps = 5200; 
-  if (norm.includes("4k") || norm.includes("2160")) bitrateKbps = 16000; 
-  else if (norm.includes("1080") || norm.includes("fhd")) bitrateKbps = 5200; 
-  else if (norm.includes("720") || norm.includes("hd")) bitrateKbps = 2500; 
-  else if (norm.includes("480") || norm.includes("sd")) bitrateKbps = 1200; 
-  const dynamicVariance = 0.94 + ((mins % 9) / 100); 
-  const calculatedBytes = ((bitrateKbps * dynamicVariance) * 1000 / 8) * (mins * 60); 
-  return formatBytes(calculatedBytes); 
-} 
-
 async function getTmdbMetadata(id, type, season, episode) { 
   let fallbackName = "Unknown Title"; 
   let fallbackDuration = type === "tv" ? "45 min" : "90 min"; 
@@ -120,8 +96,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         rawQuality = "720P"; 
       } 
 
-      var sizeStr = calculateCalculatedFallbackSize(rawQuality, meta.duration); 
-
       var audioTypeHeader = "Original-Audio";
       var layoutLanguageDropdown = "Original";
 
@@ -145,25 +119,27 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       data.data.stream_urls.forEach((streamUrl, idx) => { 
         var lowerStream = streamUrl.toLowerCase();
         
-        var serverName = "Server " + (idx + 1); 
-        if (lowerStream.includes("putgate.com")) serverName = "PutGate"; 
-        else if (lowerStream.includes("onlinevisibilitysystem")) serverName = "Vis System"; 
-        else if (lowerStream.includes("quietmidnight")) serverName = "Quiet Mid"; 
-        else if (lowerStream.includes("smartincome")) serverName = "Smart Inc"; 
-        else if (lowerStream.includes("remoteincome")) serverName = "Remote Inc"; 
+        // Simplified strictly to index based numbering sequence
+        var serverLabel = "Server " + (idx + 1); 
 
+        var format = "MKV";
+        if (lowerStream.includes(".mp4")) format = "MP4";
+        if (lowerStream.includes(".m3u8")) format = "M3U8";
+
+        // Main item header left completely intact to maintain target fix logic
         var finalHeaderName = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader;
 
-        var line1 = isTv ? mediaLabel + " - S" + season + "E" + episode + " (" + year + ")" : mediaLabel + " - " + year;
-        var line2 = rawQuality + " | " + layoutLanguageDropdown + " | " + sizeStr + " | " + serverName;
-        var line3 = meta.duration;
+        // Rebuilt subheadings block matching layout parameters precisely
+        var line1 = isTv ? "🎬 " + mediaLabel + " - S" + season + "E" + episode + " (" + year + ")" : "🎬 " + mediaLabel + " - " + year;
+        var line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown;
+        var line3 = "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📌 " + serverLabel;
         var multiLineUnifiedTitle = line1 + "\n" + line2 + "\n" + line3;
 
         var streamObj = {
           name: finalHeaderName,             
           title: multiLineUnifiedTitle,   
           url: streamUrl,
-          quality: rawQuality.toLowerCase(), // Maps directly to player registry to eliminate the "Unknown" suffix
+          quality: rawQuality.toLowerCase(), 
           type: "direct"
         };
 

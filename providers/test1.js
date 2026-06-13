@@ -43,11 +43,10 @@ var require_formatter = __commonJS({
         language = "Italian • English";
       } 
 
-      const finalName = `CinemaCity | ${quality} | ${audioTag}`; 
       let rawTitle = stream.title || "Stream"; 
       rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, ''); 
 
-      // Unified multi-line formatter engine integration
+      // Universal multi-line parser logic
       var lowerScan = String(stream.url || '').toLowerCase();
       var format = "M3U8 / HLS";
       if (lowerScan.includes(".mp4")) format = "MP4";
@@ -62,14 +61,16 @@ var require_formatter = __commonJS({
       }
       sourceParts.push("WEB-DL");
       var dynamicSourceTag = "📌 " + sourceParts.join(" • ");
-
       var qIcon = quality.includes("4K") || quality.includes("2160") ? "🌟" : "💎";
       
-      // Constructing line splits
       var line1 = "🎬 " + rawTitle;
       var line2 = qIcon + " " + quality + " | 🌍 " + language + " | 🗃️ Server 1";
       var line3 = "🎞️ " + format + " | ⏱️ N/A | " + dynamicSourceTag;
-      var finalTitle = line1 + "\n" + line2 + "\n" + line3;
+      
+      // Constructing multi-level fallback engine bindings
+      const finalHeaderName = `CinemaCity | ${quality} | ${audioTag}`;
+      const forcedLayoutBlock = `${finalHeaderName}\n\n${line1}\n${line2}\n${line3}`;
+      const compositeLayoutTitle = `${line1}\n${line2}\n${line3}`;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {}; 
       let finalHeaders = stream.headers; 
@@ -103,11 +104,11 @@ var require_formatter = __commonJS({
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]); 
 
       return __spreadProps(__spreadValues({}, stream), { 
-        name: finalName, 
-        title: finalTitle, 
+        name: forcedLayoutBlock, 
+        title: compositeLayoutTitle, 
         providerName: "CinemaCity", 
         qualityTag: quality, 
-        description: finalTitle, // Fixed: Passes the full layout strings down to the description property
+        description: compositeLayoutTitle, 
         originalTitle: stream.title || "Stream", 
         language: stream.language || "", 
         _nuvio_formatted: true, 

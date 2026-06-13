@@ -84,10 +84,6 @@ async function getTmdbMetadata(id, type, season, episode) {
   } 
 } 
 
-function pad2(n) {
-  return (n != null && n < 10) ? '0' + n : String(n);
-}
-
 async function getStreams(tmdbId, mediaType, season, episode) { 
   var streams = []; 
   try { 
@@ -156,24 +152,19 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         else if (lowerStream.includes("smartincome")) serverName = "Smart Inc"; 
         else if (lowerStream.includes("remoteincome")) serverName = "Remote Inc"; 
 
-        var format = "MKV";
-        if (lowerStream.includes(".mp4")) format = "MP4";
-        if (lowerStream.includes(".m3u8")) format = "M3U8";
+        var finalHeaderName = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader;
 
-        // Structured cleanly to satisfy internal parser rule checking
-        var finalHeaderName = "🎬 " + PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader;
-
-        var line1 = isTv ? "🎬 " + mediaLabel + " - S" + pad2(season) + "E" + pad2(episode) + " (" + year + ")" : "🎬 " + mediaLabel + " - " + year;
-        var line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr + " | 🗃️ " + serverName;
-        var line3 = "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📼 AVC • 🔊 AAC";
+        var line1 = isTv ? mediaLabel + " - S" + season + "E" + episode + " (" + year + ")" : mediaLabel + " - " + year;
+        var line2 = rawQuality + " | " + layoutLanguageDropdown + " | " + sizeStr + " | " + serverName;
+        var line3 = meta.duration;
         var multiLineUnifiedTitle = line1 + "\n" + line2 + "\n" + line3;
 
         var streamObj = {
           name: finalHeaderName,             
           title: multiLineUnifiedTitle,   
           url: streamUrl,
-          type: "direct",
-          behaviorHints: { notWebReady: true }
+          quality: rawQuality.toLowerCase(), // Maps directly to player registry to eliminate the "Unknown" suffix
+          type: "direct"
         };
 
         streamObj.headers = HEADERS;

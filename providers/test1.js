@@ -1,4 +1,19 @@
-"use strict"; var __defProp = Object.defineProperty; var __defProps = Object.defineProperties; var __getOwnPropDescs = Object.getOwnPropertyDescriptors; var __getOwnPropNames = Object.getOwnPropertyNames; var __getOwnPropSymbols = Object.getOwnPropertySymbols; var __hasOwnProp = Object.prototype.hasOwnProperty; var __propIsEnum = Object.prototype.propertyIsEnumerable; var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value; var __spreadValues = (a, b) => { for (var prop in b || (b = {})) if (__hasOwnProp.call(b, prop)) __defNormalProp(a, prop, b[prop]); if (__getOwnPropSymbols) for (var prop of __getOwnPropSymbols(b)) { if (__propIsEnum.call(b, prop)) __defNormalProp(a, prop, b[prop]); } return a; }; var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b)); var __objRest = (source, exclude) => { var target = {}; for (var prop in source) if (__hasOwnProp.call(source, prop) && exclude.indexOf(prop) < 0) target[prop] = source[prop]; if (source != null && __getOwnPropSymbols) for (var prop of __getOwnPropSymbols(source)) { if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop)) target[prop] = source[prop]; } return target; }; var __commonJS = (cb, mod) => function __require() { return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports; }; var __async = (__this, __arguments, generator) => { return new Promise((resolve, reject) => { var fulfilled = (value) => { try { step(generator.next(value)); } catch (e) { reject(e); } }; var rejected = (value) => { try { step(generator.throw(value)); } catch (e) { reject(e); } }; var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected); step((generator = generator.apply(__this, __arguments)).next()); }); }; 
+"use strict"; 
+var __defProp = Object.defineProperty; 
+var __defProps = Object.defineProperties; 
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors; 
+var __getOwnPropNames = Object.getOwnPropertyNames; 
+var __getOwnPropSymbols = Object.getOwnPropertySymbols; 
+var __hasOwnProp = Object.prototype.hasOwnProperty; 
+var __propIsEnum = Object.prototype.propertyIsEnumerable; 
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value; 
+var __spreadValues = (a, b) => { for (var prop in b || (b = {})) if (__hasOwnProp.call(b, prop)) __defNormalProp(a, prop, b[prop]); if (__getOwnPropSymbols) for (var prop of __getOwnPropSymbols(b)) { if (__propIsEnum.call(b, prop)) __defNormalProp(a, prop, b[prop]); } return a; }; 
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b)); 
+var __objRest = (source, exclude) => { var target = {}; for (var prop in source) if (__hasOwnProp.call(source, prop) && exclude.indexOf(prop) < 0) target[prop] = source[prop]; if (source != null && __getOwnPropSymbols) for (var prop of __getOwnPropSymbols(source)) { if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop)) target[prop] = source[prop]; } return target; }; 
+var __commonJS = (cb, mod) => function __require() { return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports; }; 
+var __async = (__this, __arguments, generator) => { return new Promise((resolve, reject) => { var fulfilled = (value) => { try { step(generator.next(value)); } catch (e) { reject(e); } }; 
+var rejected = (value) => { try { step(generator.throw(value)); } catch (e) { reject(e); } }; 
+var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected); step((generator = generator.apply(__this, __arguments)).next()); }); }; 
 
 // src/formatter.js 
 var require_formatter = __commonJS({ 
@@ -33,52 +48,45 @@ var require_formatter = __commonJS({
     } 
 
     function formatStream2(stream, providerName) { 
-      // 1. Determine Quality Tag
-      let rawQuality = "1080P";
-      let qualityStr = "1080p FHD";
-      let checkTitle = String(stream.title || "").toLowerCase();
+      let rawQuality = "1080P"; 
+      let qualityStr = "1080p FHD"; 
+      let checkTitle = String(stream.title || "").toLowerCase(); 
       
-      if (checkTitle.includes("2160p") || checkTitle.includes("4k")) {
-        qualityStr = "4K UHD";
-        rawQuality = "2160P";
-      } else if (checkTitle.includes("720p")) {
-        qualityStr = "720p HD";
-        rawQuality = "720P";
-      }
+      if (checkTitle.includes("2160p") || checkTitle.includes("4k")) { 
+        qualityStr = "4K UHD"; 
+        rawQuality = "2160P"; 
+      } else if (checkTitle.includes("720p")) { 
+        qualityStr = "720p HD"; 
+        rawQuality = "720P"; 
+      } 
 
-      // 2. Determine Audio & Language Dropdown Properties
-      let audioTypeHeader = "Original-Audio";
-      let layoutLanguageDropdown = "Original";
+      let audioTypeHeader = "Original-Audio"; 
+      let layoutLanguageDropdown = "Original"; 
 
       if (stream.language === "Italian" || checkTitle.includes("ita") || checkTitle.includes("italian")) { 
-        audioTypeHeader = "Italian-Audio";
-        layoutLanguageDropdown = "Italian";
-      } else if (checkTitle.includes("dual")) {
-        audioTypeHeader = "Dual-Audio";
-        layoutLanguageDropdown = "English • Hindi";
-      }
+        audioTypeHeader = "Italian-Audio"; 
+        layoutLanguageDropdown = "Italian"; 
+      } else if (checkTitle.includes("dual")) { 
+        audioTypeHeader = "Dual-Audio"; 
+        layoutLanguageDropdown = "English • Hindi"; 
+      } 
 
-      // 3. Keep Main Item Header Clean to Avoid the Trailing "Unknown" Bug
       const finalName = `CinemaCity | ${qualityStr} | ${audioTypeHeader}`; 
 
-      // 4. Rebuild Title to match uniform layout precisely
-      let cleanTitleText = stream.title || "Stream";
-      // Strip any native raw block emojis if they are already in the string
-      cleanTitleText = cleanTitleText.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '');
+      let cleanTitleText = stream.title || "Stream"; 
+      cleanTitleText = cleanTitleText.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, ''); 
 
-      // Parse Container Formats
-      let format = "MKV";
-      let lowerUrl = String(stream.url || "").toLowerCase();
-      if (lowerUrl.includes(".mp4")) format = "MP4";
-      if (lowerUrl.includes(".m3u8") || stream.type === "hls") format = "M3U8";
+      let format = "MKV"; 
+      let lowerUrl = String(stream.url || "").toLowerCase(); 
+      if (lowerUrl.includes(".mp4")) format = "MP4"; 
+      if (lowerUrl.includes(".m3u8") || stream.type === "hls") format = "M3U8"; 
 
-      // Re-map index identifiers to basic index numbers
-      let serverLabel = "Server 1";
+      let serverLabel = "Server 1"; 
 
-      const line1 = "🎬 " + cleanTitleText;
-      const line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown;
-      const line3 = "🎞️ " + format + " | ⏱️ 90 min | 📌 " + serverLabel;
-      const finalTitle = line1 + "\n" + line2 + "\n" + line3;
+      const line1 = "🎬 " + cleanTitleText; 
+      const line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown; 
+      const line3 = "🎞️ " + format + " | ⏱️ 90 min | 📌 " + serverLabel; 
+      const finalTitle = line1 + "\n" + line2 + "\n" + line3; 
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {}; 
       let finalHeaders = stream.headers; 
@@ -117,7 +125,7 @@ var require_formatter = __commonJS({
         title: finalTitle, 
         providerName: "CinemaCity", 
         qualityTag: rawQuality.toLowerCase(), 
-        quality: rawQuality.toLowerCase(), // Maps to stream engine object property registry to eliminate the "Unknown" text
+        quality: rawQuality.toLowerCase(), 
         description: "", 
         originalTitle: stream.title || "Stream", 
         language: stream.language || "", 
@@ -176,7 +184,7 @@ var require_fetch_helper = __commonJS({
             throw new Error(`Request to ${url} timed out after ${requestTimeout}ms`); 
           } 
           throw error; 
-        } : finally { 
+        } finally { 
           if (typeof timeoutConfig.cleanup === "function") { 
             timeoutConfig.cleanup(); 
           } 

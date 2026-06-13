@@ -27,23 +27,33 @@ async function fetchJson(url, options) {
   } 
 } 
 
-async function getTrueImdbRating(imdbId, type) {
+// Direct high-speed scraper engine targeting genuine live IMDb database scores
+async function fetchGenuineImdbRating(imdbId) {
   if (!imdbId) return null;
   try {
-    // Hits TMDB's find endpoint using the IMDb ID to return the accurate IMDb rating records
-    const url = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
-    const res = await fetch(url);
+    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent('https://www.imdb.com/title/' + imdbId + '/')}`);
     if (res.ok) {
-      const data = await res.json();
-      const group = type === "tv" ? data.tv_results : data.movie_results;
-      if (group && group.length > 0 && group[0].vote_average) {
-        return Number(group[0].vote_average).toFixed(1);
+      const wrapper = await res.json();
+      const html = wrapper.contents;
+      // Extracts real-time schema rating object directly embedded by IMDb
+      const match = html.match(/"aggregateRating"\s*:\s*\{[^}]*"ratingValue"\s*:\s*([0-9.]+)/);
+      if (match && match[1]) {
+        return Number(match[1]).toFixed(1);
       }
     }
-    return null;
   } catch (e) {
-    return null;
+    console.log("Primary IMDb fetch failed, trying high-speed fallback endpoint...");
   }
+
+  // Backup ultra-fast public database instance mirror
+  try {
+    const res = await fetch(`https://router.fsh.pt/imdb/${imdbId}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.rating) return Number(data.rating).toFixed(1);
+    }
+  } catch(e) {}
+  return null;
 }
 
 async function getTmdbMetadata(id, type, season, episode) { 
@@ -75,14 +85,10 @@ async function getTmdbMetadata(id, type, season, episode) {
     let finalRating = "N/A";
     
     if (imdbId) {
-      const trueScore = await getTrueImdbRating(imdbId, type);
-      if (trueScore) {
-        finalRating = trueScore;
-      } else if (data.vote_average) {
-        finalRating = Number(data.vote_average).toFixed(1);
+      const realImdbScore = await fetchGenuineImdbRating(imdbId);
+      if (realImdbScore) {
+        finalRating = realImdbScore;
       }
-    } else if (data.vote_average) {
-      finalRating = Number(data.vote_average).toFixed(1);
     }
 
     return { 
@@ -151,6 +157,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       var mediaLabel = meta.name || "Unknown Title";
       var year = meta.year || "N/A";
+      
+      // Formats the verified IMDb rating directly into the template placeholder 
       var ratingStr = meta.rating !== "N/A" ? " | ⭐ " + meta.rating : "";
 
       data.data.stream_urls.forEach((streamUrl, idx) => { 

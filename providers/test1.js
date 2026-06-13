@@ -1,4 +1,4 @@
-const PROVIDER_NAME = "PlayIMDb"; 
+const PROVIDER_NAME = "🟡 PlayIMDb"; 
 const BASE_API = "https://streamdata.vaplayer.ru/api.php"; 
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706"; 
 
@@ -166,11 +166,14 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                             "⚡ " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr + "\n" + 
                             "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📌 " + serverName; 
 
-        // Fix: Swapped the layout target field label property from 'title' to VixSrc style 'description'
+        // Explicitly defining quality properties inside object mapping forces player layout to clear alternative text fields
         var streamObj = { 
           name: headerName, 
-          description: dropdownTitle, 
+          title: dropdownTitle, 
           url: streamUrl, 
+          quality: rawQuality,
+          resolution: rawQuality,
+          type: "url",
           behaviorHints: { notWebReady: true },
           headers: HEADERS 
         }; 

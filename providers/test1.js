@@ -1,5 +1,5 @@
 "use strict"; 
-var __defProp = Object.defineProperty; var __defProps = Object.defineProperties; var __getOwnPropDescs = Object.getOwnPropertyDescriptors; var __getOwnPropNames = Object.getOwnPropertyNames; var __getOwnPropSymbols = Object.getOwnPropertySymbols; var __hasOwnProp = Object.prototype.hasOwnProperty; var __propIsEnum = Object.prototype.propertyIsEnumerable; var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value; var __spreadValues = (a, b) => { for (var prop in b || (b = {})) if (__hasOwnProp.call(b, prop)) __defNormalProp(a, prop, b[prop]); if (__getOwnPropSymbols) for (var prop of __getOwnPropSymbols(b)) { if (__propIsEnum.call(b, prop)) __defNormalProp(a, prop, b[prop]); } return a; }; var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b)); var __objRest = (source, exclude) => { var target = {}; for (var prop in source) if (__hasOwnProp.call(source, prop) && exclude.indexOf(prop) < 0) target[prop] = source[prop]; if (source != null && __getOwnPropSymbols) for (var prop of __getOwnPropSymbols(source)) { if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop)) target[prop] = source[prop]; } return target; }; var __commonJS = (cb, mod) => function __require() { return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports; }; var __async = (__this, __arguments, generator) => { return new Promise((resolve, reject) => { var fulfilled = (value) => { try { step(generator.next(value)); } catch (e) { reject(e); } }; var rejected = (value) => { try { step(generator.throw(value)); } catch (e) { reject(e); } }; var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected); step((generator = generator.apply(__this, __arguments)).next()); }); }; 
+var __defProp = Object.defineProperty; var __defProps = Object.defineProperties; var __getOwnPropDescs = Object.getOwnPropertyDescriptors; var __getOwnPropNames = Object.getOwnPropertyNames; var __getOwnPropSymbols = Object.getOwnPropertySymbols; var __hasOwnProp = Object.prototype.hasOwnProperty; var __propIsEnum = Object.prototype.propertyIsEnumerable; var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value; var __spreadValues = (a, b) => { for (var prop in b || (b = {})) if (__hasOwnProp.call(b, prop)) __defNormalProp(a, prop, b[prop]); if (__getOwnPropSymbols) for (var prop of __getOwnPropSymbols(b)) { if (__propIsEnum.call(b, prop)) __propIsEnum.call(b, prop); } return a; }; var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b)); var __objRest = (source, exclude) => { var target = {}; for (var prop in source) if (__hasOwnProp.call(source, prop) && exclude.indexOf(prop) < 0) target[prop] = source[prop]; if (source != null && __getOwnPropSymbols) for (var prop of __getOwnPropSymbols(source)) { if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop)) target[prop] = source[prop]; } return target; }; var __commonJS = (cb, mod) => function __require() { return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports; }; var __async = (__this, __arguments, generator) => { return new Promise((resolve, reject) => { var fulfilled = (value) => { try { step(generator.next(value)); } catch (e) { reject(e); } }; var rejected = (value) => { try { step(generator.throw(value)); } catch (e) { reject(e); } }; var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected); step((generator = generator.apply(__this, __arguments)).next()); }); }; 
 
 // src/formatter.js 
 var require_formatter = __commonJS({ 
@@ -105,7 +105,6 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer); 
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]); 
 
-      // Create clean base copy to strip competing visual field overrides
       const baseStream = __spreadValues({}, stream);
       delete baseStream.language;
       delete baseStream.languages;
@@ -330,15 +329,29 @@ function searchBySitemap(id, providerType, providerContext = null) {
   }); 
 } 
 
+// FIXED: Now accurately tracks down the deep metadata endpoint whenever tracking an IMDb string ID
 function getTmdbMetadata(id, providerType) { 
   return __async(this, null, function* () { 
     try { 
       let metadataUrl = null; const normalizedId = String(id || "").trim(); const normalizedType = providerType === "movie" ? "movie" : "tv"; 
-      if (/^tt\d+$/i.test(normalizedId)) { metadataUrl = `https://api.themoviedb.org/3/find/${encodeURIComponent(normalizedId)}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=en-US`; } 
-      else if (/^\d+$/.test(normalizedId)) { metadataUrl = `https://api.themoviedb.org/3/${normalizedType}/${normalizedId}?api_key=${TMDB_API_KEY}&language=en-US`; } 
-      if (!metadataUrl) return null; const response = yield fetchWithTimeout(metadataUrl, { timeout: FETCH_TIMEOUT }); if (!response.ok) return null; const payload = yield response.json(); 
-      if (/^tt\d+$/i.test(normalizedId)) { const results = normalizedType === "movie" ? payload == null ? void 0 : payload.movie_results : payload == null ? void 0 : payload.tv_results; return Array.isArray(results) && results.length > 0 ? results[0] : null; } 
-      return payload; 
+      if (/^tt\d+$/i.test(normalizedId)) { 
+        metadataUrl = `https://api.themoviedb.org/3/find/${encodeURIComponent(normalizedId)}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=en-US`; 
+        const response = yield fetchWithTimeout(metadataUrl, { timeout: FETCH_TIMEOUT }); if (!response.ok) return null; const payload = yield response.json(); 
+        const results = normalizedType === "movie" ? payload == null ? void 0 : payload.movie_results : payload == null ? void 0 : payload.tv_results; 
+        if (Array.isArray(results) && results.length > 0) {
+          const tmdbNumericId = results[0].id;
+          const detailUrl = `https://api.themoviedb.org/3/${normalizedType}/${tmdbNumericId}?api_key=${TMDB_API_KEY}&language=en-US`;
+          const detailResp = yield fetchWithTimeout(detailUrl, { timeout: FETCH_TIMEOUT });
+          if (detailResp.ok) return yield detailResp.json();
+          return results[0];
+        }
+        return null;
+      } 
+      else if (/^\d+$/.test(normalizedId)) { 
+        metadataUrl = `https://api.themoviedb.org/3/${normalizedType}/${normalizedId}?api_key=${TMDB_API_KEY}&language=en-US`; 
+        const response = yield fetchWithTimeout(metadataUrl, { timeout: FETCH_TIMEOUT }); if (!response.ok) return null; return yield response.json();
+      } 
+      return null; 
     } catch (e) { return null; } 
   }); 
 } 
@@ -442,7 +455,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
       if (!selectedUrl) { for (const link of links) { if (link.text.includes("eng") || link.text.includes("sub")) continue; selectedUrl = link.url; break; } } 
       if (!selectedUrl) selectedUrl = links[0].url; const streamUrl = resolveUrl(movieUrl, selectedUrl); 
       
-      // Fixed runtime mapping assignment below
       const result = { name: "CinemaCity", displayTitle: title, url: streamUrl, quality: "1080p", runtime: searchResult.runtime, type: "hls", language: hasItalian ? "Italian" : "", hasItalian, behaviorHints: { notWebReady: true }, headers: { "Referer": "https://cinemacity.cc/", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" } }; 
       return [formatStream(result, "CinemaCity")]; 
     } catch (e) { return []; } 

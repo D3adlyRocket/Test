@@ -27,20 +27,20 @@ async function fetchJson(url, options) {
   } 
 } 
 
-async function getImdbRating(imdbId) {
-  if (!imdbId) return "N/A";
+async function getImdbRatingFallback(imdbId) {
+  if (!imdbId) return null;
   try {
-    // Hits an open IMDb metadata scraper engine mirror
-    const res = await fetch(`https://api.rating.murnas.my.id/imdb/${imdbId}`);
+    // Hits an official alternative OMDB database instance for actual real-time IMDb data syncing
+    const res = await fetch(`https://www.omdbapi.com/?i=${imdbId}&apikey=575e921d`);
     if (res.ok) {
       const data = await res.json();
-      if (data && data.rating) {
-        return Number(data.rating).toFixed(1);
+      if (data && data.imdbRating && data.imdbRating !== "N/A") {
+        return Number(data.imdbRating).toFixed(1);
       }
     }
-    return "N/A";
+    return null;
   } catch (e) {
-    return "N/A";
+    return null;
   }
 }
 
@@ -48,7 +48,6 @@ async function getTmdbMetadata(id, type, season, episode) {
   let fallbackName = "Unknown Title"; 
   let fallbackDuration = type === "tv" ? "45 min" : "90 min"; 
   try { 
-    // Appending external_ids to find the true IMDb ID reference safely
     const endpoint = type === "movie" ? "movie" : "tv"; 
     const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`; 
     const response = await fetch(url); 
@@ -70,12 +69,19 @@ async function getTmdbMetadata(id, type, season, episode) {
       } 
     } 
 
-    // Locate unique internal IMDb ID reference code
     let imdbId = data.imdb_id || (data.external_ids && data.external_ids.imdb_id) || null;
     let finalRating = "N/A";
     
     if (imdbId) {
-      finalRating = await getImdbRating(imdbId);
+      const realImdbScore = await getImdbRatingFallback(imdbId);
+      if (realImdbScore) {
+        finalRating = realImdbScore;
+      } else if (data.vote_average) {
+        // Safe fall back back to rounded scale index if database is unreachable
+        finalRating = Number(data.vote_average).toFixed(1);
+      }
+    } else if (data.vote_average) {
+      finalRating = Number(data.vote_average).toFixed(1);
     }
 
     return { 

@@ -1,4 +1,4 @@
-const PROVIDER_NAME = "PlayIMDb"; 
+const PROVIDER_NAME = "🟡 PlayIMDb"; 
 const BASE_API = "https://streamdata.vaplayer.ru/api.php"; 
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706"; 
 
@@ -124,7 +124,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       // 2. Size calculation based on real runtime duration metrics 
       var sizeStr = calculateCalculatedFallbackSize(rawQuality, meta.duration); 
 
-      // 3. Smart Language Mapping Engine for Android TV Compatibility
+      // 3. Smart Language Mapping Engine
       var audioTypeHeader = "Original-Audio";
       var layoutLanguageDropdown = "Original";
 
@@ -160,8 +160,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
         var mediaLabel = meta.name + (isTv ? " S" + season + "E" + episode : ""); 
 
-        // 6. Configured Output Structure - Appending Server Name fixes the UI's trailing variable lookups
-        var headerName = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader + " - " + serverName; 
+        // 6. Split Fix: Appending a 3rd pipe and an invisible char (\u200C) kills the player's custom "Unknown" addition
+        var headerName = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader + " | \u200C"; 
         var dropdownTitle = "🎬 " + mediaLabel + " - " + meta.year + "\n" + 
                             "⚡ " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr + "\n" + 
                             "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📌 " + serverName; 

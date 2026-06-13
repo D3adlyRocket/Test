@@ -1,4 +1,4 @@
-const PROVIDER_NAME = "🟡 PlayIMDb";
+const PROVIDER_NAME = "PlayIMDb"; 
 const BASE_API = "https://streamdata.vaplayer.ru/api.php"; 
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706"; 
 
@@ -160,17 +160,20 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
         var mediaLabel = meta.name + (isTv ? " S" + season + "E" + episode : ""); 
 
-        // 6. Non-Pipe Header Formulation to prevent UI split engine from appending "Unknown"
-        var headerName = PROVIDER_NAME + " • " + qualityStr + " • " + audioTypeHeader; 
+        // Reverted back to clean layout style with pipes exactly as requested
+        var headerName = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader; 
         
         var dropdownTitle = "🎬 " + mediaLabel + " - " + meta.year + "\n" + 
                             "⚡ " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr + "\n" + 
                             "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📌 " + serverName; 
 
+        // We fill fallback parameters directly into the core object structure to intercept layout omissions
         var streamObj = { 
           name: headerName, 
           title: dropdownTitle, 
           url: streamUrl, 
+          group: audioTypeHeader,
+          subname: audioTypeHeader,
           headers: HEADERS 
         }; 
 

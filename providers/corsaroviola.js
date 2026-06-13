@@ -1,6 +1,6 @@
 const cheerio = require('cheerio-without-node-native');
 // multimovies.js
-// MultiMovies - Correctly mapped direct stream extractor
+// MultiMovies - Direct Stream Playlist Resolver
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://multimovies.homes";
@@ -185,11 +185,20 @@ async function resolveEmbed(url, referer) {
   if (!url || !url.startsWith("http")) return null;
 
   try {
-    // FIXED: Build mapping parameters directly from your DevTools Network captures
-    // If the server returns empty text on node-fetch, map using structural endpoints
+    // If it's already a direct stream link format from your captures, pass it cleanly
+    if (url.includes("multimovieshg.com") || url.includes("smoothpre.com") || url.includes("sprintcdn.com") || url.includes(".m3u8")) {
+      return {
+        url: url,
+        quality: extractQuality(url),
+        title: "MultiMovies Stream",
+        subtitles: []
+      };
+    }
+
     const resp = await fetch(url, { headers: { ...HEADERS, "Referer": referer } });
     const text = await resp.text();
 
+    // Checked directly against your verified network log targets
     const patterns = [
       {
         title: "MultiMovies Native",
@@ -225,41 +234,11 @@ async function resolveEmbed(url, referer) {
       }
     }
 
-    // FIXED MAPPER FALLBACK: If the page text was empty or obfuscated, reconstruct the live targets manually
-    if (url.includes("iqsmartgames.com") || url.includes("ironbrookbuilders.cyou") || url.includes("vidzee.wtf")) {
-      // Re-map the hidden master configurations directly via proxy strings
-      const mockStreamUrl = url.replace(/embed\/movie\/([^\/?]+).*/, "stream/$1");
-      return {
-        url: url, // Returns the clean working frame context
-        quality: "Auto Quality",
-        title: "MultiMovies Premium Mirror",
-        subtitles: []
-      };
-    }
-
-    if (url.includes(".m3u8") || url.includes(".mp4")) {
-      return {
-        url: url,
-        quality: extractQuality(url),
-        title: "Direct Stream",
-        subtitles: []
-      };
-    }
-
-    // Default return structural frame block
-    return {
-      url: url,
-      quality: "1080p",
-      title: "MultiMovies Player",
-      subtitles: []
-    };
+    // FIXED: Completely removed the broad URL fallbacks that were returning the wrapper links.
+    // If the stream can't be decoded via pure backend code, return null so it doesn't pollute your results with unplayable links.
+    return null; 
   } catch(e) {
-    return {
-      url: url,
-      quality: "Unknown",
-      title: "MultiMovies Fallback",
-      subtitles: []
-    };
+    return null;
   }
 }
 

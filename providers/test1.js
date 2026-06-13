@@ -38,15 +38,16 @@ var require_formatter = __commonJS({
       let audioTag = "Single-Audio"; 
       let language = "English";
 
-      if (stream.language === "Italian" || (stream.name && stream.name.includes("ITA"))) { 
+      if (stream.language === "Italian" || (stream.name && stream.name.includes("ITA")) || stream.hasItalian) { 
         audioTag = "Multi-Audio"; 
         language = "Italian • English";
       } 
 
-      let rawTitle = stream.title || "Stream"; 
+      const finalName = `CinemaCity | ${quality} | ${audioTag}`; 
+      let rawTitle = stream.displayTitle || stream.title || "Stream"; 
       rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, ''); 
 
-      // Universal multi-line parser logic
+      // Format Parser Engine
       var lowerScan = String(stream.url || '').toLowerCase();
       var format = "M3U8 / HLS";
       if (lowerScan.includes(".mp4")) format = "MP4";
@@ -63,14 +64,17 @@ var require_formatter = __commonJS({
       var dynamicSourceTag = "📌 " + sourceParts.join(" • ");
       var qIcon = quality.includes("4K") || quality.includes("2160") ? "🌟" : "💎";
       
+      // Dynamic Runtime Formatting
+      let durationStr = "N/A";
+      if (stream.runtime && Number.isInteger(stream.runtime) && stream.runtime > 0) {
+        durationStr = `${stream.runtime} min`;
+      }
+
+      // Rebuilt Subheading Layout Hierarchy
       var line1 = "🎬 " + rawTitle;
-      var line2 = qIcon + " " + quality + " | 🌍 " + language + " | 🗃️ Server 1";
-      var line3 = "🎞️ " + format + " | ⏱️ N/A | " + dynamicSourceTag;
-      
-      // Constructing multi-level fallback engine bindings
-      const finalHeaderName = `CinemaCity | ${quality} | ${audioTag}`;
-      const forcedLayoutBlock = `${finalHeaderName}\n\n${line1}\n${line2}\n${line3}`;
-      const compositeLayoutTitle = `${line1}\n${line2}\n${line3}`;
+      var line2 = qIcon + " " + quality + " | 🌍 " + language + " | 🔊 " + audioTag + " | 🗃️ Server 1";
+      var line3 = "🎞️ " + format + " | ⏱️ " + durationStr + " | " + dynamicSourceTag;
+      var finalSubtitlesBlock = line1 + "\n" + line2 + "\n" + line3;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {}; 
       let finalHeaders = stream.headers; 
@@ -104,11 +108,11 @@ var require_formatter = __commonJS({
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]); 
 
       return __spreadProps(__spreadValues({}, stream), { 
-        name: forcedLayoutBlock, 
-        title: compositeLayoutTitle, 
+        name: finalName, 
+        title: finalSubtitlesBlock, 
         providerName: "CinemaCity", 
         qualityTag: quality, 
-        description: compositeLayoutTitle, 
+        description: finalSubtitlesBlock, 
         originalTitle: stream.title || "Stream", 
         language: stream.language || "", 
         _nuvio_formatted: true, 
@@ -315,11 +319,11 @@ function searchBySitemap(id, providerType, providerContext = null) {
       ranked.sort((a, b) => b.score - a.score); const candidatesToVerify = ranked.slice(0, 3); 
       for (const candidate of candidatesToVerify) { 
         const candidateImdbId = yield verifyCandidateImdb(candidate.entry.url, expectedImdbId); 
-        if (candidateImdbId === expectedImdbId) { return { url: candidate.entry.url, title: expectedTitles[0] || candidate.entry.title, year: expectedYear }; } 
+        if (candidateImdbId === expectedImdbId) { return { url: candidate.entry.url, title: expectedTitles[0] || candidate.entry.title, year: expectedYear, runtime: metadata ? metadata.runtime || (metadata.episode_run_time ? metadata.episode_run_time[0] : null) : null }; } 
       } 
       if (bestScore < 950) return null; 
     } 
-    return { url: bestEntry.url, title: expectedTitles[0] || bestEntry.title, year: expectedYear }; 
+    return { url: bestEntry.url, title: expectedTitles[0] || bestEntry.title, year: expectedYear, runtime: metadata ? metadata.runtime || (metadata.episode_run_time ? metadata.episode_run_time[0] : null) : null }; 
   }); 
 } 
 
@@ -434,7 +438,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       for (const link of links) { const text = link.text; if (text.includes("ita") || text.includes("italian") || text.includes("italiano")) { selectedUrl = link.url; hasItalian = true; break; } } 
       if (!selectedUrl) { for (const link of links) { if (link.text.includes("eng") || link.text.includes("sub")) continue; selectedUrl = link.url; break; } } 
       if (!selectedUrl) selectedUrl = links[0].url; const streamUrl = resolveUrl(movieUrl, selectedUrl); 
-      const result = { name: "CinemaCity", title, url: streamUrl, quality: "1080p", type: "hls", language: hasItalian ? "Italian" : "", behaviorHints: { notWebReady: true }, headers: { "Referer": "https://cinemacity.cc/", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" } }; 
+      const result = { name: "CinemaCity", displayTitle: title, url: streamUrl, quality: "1080p", runtime: searchResult.runtime, type: "hls", language: hasItalian ? "Italian" : "", hasItalian, behaviorHints: { notWebReady: true }, headers: { "Referer": "https://cinemacity.cc/", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" } }; 
       return [formatStream(result, "CinemaCity")]; 
     } catch (e) { return []; } 
   }); 

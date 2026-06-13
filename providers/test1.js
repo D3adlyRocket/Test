@@ -1,4 +1,4 @@
-const PROVIDER_NAME = "PlayIMDb"; 
+const PROVIDER_NAME = "🟡 PlayIMDb"; 
 const BASE_API = "https://streamdata.vaplayer.ru/api.php"; 
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706"; 
 
@@ -27,45 +27,15 @@ async function fetchJson(url, options) {
   } 
 } 
 
-// Direct high-speed scraper engine targeting genuine live IMDb database scores
-async function fetchGenuineImdbRating(imdbId) {
-  if (!imdbId) return null;
-  try {
-    const res = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent('https://www.imdb.com/title/' + imdbId + '/')}`);
-    if (res.ok) {
-      const wrapper = await res.json();
-      const html = wrapper.contents;
-      // Extracts real-time schema rating object directly embedded by IMDb
-      const match = html.match(/"aggregateRating"\s*:\s*\{[^}]*"ratingValue"\s*:\s*([0-9.]+)/);
-      if (match && match[1]) {
-        return Number(match[1]).toFixed(1);
-      }
-    }
-  } catch (e) {
-    console.log("Primary IMDb fetch failed, trying high-speed fallback endpoint...");
-  }
-
-  // Backup ultra-fast public database instance mirror
-  try {
-    const res = await fetch(`https://router.fsh.pt/imdb/${imdbId}`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.rating) return Number(data.rating).toFixed(1);
-    }
-  } catch(e) {}
-  return null;
-}
-
 async function getTmdbMetadata(id, type, season, episode) { 
   let fallbackName = "Unknown Title"; 
   let fallbackDuration = type === "tv" ? "45 min" : "90 min"; 
   try { 
     const endpoint = type === "movie" ? "movie" : "tv"; 
-    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`; 
+    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}`; 
     const response = await fetch(url); 
-    if (!response.ok) return { name: fallbackName, year: "N/A", duration: fallbackDuration, rating: "N/A" }; 
+    if (!response.ok) return { name: fallbackName, year: "N/A", duration: fallbackDuration }; 
     const data = await response.json(); 
-    
     let duration = fallbackDuration; 
     if (type === "movie" && data.runtime) { 
       duration = `${data.runtime} min`; 
@@ -80,25 +50,13 @@ async function getTmdbMetadata(id, type, season, episode) {
         } 
       } 
     } 
-
-    let imdbId = data.imdb_id || (data.external_ids && data.external_ids.imdb_id) || null;
-    let finalRating = "N/A";
-    
-    if (imdbId) {
-      const realImdbScore = await fetchGenuineImdbRating(imdbId);
-      if (realImdbScore) {
-        finalRating = realImdbScore;
-      }
-    }
-
     return { 
       name: data.title || data.name || fallbackName, 
       year: (data.release_date || data.first_air_date || "").split("-")[0] || "N/A", 
-      duration: duration,
-      rating: finalRating
+      duration: duration 
     }; 
   } catch (e) { 
-    return { name: fallbackName, year: "N/A", duration: fallbackDuration, rating: "N/A" }; 
+    return { name: fallbackName, year: "N/A", duration: fallbackDuration }; 
   } 
 } 
 
@@ -139,7 +97,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       } 
 
       var audioTypeHeader = "Original-Audio";
-      var layoutLanguageDropdown = "Original";
+      var layoutLanguageDropdown = "Original-Audio";
 
       if (scanText.includes("dual") || (scanText.includes("hindi") && scanText.includes("english"))) {
         audioTypeHeader = "Dual-Audio";
@@ -157,23 +115,23 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       var mediaLabel = meta.name || "Unknown Title";
       var year = meta.year || "N/A";
-      
-      // Formats the verified IMDb rating directly into the template placeholder 
-      var ratingStr = meta.rating !== "N/A" ? " | ⭐ " + meta.rating : "";
 
       data.data.stream_urls.forEach((streamUrl, idx) => { 
         var lowerStream = streamUrl.toLowerCase();
         
+        // Simplified strictly to index based numbering sequence
         var serverLabel = "Server " + (idx + 1); 
 
         var format = "MKV";
         if (lowerStream.includes(".mp4")) format = "MP4";
         if (lowerStream.includes(".m3u8")) format = "M3U8";
 
+        // Main item header left completely intact to maintain target fix logic
         var finalHeaderName = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader;
 
+        // Rebuilt subheadings block matching layout parameters precisely
         var line1 = isTv ? "🎬 " + mediaLabel + " - S" + season + "E" + episode + " (" + year + ")" : "🎬 " + mediaLabel + " - " + year;
-        var line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown + ratingStr;
+        var line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown;
         var line3 = "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📌 " + serverLabel;
         var multiLineUnifiedTitle = line1 + "\n" + line2 + "\n" + line3;
 

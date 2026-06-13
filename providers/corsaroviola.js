@@ -113,7 +113,6 @@ function getCleanTitle(title) {
         .replace(/\b(480p|720p|1080p|2160p|4k|2k|hd|fhd|uhd)\b/g, '')
         .replace(/\b(web-?dl|web-?dlrip|web-?rip|brrip|bdrip|bluray|blu-?ray|hdtv|tvrip|dvdrip|camrip|hdrip)\b/g, '')
         .replace(/\b(x264|x265|hevc|10bit|12bit|aac|ac3|dd5\.1|ddp5\.1|atmos|dts)\b/g, '')
-        .replace(/\b(esub|esubs|msub|msubs|hcsub|hcsubs)\b/g, '')
         .replace(/\b(season|saison|staffel)\s*\d+(?:\s*(?:-|to)\s*\d+)?\b/g, '')
         .replace(/\bs\d+(?:\s*(?:-|to)\s*\d+)?\b/g, '')
         .replace(/\b(episode|episodes|ep)\s*\d+(?:\s*(?:-|to)\s*\d+)?\s*(added|update|updated)?\b/g, '')
@@ -238,7 +237,6 @@ function generateStreamLayout(url, titleContext, qualityContext, info, isTv, sea
   var audioType = "Single-Audio";
   var language = "Hindi";
   
-  // Custom language token evaluation matching dual multi-intersection arrays
   if (lowerScan.includes("dual") || (lowerScan.includes("hindi") && lowerScan.includes("english"))) {
     audioType = "Dual-Audio";
     language = "English • Hindi"; 
@@ -267,12 +265,27 @@ function generateStreamLayout(url, titleContext, qualityContext, info, isTv, sea
     duration = info.runtime ? info.runtime + " min" : "N/A";
   }
 
+  // --- Dynamic Codec & Source Layout Engine ---
+  var sourceParts = [];
+  if (lowerScan.includes("10bit")) {
+    sourceParts.push("10bit");
+  }
+  if (lowerScan.includes("x265") || lowerScan.includes("hevc")) {
+    sourceParts.push("x265");
+  } else if (lowerScan.includes("x264") || lowerScan.includes("h264")) {
+    sourceParts.push("x264");
+  }
+  sourceParts.push("WEB-DL"); // Fallback fallback execution
+  
+  var dynamicSourceTag = "📌 " + sourceParts.join(" • ");
+  // --------------------------------------------
+
   var qIcon = qualityContext.includes("4K") || qualityContext.includes("2160") ? "🌟" : "💎";
   var displayTitle = PROVIDER_NAME + " | " + qualityContext + " | " + audioType;
 
   var line1 = isTv ? "🎬 " + name + " - S" + pad2(season) + "E" + pad2(episode) + " (" + year + ")" : "🎬 " + name + " - " + year;
   var line2 = qIcon + " " + qualityContext + " | 🌍 " + language;
-  var line3 = "🎞️ " + format + " | ⏱️ " + duration + " | 📌 WEB-DL";
+  var line3 = "🎞️ " + format + " | ⏱️ " + duration + " | " + dynamicSourceTag;
   var multiLineUnifiedTitle = line1 + "\n" + line2 + "\n" + line3;
 
   return {
@@ -545,7 +558,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     
     streams = dedupe(streams);
     
-    // Explicit Quality Weight Mapping (High to Low Sort Engine)
     var qOrder = { "2160p": 5, "1440p": 4, "1080p": 3, "720p": 2, "HD": 1 };
     streams.sort(function(a, b) {
         var qA = qOrder[a.quality] || 0;

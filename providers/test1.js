@@ -1,4 +1,4 @@
-const PROVIDER_NAME = "PlayIMDb"; 
+const PROVIDER_NAME = "🟡 PlayIMDb"; 
 const BASE_API = "https://streamdata.vaplayer.ru/api.php"; 
 const TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706"; 
 

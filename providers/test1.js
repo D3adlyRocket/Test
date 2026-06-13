@@ -41,7 +41,7 @@ var require_formatter = __commonJS({
         audioTag = "Multi-Audio"; 
       } 
 
-      const finalName = `CinemaCity | ${quality} | ${audioTag}`; 
+      const finalName = `⚪ CinemaCity | ${quality} | ${audioTag}`; 
       let rawTitle = stream.displayTitle || stream.title || "Stream"; 
       rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, ''); 
 
@@ -70,7 +70,7 @@ var require_formatter = __commonJS({
 
       // Rebuilt Subheading Layout Hierarchy
       var line1 = "🎬 " + rawTitle;
-      var line2 = qIcon + " " + quality + " | 🌍 " + audioTag + " | 🔊 " + audioTag + " | 🗃️ Server 1";
+      var line2 = qIcon + " " + quality + " | 🔊 " + audioTag + " | 🗃️ Server 1";
       var line3 = "🎞️ " + format + " | ⏱️ " + durationStr + " | " + dynamicSourceTag;
       var finalSubtitlesBlock = line1 + "\n" + line2 + "\n" + line3;
 

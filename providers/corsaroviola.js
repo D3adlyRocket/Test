@@ -1,6 +1,6 @@
 const cheerio = require('cheerio-without-node-native');
 // multimovies.js
-// MultiMovies - Re-optimized hybrid extractor combining AJAX routing with direct stream mapping
+// MultiMovies - Restored to original logic with updated stream matching
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://multimovies.homes";
@@ -62,65 +62,95 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const $p = cheerio.load(pageHtml);
 
     const streams = [];
-    let playerItems = [];
-    let contentReferer = match.href;
 
     if (!isMovie && mediaType === "tv") {
       // TV Series: get episode list
       const episodes = [];
-      $p("#seasons ul.episodios").each((sIdx, sList) => {
-        const seasonNum = sIdx + 1;
-        $p(sList).find("li").each((eIdx, epEl) => {
-          const href = $p(epEl).find("div.episodiotitle > a").attr("href") || $p(epEl).find("a").attr("href");
+      $p("#seasons ul.episodios li").each((seasonIdx, sEl) => {
+        $p(sEl).find("li").each((epIdx, epEl) => {
+          const href = $p(epEl).find("div.episodiotitle > a").attr("href");
           if (href) {
-            episodes.push({ href, season: seasonNum, episode: eIdx + 1 });
+            episodes.push({
+              href,
+              season: seasonIdx + 1,
+              episode: epIdx + 1
+            });
           }
         });
       });
+
+      if (episodes.length === 0) {
+        let seasonNum = 1;
+        $p("#seasons ul.episodios").each((sIdx, sList) => {
+          seasonNum = sIdx + 1;
+          $p(sList).find("li").each((eIdx, epEl) => {
+            const href = $p(epEl).find("div.episodiotitle > a").attr("href");
+            if (href) {
+              episodes.push({ href, season: seasonNum, episode: eIdx + 1 });
+            }
+          });
+        });
+      }
 
       const targetEp = episodes.find(ep =>
         ep.season === parseInt(season || 1) && ep.episode === parseInt(episode || 1)
       ) || episodes[0];
 
       if (!targetEp) return [];
-      contentReferer = targetEp.href;
 
-      // Load episode page data structures
+      // Load episode page and get player options
       const epResp = await fetch(targetEp.href, { headers: HEADERS });
       const epHtml = await epResp.text();
       const $ep = cheerio.load(epHtml);
 
+      const epItems = [];
       $ep("ul#playeroptionsul li").each((i, el) => {
-        playerItems.push({
+        epItems.push({
           post: $ep(el).attr("data-post"),
           nume: $ep(el).attr("data-nume"),
           type: $ep(el).attr("data-type")
         });
       });
-    } else {
-      // Movie: get player options directly
-      $p("ul#playeroptionsul li").each((i, el) => {
-        playerItems.push({
-          post: $p(el).attr("data-post"),
-          nume: $p(el).attr("data-nume"),
-          type: $p(el).attr("data-type")
-        });
-      });
+
+      for (const item of epItems.slice(0, 5)) {
+        if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
+        const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type, match.href);
+        if (embedUrl && !embedUrl.includes("youtube")) {
+          const resolvedUrl = await resolveEmbed(embedUrl, BASE_URL);
+          if (resolvedUrl) {
+            streams.push({
+              url: resolvedUrl,
+              quality: extractQuality(resolvedUrl),
+              title: "MultiMovies",
+              subtitles: []
+            });
+          }
+        }
+      }
+
+      return streams;
     }
 
-    // Step 4: Execute requests using restored AJAX fallback sequence
+    // Movie: get player options directly
+    const playerItems = [];
+    $p("ul#playeroptionsul li").each((i, el) => {
+      playerItems.push({
+        post: $p(el).attr("data-post"),
+        nume: $p(el).attr("data-nume"),
+        type: $p(el).attr("data-type")
+      });
+    });
+
     for (const item of playerItems.slice(0, 5)) {
       if (!item.post || !item.nume || (item.nume || "").includes("trailer")) continue;
-      
-      const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type, contentReferer);
+      const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type, match.href);
       if (embedUrl && !embedUrl.includes("youtube")) {
         const resolvedUrl = await resolveEmbed(embedUrl, BASE_URL);
         if (resolvedUrl) {
           streams.push({
-            url: resolvedUrl.url,
-            quality: extractQuality(resolvedUrl.url),
-            title: resolvedUrl.title,
-            headers: resolvedUrl.headers,
+            url: resolvedUrl,
+            quality: extractQuality(resolvedUrl),
+            title: "MultiMovies",
             subtitles: []
           });
         }
@@ -129,7 +159,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     return streams;
   } catch (e) {
-    console.error("[MultiMovies Engine Failure]", e);
+    console.error("[MultiMovies]", e);
     return [];
   }
 }
@@ -140,9 +170,9 @@ async function fetchEmbedUrl(baseUrl, post, nume, type, referer) {
       method: "POST",
       headers: {
         ...HEADERS,
-        "Content-Type": "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json" ? "application/x-www-form-urlencoded" : "application/x-www-form-urlencoded",
+        "Content-Type": "application/x-www-form-urlencoded",
         "X-Requested-With": "XMLHttpRequest",
-        "Referer": referer
+        "Referer": baseUrl
       },
       body: `action=doo_player_ajax&post=${post}&nume=${nume}&type=${type}`
     });
@@ -164,64 +194,33 @@ async function fetchEmbedUrl(baseUrl, post, nume, type, referer) {
 async function resolveEmbed(url, referer) {
   if (!url || !url.startsWith("http")) return null;
 
+  // Fallback: If it's already a direct stream link format, return it immediately
+  if (url.includes(".m3u8") || url.includes(".mp4") || url.includes("cf-master")) return url;
+
   try {
-    const resp = await fetch(url, { headers: { ...HEADERS, "Referer": referer } });
+    const resp = await fetch(url, {
+      headers: { ...HEADERS, "Referer": referer }
+    });
     const text = await resp.text();
 
+    // Updated pattern match suite targeting your exact network captures
     const patterns = [
-      {
-        name: "MultiMovies Native",
-        regex: /(https?:\/\/multimovieshg\.com\/stream\/[^\s"']+)/i,
-        headerGenerator: () => ({ "Referer": "https://multimovieshg.com/" })
-      },
-      {
-        name: "SmoothPre Mirror",
-        regex: /(https?:\/\/smoothpre\.com\/stream\/[^\s"']+)/i,
-        headerGenerator: () => ({ "Referer": "https://smoothpre.com/" })
-      },
-      {
-        name: "SprintCDN Edge",
-        regex: /(https?:\/\/[^\s"']+\.sprintcdn\.[^\s"']+\/master\.m3u8[^\s"']*)/i,
-        headerGenerator: () => ({ "Referer": "https://nzn3.org/", "Origin": "https://nzn3.org" })
-      },
-      {
-        name: "Obfuscated Master",
-        regex: /(https?:\/\/[^\s"']+\/cf-master\.[^\s"']+\.txt)/i,
-        headerGenerator: () => ({ "Referer": url, "Origin": new URL(url).origin })
-      },
-      {
-        name: "Global Manifest Fallback",
-        regex: /(https?:\/\/[^\s"']+\.m3u8[^\s"']*)/i,
-        headerGenerator: () => ({ "Referer": url })
-      }
+      /(https?:\/\/multimovieshg\.com\/stream\/[^\s"']+)/i,
+      /(https?:\/\/smoothpre\.com\/stream\/[^\s"']+)/i,
+      /(https?:\/\/[^\s"']+\.sprintcdn\.[^\s"']+\/master\.m3u8[^\s"']*)/i,
+      /(https?:\/\/[^\s"']+\/cf-master\.[^\s"']+\.txt)/i,
+      /(https?:\/\/[^\s"']+\.m3u8[^\s"']*)/i,
+      /(https?:\/\/[^\s"']+\.mp4[^\s"']*)/i
     ];
 
-    for (const pattern of patterns) {
-      const match = text.match(pattern.regex);
-      if (match) {
-        const streamUrl = match[1];
-        return {
-          url: streamUrl,
-          title: pattern.name,
-          headers: {
-            ...HEADERS,
-            ...pattern.headerGenerator()
-          }
-        };
-      }
+    for (const regex of patterns) {
+      const match = text.match(regex);
+      if (match) return match[1];
     }
 
-    if (url.includes(".m3u8") || url.includes(".mp4")) {
-      return {
-        url: url,
-        title: "Direct Embed Link",
-        headers: { ...HEADERS, "Referer": referer }
-      };
-    }
-
-    return null;
+    return url; // Always fall back to the original URL instead of returning null if page parsing is blocked
   } catch(e) {
-    return null;
+    return url;
   }
 }
 
@@ -232,7 +231,7 @@ function extractQuality(url) {
   if (u.includes("720p") || u.includes("index-f2")) return "720p";
   if (u.includes("480p")) return "480p";
   if (u.includes("360p")) return "360p";
-  return "Auto Quality";
+  return "Unknown";
 }
 
 if (typeof module !== 'undefined' && module.exports) {

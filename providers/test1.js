@@ -160,8 +160,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
         var mediaLabel = meta.name + (isTv ? " S" + season + "E" + episode : ""); 
 
-        // 6. Configured Output Structure for Unified UI Parsers
-        var headerName = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader; 
+        // 6. Configured Output Structure - Appending Server Name fixes the UI's trailing variable lookups
+        var headerName = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader + " - " + serverName; 
         var dropdownTitle = "🎬 " + mediaLabel + " - " + meta.year + "\n" + 
                             "⚡ " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr + "\n" + 
                             "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📌 " + serverName; 

@@ -88,32 +88,6 @@ function pad2(n) {
   return (n != null && n < 10) ? '0' + n : String(n);
 }
 
-// Emulates the exact structural logic used in the VixSrc engine
-function generateStreamLayout(url, meta, qualityStr, rawQuality, audioTypeHeader, layoutLanguageDropdown, sizeStr, serverName, isTv, season, episode) {
-  var mediaLabel = meta.name || "Unknown Title";
-  var year = meta.year || "N/A";
-
-  var format = "MKV";
-  if (url.toLowerCase().includes(".mp4")) format = "MP4";
-  if (url.toLowerCase().includes(".m3u8")) format = "M3U8";
-
-  // Matching VixSrc's prefix template structure exactly
-  var finalHeaderName = "🎬 " + PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader;
-
-  var line1 = isTv ? "🎬 " + mediaLabel + " - S" + pad2(season) + "E" + pad2(episode) + " (" + year + ")" : "🎬 " + mediaLabel + " - " + year;
-  var line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr + " | 🗃️ " + serverName;
-  var line3 = "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📼 AVC • 🔊 AAC";
-  var multiLineUnifiedTitle = line1 + "\n" + line2 + "\n" + line3;
-
-  return {
-    name: finalHeaderName,             
-    title: multiLineUnifiedTitle,   
-    url: url,
-    type: "direct",
-    behaviorHints: { notWebReady: true }
-  };
-}
-
 async function getStreams(tmdbId, mediaType, season, episode) { 
   var streams = []; 
   try { 
@@ -135,7 +109,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     var data = await fetchJson(url, { headers: HEADERS }); 
     if (data && (data.status_code == 200 || data.status_code === "200") && data.data && data.data.stream_urls) { 
       
-      // 1. Determine Display Quality 
       var qualityStr = "1080p FHD"; 
       var rawQuality = "1080P"; 
       var scanText = String(data.data.file_name || '').toLowerCase();
@@ -151,10 +124,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         rawQuality = "720P"; 
       } 
 
-      // 2. Size calculation based on real runtime duration metrics 
       var sizeStr = calculateCalculatedFallbackSize(rawQuality, meta.duration); 
 
-      // 3. Smart Language Mapping Engine
       var audioTypeHeader = "Original-Audio";
       var layoutLanguageDropdown = "Original";
 
@@ -172,10 +143,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         layoutLanguageDropdown = "English";
       }
 
+      var mediaLabel = meta.name || "Unknown Title";
+      var year = meta.year || "N/A";
+
       data.data.stream_urls.forEach((streamUrl, idx) => { 
         var lowerStream = streamUrl.toLowerCase();
         
-        // 4. Resolve Server Name 
         var serverName = "Server " + (idx + 1); 
         if (lowerStream.includes("putgate.com")) serverName = "PutGate"; 
         else if (lowerStream.includes("onlinevisibilitysystem")) serverName = "Vis System"; 
@@ -183,20 +156,25 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         else if (lowerStream.includes("smartincome")) serverName = "Smart Inc"; 
         else if (lowerStream.includes("remoteincome")) serverName = "Remote Inc"; 
 
-        // 5. Generate template engine mapping matching layout specifications
-        var streamObj = generateStreamLayout(
-          streamUrl, 
-          meta, 
-          qualityStr, 
-          rawQuality, 
-          audioTypeHeader, 
-          layoutLanguageDropdown, 
-          sizeStr, 
-          serverName, 
-          isTv, 
-          season, 
-          episode
-        );
+        var format = "MKV";
+        if (lowerStream.includes(".mp4")) format = "MP4";
+        if (lowerStream.includes(".m3u8")) format = "M3U8";
+
+        // Structured cleanly to satisfy internal parser rule checking
+        var finalHeaderName = "🎬 " + PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader;
+
+        var line1 = isTv ? "🎬 " + mediaLabel + " - S" + pad2(season) + "E" + pad2(episode) + " (" + year + ")" : "🎬 " + mediaLabel + " - " + year;
+        var line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown + " | 💾 " + sizeStr + " | 🗃️ " + serverName;
+        var line3 = "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📼 AVC • 🔊 AAC";
+        var multiLineUnifiedTitle = line1 + "\n" + line2 + "\n" + line3;
+
+        var streamObj = {
+          name: finalHeaderName,             
+          title: multiLineUnifiedTitle,   
+          url: streamUrl,
+          type: "direct",
+          behaviorHints: { notWebReady: true }
+        };
 
         streamObj.headers = HEADERS;
 

@@ -68,7 +68,7 @@ var require_formatter = __commonJS({
         durationStr = `${stream.runtime} min`;
       }
 
-      // Rebuilt Subheading Layout Hierarchy (Removed Italian • English text string)
+      // Rebuilt Subheading Layout Hierarchy
       var line1 = "🎬 " + rawTitle;
       var line2 = qIcon + " " + quality + " | 🔊 " + audioTag + " | 🗃️ Server 1";
       var line3 = "🎞️ " + format + " | ⏱️ " + durationStr + " | " + dynamicSourceTag;
@@ -441,6 +441,8 @@ function getStreams(id, type, season, episode, providerContext = null) {
       for (const link of links) { const text = link.text; if (text.includes("ita") || text.includes("italian") || text.includes("italiano")) { selectedUrl = link.url; hasItalian = true; break; } } 
       if (!selectedUrl) { for (const link of links) { if (link.text.includes("eng") || link.text.includes("sub")) continue; selectedUrl = link.url; break; } } 
       if (!selectedUrl) selectedUrl = links[0].url; const streamUrl = resolveUrl(movieUrl, selectedUrl); 
+      
+      // Fixed runtime mapping assignment below
       const result = { name: "CinemaCity", displayTitle: title, url: streamUrl, quality: "1080p", runtime: searchResult.runtime, type: "hls", language: hasItalian ? "Italian" : "", hasItalian, behaviorHints: { notWebReady: true }, headers: { "Referer": "https://cinemacity.cc/", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" } }; 
       return [formatStream(result, "CinemaCity")]; 
     } catch (e) { return []; } 

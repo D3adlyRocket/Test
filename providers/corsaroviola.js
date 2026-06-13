@@ -1,6 +1,6 @@
 const cheerio = require('cheerio-without-node-native');
 // multimovies.js
-// MultiMovies - Direct Stream Resolver using Native Player Identifiers
+// MultiMovies - Clean Stream Extraction & Iframe Target Hub
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://multimovies.homes";
@@ -28,13 +28,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   try {
     const BASE_URL = await getBaseUrl();
 
-    // Step 1: Get Title from TMDB
+    // Step 1: TMDB Lookup
     const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     const mediaInfo = await (await fetch(tmdbUrl)).json();
     const title = mediaInfo.title || mediaInfo.name;
     if (!title) return [];
 
-    // Step 2: Query MultiMovies Search
+    // Step 2: MultiMovies Search Index
     const searchResp = await fetch(`${BASE_URL}/?s=${encodeURIComponent(title)}`, {
       headers: HEADERS
     });
@@ -56,7 +56,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       r.name.toLowerCase().includes(title.toLowerCase())
     ) || results[0];
 
-    // Step 3: Extract content targets
+    // Step 3: Load Target Metadata Content
     const pageResp = await fetch(match.href, { headers: HEADERS });
     const pageHtml = await pageResp.text();
     const $p = cheerio.load(pageHtml);
@@ -115,7 +115,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         if (!item.post || !item.nume || item.title.toLowerCase().includes("trailer")) continue;
         const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type);
         if (embedUrl) {
-          const streamObj = await resolveEmbed(embedUrl, item.title);
+          const streamObj = await resolveEmbed(embedUrl, item.title, BASE_URL);
           if (streamObj) streams.push(streamObj);
         }
       }
@@ -123,7 +123,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       return streams;
     }
 
-    // Movie Execution Path
+    // Movie Content Pipeline
     const playerItems = [];
     $p("ul#playeroptionsul li").each((i, el) => {
       playerItems.push({
@@ -138,14 +138,14 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (!item.post || !item.nume || item.title.toLowerCase().includes("trailer")) continue;
       const embedUrl = await fetchEmbedUrl(BASE_URL, item.post, item.nume, item.type);
       if (embedUrl) {
-        const streamObj = await resolveEmbed(embedUrl, item.title);
+        const streamObj = await resolveEmbed(embedUrl, item.title, BASE_URL);
         if (streamObj) streams.push(streamObj);
       }
     }
 
     return streams;
   } catch (e) {
-    console.error("[MultiMovies Engine]", e);
+    console.error("[MultiMovies Core Error]", e);
     return [];
   }
 }
@@ -177,28 +177,30 @@ async function fetchEmbedUrl(baseUrl, post, nume, type) {
   }
 }
 
-async function resolveEmbed(embedUrl, sourceTitle) {
+async function resolveEmbed(embedUrl, sourceTitle, referer) {
   if (!embedUrl || !embedUrl.startsWith("http")) return null;
 
   try {
-    // Check if the Ajax returned a direct stream payload instantly
-    if (embedUrl.includes(".m3u8") || embedUrl.includes("sprintcdn.com")) {
-      return {
-        url: embedUrl,
-        quality: "1080p",
-        title: sourceTitle || "MultiMovies Live Stream",
-        subtitles: []
-      };
+    // If the Ajax endpoint returned a direct media stream directly, capture it
+    if (embedUrl.includes(".m3u8") || embedUrl.includes("sprintcdn.com") || embedUrl.includes("smoothpre.com/stream/")) {
+      // Ensure we only pass it if it contains the real hashed media structure
+      if (!embedUrl.match(/\/stream\/tt\d+/i)) {
+        return {
+          url: embedUrl,
+          quality: "1080p",
+          title: sourceTitle || "MultiMovies Direct Stream",
+          subtitles: []
+        };
+      }
     }
 
-    // Attempt direct extraction challenge
-    const resp = await fetch(embedUrl, { headers: HEADERS });
+    // Inspect underlying response body
+    const resp = await fetch(embedUrl, { headers: { ...HEADERS, "Referer": referer } });
     const text = await resp.text();
 
-    // Regular Expression captures matching the dynamic production layouts seen in your screenshots
     const streamPatterns = [
-      /(https?:\/\/smoothpre\.com\/stream\/[^\s"']+)/i,
-      /(https?:\/\/multimovieshg\.com\/stream\/[^\s"']+)/i,
+      /(https?:\/\/smoothpre\.com\/stream\/[^tt][^\s"']+)/i,
+      /(https?:\/\/multimovieshg\.com\/stream\/[^tt][^\s"']+)/i,
       /(https?:\/\/[^\s"']+\.sprintcdn\.[^\s"']+\/[^\s"']+\.m3u8[^\s"']*)/i,
       /(https?:\/\/[^\s"']+\.m3u8[^\s"']*)/i
     ];
@@ -209,18 +211,18 @@ async function resolveEmbed(embedUrl, sourceTitle) {
         return {
           url: match[1],
           quality: "1080p",
-          title: sourceTitle || "MultiMovies Direct Stream",
+          title: sourceTitle || "MultiMovies Manifest",
           subtitles: []
         };
       }
     }
 
-    // Safe Token Fallback: If cloudflare blocks text processing, output the raw, authenticated source frame.
-    // This allows webview/app-layer engines to run the embedded jwplayer.js execution flows cleanly.
+    // Clean Parameter Fallback: Output the authenticated iframe player targets 
+    // contextually containing their security hashes (?key=...) so the frontend engine handles runtime player loads.
     return {
       url: embedUrl,
       quality: "Auto",
-      title: `${sourceTitle || "Server"} Player Link`,
+      title: `${sourceTitle || "Server Player"} Source`,
       subtitles: []
     };
   } catch(e) {

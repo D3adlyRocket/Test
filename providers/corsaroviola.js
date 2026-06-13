@@ -228,8 +228,8 @@ async function bypassHShareAPI(rawId, mvUrl) {
     return null;
 }
 
-// Unified multi-line formatter interface
-function generateStreamLayout(url, titleContext, qualityContext, info, isTv, season, episode, fileName) {
+// Unified multi-line formatter interface with Dynamic Server tracking
+function generateStreamLayout(url, titleContext, qualityContext, info, isTv, season, episode, fileName, serverName) {
   var name = info.title || "Unknown Title";
   var year = info.year || "N/A";
   var lowerScan = String(fileName || url || '').toLowerCase();
@@ -265,7 +265,7 @@ function generateStreamLayout(url, titleContext, qualityContext, info, isTv, sea
     duration = info.runtime ? info.runtime + " min" : "N/A";
   }
 
-  // --- Dynamic Codec & Source Layout Engine ---
+  // Codec/Source Layout Engine
   var sourceParts = [];
   if (lowerScan.includes("10bit")) {
     sourceParts.push("10bit");
@@ -275,16 +275,18 @@ function generateStreamLayout(url, titleContext, qualityContext, info, isTv, sea
   } else if (lowerScan.includes("x264") || lowerScan.includes("h264")) {
     sourceParts.push("x264");
   }
-  sourceParts.push("WEB-DL"); // Fallback fallback execution
+  sourceParts.push("WEB-DL");
   
   var dynamicSourceTag = "📌 " + sourceParts.join(" • ");
-  // --------------------------------------------
 
   var qIcon = qualityContext.includes("4K") || qualityContext.includes("2160") ? "🌟" : "💎";
   var displayTitle = PROVIDER_NAME + " | " + qualityContext + " | " + audioType;
 
+  // Tracked server insertion configuration
+  var serverTag = serverName ? " | 🗃️ " + serverName : " | 🗃️ Server 1";
+
   var line1 = isTv ? "🎬 " + name + " - S" + pad2(season) + "E" + pad2(episode) + " (" + year + ")" : "🎬 " + name + " - " + year;
-  var line2 = qIcon + " " + qualityContext + " | 🌍 " + language;
+  var line2 = qIcon + " " + qualityContext + " | 🌍 " + language + serverTag;
   var line3 = "🎞️ " + format + " | ⏱️ " + duration + " | " + dynamicSourceTag;
   var multiLineUnifiedTitle = line1 + "\n" + line2 + "\n" + line3;
 
@@ -309,6 +311,7 @@ async function processHShareLink(hpageUrls, qualityContext, titleContext, fphpUr
                 var decodedUrl1 = decodeBase64(baseMatch[1]);
                 if (decodedUrl1.startsWith("http")) {
                     var directHtml = await fetchText(decodedUrl1, { headers: { "Referer": fphpUrl } });
+                    var serverCount = 1;
                     if (directHtml) {
                         var wRegex = /href="([^"]+\.workers\.dev[^"]+)"/ig;
                         var wM;
@@ -316,8 +319,10 @@ async function processHShareLink(hpageUrls, qualityContext, titleContext, fphpUr
                             var workerUrl = wM[1];
                             var syncedUrl = workerUrl.indexOf('?') > -1 ? workerUrl + '&s=' + new Date().getTime() : workerUrl + '?s=' + new Date().getTime();
                             
-                            var layout = generateStreamLayout(syncedUrl, titleContext, qualityContext, info, isTv, season, episode, fileName || workerUrl);
+                            var currentServerName = "Server " + serverCount;
+                            var layout = generateStreamLayout(syncedUrl, titleContext, qualityContext, info, isTv, season, episode, fileName || workerUrl, currentServerName);
                             streams.push(layout);
+                            serverCount++;
                         }
                     }
                     
@@ -337,7 +342,7 @@ async function processHShareLink(hpageUrls, qualityContext, titleContext, fphpUr
                         
                         if (workerUrl) {
                             var syncedUrl = workerUrl.indexOf('?') > -1 ? workerUrl + '&s=' + new Date().getTime() : workerUrl + '?s=' + new Date().getTime();
-                            var layout = generateStreamLayout(syncedUrl, titleContext, qualityContext, info, isTv, season, episode, fileName || workerUrl);
+                            var layout = generateStreamLayout(syncedUrl, titleContext, qualityContext, info, isTv, season, episode, fileName || workerUrl, "Server 1");
                             streams.push(layout);
                         }
                     }

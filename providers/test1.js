@@ -27,12 +27,30 @@ async function fetchJson(url, options) {
   } 
 } 
 
+async function getImdbRating(imdbId) {
+  if (!imdbId) return "N/A";
+  try {
+    // Hits an open IMDb metadata scraper engine mirror
+    const res = await fetch(`https://api.rating.murnas.my.id/imdb/${imdbId}`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.rating) {
+        return Number(data.rating).toFixed(1);
+      }
+    }
+    return "N/A";
+  } catch (e) {
+    return "N/A";
+  }
+}
+
 async function getTmdbMetadata(id, type, season, episode) { 
   let fallbackName = "Unknown Title"; 
   let fallbackDuration = type === "tv" ? "45 min" : "90 min"; 
   try { 
+    // Appending external_ids to find the true IMDb ID reference safely
     const endpoint = type === "movie" ? "movie" : "tv"; 
-    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}`; 
+    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`; 
     const response = await fetch(url); 
     if (!response.ok) return { name: fallbackName, year: "N/A", duration: fallbackDuration, rating: "N/A" }; 
     const data = await response.json(); 
@@ -52,16 +70,19 @@ async function getTmdbMetadata(id, type, season, episode) {
       } 
     } 
 
-    let formattedRating = "N/A";
-    if (data.vote_average) {
-      formattedRating = Number(data.vote_average).toFixed(1);
+    // Locate unique internal IMDb ID reference code
+    let imdbId = data.imdb_id || (data.external_ids && data.external_ids.imdb_id) || null;
+    let finalRating = "N/A";
+    
+    if (imdbId) {
+      finalRating = await getImdbRating(imdbId);
     }
 
     return { 
       name: data.title || data.name || fallbackName, 
       year: (data.release_date || data.first_air_date || "").split("-")[0] || "N/A", 
       duration: duration,
-      rating: formattedRating
+      rating: finalRating
     }; 
   } catch (e) { 
     return { name: fallbackName, year: "N/A", duration: fallbackDuration, rating: "N/A" }; 
@@ -136,7 +157,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
         var finalHeaderName = PROVIDER_NAME + " | " + qualityStr + " | " + audioTypeHeader;
 
-        // Line 2 now appends the rating directly following the language field
         var line1 = isTv ? "🎬 " + mediaLabel + " - S" + season + "E" + episode + " (" + year + ")" : "🎬 " + mediaLabel + " - " + year;
         var line2 = "💎 " + rawQuality + " | 🌍 " + layoutLanguageDropdown + ratingStr;
         var line3 = "🎞️ " + format + " | ⏱️ " + meta.duration + " | 📌 " + serverLabel;

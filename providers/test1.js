@@ -29,60 +29,47 @@ var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 var BASE_URL = "https://anidb.app";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-// FIXED: Now queries specific season/episode metadata on TMDB to extract exact runtime for TV/Anime series
+// FIXED: Resolves parent show name for browsing data alongside explicit episode runtime payloads
 function getTmdbInfo(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     const tmdbType = mediaType === "tv" ? "tv" : "movie";
     const sNum = Number.isInteger(season) ? season : 1;
     const eNum = Number.isInteger(episode) ? episode : 1;
     
-    let url = "https://api.themoviedb.org/3/" + tmdbType + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
-    if (mediaType === "tv") {
-      url = "https://api.themoviedb.org/3/tv/" + tmdbId + "/season/" + sNum + "/episode/" + eNum + "?api_key=" + TMDB_API_KEY;
-    }
-
-    const r = yield fetch(url, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
-    if (!r.ok) {
-      // Fallback if episode endpoint fails, try show endpoint
+    try {
       if (mediaType === "tv") {
-        const fallbackUrl = "https://api.themoviedb.org/3/tv/" + tmdbId + "?api_key=" + TMDB_API_KEY;
-        const fbResp = yield fetch(fallbackUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
-        if (fbResp.ok) {
-          const fbData = yield fbResp.json();
-          return { title: fbData.name || "", year: fbData.first_air_date ? parseInt(fbData.first_air_date.slice(0, 4), 10) : null, runtime: 0 };
-        }
-      }
-      return { title: "", year: null, runtime: 0 };
-    }
-
-    const data = yield r.json();
-    let title = "";
-    let year = null;
-    let runtime = data.runtime || 0;
-
-    if (mediaType === "tv") {
-      // For episodes, title is often the episode name, so we fetch show title if needed, or default gracefully
-      title = data.name || "";
-      const dateStr = data.air_date || "";
-      year = dateStr ? parseInt(dateStr.slice(0, 4), 10) : null;
-      
-      // If episode name doesn't contain main identity, fallback check occurs in runtime loop or parsing
-      if (!title || data.still_path === undefined) {
+        // Fetch the main show metadata first to secure the absolute Series Title
         const showUrl = "https://api.themoviedb.org/3/tv/" + tmdbId + "?api_key=" + TMDB_API_KEY;
         const showResp = yield fetch(showUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
-        if (showResp.ok) {
-          const showData = yield showResp.json();
-          title = showData.name || title;
-          if (!year && showData.first_air_date) year = parseInt(showData.first_air_date.slice(0, 4), 10);
+        
+        if (!showResp.ok) return { title: "", year: null, runtime: 0 };
+        const showData = yield showResp.json();
+        const mainTitle = showData.name || "";
+        const year = showData.first_air_date ? parseInt(showData.first_air_date.slice(0, 4), 10) : null;
+        
+        // Fetch the specific episode details to secure exact runtime data
+        const epUrl = "https://api.themoviedb.org/3/tv/" + tmdbId + "/season/" + sNum + "/episode/" + eNum + "?api_key=" + TMDB_API_KEY;
+        const epResp = yield fetch(epUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
+        let runtime = showData.episode_run_time ? showData.episode_run_time[0] : 0;
+        
+        if (epResp.ok) {
+          const epData = yield epResp.json();
+          if (epData.runtime) runtime = epData.runtime;
         }
+        
+        return { title: mainTitle, year, runtime };
+      } else {
+        // Handle standalone Movie elements
+        const movieUrl = "https://api.themoviedb.org/3/movie/" + tmdbId + "?api_key=" + TMDB_API_KEY;
+        const r = yield fetch(movieUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
+        if (!r.ok) return { title: "", year: null, runtime: 0 };
+        const data = yield r.json();
+        const year = data.release_date ? parseInt(data.release_date.slice(0, 4), 10) : null;
+        return { title: data.title || "", year, runtime: data.runtime || 0 };
       }
-    } else {
-      title = data.title;
-      const dateStr = data.release_date || "";
-      year = dateStr ? parseInt(dateStr.slice(0, 4), 10) : null;
+    } catch (e) {
+      return { title: "", year: null, runtime: 0 };
     }
-
-    return { title: title || "", year, runtime };
   });
 }
 
@@ -264,7 +251,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
             durationText = info.runtime + " min";
           }
 
-          // CHANGED: Formatted Layout using requested unique icons block
+          // Formatted Layout with custom requested icons block
           var row1 = "🎋 " + info.title + displayYear;
           var row2 = "🏷️ Auto | 🌍 " + langLabel + " | 🔊 Native | ⚡ Direct";
           var row3 = "⚡ HLS | ⏱️ " + durationText + " | 📌 AniDB Stream";

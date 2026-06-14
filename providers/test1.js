@@ -28,36 +28,75 @@ function extractQuality(str) {
 }
 
 /**
- * Directly builds a working stream URL from the player URLs using the payload structural template 
- * discovered in the unpacked JS memory configurations.
+ * Unpacks standard JavaScript obfuscated code configurations
  */
-function buildDirectStreamUrl(embedUrl) {
+function unpackJS(packed) {
   try {
-    // Standardizes URL formats
-    const urlObj = new URL(embedUrl);
-    const host = urlObj.hostname;
-    const pathParts = urlObj.pathname.split('/').filter(Boolean);
+    const payload = packed.match(/^eval\(function\(p,a,c,k,e,d\)\{.*return\s+p\}.*\}\('(.*)',\s*(\d+),\s*(\d+),\s*'(.*)'\.split\('\|'\)\)\)$/);
+    if (!payload) return packed;
+
+    let [_, p, a, c, k] = payload;
+    a = parseInt(a, 10);
+    c = parseInt(c, 10);
+    k = k.split('|');
+
+    const e = (c) => (c < a ? '' : e(parseInt(c / a, 10))) + ((c = c % a) > 35 ? String.fromCharCode(c + 29) : c.toString(36));
+
+    while (c--) {
+      if (k[c]) {
+        p = p.replace(new RegExp('\\b' + e(c) + '\\b', 'g'), k[c]);
+      }
+    }
+    return p;
+  } catch (err) {
+    return packed;
+  }
+}
+
+/**
+ * Follows internal router links, handles page redirects, and extracts tokenized streams
+ */
+async function extractDirectStream(embedUrl) {
+  try {
+    // 1. Follow potential server-side redirects to find the destination player domain
+    const response = await fetch(embedUrl, { 
+      headers: HEADERS,
+      redirect: 'follow' 
+    });
     
-    // Fallback ID selector logic
-    let videoId = pathParts[pathParts.length - 1] || '';
-    if (videoId.endsWith('.html')) {
-      videoId = videoId.replace('.html', '');
+    const finalUrl = response.url;
+    const html = await response.text();
+
+    // 2. Scan for complete tokenized m3u8 playlist queries
+    const m3u8Regex = /(https?:\/\/[^"']+\.m3u8\?[^"']+)/i;
+    let match = html.match(m3u8Regex);
+    
+    if (match && match[1]) {
+      return { url: match[1].replace(/\\/g, ''), referer: finalUrl };
     }
 
-    if (!videoId || videoId.length < 4) return null;
+    // 3. Fallback to parsing packed script data blocks
+    const packedRegex = /(eval\(function\(p,a,c,k,e,.*\)\))/g;
+    const packedBlocks = html.match(packedRegex);
 
-    // Handle StreamRuby variations (rubystm.com, abyssplayer.com, etc.)
-    if (host.includes('rubystm') || host.includes('abyss') || host.includes('ruby')) {
-      // Recreates the backend playlist architecture directly
-      return `https://3uho6lzsf1c2o3i8oun9.streamruby.net/hls2/01/00465/${videoId}/,n,h,x,.urlset/master.m3u8`;
-    }
-
-    // Handle AS-CDN variations
-    if (host.includes('as-cdn') || host.includes('cdn')) {
-      return `https://${host}/cdn/hls/${videoId}/master.m3u8`;
+    if (packedBlocks) {
+      for (const block of packedBlocks) {
+        const unpackedText = unpackJS(block);
+        match = unpackedText.match(m3u8Regex);
+        if (match && match[1]) {
+          return { url: match[1].replace(/\\/g, ''), referer: finalUrl };
+        }
+        
+        // If the stream block doesn't use a query parameter string fallback to a standard match
+        const standardM3u8Regex = /(https?:\/\/[^"']+\.m3u8[^"']*)/i;
+        const fallbackMatch = unpackedText.match(standardM3u8Regex);
+        if (fallbackMatch && fallbackMatch[1]) {
+          return { url: fallbackMatch[1].replace(/\\/g, ''), referer: finalUrl };
+        }
+      }
     }
   } catch (e) {
-    console.error("[Stream Builder Error]", e);
+    console.error(`[Extractor Error] Failed parsing stream endpoint: ${embedUrl}`, e);
   }
   return null;
 }
@@ -140,64 +179,72 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           const epPageHtml = await (await fetch(targetEp.href, { headers: HEADERS})).text();
           const $ep = cheerio.load(epPageHtml);
 
-          // Extract iframes from servers
+          // Extract loops across active internal tabs
           const serverLinks = [];
           $ep('#aa-options > div > iframe').each((_, el) => {
-            const src = $ep(el).attr('data-src');
-            if (src) serverLinks.push(src);
+            let src = $ep(el).attr('data-src') || $ep(el).attr('src');
+            if (src) {
+              if (src.startsWith('//')) src = 'https:' + src;
+              if (src.startsWith('/')) src = BASE_URL + src;
+              serverLinks.push(src);
+            }
           });
 
-          for (const serverLink of serverLinks.slice(0, 3)) {
+          for (const serverLink of serverLinks) {
             try {
-              const serverHtml = await (await fetch(serverLink, { headers: HEADERS})).text();
-              const $server = cheerio.load(serverHtml);
-              const trueLink = $server('iframe').attr('src') || '';
-              
-              if (trueLink) {
-                // Generate the direct stream link using structural reconstruction
-                const streamUrl = buildDirectStreamUrl(trueLink);
+              // Extract the functional streaming path along with its authorization referer header context
+              const streamData = await extractDirectStream(serverLink);
 
-                if (streamUrl) {
-                  streams.push({
-                    name: "Toonstream",
-                    url: streamUrl,
-                    quality: extractQuality(streamUrl),
-                    title: 'Toonstream',
-                    subtitles: [],
-                    behaviorHints: {
-                      notWebReady: false,
-                      proxyHeaders: {
-                        request: Object.assign({}, HEADERS, { "Referer": trueLink })
-                      }
+              if (streamData && streamData.url) {
+                streams.push({
+                  name: "Toonstream",
+                  url: streamData.url,
+                  quality: extractQuality(streamData.url),
+                  title: 'Toonstream',
+                  subtitles: [],
+                  behaviorHints: {
+                    notWebReady: false,
+                    proxyHeaders: {
+                      request: Object.assign({}, HEADERS, { 
+                        "Referer": streamData.referer,
+                        "Origin": new URL(streamData.referer).origin
+                      })
                     }
-                  });
-                }
+                  }
+                });
               }
             } catch (e) { /* skip failed servers */ }
           }
         }
       }
     } else {
-      // Movie - extract iframes directly
+      // Movie - extract options directly
       const movieEmbedLinks = [];
       $page('#aa-options > div > iframe').each((_, el) => {
-        const src = $page(el).attr('data-src');
-        if (src) movieEmbedLinks.push(src);
+        let src = $page(el).attr('data-src') || $page(el).attr('src');
+        if (src) {
+          if (src.startsWith('//')) src = 'https:' + src;
+          if (src.startsWith('/')) src = BASE_URL + src;
+          movieEmbedLinks.push(src);
+        }
       });
 
       for (const embedUrl of movieEmbedLinks) {
-        const streamUrl = buildDirectStreamUrl(embedUrl);
-        if (streamUrl) {
+        const streamData = await extractDirectStream(embedUrl);
+        if (streamData && streamData.url) {
           streams.push({
             name: "Toonstream",
-            url: streamUrl,
-            quality: extractQuality(streamUrl),
+            url: streamData.url,
+            quality: extractQuality(streamData.url),
             title: 'Toonstream',
             subtitles: [],
             behaviorHints: {
               notWebReady: false,
               proxyHeaders: {
-                request: Object.assign({}, HEADERS, { "Referer": embedUrl })
+                request: Object.assign({}, HEADERS, { 
+                  "Referer": streamData.referer,
+                  "Origin": new URL(streamData.referer).origin
+                })
               }
             }
           });

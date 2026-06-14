@@ -1,3 +1,5 @@
+Can you also do this please 
+
 const CryptoJS = require('crypto-js');
 
 const PROVIDER_NAME = "Cinestream";
@@ -31,10 +33,8 @@ function decryptCinestreamPayload(encryptedString) {
 async function getStreams(tmdbId, mediaType, season, episode) {
     let streams = [];
     const isTv = (mediaType === "tv" || mediaType === "series");
-    const sNum = Number.isInteger(season) ? season : parseInt(season, 10) || 1;
-    const eNum = Number.isInteger(episode) ? episode : parseInt(episode, 10) || 1;
 
-    // 1. Fetch title and correct runtime info from TMDB
+    // 1. Fetch title from TMDB
     let tmdbApiUrl = `https://api.themoviedb.org/3/${isTv ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`;
     let tmdbData = await fetchJson(tmdbApiUrl, {});
     if (!tmdbData) return streams;
@@ -42,26 +42,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     let title = tmdbData.title || tmdbData.name || tmdbData.original_title || tmdbData.original_name;
     if (!title) return streams;
     
-    // Resolve runtime data safely
-    let resolvedRuntime = 0;
-    if (isTv) {
-        // Query specific episode endpoint to grab actual runtime payload cleanly
-        let tmdbEpUrl = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${sNum}/episode/${eNum}?api_key=${TMDB_API_KEY}`;
-        let epData = await fetchJson(tmdbEpUrl, {});
-        if (epData && epData.runtime) {
-            resolvedRuntime = epData.runtime;
-        } else if (tmdbData.episode_run_time && tmdbData.episode_run_time.length > 0) {
-            resolvedRuntime = tmdbData.episode_run_time[0];
-        }
-    } else {
-        resolvedRuntime = tmdbData.runtime || 0;
-    }
-
-    // Capture explicit launch year
-    let dateStr = tmdbData.release_date || tmdbData.first_air_date || "";
-    let displayYear = dateStr ? ` (${dateStr.slice(0, 4)})` : "";
-    
-    // Clean up title (take before colon or hyphen) for search optimization
+    // Clean up title (take before colon or hyphen)
     let baseTitle = title.split(':')[0].split('-')[0].trim();
 
     // 2. Search API
@@ -78,7 +59,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     let match = listToSearch.find(item => item.tmdbId === parseInt(tmdbId));
     if (!match) {
-        // Fallback to title match in case Cinestream has the wrong TMDB ID mapping
+        // Fallback to title match in case Cinestream has the wrong TMDB ID
         match = listToSearch.find(item => item.title && item.title.toLowerCase() === title.toLowerCase());
     }
     if (!match || !match._id) return streams;
@@ -101,15 +82,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const decryptedData = decryptCinestreamPayload(detailsRes.data);
     if (!decryptedData) return streams;
     
-    // Extract Spoken Languages for output tags
-    let audioTag = "Multi-Audio";
-    let langsLabel = "Multi";
+    // Extract Spoken Languages
+    let langs = "";
     if (decryptedData.spokenLanguages && Array.isArray(decryptedData.spokenLanguages)) {
         let langNames = decryptedData.spokenLanguages.map(l => l.name).filter(Boolean);
-        if (langNames.length > 0) {
-            langsLabel = langNames.join(", ");
-            audioTag = langNames.includes("English") && langNames.length === 1 ? "Single-Audio" : "Multi-Audio";
-        }
+        if (langNames.length > 0) langs = ` [${langNames.join(", ")}]`;
     }
 
     // 5. Extract links
@@ -117,10 +94,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     if (isTv) {
         if (!decryptedData.seasons || !Array.isArray(decryptedData.seasons)) return streams;
-        const targetSeasonObj = decryptedData.seasons.find(s => s.seasonNumber === sNum);
+        const targetSeasonObj = decryptedData.seasons.find(s => s.seasonNumber === parseInt(season));
         if (!targetSeasonObj || !targetSeasonObj.episodes) return streams;
 
-        const targetEpisodeObj = targetSeasonObj.episodes.find(e => e.episodeNumber === eNum);
+        const targetEpisodeObj = targetSeasonObj.episodes.find(e => e.episodeNumber === parseInt(episode));
         if (!targetEpisodeObj || !targetEpisodeObj.streamingLinks) return streams;
 
         targetLinks = targetEpisodeObj.streamingLinks;
@@ -133,43 +110,22 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     targetLinks.forEach(link => {
         if (link && link.url) {
-            let quality = link.quality || "1080p";
-            if (quality === "HD") quality = "1080p"; // Normalize label styling
-            
+            let quality = link.quality || "HD";
             let qNum = order[quality] || 0;
-            let qIcon = quality.includes("4K") || quality.includes("2160") ? "🌟" : "💎";
-            
-            // Format Stream Type Evaluation
-            let isM3u8 = link.type === "hls" || link.url.includes(".m3u8");
-            let formatLabel = isM3u8 ? "M3U8 / HLS" : "MP4";
-
-            // Title Heading Text
-            let rawTitle = isTv ? `${title} - S${String(sNum).padStart(2, '0')}E${String(eNum).padStart(2, '0')}${displayYear}` : `${title}${displayYear}`;
-            
-            // Format precise execution duration data strings
-            let durationStr = "N/A";
-            if (resolvedRuntime && Number.isInteger(resolvedRuntime) && resolvedRuntime > 0) {
-                durationStr = `${resolvedRuntime} min`;
-            }
-
-            // Construct Unified Three-Tier Subheading Blocks
-            let row1 = `🎬 ${rawTitle}`;
-            let row2 = `${qIcon} ${quality} | 🌍 ${audioTag} | 🔊 ${audioTag} | 🗃️ Server 1`;
-            let row3 = `🎞️ ${formatLabel} | ⏱️ ${durationStr} | 📌 ${langsLabel} • WEB-DL`;
-            let finalSubtitlesBlock = `${row1}\n${row2}\n${row3}`;
+            let titlePrefix = isTv ? `${title} S${season}E${episode}` : title;
+            let subTitle = `${quality}${langs} \u00B7 Cinestream`;
 
             streams.push({
-                name: `${PROVIDER_NAME} | ${quality} | ${audioTag}`,
-                title: finalSubtitlesBlock,
-                description: finalSubtitlesBlock,
-                size: row2,
+                name: `${titlePrefix} - ${PROVIDER_NAME} | ${quality}`,
+                title: `${titlePrefix}\n${subTitle}`,
+                size: subTitle,
                 url: link.url,
                 quality: quality,
                 qNum: qNum,
-                format: isM3u8 ? "m3u8" : "mp4",
+                format: link.type === "hls" || link.url.includes(".m3u8") ? "m3u8" : "mp4",
                 headers: {
-                    "Origin": "https://cinestream.kje.us",
-                    "Referer": "https://cinestream.kje.us/"
+                    "origin": "https://cinestream.kje.us",
+                    "referer": "https://cinestream.kje.us/"
                 }
             });
         }

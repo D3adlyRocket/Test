@@ -29,7 +29,6 @@ var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 var BASE_URL = "https://anidb.app";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-// FIXED: Resolves parent show name for browsing data alongside explicit episode runtime payloads
 function getTmdbInfo(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     const tmdbType = mediaType === "tv" ? "tv" : "movie";
@@ -38,7 +37,6 @@ function getTmdbInfo(tmdbId, mediaType, season, episode) {
     
     try {
       if (mediaType === "tv") {
-        // Fetch the main show metadata first to secure the absolute Series Title
         const showUrl = "https://api.themoviedb.org/3/tv/" + tmdbId + "?api_key=" + TMDB_API_KEY;
         const showResp = yield fetch(showUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
         
@@ -47,7 +45,6 @@ function getTmdbInfo(tmdbId, mediaType, season, episode) {
         const mainTitle = showData.name || "";
         const year = showData.first_air_date ? parseInt(showData.first_air_date.slice(0, 4), 10) : null;
         
-        // Fetch the specific episode details to secure exact runtime data
         const epUrl = "https://api.themoviedb.org/3/tv/" + tmdbId + "/season/" + sNum + "/episode/" + eNum + "?api_key=" + TMDB_API_KEY;
         const epResp = yield fetch(epUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
         let runtime = showData.episode_run_time ? showData.episode_run_time[0] : 0;
@@ -59,7 +56,6 @@ function getTmdbInfo(tmdbId, mediaType, season, episode) {
         
         return { title: mainTitle, year, runtime };
       } else {
-        // Handle standalone Movie elements
         const movieUrl = "https://api.themoviedb.org/3/movie/" + tmdbId + "?api_key=" + TMDB_API_KEY;
         const r = yield fetch(movieUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
         if (!r.ok) return { title: "", year: null, runtime: 0 };
@@ -242,7 +238,24 @@ function getStreams(tmdbId, mediaType, season, episode) {
             continue;
           seen[m3u8] = true;
           
-          const langLabel = embedUrls[i].name ? embedUrls[i].name : "RAW / SUB";
+          const rawLang = String(embedUrls[i].name || "").toLowerCase();
+          let langLabel = embedUrls[i].name ? embedUrls[i].name : "RAW / SUB";
+          
+          // FIXED: Parse metadata strings to map language codes, names and flags natively
+          let flag = "🗣️";
+          let headerAudioTag = "Subbed / Dubbed";
+
+          if (rawLang.includes("japanese") || rawLang.includes("jp") || rawLang.includes("jap")) {
+            flag = "🇯🇵";
+            headerAudioTag = "Japanese Audio";
+          } else if (rawLang.includes("english") || rawLang.includes("eng") || rawLang.includes("en")) {
+            flag = "🇺🇸";
+            headerAudioTag = "English Audio";
+          } else if (rawLang.includes("korean") || rawLang.includes("kor") || rawLang.includes("kr")) {
+            flag = "🇰🇷";
+            headerAudioTag = "Korean Audio";
+          }
+
           const displayYear = info.year ? " (" + info.year + ")" : "";
 
           // Custom Runtime Layout Logic
@@ -251,14 +264,14 @@ function getStreams(tmdbId, mediaType, season, episode) {
             durationText = info.runtime + " min";
           }
 
-          // Formatted Layout with custom requested icons block
+          // FIXED: Layout block with localized flags, dynamic track tags, and dropped redundant elements
           var row1 = "🎋 " + info.title + displayYear;
-          var row2 = "🏷️ Auto | 🌍 " + langLabel + " | 🔊 Native | ⚡ Direct";
+          var row2 = "🏷️ Auto | " + flag + " " + langLabel + " | 🔊 Native";
           var row3 = "⚡ HLS | ⏱️ " + durationText + " | 📌 AniDB Stream";
           var finalBlock = row1 + "\n" + row2 + "\n" + row3;
 
           streams.push({
-            name: "AniDB | Auto | Multi-Audio",
+            name: "AniDB | Auto | " + headerAudioTag,
             title: finalBlock,
             url: m3u8,
             quality: "Auto",

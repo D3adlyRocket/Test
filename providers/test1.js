@@ -28,6 +28,28 @@ function extractQuality(str) {
   return 'Unknown';
 }
 
+/**
+ * Parses embed player HTML to pull out the hidden raw .m3u8 stream links.
+ */
+async function extractDirectStream(embedUrl) {
+  try {
+    const response = await fetch(embedUrl, { headers: HEADERS });
+    const html = await response.text();
+
+    // Regex to locate Master or Index m3u8 playlists found in JWPlayer configuration strings
+    const m3u8Regex = /(https?:\/\/[^"']+\.m3u8[^"']*)/i;
+    const match = html.match(m3u8Regex);
+
+    if (match && match[1]) {
+      // Fix backslash escapes if any exist in the matched JS string source
+      return match[1].replace(/\\/g, '');
+    }
+  } catch (e) {
+    console.error(`[Extractor Error] Failed parsing stream from ${embedUrl}`, e);
+  }
+  return null;
+}
+
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
     const BASE_URL = await getBaseUrl();
@@ -118,20 +140,26 @@ async function getStreams(tmdbId, mediaType, season, episode) {
               const serverHtml = await (await fetch(serverLink, { headers: HEADERS})).text();
               const $server = cheerio.load(serverHtml);
               const trueLink = $server('iframe').attr('src') || '';
+              
               if (trueLink) {
-                streams.push({
-                  name: "Toonstream",
-                  url: trueLink,
-                  quality: extractQuality(trueLink),
-                  title: 'Toonstream',
-                  subtitles: [],
-                  behaviorHints: {
-                    notWebReady: true,
-                    proxyHeaders: {
-                      request: Object.assign({}, HEADERS)
+                // RUN EXTRACTION FOR LIVE VIDEO PLAYLIST FILE
+                const streamUrl = await extractDirectStream(trueLink);
+
+                if (streamUrl) {
+                  streams.push({
+                    name: "Toonstream",
+                    url: streamUrl,
+                    quality: extractQuality(streamUrl),
+                    title: 'Toonstream',
+                    subtitles: [],
+                    behaviorHints: {
+                      notWebReady: false, // Changed to false because m3u8 direct streams play cleanly
+                      proxyHeaders: {
+                        request: Object.assign({}, HEADERS, { "Referer": trueLink })
+                      }
                     }
-                  }
-                });
+                  });
+                }
               }
             } catch (e) { /* skip failed servers */ }
           }
@@ -139,24 +167,30 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       }
     } else {
       // Movie - extract iframes directly
+      const movieEmbedLinks = [];
       $page('#aa-options > div > iframe').each((_, el) => {
         const src = $page(el).attr('data-src');
-        if (src) {
+        if (src) movieEmbedLinks.push(src);
+      });
+
+      for (const embedUrl of movieEmbedLinks) {
+        const streamUrl = await extractDirectStream(embedUrl);
+        if (streamUrl) {
           streams.push({
             name: "Toonstream",
-            url: src,
-            quality: extractQuality(src),
+            url: streamUrl,
+            quality: extractQuality(streamUrl),
             title: 'Toonstream',
             subtitles: [],
             behaviorHints: {
-              notWebReady: true,
+              notWebReady: false,
               proxyHeaders: {
-                request: Object.assign({}, HEADERS)
+                request: Object.assign({}, HEADERS, { "Referer": embedUrl })
               }
             }
           });
         }
-      });
+      }
     }
 
     return streams;

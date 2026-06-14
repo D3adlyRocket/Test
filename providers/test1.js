@@ -1,265 +1,296 @@
-const cheerio = require('cheerio-without-node-native');
-// toonstream.js
-// Provider: Toonstream (https://toonstream.vip)
-
-const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
-
-const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+/**
+ * anidb - Built from src/anidb/
+ * Generated: 2026-06-14T08:46:33.554Z
+ */
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
 };
 
-async function getBaseUrl() {
-  try {
-    const domains = await (await fetch(DOMAINS_URL)).json();
-    return domains.toonstream || "https://toonstream.vip";
-  } catch (e) {
-    return "https://toonstream.vip";
-  }
-}
+// src/anidb/index.js
+var cheerio = require("cheerio-without-node-native");
+var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
+var BASE_URL = "https://anidb.app";
+var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 
-function extractQuality(str) {
-  const u = (str || '').toLowerCase();
-  if (u.includes('2160p') || u.includes('4k')) return '4K';
-  if (u.includes('1080p')) return '1080p';
-  if (u.includes('720p')) return '720p';
-  if (u.includes('480p')) return '480p';
-  return 'Unknown';
-}
-
-/**
- * Unpacks standard JavaScript obfuscated code configurations
- */
-function unpackJS(packed) {
-  try {
-    const payload = packed.match(/^eval\(function\(p,a,c,k,e,d\)\{.*return\s+p\}.*\}\('(.*)',\s*(\d+),\s*(\d+),\s*'(.*)'\.split\('\|'\)\)\)$/);
-    if (!payload) return packed;
-
-    let [_, p, a, c, k] = payload;
-    a = parseInt(a, 10);
-    c = parseInt(c, 10);
-    k = k.split('|');
-
-    const e = (c) => (c < a ? '' : e(parseInt(c / a, 10))) + ((c = c % a) > 35 ? String.fromCharCode(c + 29) : c.toString(36));
-
-    while (c--) {
-      if (k[c]) {
-        p = p.replace(new RegExp('\\b' + e(c) + '\\b', 'g'), k[c]);
-      }
-    }
-    return p;
-  } catch (err) {
-    return packed;
-  }
-}
-
-/**
- * Follows internal router links, handles page redirects, and extracts tokenized streams
- */
-async function extractDirectStream(embedUrl) {
-  try {
-    // 1. Follow potential server-side redirects to find the destination player domain
-    const response = await fetch(embedUrl, { 
-      headers: HEADERS,
-      redirect: 'follow' 
-    });
+// FIXED: Now queries specific season/episode metadata on TMDB to extract exact runtime for TV/Anime series
+function getTmdbInfo(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    const tmdbType = mediaType === "tv" ? "tv" : "movie";
+    const sNum = Number.isInteger(season) ? season : 1;
+    const eNum = Number.isInteger(episode) ? episode : 1;
     
-    const finalUrl = response.url;
-    const html = await response.text();
-
-    // 2. Scan for complete tokenized m3u8 playlist queries
-    const m3u8Regex = /(https?:\/\/[^"']+\.m3u8\?[^"']+)/i;
-    let match = html.match(m3u8Regex);
-    
-    if (match && match[1]) {
-      return { url: match[1].replace(/\\/g, ''), referer: finalUrl };
+    let url = "https://api.themoviedb.org/3/" + tmdbType + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
+    if (mediaType === "tv") {
+      url = "https://api.themoviedb.org/3/tv/" + tmdbId + "/season/" + sNum + "/episode/" + eNum + "?api_key=" + TMDB_API_KEY;
     }
 
-    // 3. Fallback to parsing packed script data blocks
-    const packedRegex = /(eval\(function\(p,a,c,k,e,.*\)\))/g;
-    const packedBlocks = html.match(packedRegex);
-
-    if (packedBlocks) {
-      for (const block of packedBlocks) {
-        const unpackedText = unpackJS(block);
-        match = unpackedText.match(m3u8Regex);
-        if (match && match[1]) {
-          return { url: match[1].replace(/\\/g, ''), referer: finalUrl };
-        }
-        
-        // If the stream block doesn't use a query parameter string fallback to a standard match
-        const standardM3u8Regex = /(https?:\/\/[^"']+\.m3u8[^"']*)/i;
-        const fallbackMatch = unpackedText.match(standardM3u8Regex);
-        if (fallbackMatch && fallbackMatch[1]) {
-          return { url: fallbackMatch[1].replace(/\\/g, ''), referer: finalUrl };
+    const r = yield fetch(url, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
+    if (!r.ok) {
+      // Fallback if episode endpoint fails, try show endpoint
+      if (mediaType === "tv") {
+        const fallbackUrl = "https://api.themoviedb.org/3/tv/" + tmdbId + "?api_key=" + TMDB_API_KEY;
+        const fbResp = yield fetch(fallbackUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
+        if (fbResp.ok) {
+          const fbData = yield fbResp.json();
+          return { title: fbData.name || "", year: fbData.first_air_date ? parseInt(fbData.first_air_date.slice(0, 4), 10) : null, runtime: 0 };
         }
       }
-    }
-  } catch (e) {
-    console.error(`[Extractor Error] Failed parsing stream endpoint: ${embedUrl}`, e);
-  }
-  return null;
-}
-
-async function getStreams(tmdbId, mediaType, season, episode) {
-  try {
-    const BASE_URL = await getBaseUrl();
-
-    // 1. Get title from TMDB
-    const tmdbUrl = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    const mediaInfo = await (await fetch(tmdbUrl)).json();
-    const title = mediaInfo.title || mediaInfo.name;
-    if (!title) return [];
-
-    // 2. Search Toonstream
-    let searchHref = null;
-    for (let i = 1; i <= 3; i++) {
-      const searchUrl = `${BASE_URL}/page/${i}/?s=${encodeURIComponent(title)}`;
-      const searchHtml = await (await fetch(searchUrl, { headers: HEADERS})).text();
-      const $ = cheerio.load(searchHtml);
-      const first = $('#movies-a > ul > li article > a').first().attr('href');
-      if (first) {
-        searchHref = first;
-        break;
-      }
+      return { title: "", year: null, runtime: 0 };
     }
 
-    if (!searchHref) return [];
-    if (!searchHref.startsWith('http')) searchHref = BASE_URL + searchHref;
+    const data = yield r.json();
+    let title = "";
+    let year = null;
+    let runtime = data.runtime || 0;
 
-    // 3. Load the content page
-    const pageHtml = await (await fetch(searchHref, { headers: HEADERS})).text();
-    const $page = cheerio.load(pageHtml);
-
-    const isSeries = searchHref.includes('series') || mediaType === 'tv';
-    const streams = [];
-
-    if (isSeries && season != null && episode != null) {
-      // Get season/episode via AJAX
-      const seasonElements = [];
-      $page('div.aa-drp.choose-season > ul > li > a').each((_, el) => {
-        const dataPost = $page(el).attr('data-post');
-        const dataSeason = $page(el).attr('data-season');
-        if (dataPost && dataSeason) {
-          seasonElements.push({ dataPost, dataSeason });
-        }
-      });
-
-      // Find the matching season
-      const targetSeasonNum = String(season);
-      let targetSeason = seasonElements.find(s => s.dataSeason === targetSeasonNum)
-        || seasonElements[parseInt(season) - 1];
-
-      if (targetSeason) {
-        const ajaxResponse = await (await fetch(`${BASE_URL}/wp-admin/admin-ajax.php`, {
-          method: 'POST',
-          headers: {
-            ...HEADERS,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Requested-With': 'XMLHttpRequest'
-          },
-          body: `action=action_select_season&season=${targetSeason.dataSeason}&post=${targetSeason.dataPost}`})).text();
-
-        const $season = cheerio.load(ajaxResponse);
-
-        // Get all episode links
-        const episodeLinks = [];
-        $season('article').each((_, ep) => {
-          const epHref = $season(ep).find('article > a').attr('href') || '';
-          const epName = $season(ep).find('article > header.entry-header > h2').text();
-          episodeLinks.push({ href: epHref, name: epName });
-        });
-
-        // Find target episode
-        const targetEp = episodeLinks[parseInt(episode) - 1] || episodeLinks.find(e =>
-          e.name.includes(`Episode ${episode}`) || e.name.includes(`Ep ${episode}`)
-        );
-
-        if (targetEp && targetEp.href) {
-          const epPageHtml = await (await fetch(targetEp.href, { headers: HEADERS})).text();
-          const $ep = cheerio.load(epPageHtml);
-
-          // Extract loops across active internal tabs
-          const serverLinks = [];
-          $ep('#aa-options > div > iframe').each((_, el) => {
-            let src = $ep(el).attr('data-src') || $ep(el).attr('src');
-            if (src) {
-              if (src.startsWith('//')) src = 'https:' + src;
-              if (src.startsWith('/')) src = BASE_URL + src;
-              serverLinks.push(src);
-            }
-          });
-
-          for (const serverLink of serverLinks) {
-            try {
-              // Extract the functional streaming path along with its authorization referer header context
-              const streamData = await extractDirectStream(serverLink);
-
-              if (streamData && streamData.url) {
-                streams.push({
-                  name: "Toonstream",
-                  url: streamData.url,
-                  quality: extractQuality(streamData.url),
-                  title: 'Toonstream',
-                  subtitles: [],
-                  behaviorHints: {
-                    notWebReady: false,
-                    proxyHeaders: {
-                      request: Object.assign({}, HEADERS, { 
-                        "Referer": streamData.referer,
-                        "Origin": new URL(streamData.referer).origin
-                      })
-                    }
-                  }
-                });
-              }
-            } catch (e) { /* skip failed servers */ }
-          }
+    if (mediaType === "tv") {
+      // For episodes, title is often the episode name, so we fetch show title if needed, or default gracefully
+      title = data.name || "";
+      const dateStr = data.air_date || "";
+      year = dateStr ? parseInt(dateStr.slice(0, 4), 10) : null;
+      
+      // If episode name doesn't contain main identity, fallback check occurs in runtime loop or parsing
+      if (!title || data.still_path === undefined) {
+        const showUrl = "https://api.themoviedb.org/3/tv/" + tmdbId + "?api_key=" + TMDB_API_KEY;
+        const showResp = yield fetch(showUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
+        if (showResp.ok) {
+          const showData = yield showResp.json();
+          title = showData.name || title;
+          if (!year && showData.first_air_date) year = parseInt(showData.first_air_date.slice(0, 4), 10);
         }
       }
     } else {
-      // Movie - extract options directly
-      const movieEmbedLinks = [];
-      $page('#aa-options > div > iframe').each((_, el) => {
-        let src = $page(el).attr('data-src') || $page(el).attr('src');
-        if (src) {
-          if (src.startsWith('//')) src = 'https:' + src;
-          if (src.startsWith('/')) src = BASE_URL + src;
-          movieEmbedLinks.push(src);
-        }
-      });
-
-      for (const embedUrl of movieEmbedLinks) {
-        const streamData = await extractDirectStream(embedUrl);
-        if (streamData && streamData.url) {
-          streams.push({
-            name: "Toonstream",
-            url: streamData.url,
-            quality: extractQuality(streamData.url),
-            title: 'Toonstream',
-            subtitles: [],
-            behaviorHints: {
-              notWebReady: false,
-              proxyHeaders: {
-                request: Object.assign({}, HEADERS, { 
-                  "Referer": streamData.referer,
-                  "Origin": new URL(streamData.referer).origin
-                })
-              }
-            }
-          });
-        }
-      }
+      title = data.title;
+      const dateStr = data.release_date || "";
+      year = dateStr ? parseInt(dateStr.slice(0, 4), 10) : null;
     }
 
-    return streams;
+    return { title: title || "", year, runtime };
+  });
+}
 
-  } catch (e) {
-    console.error('[Toonstream]', e);
-    return [];
+function normalize(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function rankResults(results, wantedTitle) {
+  const want = normalize(wantedTitle);
+  const exact = [];
+  const partial = [];
+  for (let i = 0; i < results.length; i++) {
+    const n = normalize(results[i].title);
+    if (n === want)
+      exact.push(results[i]);
+    else if (n.indexOf(want) !== -1 || want.indexOf(n) !== -1)
+      partial.push(results[i]);
   }
+  return exact.concat(partial);
 }
 
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
+function absolutize(href) {
+  if (!href)
+    return "";
+  if (href.indexOf("http") === 0)
+    return href;
+  if (href.indexOf("//") === 0)
+    return "https:" + href;
+  if (href.charAt(0) === "/")
+    return BASE_URL + href;
+  return BASE_URL + "/" + href;
 }
+
+function searchSite(query) {
+  return __async(this, null, function* () {
+    const results = [];
+    const seen = {};
+    let html;
+    try {
+      const r = yield fetch(BASE_URL + "/browse?q=" + encodeURIComponent(query), {
+        headers: {
+          "User-Agent": USER_AGENT,
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "en-US,en;q=0.9"
+        }
+      });
+      html = yield r.text();
+    } catch (_) {
+      return results;
+    }
+    const $ = cheerio.load(html);
+    $("a.anime-card").each(function(i, el) {
+      const href = absolutize($(el).attr("href") || "");
+      const title = ($(el).attr("title") || $(el).find("img").attr("alt") || "").trim();
+      if (href && title && !seen[href]) {
+        seen[href] = true;
+        results.push({ url: href, title });
+      }
+    });
+    return results;
+  });
+}
+
+function getEpisodes(siteId) {
+  return __async(this, null, function* () {
+    const r = yield fetch(BASE_URL + "/api/frontend/anime/" + siteId + "/episodes", {
+      headers: { "User-Agent": USER_AGENT, "X-Requested-With": "XMLHttpRequest" }
+    });
+    const data = yield r.json();
+    return data && data.episodes ? data.episodes : [];
+  });
+}
+
+function getLanguages(episodeId, slug) {
+  return __async(this, null, function* () {
+    const r = yield fetch(BASE_URL + "/api/frontend/episode/" + episodeId + "/languages", {
+      headers: {
+        "User-Agent": USER_AGENT,
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": BASE_URL + "/anime/" + slug
+      }
+    });
+    const data = yield r.json();
+    return data && data.languages ? data.languages : [];
+  });
+}
+
+var HLS_REGEXES = [
+  /file\s*:\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i,
+  /sources\s*:\s*\[\s*\{[^}]*file\s*:\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i,
+  /["'](https?:\/\/[^"']+\/master\.m3u8[^"']*)["']/i,
+  /["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i
+];
+
+function extractEmbed(embedUrl) {
+  return __async(this, null, function* () {
+    try {
+      const r = yield fetch(embedUrl, {
+        headers: { "User-Agent": USER_AGENT, "Referer": BASE_URL + "/" }
+      });
+      const text = yield r.text();
+      for (let i = 0; i < HLS_REGEXES.length; i++) {
+        const m = text.match(HLS_REGEXES[i]);
+        if (m && m[1])
+          return m[1];
+      }
+    } catch (_) {
+    }
+    return null;
+  });
+}
+
+function getStreams(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      const info = yield getTmdbInfo(tmdbId, mediaType, season, episode);
+      if (!info.title)
+        return [];
+      console.log("[AniDB] " + mediaType + ' "' + info.title + '" S' + season + "E" + episode);
+      const ranked = rankResults(yield searchSite(info.title), info.title);
+      const targetEpisode = mediaType === "tv" ? episode || 1 : 1;
+      for (let ci = 0; ci < Math.min(3, ranked.length); ci++) {
+        const candidate = ranked[ci];
+        const slug = candidate.url.split("/").filter(Boolean).pop() || "";
+        const idStr = slug.split("-").pop();
+        const siteId = parseInt(idStr, 10);
+        if (!siteId)
+          continue;
+        let episodes = [];
+        try {
+          episodes = yield getEpisodes(siteId);
+        } catch (_) {
+          continue;
+        }
+        if (!episodes.length)
+          continue;
+        let target = null;
+        for (let i = 0; i < episodes.length; i++) {
+          if (episodes[i].number === targetEpisode) {
+            target = episodes[i];
+            break;
+          }
+        }
+        if (!target)
+          target = episodes[targetEpisode - 1] || episodes[0];
+        if (!target || target.id == null)
+          continue;
+        let languages = [];
+        try {
+          languages = yield getLanguages(target.id, slug);
+        } catch (_) {
+          continue;
+        }
+        const embedUrls = [];
+        for (let i = 0; i < languages.length; i++) {
+          const eu = languages[i].embed_url;
+          if (eu)
+            embedUrls.push({ url: eu, name: languages[i].name || languages[i].code || "" });
+        }
+        if (!embedUrls.length)
+          continue;
+        const resolved = yield Promise.all(embedUrls.map(function(e) {
+          return extractEmbed(e.url);
+        }));
+        const streams = [];
+        const seen = {};
+        for (let i = 0; i < resolved.length; i++) {
+          const m3u8 = resolved[i];
+          if (!m3u8 || seen[m3u8])
+            continue;
+          seen[m3u8] = true;
+          
+          const langLabel = embedUrls[i].name ? embedUrls[i].name : "RAW / SUB";
+          const displayYear = info.year ? " (" + info.year + ")" : "";
+
+          // Custom Runtime Layout Logic
+          let durationText = "N/A";
+          if (info.runtime && Number.isInteger(info.runtime) && info.runtime > 0) {
+            durationText = info.runtime + " min";
+          }
+
+          // CHANGED: Formatted Layout using requested unique icons block
+          var row1 = "🎋 " + info.title + displayYear;
+          var row2 = "🏷️ Auto | 🌍 " + langLabel + " | 🔊 Native | ⚡ Direct";
+          var row3 = "⚡ HLS | ⏱️ " + durationText + " | 📌 AniDB Stream";
+          var finalBlock = row1 + "\n" + row2 + "\n" + row3;
+
+          streams.push({
+            name: "AniDB | Auto | Multi-Audio",
+            title: finalBlock,
+            url: m3u8,
+            quality: "Auto",
+            description: finalBlock,
+            headers: { "Referer": BASE_URL + "/" }
+          });
+        }
+        if (streams.length) {
+          console.log("[AniDB] found " + streams.length + " streams");
+          return streams;
+        }
+      }
+      console.log("[AniDB] no streams found");
+      return [];
+    } catch (e) {
+      console.error("[AniDB] Fatal: " + (e && e.message));
+      return [];
+    }
+  });
+}
+
+module.exports = { getStreams };

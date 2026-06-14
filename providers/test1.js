@@ -1,7 +1,6 @@
 const cheerio = require('cheerio-without-node-native');
 // toonstream.js
 // Provider: Toonstream (https://toonstream.vip)
-// Hindi dubbed cartoons and anime - multi-server support via AJAX season loading
 
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
@@ -29,23 +28,61 @@ function extractQuality(str) {
 }
 
 /**
- * Parses embed player HTML to pull out the hidden raw .m3u8 stream links.
+ * Decodes standard Dean Edwards P.A.C.K.E.R. obfuscated strings
+ */
+function unpackJS(packed) {
+  try {
+    const payload = packed.match(/^eval\(function\(p,a,c,k,e,d\)\{.*return\s+p\}.*\}\('(.*)',\s*(\d+),\s*(\d+),\s*'(.*)'\.split\('\|'\)\)\)$/);
+    if (!payload) return packed;
+
+    let [_, p, a, c, k] = payload;
+    a = parseInt(a, 10);
+    c = parseInt(c, 10);
+    k = k.split('|');
+
+    const e = (c) => (c < a ? '' : e(parseInt(c / a, 10))) + ((c = c % a) > 35 ? String.fromCharCode(c + 29) : c.toString(36));
+
+    while (c--) {
+      if (k[c]) {
+        p = p.replace(new RegExp('\\b' + e(c) + '\\b', 'g'), k[c]);
+      }
+    }
+    return p;
+  } catch (err) {
+    return packed;
+  }
+}
+
+/**
+ * Pulls direct streams by checking plain HTML or evaluating packed JS datablocks
  */
 async function extractDirectStream(embedUrl) {
   try {
     const response = await fetch(embedUrl, { headers: HEADERS });
     const html = await response.text();
 
-    // Regex to locate Master or Index m3u8 playlists found in JWPlayer configuration strings
+    // 1. Try matching a straightforward, unencrypted m3u8 line first
     const m3u8Regex = /(https?:\/\/[^"']+\.m3u8[^"']*)/i;
-    const match = html.match(m3u8Regex);
-
+    let match = html.match(m3u8Regex);
     if (match && match[1]) {
-      // Fix backslash escapes if any exist in the matched JS string source
       return match[1].replace(/\\/g, '');
     }
+
+    // 2. If missing, extract packed JS blocks and unpack them locally
+    const packedRegex = /(eval\(function\(p,a,c,k,e,.*\)\))/g;
+    const packedBlocks = html.match(packedRegex);
+
+    if (packedBlocks) {
+      for (const block of packedBlocks) {
+        const unpackedText = unpackJS(block);
+        match = unpackedText.match(m3u8Regex);
+        if (match && match[1]) {
+          return match[1].replace(/\\/g, '');
+        }
+      }
+    }
   } catch (e) {
-    console.error(`[Extractor Error] Failed parsing stream from ${embedUrl}`, e);
+    console.error(`[Extractor] Error parsing target embed source: ${embedUrl}`, e);
   }
   return null;
 }
@@ -142,7 +179,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
               const trueLink = $server('iframe').attr('src') || '';
               
               if (trueLink) {
-                // RUN EXTRACTION FOR LIVE VIDEO PLAYLIST FILE
                 const streamUrl = await extractDirectStream(trueLink);
 
                 if (streamUrl) {
@@ -153,7 +189,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                     title: 'Toonstream',
                     subtitles: [],
                     behaviorHints: {
-                      notWebReady: false, // Changed to false because m3u8 direct streams play cleanly
+                      notWebReady: false,
                       proxyHeaders: {
                         request: Object.assign({}, HEADERS, { "Referer": trueLink })
                       }

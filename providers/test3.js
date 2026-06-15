@@ -299,16 +299,35 @@ function getMappingLanguage(providerContext = null) {
 }
 function fetchViaWorker(url) {
   return __async(this, null, function* () {
-    // Patched to cleanly pass the full URL as a parameter to your new Cloudflare Worker
-    const workerDomain = "https://" + base64Decode("ZDNhZGx5cm9ja2V0LmQzYWRseS53b3JrZXJzLmRldg==");
-    const targetUrl = `${workerDomain.replace(/\/+$/, "")}/?url=${encodeURIComponent(url)}`;
+    // Switching to a public, distributed proxy network to bypass the 403 block
+    const proxyGateways = [
+      "https://corsproxy.io/?",
+      "https://api.allorigins.win/raw?url="
+    ];
     
-    const response = yield fetchWithTimeout(targetUrl, {
+    // Attempting the first clean proxy gateway
+    const targetUrl = proxyGateways[0] + encodeURIComponent(url);
+    
+    try {
+      const response = yield fetchWithTimeout(targetUrl, {
+        timeout: FETCH_TIMEOUT,
+        headers: { 
+          "User-Agent": USER_AGENT,
+          "Origin": "https://cinemacity.cc"
+        }
+      });
+      if (response.ok) return yield response.text();
+    } catch(e) {}
+    
+    // Fallback to the second gateway if the first is throttled
+    const fallbackUrl = proxyGateways[1] + encodeURIComponent(url);
+    const fallbackResponse = yield fetchWithTimeout(fallbackUrl, {
       timeout: FETCH_TIMEOUT,
       headers: { "User-Agent": USER_AGENT }
     });
-    if (!response.ok) throw new Error(`Worker HTTP ${response.status}`);
-    return yield response.text();
+    
+    if (!fallbackResponse.ok) throw new Error(`Proxy network down: ${fallbackResponse.status}`);
+    return yield fallbackResponse.text();
   });
 }
 function decodeHtmlEntities(str) {
@@ -405,12 +424,12 @@ function fetchSitemapEntries(providerContext = null) {
       return sitemapCache.entries;
     }
     console.log("[CinemaCity] Fetching sitemap catalog...");
-    let sitemapProxy = "https://" + base64Decode("ZDNhZGx5cm9ja2V0LmQzYWRseS53b3JrZXJzLmRldg==");
+    let sitemapProxy = "https://corsproxy.io/?";
     const sitemapPath = SITEMAP_URL.startsWith("http") ? new URL(SITEMAP_URL).pathname : SITEMAP_URL;
     if (sitemapProxy) {
       const fullTargetUrl = `https://cinemacity.cc${sitemapPath}?page=1&perPage=500`;
 const firstPageUrl = `${sitemapProxy.replace(/\/+$/, "")}/?url=${encodeURIComponent(fullTargetUrl)}`;
-      console.log(`[CinemaCity] Fetching sitemap page 1 via CF Proxy: ${firstPageUrl}`);
+console.log(`[CinemaCity] Fetching sitemap page 1 via Proxy: ${firstPageUrl}`);
       const firstResp = yield fetchWithTimeout(firstPageUrl, {
         timeout: FETCH_TIMEOUT,
         headers: { "User-Agent": USER_AGENT }

@@ -155,18 +155,23 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       return __spreadProps(__spreadValues({}, stream), {
+        // Keep original properties
         name: finalName,
         title: finalTitle,
+        // Metadata for Stremio UI reconstruction (safer names for RN)
         providerName: pName,
         qualityTag: quality,
         description: desc,
         originalTitle: stream.title || "Stream",
+        // Ensure language is set for Stremio/Nuvio sorting
         language,
+        // Mark as formatted
         _nuvio_formatted: true,
         behaviorHints,
         provider: stream.provider || normalizeProviderId(providerName),
         referer: playbackReferer,
         userAgent: playbackUserAgent,
+        // Explicitly ensure root headers are preserved for Nuvio
         headers: finalHeaders
       });
     }
@@ -292,31 +297,18 @@ function getMappingLanguage(providerContext = null) {
   if (explicit === "it") return "it";
   return normalizeConfigBoolean(providerContext == null ? void 0 : providerContext.easyCatalogsLangIt) ? "it" : null;
 }
-
 function fetchViaWorker(url) {
   return __async(this, null, function* () {
-    const targetUrl = "https://corsproxy.io/?" + encodeURIComponent(url);
-    try {
-      const response = yield fetchWithTimeout(targetUrl, {
-        timeout: FETCH_TIMEOUT,
-        headers: { 
-          "User-Agent": USER_AGENT,
-          "Origin": "https://cinemacity.cc"
-        }
-      });
-      if (response.ok) return yield response.text();
-    } catch(e) {}
-    
-    const fallbackUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
-    const fallbackResponse = yield fetchWithTimeout(fallbackUrl, {
+    const path = url.startsWith("http") ? new URL(url).pathname + new URL(url).search : url;
+    const targetUrl = ("https://" + base64Decode("Y2MucmVhbGJlc3RpYS5jb20=")).replace(/\/+$/, "") + (path.startsWith("/") ? path : "/" + path);
+    const response = yield fetchWithTimeout(targetUrl, {
       timeout: FETCH_TIMEOUT,
       headers: { "User-Agent": USER_AGENT }
     });
-    if (!fallbackResponse.ok) throw new Error(`Proxy network error: ${fallbackResponse.status}`);
-    return yield fallbackResponse.text();
+    if (!response.ok) throw new Error(`Worker HTTP ${response.status}`);
+    return yield response.text();
   });
 }
-
 function decodeHtmlEntities(str) {
   return String(str || "").replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec))).replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))).replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&ndash;|&mdash;/g, "-").replace(/\u2013|\u2014/g, "-");
 }
@@ -345,9 +337,39 @@ function extractYearFromMetadata(metadata) {
 }
 function getSignificantTokens(value) {
   const stopwords = /* @__PURE__ */ new Set([
-    "the", "a", "an", "of", "and", "in", "on", "to", "for", "at", "by", "is", "it", 
-    "il", "lo", "la", "gli", "le", "un", "uno", "una", "di", "da", "del", "della", 
-    "dei", "e", "o", "con", "per", "su", "tra", "fra"
+    "the",
+    "a",
+    "an",
+    "of",
+    "and",
+    "in",
+    "on",
+    "to",
+    "for",
+    "at",
+    "by",
+    "is",
+    "it",
+    "il",
+    "lo",
+    "la",
+    "gli",
+    "le",
+    "un",
+    "uno",
+    "una",
+    "di",
+    "da",
+    "del",
+    "della",
+    "dei",
+    "e",
+    "o",
+    "con",
+    "per",
+    "su",
+    "tra",
+    "fra"
   ]);
   return normalizeTitle(value).split(/\s+/).filter((token) => token.length > 1 && !stopwords.has(token));
 }
@@ -381,37 +403,30 @@ function fetchSitemapEntries(providerContext = null) {
       return sitemapCache.entries;
     }
     console.log("[CinemaCity] Fetching sitemap catalog...");
-    let sitemapProxy = "https://corsproxy.io/?";
+    let sitemapProxy = "https://" + base64Decode("Y2MucmVhbGJlc3RpYS5jb20=");
     const sitemapPath = SITEMAP_URL.startsWith("http") ? new URL(SITEMAP_URL).pathname : SITEMAP_URL;
-    
     if (sitemapProxy) {
-      const fullTargetUrl = `https://cinemacity.cc${sitemapPath}?page=1&perPage=500`;
-      const firstPageUrl = `${sitemapProxy}${encodeURIComponent(fullTargetUrl)}`;
-      console.log(`[CinemaCity] Fetching sitemap page 1 via Proxy: ${firstPageUrl}`);
-      
+      const firstPageUrl = sitemapProxy.endsWith("/") ? `${sitemapProxy.slice(0, -1)}${sitemapPath}?page=1&perPage=500` : `${sitemapProxy}${sitemapPath}?page=1&perPage=500`;
+      console.log(`[CinemaCity] Fetching sitemap page 1 via CF Proxy: ${firstPageUrl}`);
       const firstResp = yield fetchWithTimeout(firstPageUrl, {
         timeout: FETCH_TIMEOUT,
         headers: { "User-Agent": USER_AGENT }
       });
-      
       if (firstResp.ok) {
         const totalEntries = parseInt(firstResp.headers.get("x-total-entries") || "0", 10);
         const firstXml = yield firstResp.text();
         let allEntries = parseSitemapEntries(firstXml);
-        
         if (totalEntries > 0) {
           const perPage = 500;
           const totalPages = Math.ceil(totalEntries / perPage);
           const pageFetches = [];
           for (let p = 2; p <= totalPages; p++) {
-            const fullPageTargetUrl = `https://cinemacity.cc${sitemapPath}?page=${p}&perPage=500`;
-            const pageUrl = `${sitemapProxy}${encodeURIComponent(fullPageTargetUrl)}`;
+            const pageUrl = sitemapProxy.endsWith("/") ? `${sitemapProxy.slice(0, -1)}${sitemapPath}?page=${p}&perPage=500` : `${sitemapProxy}${sitemapPath}?page=${p}&perPage=500`;
             pageFetches.push(
-              fetchWithTimeout(pageUrl, { timeout: FETCH_TIMEOUT, headers: { "User-Agent": USER_AGENT } })
-                .then((r) => r.ok ? r.text() : "")
-                .then((xml2) => {
-                  if (xml2) allEntries = allEntries.concat(parseSitemapEntries(xml2));
-                }).catch(() => {})
+              fetchWithTimeout(pageUrl, { timeout: FETCH_TIMEOUT, headers: { "User-Agent": USER_AGENT } }).then((r) => r.ok ? r.text() : "").then((xml2) => {
+                if (xml2) allEntries = allEntries.concat(parseSitemapEntries(xml2));
+              }).catch(() => {
+              })
             );
           }
           yield Promise.all(pageFetches);
@@ -426,6 +441,18 @@ function fetchSitemapEntries(providerContext = null) {
           return allEntries;
         }
       }
+      const targetUrl = sitemapProxy.endsWith("/") ? `${sitemapProxy}${sitemapPath.replace(/^\//, "")}` : `${sitemapProxy}${sitemapPath}`;
+      console.log(`[CinemaCity] Fetching sitemap via CF Proxy (full): ${targetUrl}`);
+      const response = yield fetchWithTimeout(targetUrl, {
+        timeout: FETCH_TIMEOUT,
+        headers: { "User-Agent": USER_AGENT }
+      });
+      if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
+      const xml = yield response.text();
+      const entries = parseSitemapEntries(xml);
+      sitemapCache = { entries, expiresAt: Date.now() + SITEMAP_CACHE_MS };
+      console.log(`[CinemaCity] Sitemap catalog loaded: ${entries.length} entries`);
+      return entries;
     } else {
       const response = yield fetchWithTimeout(SITEMAP_URL, {
         timeout: FETCH_TIMEOUT,
@@ -441,7 +468,6 @@ function fetchSitemapEntries(providerContext = null) {
       console.log(`[CinemaCity] Sitemap catalog loaded: ${entries.length} entries`);
       return entries;
     }
-    return [];
   });
 }
 function scoreSitemapEntry(entry, expectedTitles, expectedYear) {

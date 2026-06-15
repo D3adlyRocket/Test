@@ -299,8 +299,10 @@ function getMappingLanguage(providerContext = null) {
 }
 function fetchViaWorker(url) {
   return __async(this, null, function* () {
-    const path = url.startsWith("http") ? new URL(url).pathname + new URL(url).search : url;
-    const targetUrl = ("https://" + base64Decode("ZDNhZGx5cm9ja2V0LmQzYWRseS53b3JrZXJzLmRldg==")).replace(/\/+$/, "") + (path.startsWith("/") ? path : "/" + path);
+    // Patched to cleanly pass the full URL as a parameter to your new Cloudflare Worker
+    const workerDomain = "https://" + base64Decode("ZDNhZGx5cm9ja2V0LmQzYWRseS53b3JrZXJzLmRldg==");
+    const targetUrl = `${workerDomain.replace(/\/+$/, "")}/?url=${encodeURIComponent(url)}`;
+    
     const response = yield fetchWithTimeout(targetUrl, {
       timeout: FETCH_TIMEOUT,
       headers: { "User-Agent": USER_AGENT }
@@ -406,7 +408,8 @@ function fetchSitemapEntries(providerContext = null) {
     let sitemapProxy = "https://" + base64Decode("ZDNhZGx5cm9ja2V0LmQzYWRseS53b3JrZXJzLmRldg==");
     const sitemapPath = SITEMAP_URL.startsWith("http") ? new URL(SITEMAP_URL).pathname : SITEMAP_URL;
     if (sitemapProxy) {
-      const firstPageUrl = sitemapProxy.endsWith("/") ? `${sitemapProxy.slice(0, -1)}${sitemapPath}?page=1&perPage=500` : `${sitemapProxy}${sitemapPath}?page=1&perPage=500`;
+      const fullTargetUrl = `https://cinemacity.cc${sitemapPath}?page=1&perPage=500`;
+const firstPageUrl = `${sitemapProxy.replace(/\/+$/, "")}/?url=${encodeURIComponent(fullTargetUrl)}`;
       console.log(`[CinemaCity] Fetching sitemap page 1 via CF Proxy: ${firstPageUrl}`);
       const firstResp = yield fetchWithTimeout(firstPageUrl, {
         timeout: FETCH_TIMEOUT,

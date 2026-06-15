@@ -155,23 +155,18 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       return __spreadProps(__spreadValues({}, stream), {
-        // Keep original properties
         name: finalName,
         title: finalTitle,
-        // Metadata for Stremio UI reconstruction (safer names for RN)
         providerName: pName,
         qualityTag: quality,
         description: desc,
         originalTitle: stream.title || "Stream",
-        // Ensure language is set for Stremio/Nuvio sorting
         language,
-        // Mark as formatted
         _nuvio_formatted: true,
         behaviorHints,
         provider: stream.provider || normalizeProviderId(providerName),
         referer: playbackReferer,
         userAgent: playbackUserAgent,
-        // Explicitly ensure root headers are preserved for Nuvio
         headers: finalHeaders
       });
     }
@@ -297,62 +292,10 @@ function getMappingLanguage(providerContext = null) {
   if (explicit === "it") return "it";
   return normalizeConfigBoolean(providerContext == null ? void 0 : providerContext.easyCatalogsLangIt) ? "it" : null;
 }
+
 function fetchViaWorker(url) {
   return __async(this, null, function* () {
-    // Switching to a public, distributed proxy network to bypass the 403 block
-    const proxyGateways = [
-      "https://corsproxy.io/?",
-      "https://api.allorigins.win/raw?url="
-    ];
-    
-    // Attempting the first clean proxy gateway
-    const targetUrl = proxyGateways[0] + encodeURIComponent(url);
-    
-    try {
-      const response = yield fetchWithTimeout(targetUrl, {
-        timeout: FETCH_TIMEOUT,
-        headers: { 
-          "User-Agent": USER_AGENT,
-          "Origin": "https://cinemacity.cc"
-        }
-      });
-      if (response.ok) return yield response.text();
-    } catch(e) {}
-    
-    // Fallback to the second gateway if the first is throttled
-    const fallbackUrl = proxyGateways[1] + encodeURIComponent(url);
-    const fallbackResponse = yield fetchWithTimeout(fallbackUrl, {
-      timeout: FETCH_TIMEOUT,
-      headers: { "User-Agent": USER_AGENT }
-    });
-    
-    if (!fallbackResponse.ok) throw new Error(`Proxy network down: ${fallbackResponse.status}`);
-    return yield fallbackResponse.text();
-  });
-}
-function decodeHtmlEntities(str) {
-  return String(str || "").replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec))).replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))).replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&ndash;|&mdash;/g, "-").replace(/\u2013|\u2014/g, "-");
-}
-function getHttpStatusFromError(error) {
-  var _a;
-  const responseStatus = Number.parseInt(String(((_a = error == null ? void 0 : error.response) == null ? void 0 : _a.status) || ""), 10);
-  if (Number.isInteger(responseStatus)) return responseStatus;
-  const match = String(error && error.message ? error.message : error).match(/HTTP\s+(\d+)/i);
-  return match ? Number.parseInt(match[1], 10) : null;
-}
-function isCloudflareBlockedError(error) {
-  var _a, _b, _c;
-  const message = [error == null ? void 0 : error.message, (_b = (_a = error == null ? void 0 : error.response) == null ? void 0 : _a.data) == null ? void 0 : _b.message, (_c = error == null ? void 0 : error.response) == null ? void 0 : _c.data].filter(Boolean).join(" ");
-  return /Cloudflare has blocked this request|Error solving the challenge/i.test(message);
-}
-function normalizeTitle(value) {
-  return decodeHtmlEntities(String(value || "")).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
-}
-function fetchViaWorker(url) {
-  return __async(this, null, function* () {
-    // Standardizing on an alternative gateway format to strip 403 blocks
     const targetUrl = "https://corsproxy.io/?" + encodeURIComponent(url);
-    
     try {
       const response = yield fetchWithTimeout(targetUrl, {
         timeout: FETCH_TIMEOUT,
@@ -364,13 +307,11 @@ function fetchViaWorker(url) {
       if (response.ok) return yield response.text();
     } catch(e) {}
     
-    // Fallback gateway if the main aggregator is congested
     const fallbackUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
     const fallbackResponse = yield fetchWithTimeout(fallbackUrl, {
       timeout: FETCH_TIMEOUT,
       headers: { "User-Agent": USER_AGENT }
     });
-    
     if (!fallbackResponse.ok) throw new Error(`Proxy network error: ${fallbackResponse.status}`);
     return yield fallbackResponse.text();
   });
@@ -379,7 +320,6 @@ function fetchViaWorker(url) {
 function decodeHtmlEntities(str) {
   return String(str || "").replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec))).replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))).replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&ndash;|&mdash;/g, "-").replace(/\u2013|\u2014/g, "-");
 }
-
 function getHttpStatusFromError(error) {
   var _a;
   const responseStatus = Number.parseInt(String(((_a = error == null ? void 0 : error.response) == null ? void 0 : _a.status) || ""), 10);
@@ -387,27 +327,22 @@ function getHttpStatusFromError(error) {
   const match = String(error && error.message ? error.message : error).match(/HTTP\s+(\d+)/i);
   return match ? Number.parseInt(match[1], 10) : null;
 }
-
 function isCloudflareBlockedError(error) {
   var _a, _b, _c;
   const message = [error == null ? void 0 : error.message, (_b = (_a = error == null ? void 0 : error.response) == null ? void 0 : _a.data) == null ? void 0 : _b.message, (_c = error == null ? void 0 : error.response) == null ? void 0 : _c.data].filter(Boolean).join(" ");
   return /Cloudflare has blocked this request|Error solving the challenge/i.test(message);
 }
-
 function normalizeTitle(value) {
   return decodeHtmlEntities(String(value || "")).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
 }
-
 function compactTitle(value) {
   return normalizeTitle(value).replace(/\s+/g, "");
 }
-
 function extractYearFromMetadata(metadata) {
   const date = (metadata == null ? void 0 : metadata.release_date) || (metadata == null ? void 0 : metadata.first_air_date) || "";
   const year = Number.parseInt(String(date).slice(0, 4), 10);
   return Number.isInteger(year) ? year : null;
 }
-
 function getSignificantTokens(value) {
   const stopwords = /* @__PURE__ */ new Set([
     "the", "a", "an", "of", "and", "in", "on", "to", "for", "at", "by", "is", "it", 
@@ -416,7 +351,6 @@ function getSignificantTokens(value) {
   ]);
   return normalizeTitle(value).split(/\s+/).filter((token) => token.length > 1 && !stopwords.has(token));
 }
-
 function parseSitemapEntries(xml) {
   const entries = [];
   const regex = /<loc>(https:\/\/cinemacity\.cc\/(movies|tv-series)\/\d+-([a-z0-9-]+)\.html)<\/loc>/gi;
@@ -441,7 +375,6 @@ function parseSitemapEntries(xml) {
   }
   return entries;
 }
-
 function fetchSitemapEntries(providerContext = null) {
   return __async(this, null, function* () {
     if (sitemapCache && sitemapCache.expiresAt > Date.now()) {
@@ -493,31 +426,6 @@ function fetchSitemapEntries(providerContext = null) {
           return allEntries;
         }
       }
-    }
-          yield Promise.all(pageFetches);
-        } else if (allEntries.length >= 1800) {
-          console.log(`[CinemaCity] Full sitemap received (${allEntries.length} entries)`);
-          sitemapCache = { entries: allEntries, expiresAt: Date.now() + SITEMAP_CACHE_MS };
-          return allEntries;
-        }
-        if (allEntries.length > 0) {
-          sitemapCache = { entries: allEntries, expiresAt: Date.now() + SITEMAP_CACHE_MS };
-          console.log(`[CinemaCity] Sitemap catalog loaded: ${allEntries.length} entries`);
-          return allEntries;
-        }
-      }
-      const targetUrl = sitemapProxy.endsWith("/") ? `${sitemapProxy}${sitemapPath.replace(/^\//, "")}` : `${sitemapProxy}${sitemapPath}`;
-      console.log(`[CinemaCity] Fetching sitemap via CF Proxy (full): ${targetUrl}`);
-      const response = yield fetchWithTimeout(targetUrl, {
-        timeout: FETCH_TIMEOUT,
-        headers: { "User-Agent": USER_AGENT }
-      });
-      if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
-      const xml = yield response.text();
-      const entries = parseSitemapEntries(xml);
-      sitemapCache = { entries, expiresAt: Date.now() + SITEMAP_CACHE_MS };
-      console.log(`[CinemaCity] Sitemap catalog loaded: ${entries.length} entries`);
-      return entries;
     } else {
       const response = yield fetchWithTimeout(SITEMAP_URL, {
         timeout: FETCH_TIMEOUT,
@@ -533,6 +441,7 @@ function fetchSitemapEntries(providerContext = null) {
       console.log(`[CinemaCity] Sitemap catalog loaded: ${entries.length} entries`);
       return entries;
     }
+    return [];
   });
 }
 function scoreSitemapEntry(entry, expectedTitles, expectedYear) {

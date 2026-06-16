@@ -28,7 +28,6 @@ console.log("[AFDS] Initializing provider");
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var BASE_URL = "https://afds.pages.dev";
 var API_BASE = "https://tga-hd.api.hashhackers.com";
-var WORKER_URL = "https://afds.akzzy-forza.workers.dev";
 var DEVIL_AUTH_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOjI5NjQ5LCJlbWFpbCI6ImQzYWRseTIwMjRAb3V0bG9vay5jb20iLCJleHAiOjE3ODIyMjI2NzAsImlhdCI6MTc4MTYxNzg3MH0.YQ72LeIOdESq2Mk85_vO9QIYV6lGOvfgAndBkOvKZ2E";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 var HEADERS = {
@@ -92,9 +91,10 @@ function getStreams(tmdbId, mediaType, season, episode) {
       if (!searchData || !searchData.files || searchData.files.length === 0)
         return [];
         
-      const streams = [];
       const matchName = simpleName.toLowerCase().replace(/[^a-z0-9]/g, "");
-      
+      const promises = [];
+
+      // Loop through found files, filter them, and build simultaneous API requests
       for (const file of searchData.files) {
         const name = file.file_name;
         const matchFile = name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -114,8 +114,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
           quality = "720p";
           
         const fileSize = formatBytes(parseInt(file.file_size));
-        const extMatch = name.match(/\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i);
-        const ext = extMatch ? extMatch[0] : ".mkv";
         const cleanName = name.replace(/\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i, "");
         
         let codec = "";
@@ -167,15 +165,33 @@ function getStreams(tmdbId, mediaType, season, episode) {
         if (hdr) details.push(hdr);
         if (audio) details.push(audio);
         if (languages.length) details.push(languages.join("+"));
-        
-        // Generates the stream list instantaneously using the proxy worker
-        streams.push({
-          name: `${cleanName}\n${details.join(" \u2022 ")}`,
-          url: `${WORKER_URL}/stream${ext}?id=${file.id}`,
-          quality
-        });
+
+        // Push an independent promise tasks array to resolve later
+        const genLinkUrl = `${API_BASE}/genLink?type=files&id=${file.id}`;
+        promises.push(
+          fetch(genLinkUrl, { headers: HEADERS })
+            .then(res => res.json())
+            .then(linkData => {
+              const realPlayableUrl = linkData.url || linkData.link || linkData.download_url;
+              if (realPlayableUrl) {
+                return {
+                  name: `${cleanName}\n${details.join(" \u2022 ")}`,
+                  url: realPlayableUrl, // The perfect, working apranet link!
+                  quality
+                };
+              }
+              return null;
+            })
+            .catch(() => null) // Ignore item failures gracefully
+        );
       } 
-      return streams;
+
+      // Execute all link fetches simultaneously
+      const resolvedStreams = yield Promise.all(promises);
+      
+      // Filter out any broken or null links and return
+      return resolvedStreams.filter(stream => stream !== null);
+
     } catch (e) {
       console.log(`[AFDS] Crash: ${e.message}`);
       return [];

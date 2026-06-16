@@ -28,7 +28,6 @@ console.log("[AFDS] Initializing provider");
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var BASE_URL = "https://afds.pages.dev";
 var API_BASE = "https://tga-hd.api.hashhackers.com";
-var WORKER_URL = "https://afds.akzzy-forza.workers.dev";
 var DEVIL_AUTH_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOjI5NjQ5LCJlbWFpbCI6ImQzYWRseTIwMjRAb3V0bG9vay5jb20iLCJleHAiOjE3ODIyMjI2NzAsImlhdCI6MTc4MTYxNzg3MH0.YQ72LeIOdESq2Mk85_vO9QIYV6lGOvfgAndBkOvKZ2E";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 var HEADERS = {
@@ -38,6 +37,7 @@ var HEADERS = {
 };
 if (DEVIL_AUTH_TOKEN)
   HEADERS["Authorization"] = `Bearer ${DEVIL_AUTH_TOKEN}`;
+
 function formatBytes(bytes) {
   if (!+bytes)
     return "0 Bytes";
@@ -46,6 +46,7 @@ function formatBytes(bytes) {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
+
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     var _a, _b;
@@ -89,8 +90,10 @@ function getStreams(tmdbId, mediaType, season, episode) {
       const searchData = yield searchRes.json();
       if (!searchData || !searchData.files || searchData.files.length === 0)
         return [];
+
       const streams = [];
       const matchName = simpleName.toLowerCase().replace(/[^a-z0-9]/g, "");
+
       for (const file of searchData.files) {
         const name = file.file_name;
         const matchFile = name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -100,6 +103,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           continue;
         if (isTV && tvFilter && !matchFile.includes(tvFilter))
           continue;
+
         let quality = "SD";
         if (/4k|2160p/i.test(name))
           quality = "4K";
@@ -107,8 +111,10 @@ function getStreams(tmdbId, mediaType, season, episode) {
           quality = "1080p";
         else if (/720p/i.test(name))
           quality = "720p";
+
         const fileSize = formatBytes(parseInt(file.file_size));
         const cleanName = name.replace(/\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i, "");
+
         let codec = "";
         if (/x265|h265|hevc|hev\b/i.test(name))
           codec = "HEVC";
@@ -116,6 +122,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           codec = "H264";
         else if (/av1/i.test(name))
           codec = "AV1";
+
         let hdr = "";
         if (/dolby.?vision|\bDV\b(?!D)/i.test(name))
           hdr = "DV";
@@ -125,6 +132,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           hdr = "HDR10";
         else if (/hdr/i.test(name))
           hdr = "HDR";
+
         let audio = "";
         if (/atmos/i.test(name))
           audio = "Atmos";
@@ -136,6 +144,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           audio = "DTS";
         else if (/aac/i.test(name))
           audio = "AAC";
+
         const languages = [];
         if (/hindi/i.test(name))
           languages.push("Hindi");
@@ -149,22 +158,34 @@ function getStreams(tmdbId, mediaType, season, episode) {
           languages.push("Malayalam");
         if (/kannada/i.test(name))
           languages.push("Kannada");
+
         const details = [fileSize];
-        if (codec)
-          details.push(codec);
-        if (hdr)
-          details.push(hdr);
-        if (audio)
-          details.push(audio);
-        if (languages.length)
-          details.push(languages.join("+"));
-        streams.push({
-          name: `${cleanName}
-${details.join(" \u2022 ")}`,
-          url: `${WORKER_URL}/stream.mkv?id=${file.id}`,
-          quality
-        });
-      }
+        if (codec) details.push(codec);
+        if (hdr) details.push(hdr);
+        if (audio) details.push(audio);
+        if (languages.length) details.push(languages.join("+"));
+
+        try {
+          // Dynamically fetch the direct streaming link using the genLink endpoint
+          const genLinkUrl = `${API_BASE}/genLink?type=files&id=${file.id}`;
+          const linkRes = yield fetch(genLinkUrl, { headers: HEADERS });
+          const linkData = yield linkRes.json();
+
+          // Extract the direct url returned from the API response
+          const directStreamUrl = linkData.url || linkData.link || linkData.download_url;
+
+          if (directStreamUrl) {
+            streams.push({
+              name: `${cleanName}\n${details.join(" \u2022 ")}`,
+              url: directStreamUrl,
+              quality
+            });
+          }
+        } catch (linkError) {
+          console.log(`[AFDS] Failed to generate link for file ${file.id}: ${linkError.message}`);
+        }
+      } // End of file loop
+
       return streams;
     } catch (e) {
       console.log(`[AFDS] Crash: ${e.message}`);
@@ -172,6 +193,7 @@ ${details.join(" \u2022 ")}`,
     }
   });
 }
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { getStreams };
 } else {

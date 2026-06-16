@@ -1,6 +1,6 @@
 /**
  * afds - Built from src/afds/
- * Generated: 2026-06-03T07:43:43.344Z
+ * Generated: 2026-06-16
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -28,15 +28,27 @@ console.log("[AFDS] Initializing provider");
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var BASE_URL = "https://afds.pages.dev";
 var API_BASE = "https://tga-hd.api.hashhackers.com";
+
+// Updated token and user profile headers from your DevTools screenshot
 var DEVIL_AUTH_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOjI5NjQ5LCJlbWFpbCI6ImQzYWRseTIwMjRAb3V0bG9vay5jb20iLCJleHAiOjE3ODIyMjI2NzAsImlhdCI6MTc4MTYxNzg3MH0.YQ72LeIOdESq2Mk85_vO9QIYV6lGOvfgAndBkOvKZ2E";
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
+
 var HEADERS = {
   "User-Agent": USER_AGENT,
-  "Referer": BASE_URL,
-  "Origin": BASE_URL
+  "Referer": BASE_URL + "/",
+  "Origin": BASE_URL,
+  "Accept": "*/*",
+  "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
+  "Sec-Fetch-Dest": "empty",
+  "Sec-Fetch-Mode": "cors",
+  "Sec-Fetch-Site": "cross-site",
+  "sec-ch-ua-mobile": "?1",
+  "sec-ch-ua-platform": '"Android"'
 };
-if (DEVIL_AUTH_TOKEN)
+
+if (DEVIL_AUTH_TOKEN) {
   HEADERS["Authorization"] = `Bearer ${DEVIL_AUTH_TOKEN}`;
+}
 
 function formatBytes(bytes) {
   if (!+bytes)
@@ -45,24 +57,6 @@ function formatBytes(bytes) {
   const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-}
-
-// Background resolver function to extract the true playable CDN video link at the exact moment of playback
-function resolvePlayableLink(fileId) {
-  return new Promise((resolve, reject) => {
-    const genLinkUrl = `${API_BASE}/genLink?type=files&id=${fileId}`;
-    fetch(genLinkUrl, { headers: HEADERS })
-      .then(res => res.json())
-      .then(data => {
-        const realUrl = data.url || data.link || data.download_url;
-        if (realUrl) {
-          resolve(realUrl);
-        } else {
-          reject(new Error("No stream URL in API payload"));
-        }
-      })
-      .catch(err => reject(err));
-  });
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
@@ -94,6 +88,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       }
       if (!baseName)
         return [];
+        
       const simpleName = baseName.replace(/[^a-zA-Z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
       let searchQuery = simpleName;
       let tvFilter = "";
@@ -103,15 +98,18 @@ function getStreams(tmdbId, mediaType, season, episode) {
         tvFilter = `s${padS}e${padE}`;
         searchQuery = `${simpleName} ${tvFilter}`;
       }
+      
+      // Request search payload from API
       const apiUrl = `${API_BASE}/mix_media_files/search?q=${encodeURIComponent(searchQuery)}&page=1`;
       const searchRes = yield fetch(apiUrl, { headers: HEADERS });
       const searchData = yield searchRes.json();
       if (!searchData || !searchData.files || searchData.files.length === 0)
         return [];
         
-      const streams = [];
       const matchName = simpleName.toLowerCase().replace(/[^a-z0-9]/g, "");
-      
+      const taskQueue = [];
+
+      // Process and screen files matching criteria
       for (const file of searchData.files) {
         const name = file.file_name;
         const matchFile = name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -182,22 +180,48 @@ function getStreams(tmdbId, mediaType, season, episode) {
         if (hdr) details.push(hdr);
         if (audio) details.push(audio);
         if (languages.length) details.push(languages.join("+"));
-        
-        // We create an active link object structure.
-        // The URL fields point directly to a dynamic internal script function.
-        // Most engine systems (Stremio, custom players) can read a dynamic callback function to resolve links on demand.
-        streams.push({
-          name: `${cleanName}\n${details.join(" \u2022 ")}`,
-          url: `${API_BASE}/genLink?type=files&id=${file.id}`,
-          quality,
-          behaviorHints: {
-            notALink: true
-          },
-          // Attach the custom resolver directly inside the stream payload item
-          resolve: () => resolvePlayableLink(file.id)
+
+        // Add task data to queue for controlled execution processing
+        taskQueue.push({
+          id: file.id,
+          meta: {
+            name: `${cleanName}\n${details.join(" \u2022 ")}`,
+            quality
+          }
         });
       } 
-      return streams;
+
+      const resolvedStreams = [];
+      const BATCH_SIZE = 3; // Controlled small parallel bursts bypass the API's automatic firewall blocks
+
+      for (let i = 0; i < taskQueue.length; i += BATCH_SIZE) {
+        const batch = taskQueue.slice(i, i + BATCH_SIZE);
+        const batchPromises = batch.map(task => {
+          const genLinkUrl = `${API_BASE}/genLink?type=files&id=${task.id}`;
+          return fetch(genLinkUrl, { headers: HEADERS })
+            .then(res => res.json())
+            .then(linkData => {
+              // Grabs the true, direct media stream URL target location
+              const realPlayableUrl = linkData.url || linkData.link || linkData.download_url;
+              if (realPlayableUrl) {
+                return {
+                  name: task.meta.name,
+                  url: realPlayableUrl,
+                  quality: task.meta.quality
+                };
+              }
+              return null;
+            })
+            .catch(() => null);
+        });
+
+        const batchResults = yield Promise.all(batchPromises);
+        for (const item of batchResults) {
+          if (item) resolvedStreams.push(item);
+        }
+      }
+      
+      return resolvedStreams;
     } catch (e) {
       console.log(`[AFDS] Crash: ${e.message}`);
       return [];
@@ -206,8 +230,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getStreams, resolvePlayableLink };
+  module.exports = { getStreams };
 } else {
   global.getStreams = getStreams;
-  global.resolvePlayableLink = resolvePlayableLink;
 }

@@ -38,6 +38,7 @@ var HEADERS = {
 };
 if (DEVIL_AUTH_TOKEN)
   HEADERS["Authorization"] = `Bearer ${DEVIL_AUTH_TOKEN}`;
+
 function formatBytes(bytes) {
   if (!+bytes)
     return "0 Bytes";
@@ -46,6 +47,7 @@ function formatBytes(bytes) {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
+
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     var _a, _b;
@@ -89,8 +91,10 @@ function getStreams(tmdbId, mediaType, season, episode) {
       const searchData = yield searchRes.json();
       if (!searchData || !searchData.files || searchData.files.length === 0)
         return [];
+        
       const streams = [];
       const matchName = simpleName.toLowerCase().replace(/[^a-z0-9]/g, "");
+      
       for (const file of searchData.files) {
         const name = file.file_name;
         const matchFile = name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -100,6 +104,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           continue;
         if (isTV && tvFilter && !matchFile.includes(tvFilter))
           continue;
+          
         let quality = "SD";
         if (/4k|2160p/i.test(name))
           quality = "4K";
@@ -107,8 +112,12 @@ function getStreams(tmdbId, mediaType, season, episode) {
           quality = "1080p";
         else if (/720p/i.test(name))
           quality = "720p";
+          
         const fileSize = formatBytes(parseInt(file.file_size));
+        const extMatch = name.match(/\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i);
+        const ext = extMatch ? extMatch[0] : ".mkv";
         const cleanName = name.replace(/\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i, "");
+        
         let codec = "";
         if (/x265|h265|hevc|hev\b/i.test(name))
           codec = "HEVC";
@@ -116,6 +125,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           codec = "H264";
         else if (/av1/i.test(name))
           codec = "AV1";
+          
         let hdr = "";
         if (/dolby.?vision|\bDV\b(?!D)/i.test(name))
           hdr = "DV";
@@ -125,6 +135,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           hdr = "HDR10";
         else if (/hdr/i.test(name))
           hdr = "HDR";
+          
         let audio = "";
         if (/atmos/i.test(name))
           audio = "Atmos";
@@ -136,6 +147,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           audio = "DTS";
         else if (/aac/i.test(name))
           audio = "AAC";
+          
         const languages = [];
         if (/hindi/i.test(name))
           languages.push("Hindi");
@@ -149,34 +161,20 @@ function getStreams(tmdbId, mediaType, season, episode) {
           languages.push("Malayalam");
         if (/kannada/i.test(name))
           languages.push("Kannada");
-                        const details = [fileSize];
+          
+        const details = [fileSize];
         if (codec) details.push(codec);
         if (hdr) details.push(hdr);
         if (audio) details.push(audio);
         if (languages.length) details.push(languages.join("+"));
-
-        try {
-          // 1. Generate the API url pointing to the link generator
-          const genLinkUrl = `${API_BASE}/genLink?type=files&id=${file.id}`;
-          
-          // 2. Fetch the JSON response from the API in the background
-          const linkRes = yield fetch(genLinkUrl, { headers: HEADERS });
-          const linkData = yield linkRes.json();
-
-          // 3. Extract the real, playable CDN video link from the JSON response
-          const realPlayableUrl = linkData.url || linkData.link || linkData.download_url;
-
-          if (realPlayableUrl) {
-            streams.push({
-              name: `${cleanName}\n${details.join(" \u2022 ")}`,
-              url: realPlayableUrl, // This passes the actual apranet.eu.org video link to your player
-              quality
-            });
-          }
-        } catch (linkError) {
-          console.log(`[AFDS] Failed to resolve playable link for ${file.id}: ${linkError.message}`);
-        }
-      } // End of file loop
+        
+        // Generates the stream list instantaneously using the proxy worker
+        streams.push({
+          name: `${cleanName}\n${details.join(" \u2022 ")}`,
+          url: `${WORKER_URL}/stream${ext}?id=${file.id}`,
+          quality
+        });
+      } 
       return streams;
     } catch (e) {
       console.log(`[AFDS] Crash: ${e.message}`);
@@ -184,6 +182,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
     }
   });
 }
+
 if (typeof module !== "undefined" && module.exports) {
   module.exports = { getStreams };
 } else {

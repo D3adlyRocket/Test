@@ -149,23 +149,34 @@ function getStreams(tmdbId, mediaType, season, episode) {
           languages.push("Malayalam");
         if (/kannada/i.test(name))
           languages.push("Kannada");
-                const details = [fileSize];
-        if (codec)
-          details.push(codec);
-        if (hdr)
-          details.push(hdr);
-        if (audio)
-          details.push(audio);
-        if (languages.length)
-          details.push(languages.join("+"));
-        
-        // This maps the direct hashhackers link generator as the stream source
-        streams.push({
-          name: `${cleanName}\n${details.join(" \u2022 ")}`,
-          url: `${API_BASE}/genLink?type=files&id=${file.id}`,
-          quality
-        });
-      }
+                        const details = [fileSize];
+        if (codec) details.push(codec);
+        if (hdr) details.push(hdr);
+        if (audio) details.push(audio);
+        if (languages.length) details.push(languages.join("+"));
+
+        try {
+          // 1. Generate the API url pointing to the link generator
+          const genLinkUrl = `${API_BASE}/genLink?type=files&id=${file.id}`;
+          
+          // 2. Fetch the JSON response from the API in the background
+          const linkRes = yield fetch(genLinkUrl, { headers: HEADERS });
+          const linkData = yield linkRes.json();
+
+          // 3. Extract the real, playable CDN video link from the JSON response
+          const realPlayableUrl = linkData.url || linkData.link || linkData.download_url;
+
+          if (realPlayableUrl) {
+            streams.push({
+              name: `${cleanName}\n${details.join(" \u2022 ")}`,
+              url: realPlayableUrl, // This passes the actual apranet.eu.org video link to your player
+              quality
+            });
+          }
+        } catch (linkError) {
+          console.log(`[AFDS] Failed to resolve playable link for ${file.id}: ${linkError.message}`);
+        }
+      } // End of file loop
       return streams;
     } catch (e) {
       console.log(`[AFDS] Crash: ${e.message}`);

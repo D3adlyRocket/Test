@@ -24,16 +24,18 @@ var __async = (__this, __arguments, generator) => {
 };
 
 // src/afds/index.js
-console.log("[AFDS] Initializing provider");
+console.[span_1](start_span)log("[AFDS] Initializing provider");
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var BASE_URL = "https://afds.pages.dev";
-var API_BASE = "https://tga-hd.api.hashhackers.com";
+var API_BASE = "https://tga-hd.api.hashhackers.com"; //[span_1](end_span)
 var DEVIL_AUTH_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOjI5NjQ5LCJlbWFpbCI6ImQzYWRseTIwMjRAb3V0bG9vay5jb20iLCJleHAiOjE3ODIyMjI2NzAsImlhdCI6MTc4MTYxNzg3MH0.YQ72LeIOdESq2Mk85_vO9QIYV6lGOvfgAndBkOvKZ2E";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
 var HEADERS = {
   "User-Agent": USER_AGENT,
   "Referer": BASE_URL,
-  "Origin": BASE_URL
+  "Origin": BASE_URL,
+  "Accept": "application/json, text/plain, */*"
 };
 if (DEVIL_AUTH_TOKEN)
   HEADERS["Authorization"] = `Bearer ${DEVIL_AUTH_TOKEN}`;
@@ -76,6 +78,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       }
       if (!baseName)
         return [];
+        
       const simpleName = baseName.replace(/[^a-zA-Z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
       let searchQuery = simpleName;
       let tvFilter = "";
@@ -85,16 +88,17 @@ function getStreams(tmdbId, mediaType, season, episode) {
         tvFilter = `s${padS}e${padE}`;
         searchQuery = `${simpleName} ${tvFilter}`;
       }
-      const apiUrl = `${API_BASE}/mix_media_files/search?q=${encodeURIComponent(searchQuery)}&page=1`;
+      
+      // Limit to 25 items per page to lower the load on the platform engine
+      const apiUrl = `${API_BASE}/mix_media_files/search?[span_2](start_span)q=${encodeURIComponent(searchQuery)}&page=1&per_page=25`; //[span_2](end_span)
       const searchRes = yield fetch(apiUrl, { headers: HEADERS });
       const searchData = yield searchRes.json();
       if (!searchData || !searchData.files || searchData.files.length === 0)
         return [];
         
       const matchName = simpleName.toLowerCase().replace(/[^a-z0-9]/g, "");
-      const promises = [];
+      const taskQueue = [];
 
-      // Loop through found files, filter them, and build simultaneous API requests
       for (const file of searchData.files) {
         const name = file.file_name;
         const matchFile = name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -166,32 +170,47 @@ function getStreams(tmdbId, mediaType, season, episode) {
         if (audio) details.push(audio);
         if (languages.length) details.push(languages.join("+"));
 
-        // Push an independent promise tasks array to resolve later
-        const genLinkUrl = `${API_BASE}/genLink?type=files&id=${file.id}`;
-        promises.push(
-          fetch(genLinkUrl, { headers: HEADERS })
+        // Keep raw context ready to map during queue execution
+        taskQueue.push({
+          id: file.id,
+          meta: {
+            name: `${cleanName}\n${details.join(" \u2022 ")}`,
+            quality
+          }
+        });
+      } 
+
+      const resolvedStreams = [];
+      const BATCH_SIZE = 3; // Process 3 elements concurrently to bypass WAF bans safely
+
+      for (let i = 0; i < taskQueue.length; i += BATCH_SIZE) {
+        const batch = taskQueue.slice(i, i + BATCH_SIZE);
+        const batchPromises = batch.map(task => {
+          const genLinkUrl = `${API_BASE}/genLink?type=files&id=${task.id}`;
+          return fetch(genLinkUrl, { headers: HEADERS })
             .then(res => res.json())
             .then(linkData => {
               const realPlayableUrl = linkData.url || linkData.link || linkData.download_url;
               if (realPlayableUrl) {
                 return {
-                  name: `${cleanName}\n${details.join(" \u2022 ")}`,
-                  url: realPlayableUrl, // The perfect, working apranet link!
-                  quality
+                  name: task.meta.name,
+                  url: realPlayableUrl,
+                  quality: task.meta.quality
                 };
               }
               return null;
             })
-            .catch(() => null) // Ignore item failures gracefully
-        );
-      } 
+            .catch(() => null);
+        });
 
-      // Execute all link fetches simultaneously
-      const resolvedStreams = yield Promise.all(promises);
+        // Run batch elements in parallel, then allow loop to transition to next segment
+        const batchResults = yield Promise.all(batchPromises);
+        for (const item of batchResults) {
+          if (item) resolvedStreams.push(item);
+        }
+      }
       
-      // Filter out any broken or null links and return
-      return resolvedStreams.filter(stream => stream !== null);
-
+      return resolvedStreams;
     } catch (e) {
       console.log(`[AFDS] Crash: ${e.message}`);
       return [];

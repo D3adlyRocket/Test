@@ -47,6 +47,24 @@ function formatBytes(bytes) {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }
 
+// Background resolver function to extract the true playable CDN video link at the exact moment of playback
+function resolvePlayableLink(fileId) {
+  return new Promise((resolve, reject) => {
+    const genLinkUrl = `${API_BASE}/genLink?type=files&id=${fileId}`;
+    fetch(genLinkUrl, { headers: HEADERS })
+      .then(res => res.json())
+      .then(data => {
+        const realUrl = data.url || data.link || data.download_url;
+        if (realUrl) {
+          resolve(realUrl);
+        } else {
+          reject(new Error("No stream URL in API payload"));
+        }
+      })
+      .catch(err => reject(err));
+  });
+}
+
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     var _a, _b;
@@ -113,8 +131,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
           quality = "720p";
           
         const fileSize = formatBytes(parseInt(file.file_size));
-        const extMatch = name.match(/\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i);
-        const ext = extMatch ? extMatch[0] : ".mkv";
         const cleanName = name.replace(/\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i, "");
         
         let codec = "";
@@ -167,15 +183,18 @@ function getStreams(tmdbId, mediaType, season, episode) {
         if (audio) details.push(audio);
         if (languages.length) details.push(languages.join("+"));
         
-        // Constructs a dynamic player target link using a public, open CORS bridge proxy.
-        // This keeps your scraper fast, brings back all links instantly, and circumvents the block at playback.
-        const encodedTarget = encodeURIComponent(`${API_BASE}/genLink?type=files&id=${file.id}`);
-        const streamUrl = `https://corsproxy.io/?url=${encodedTarget}`;
-
+        // We create an active link object structure.
+        // The URL fields point directly to a dynamic internal script function.
+        // Most engine systems (Stremio, custom players) can read a dynamic callback function to resolve links on demand.
         streams.push({
           name: `${cleanName}\n${details.join(" \u2022 ")}`,
-          url: streamUrl,
-          quality
+          url: `${API_BASE}/genLink?type=files&id=${file.id}`,
+          quality,
+          behaviorHints: {
+            notALink: true
+          },
+          // Attach the custom resolver directly inside the stream payload item
+          resolve: () => resolvePlayableLink(file.id)
         });
       } 
       return streams;
@@ -187,7 +206,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getStreams };
+  module.exports = { getStreams, resolvePlayableLink };
 } else {
   global.getStreams = getStreams;
+  global.resolvePlayableLink = resolvePlayableLink;
 }

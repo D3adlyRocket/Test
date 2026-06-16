@@ -24,18 +24,16 @@ var __async = (__this, __arguments, generator) => {
 };
 
 // src/afds/index.js
-console.[span_1](start_span)log("[AFDS] Initializing provider");
+console.log("[AFDS] Initializing provider");
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var BASE_URL = "https://afds.pages.dev";
-var API_BASE = "https://tga-hd.api.hashhackers.com"; //[span_1](end_span)
+var API_BASE = "https://tga-hd.api.hashhackers.com";
 var DEVIL_AUTH_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOjI5NjQ5LCJlbWFpbCI6ImQzYWRseTIwMjRAb3V0bG9vay5jb20iLCJleHAiOjE3ODIyMjI2NzAsImlhdCI6MTc4MTYxNzg3MH0.YQ72LeIOdESq2Mk85_vO9QIYV6lGOvfgAndBkOvKZ2E";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
 var HEADERS = {
   "User-Agent": USER_AGENT,
   "Referer": BASE_URL,
-  "Origin": BASE_URL,
-  "Accept": "application/json, text/plain, */*"
+  "Origin": BASE_URL
 };
 if (DEVIL_AUTH_TOKEN)
   HEADERS["Authorization"] = `Bearer ${DEVIL_AUTH_TOKEN}`;
@@ -78,7 +76,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
       }
       if (!baseName)
         return [];
-        
       const simpleName = baseName.replace(/[^a-zA-Z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
       let searchQuery = simpleName;
       let tvFilter = "";
@@ -88,17 +85,15 @@ function getStreams(tmdbId, mediaType, season, episode) {
         tvFilter = `s${padS}e${padE}`;
         searchQuery = `${simpleName} ${tvFilter}`;
       }
-      
-      // Limit to 25 items per page to lower the load on the platform engine
-      const apiUrl = `${API_BASE}/mix_media_files/search?[span_2](start_span)q=${encodeURIComponent(searchQuery)}&page=1&per_page=25`; //[span_2](end_span)
+      const apiUrl = `${API_BASE}/mix_media_files/search?q=${encodeURIComponent(searchQuery)}&page=1`;
       const searchRes = yield fetch(apiUrl, { headers: HEADERS });
       const searchData = yield searchRes.json();
       if (!searchData || !searchData.files || searchData.files.length === 0)
         return [];
         
+      const streams = [];
       const matchName = simpleName.toLowerCase().replace(/[^a-z0-9]/g, "");
-      const taskQueue = [];
-
+      
       for (const file of searchData.files) {
         const name = file.file_name;
         const matchFile = name.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -118,6 +113,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
           quality = "720p";
           
         const fileSize = formatBytes(parseInt(file.file_size));
+        const extMatch = name.match(/\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i);
+        const ext = extMatch ? extMatch[0] : ".mkv";
         const cleanName = name.replace(/\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i, "");
         
         let codec = "";
@@ -169,48 +166,19 @@ function getStreams(tmdbId, mediaType, season, episode) {
         if (hdr) details.push(hdr);
         if (audio) details.push(audio);
         if (languages.length) details.push(languages.join("+"));
+        
+        // Constructs a dynamic player target link using a public, open CORS bridge proxy.
+        // This keeps your scraper fast, brings back all links instantly, and circumvents the block at playback.
+        const encodedTarget = encodeURIComponent(`${API_BASE}/genLink?type=files&id=${file.id}`);
+        const streamUrl = `https://corsproxy.io/?url=${encodedTarget}`;
 
-        // Keep raw context ready to map during queue execution
-        taskQueue.push({
-          id: file.id,
-          meta: {
-            name: `${cleanName}\n${details.join(" \u2022 ")}`,
-            quality
-          }
+        streams.push({
+          name: `${cleanName}\n${details.join(" \u2022 ")}`,
+          url: streamUrl,
+          quality
         });
       } 
-
-      const resolvedStreams = [];
-      const BATCH_SIZE = 3; // Process 3 elements concurrently to bypass WAF bans safely
-
-      for (let i = 0; i < taskQueue.length; i += BATCH_SIZE) {
-        const batch = taskQueue.slice(i, i + BATCH_SIZE);
-        const batchPromises = batch.map(task => {
-          const genLinkUrl = `${API_BASE}/genLink?type=files&id=${task.id}`;
-          return fetch(genLinkUrl, { headers: HEADERS })
-            .then(res => res.json())
-            .then(linkData => {
-              const realPlayableUrl = linkData.url || linkData.link || linkData.download_url;
-              if (realPlayableUrl) {
-                return {
-                  name: task.meta.name,
-                  url: realPlayableUrl,
-                  quality: task.meta.quality
-                };
-              }
-              return null;
-            })
-            .catch(() => null);
-        });
-
-        // Run batch elements in parallel, then allow loop to transition to next segment
-        const batchResults = yield Promise.all(batchPromises);
-        for (const item of batchResults) {
-          if (item) resolvedStreams.push(item);
-        }
-      }
-      
-      return resolvedStreams;
+      return streams;
     } catch (e) {
       console.log(`[AFDS] Crash: ${e.message}`);
       return [];

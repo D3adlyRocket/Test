@@ -129,7 +129,6 @@ function parseLanguagesAndFlags(filename, title) {
 }
 
 // ---- Stream Maker Layer ----
-// ---- Stream Maker Layer ----
 function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, mediaTitle, mediaYear) {
     let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     let filename = "";
@@ -150,24 +149,25 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
     const qIcon = cleanQuality.includes("2160") || cleanQuality.includes("4K") ? "🌟" : "💎";
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
     
-    // --- STREMIO MOBILE ENGINE WORKAROUND ---
-    // Stremio Mobile strips out explicit '\n' breaks, but breaks lines automatically on space/dot boundaries.
-    // By building a simulated, clean file bracket, we force it to show all 3 lines of subheadings with your icons!
+    // --- EXACT 1:1 MOBILE LAYOUT REPLACEMENT ---
     
-    // Line 1 Content: Quality, Title, and Year
-    const line1 = `${cleanQuality} • ${mediaTitle} (${mediaYear || '2026'})`;
+    // Item 1: Keep the Movie Name exactly as it was
+    const item1 = `${mediaTitle} (${mediaYear || '2026'})`;
     
-    // Line 2 Content: Languages & Audio profile
-    const line2 = `🗣️ ${languages} • 🎧 ${audioSpecs}`;
+    // Item 2: Subheading with 1080p/720p moved below the title, plus your language tags
+    const item2 = `${cleanQuality} • 🗣️ ${languages} • 🎧 ${audioSpecs}`;
     
-    // Line 3 Content: Format, Duration, Codec, Source, and HDR tags
-    const line3 = `📦 ${format} • ⏳ ${durationText} • 📌 ${videoData.codec} • ${videoData.source}${videoData.hdr}`;
+    // Item 3: The Package Box Icon line
+    const item3 = `📦`;
+    
+    // Item 4: Replace the ugly raw URL filename with your second custom technical subheading
+    const item4 = `${qIcon} ${cleanQuality} | ${format} | ⏳ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}${videoData.hdr}`;
 
-    // Join them together with standard spaces. Stremio Mobile's text-wrap engine will auto-wrap these perfectly into distinct rows.
-    const cleanStreamTitle = `${line1} | ${line2} | ${line3}`;
+    // Combine them with clean line-breaks to perfectly map to the UI slots shown in your screenshot
+    const cleanStreamTitle = `${item1}\n${item2}\n${item3}\n${item4}`;
 
-    // Main Card Title Header Component
-    const cardHeader = `${PROVIDER_NAME} | ${cleanQuality} | Dual-Audio`;
+    // Main Card Bold Header
+    const cardHeader = `${PROVIDER_NAME} | ${cleanQuality}`;
 
     return { 
         name: cardHeader, 

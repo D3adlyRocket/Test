@@ -136,10 +136,10 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         audioType = "Dual-Audio";
     }
 
-    // Set the bold card header that works perfectly in your image
+    // Set the bold card header
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // Force Stremio Mobile layout: First line MUST start with text/numbers. Second line MUST start with \n📦
+    // Force Stremio Mobile layout: Line 1 starts with text. Line 2 starts with \n📦
     let formattedTitle = `${displayQuality} • ${cleanTitle}\n`;
     formattedTitle += `📦 💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳 | 💾 ${fileSize}`;
     
@@ -151,7 +151,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         name: label,
         title: formattedTitle,
         quality: quality || "HD",
-        size: fileSize,
+        size: cleanTitle, // Restored to cleanTitle so link fetching doesn't break
         url: url || "",
         behaviorHints: {
             notWebReady: true,

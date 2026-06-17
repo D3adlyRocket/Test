@@ -1,6 +1,6 @@
 /**
  * flixindia - Unified Scraper Script
- * Combines ScrapingAnt bypass mechanics with resilient retry structures.
+ * Stripped of UI debug dummies. Returns pure stream arrays.
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -47,7 +47,7 @@ var __async = (__this, __arguments, generator) => {
 };
 
 // --- HTTP CONFIGURATION ---
-var BASE_URL = "https://mkvbase.site/"; // Fallback target domain with active API
+var BASE_URL = "https://mkvbase.site/"; 
 var BASE_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
   Referer: BASE_URL,
@@ -62,7 +62,6 @@ function storeCookies(res) {
   const setCookie = res.headers.get("set-cookie");
   if (setCookie) {
     COOKIE_JAR = setCookie.split(";")[0];
-    console.log("[HTTP][COOKIE] Stored:", COOKIE_JAR);
   }
 }
 
@@ -88,11 +87,9 @@ function requestWithRetry(fetchFn, label, retries = 3) {
     let delay = 500;
     while (attempt < retries) {
       try {
-        console.log(`[HTTP][RETRY] ${label} attempt ${attempt + 1}/${retries}`);
         return yield fetchFn();
       } catch (err) {
         attempt++;
-        console.log(`[HTTP][RETRY] ❌ ${label} failed:`, err.message);
         if (attempt >= retries) throw err;
         yield sleep(delay);
         delay *= 2;
@@ -140,7 +137,6 @@ function fetchJson(_0) {
         const encodedSnippet = encodeURIComponent(btoa(jsSnippet));
         const targetUrl = encodeURIComponent("https://mkvbase.site");
         finalUrl = `https://api.scrapingant.com/v2/general?url=${targetUrl}&x-api-key=${SCRAPINGANT_KEY}&js_snippet=${encodedSnippet}&wait_for_selector=%23scrapingant-done`;
-        console.log("[HTTP] 🐜 Routing request via ScrapingAnt snippet bypass");
       }
 
       const res = yield fetch(finalUrl, __spreadProps(__spreadValues({}, options), {
@@ -205,7 +201,6 @@ function extractQuality(title) {
 // --- SEARCH ENGINE ---
 function search(query) {
   return __async(this, null, function* () {
-    console.log("\n[SEARCH] ▶ Starting search:", query);
     try {
       const url = `${BASE_URL}api/links?q=${encodeURIComponent(query)}`;
       const json = yield fetchJson(url, { method: "GET" });
@@ -222,7 +217,7 @@ function search(query) {
       }
       return results;
     } catch (err) {
-      console.log("[SEARCH] ❌ Search failed completely:", err.message);
+      console.error("[FlixIndia] Search process failed:", err.message);
       return [];
     }
   });
@@ -291,7 +286,7 @@ function resolveHubCloud(entryUrl, meta) {
         } catch (e) {}
       });
     } catch (err) {
-      console.log("[HUBCLOUD] Resolution error:", err.message);
+      console.error("[HUBCLOUD] Page traversal anomaly:", err.message);
     }
 
     return streams.filter((s) => !s.url.includes("gpdl") && !s.url.includes("hubcdn"));
@@ -312,7 +307,7 @@ function resolvePixelDrain(url) {
   }
 }
 
-// --- MAIN CONTROLLER WITH INLINE DEBUGGING ---
+// --- MAIN CONTROLLER ---
 var TMDB_API_KEY = "919605fd567bbffcf76492a03eb4d527";
 var TMDB_BASE = "https://api.themoviedb.org/3";
 
@@ -337,45 +332,18 @@ function getTmdbTitle(tmdbId, mediaType) {
 
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
-    const logs = [];
-    let stepCounter = 1;
-    const addLog = (msg) => {
-      logs.push({
-        name: "FlixIndia DEBUG",
-        title: `${stepCounter++}. ${msg}`,
-        url: "https://hubcloud.foo/dummy.mkv",
-        quality: "LOG",
-        size: null,
-        headers: {}
-      });
-    };
-
     try {
-      addLog(`START: ID ${tmdbId} (${mediaType})`);
       const baseTitle = yield getTmdbTitle(tmdbId, mediaType);
-      if (!baseTitle) {
-        addLog(`FAIL: TMDB title lookup failed`);
-        return logs;
-      }
+      if (!baseTitle) return [];
       
       let query = mediaType === "movie" ? baseTitle : `${baseTitle} S${pad2(season)}E${pad2(episode)}`;
-      addLog(`Normalized Query: "${query}"`);
-
       const results = yield search(query);
-      if (!Array.isArray(results) || results.length === 0) {
-        addLog(`STOP: No search matches found on backend`);
-        return logs;
-      }
+      if (!Array.isArray(results) || results.length === 0) return [];
 
-      addLog(`Found ${results.length} results. Filtering for HubCloud hosts...`);
       const supportedResults = results.filter((item) => item.host === "hubcloud").slice(0, 5);
+      if (supportedResults.length === 0) return [];
 
-      if (supportedResults.length === 0) {
-        addLog(`STOP: Found links, but none mapped to HubCloud host rules`);
-        return logs;
-      }
-
-      const promises = supportedResults.map((item, idx) => __async(this, null, function* () {
+      const promises = supportedResults.map((item) => __async(this, null, function* () {
         try {
           const resolved = yield resolveHubCloud(item.url, { title: item.title, quality: item.quality });
           return resolved.map((stream) => ({
@@ -387,18 +355,14 @@ function getStreams(tmdbId, mediaType, season, episode) {
             headers: {}
           }));
         } catch (err) {
-          addLog(`Index [${idx}] Link Resolution Failed: ${err.message}`);
           return [];
         }
       }));
 
       const resultsArrays = yield Promise.all(promises);
-      const finalStreams = resultsArrays.flat();
-      
-      return [...logs, ...finalStreams];
+      return resultsArrays.flat();
     } catch (err) {
-      addLog(`CRITICAL STOP: ${err.message}`);
-      return logs;
+      return [];
     }
   });
 }

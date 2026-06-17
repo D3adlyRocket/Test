@@ -110,7 +110,6 @@ function decodeEntities(str) {
 }
 
 function makeStream(name, title, url, quality, headers, mediaInfo) {
-function makeStream(name, title, url, quality, headers, mediaInfo) {
     const cleanName = decodeEntities(name).replace(/[\n\t]+/g, '').trim();
     let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     

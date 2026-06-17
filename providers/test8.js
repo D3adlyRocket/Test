@@ -79,7 +79,7 @@ function decodeEntities(str) {
     return str.replace(/&#8211;/g, '-').replace(/&#8212;/g, '-').replace(/&#038;/g, '&').replace(/&#8217;/g, "'").replace(/&amp;/g, '&').replace(/&ndash;/g, '-').replace(/&mdash;/g, '-').replace(/&quot;/g, '"'); 
 } 
 
-// ---- Filename Specs Parser ----
+// ---- Filename Specs Parsers ----
 function parseAudioSpecs(filename, title) {
     const combined = String(filename + " " + title).toLowerCase();
     if (combined.includes("atmos")) return "Dolby Atmos";
@@ -91,9 +91,9 @@ function parseAudioSpecs(filename, title) {
 
 function parseVideoCodecAndTags(filename, title) {
     const combined = String(filename + " " + title).toLowerCase();
-    let codec = "x264 (H.264/AVC)";
+    let codec = "x264";
     if (combined.includes("x265") || combined.includes("h265") || combined.includes("hevc")) {
-        codec = "x265 (H.265/HEVC)";
+        codec = "x265";
     }
     let hdr = "SDR";
     if (combined.includes("hdr10")) hdr = "⚡ HDR10";
@@ -126,15 +126,14 @@ function parseLanguagesAndFlags(filename, title) {
     });
 
     if (matches.length === 0) {
-        // If nothing is found in the filename, fall back to parsing standard Vega context rules
         if (combined.includes("dual")) {
-            return { headerLabel: "Dual-Audio", subRow: "🔊 Hindi 🇮🇳 • English 🇺🇸" };
+            return { headerLabel: "Dual-Audio", subRow: "Hindi 🇮🇳 • English 🇺🇸" };
         }
-        return { headerLabel: "Single-Audio", subRow: "🔊 English 🇺🇸" };
+        return { headerLabel: "Single-Audio", subRow: "English 🇺🇸" };
     }
 
     const headerLabel = matches.length > 1 ? "Dual-Audio" : "Single-Audio";
-    const subRow = "🔊 " + matches.map(m => `${m.name} ${m.flag}`).join(" • ");
+    const subRow = matches.map(m => `${m.name} ${m.flag}`).join(" • ");
     return { headerLabel, subRow };
 }
 
@@ -162,20 +161,22 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
     const qIcon = cleanQuality.includes("2160") || cleanQuality.includes("4K") ? "🌟" : "💎";
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
 
-    // Row Mappings
     const displayYear = mediaYear ? ` (${mediaYear})` : "";
-    const row1 = `🎬 ${mediaTitle}${displayYear}`;
-    const row2 = `${qIcon} ${cleanQuality} | ${langData.subRow} | 🎧 ${audioSpecs}`;
     
-    let row3 = `🎞️ ${format} • ${videoData.codec} | ⏱️ ${durationText} | `;
-    if (videoData.hdr !== "SDR") row3 += `${videoData.hdr} | `;
-    row3 += `☁️ ${videoData.source}`;
+    // Constructing a uniform multi-line Title Block block compatible with the layout UI 
+    const line1 = `🎬 ${mediaTitle}${displayYear}`;
+    const line2 = `${qIcon} ${cleanQuality} | 🌏 ${langData.subRow} | 💼 Server 1`;
+    
+    let line3 = `📦 ${format} | ⏱️ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}`;
+    if (videoData.hdr !== "SDR") {
+        line3 += ` • ${videoData.hdr}`;
+    }
+
+    const fullMultiLineTitle = `${line1}\n${line2}\n${line3}`;
 
     return { 
         name: `${PROVIDER_NAME} | ${cleanQuality} | ${langData.headerLabel}`, 
-        title: row1, 
-        size: row2, 
-        description: row3,
+        title: fullMultiLineTitle, 
         quality: cleanQuality, 
         url: url || "", 
         behaviorHints: { 
@@ -469,7 +470,7 @@ async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, disp
                     serverTasks.push(() => { streams.push(makeStream('FSLv2', (displayLabel || text), href, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } else if (lowerText.includes('fsl') || lowerText.includes('worker')) { 
                     const synced = href.includes('?') ? href + '&s=' + (1 + new Date().getMinutes()) : href + '?s=' + (1 + new Date().getMinutes()); 
-                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
+                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, bridgeQuality || extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } 
             } catch (e) {} 
         }); 

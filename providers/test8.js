@@ -1,7 +1,7 @@
 var cheerio = require('cheerio-without-node-native');
 
 var BASE_URL = 'https://huhu.to';
-var API_KEY = 'ov262WdL5UdUUz4mwsOKLCFy3mLmLKXiN3Yz';
+var API_KEY = 'TC2AJpYciVIFw6POgjNpiJfsnSnw';
 var LOKKE_PING_URL = 'https://www.lokke.app/api/app/ping';
 var OHA_RESOLVE_URL = 'https://huhu.to/web-vod/mediaurl-resolve.json';
 var OHA_ITEM_URL = 'https://huhu.to/mediaurl-item.json';

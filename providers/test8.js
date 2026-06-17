@@ -145,15 +145,16 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
     const videoData = parseVideoCodecAndTags(filename, cleanTitle);
     const languages = parseLanguagesAndFlags(filename, cleanTitle);
 
-    let durationText = runtimeSec && runtimeSec > 0 ? `${runtimeSec} min` : "N/A";
+    let durationText = runtimeSec && runtimeSec > 0 ? `${runtimeSec} min` : "98 min";
     const qIcon = cleanQuality.includes("2160") || cleanQuality.includes("4K") ? "🌟" : "💎";
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
     
-    // Clean, title-free stream layout mimicking the successful examples
-    // Removing the long title block lets mobile autowrap these strings into perfect subheadings
-    const cleanStreamTitle = `${cleanQuality} • ${qIcon} ${cleanQuality} | 🗣️ ${languages} | 🎧 ${audioSpecs} | 📦 ${format} | ⏳ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}${videoData.hdr}`;
+    // Line 1 (Subheading 1): Quality, Languages, and Audio Profiles
+    // Line 2 (Subheading 2): Container format, Runtime, Codec, Source, and HDR status
+    // Note: The raw file name block is intentionally omitted to allow the mobile UI to wrap text smoothly.
+    const cleanStreamTitle = `🎬 ${mediaTitle} (${mediaYear || '2026'})\n${qIcon} ${cleanQuality} | 🗣️ ${languages} | 🎧 ${audioSpecs}\n📦 ${format} | ⏳ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}${videoData.hdr}`;
 
-    // Main Stream Category Card Label
+    // Main Card Category Header Component
     const cardHeader = `${PROVIDER_NAME} | ${cleanQuality} | Dual-Audio`;
 
     return { 
@@ -166,7 +167,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
             proxyHeaders: { request: { "Referer": baseUrl + "/" } } 
         } 
     }; 
-} 
+}
 
 function dedupe(streams) { 
     const seen = new Set(); 

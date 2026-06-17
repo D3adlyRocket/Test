@@ -116,24 +116,20 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     let filename = "";
     let fileSize = "Unknown Size";
     
-    // 1. Extract the filename exactly as the original code did
+    // 1. Safely extract the bracketed filename exactly as the original did
     const fileMatch = cleanTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
     if (fileMatch) {
         filename = fileMatch[1].trim();
         cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
-    // 2. Safely capture the size string for display purposes only
+    // 2. Extract the file size just for our custom visual text string
     const sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
     if (sizeMatch) {
         fileSize = sizeMatch[1].trim();
     }
 
-    if (cleanTitle.length > 50) {
-        cleanTitle = cleanTitle.substring(0, 47) + '...';
-    }
-
-    // 3. Keep Header Auto-Detection intact
+    // 3. Setup the custom header configuration
     const displayQuality = quality || "1080p";
     let audioType = "Single Audio";
     if (/dual|hindi\-eng|eng\-hin/i.test(title || "")) {
@@ -141,7 +137,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. Mobile Layout Structure: Line 1 starts with text. Line 2 triggers the dropdown box
+    // 4. Construct the custom layout using the working \n📦 mobile layout trick
     let formattedTitle = `${displayQuality} • ${cleanTitle}\n`;
     formattedTitle += `📦 💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳 | 💾 ${fileSize}`;
     
@@ -149,12 +145,12 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         formattedTitle += ` |\n📄 ${filename}`;
     }
 
-    // 5. RESTORE CRITICAL PROPERTIES EXACTLY TO ORIGINAL SPECIFICATION
+    // 5. DO NOT TOUCH THESE VALUES: Keeps the original processing rules alive
     return {
         name: label,
-        title: formattedTitle,      // Visual design layout
-        quality: quality || "HD",   // CRITICAL: Must be original for matching loops
-        size: formattedTitle,       // CRITICAL: Original script sets size to the title variable
+        title: formattedTitle,      // Displays your custom mobile UI layout safely
+        quality: quality || "HD",   // CRITICAL: Original state for loop matching
+        size: cleanTitle,           // CRITICAL: Restored exactly to original text variable for link resolution
         url: url || "",
         behaviorHints: {
             notWebReady: true,

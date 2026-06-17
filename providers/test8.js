@@ -160,18 +160,17 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
 
     const qIcon = cleanQuality.includes("2160") || cleanQuality.includes("4K") ? "🌟" : "💎";
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
-
     const displayYear = mediaYear ? ` (${mediaYear})` : "";
     
-    // Constructing a uniform multi-line Title Block block compatible with the layout UI 
+    // Line layout updates
     const line1 = `🎬 ${mediaTitle}${displayYear}`;
-    const line2 = `${qIcon} ${cleanQuality} | 🌏 ${langData.subRow} | 💼 Server 1`;
-    
+    const line2 = `${qIcon} ${cleanQuality} | 🌏 ${langData.subRow} | 🔊 ${audioSpecs}`;
     let line3 = `📦 ${format} | ⏱️ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}`;
     if (videoData.hdr !== "SDR") {
         line3 += ` • ${videoData.hdr}`;
     }
 
+    // Fixed double rendering quality logic for cross-platform support
     const fullMultiLineTitle = `${line1}\n${line2}\n${line3}`;
 
     return { 
@@ -470,7 +469,7 @@ async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, disp
                     serverTasks.push(() => { streams.push(makeStream('FSLv2', (displayLabel || text), href, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } else if (lowerText.includes('fsl') || lowerText.includes('worker')) { 
                     const synced = href.includes('?') ? href + '&s=' + (1 + new Date().getMinutes()) : href + '?s=' + (1 + new Date().getMinutes()); 
-                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, bridgeQuality || extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
+                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } 
             } catch (e) {} 
         }); 

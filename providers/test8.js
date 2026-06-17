@@ -1,7 +1,7 @@
 const cheerio = require('cheerio-without-node-native');
 
 const PROVIDER_NAME = "VegaMovies";
-const BASE_URL = "https://vegamovies.mq";
+const BASE_URL = "https://vegamovies.navy";
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DOMAINS_JSON_URL = "https://raw.githubusercontent.com/SaurabhKaperwan/Utils/refs/heads/main/urls.json";
 const REQUEST_TIMEOUT = 12000;

@@ -129,6 +129,7 @@ function parseLanguagesAndFlags(filename, title) {
 }
 
 // ---- Stream Maker Layer ----
+// ---- Stream Maker Layer ----
 function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, mediaTitle, mediaYear) {
     let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     let filename = "";
@@ -146,22 +147,24 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
     const languages = parseLanguagesAndFlags(filename, cleanTitle);
 
     let durationText = runtimeSec && runtimeSec > 0 ? `${runtimeSec} min` : "98 min";
-    
-    // Switch to clean resolution text indicators to prevent mobile engine collapse
-    let displayRes = "FHD";
-    let qIcon = "💎";
-    if (cleanQuality.includes("2160") || cleanQuality.includes("4k")) {
-        displayRes = "4K UHD";
-        qIcon = "🌟";
-    } else if (cleanQuality.includes("720")) {
-        displayRes = "HD";
-    }
-
+    const qIcon = cleanQuality.includes("2160") || cleanQuality.includes("4K") ? "🌟" : "💎";
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
     
-    // We remove duplicate resolution strings (like 1080p | 💎 1080p) which breaks mobile
-    // This layouts the icons perfectly onto the mobile lines
-    const cleanStreamTitle = `🎬 ${mediaTitle} (${mediaYear || '2026'})\n${qIcon} ${displayRes} | 🗣️ ${languages} | 🎧 ${audioSpecs}\n📦 ${format} | ⏳ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}${videoData.hdr}`;
+    // --- STREMIO MOBILE ENGINE WORKAROUND ---
+    // Stremio Mobile strips out explicit '\n' breaks, but breaks lines automatically on space/dot boundaries.
+    // By building a simulated, clean file bracket, we force it to show all 3 lines of subheadings with your icons!
+    
+    // Line 1 Content: Quality, Title, and Year
+    const line1 = `${cleanQuality} • ${mediaTitle} (${mediaYear || '2026'})`;
+    
+    // Line 2 Content: Languages & Audio profile
+    const line2 = `🗣️ ${languages} • 🎧 ${audioSpecs}`;
+    
+    // Line 3 Content: Format, Duration, Codec, Source, and HDR tags
+    const line3 = `📦 ${format} • ⏳ ${durationText} • 📌 ${videoData.codec} • ${videoData.source}${videoData.hdr}`;
+
+    // Join them together with standard spaces. Stremio Mobile's text-wrap engine will auto-wrap these perfectly into distinct rows.
+    const cleanStreamTitle = `${line1} | ${line2} | ${line3}`;
 
     // Main Card Title Header Component
     const cardHeader = `${PROVIDER_NAME} | ${cleanQuality} | Dual-Audio`;

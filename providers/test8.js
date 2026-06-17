@@ -110,55 +110,39 @@ function decodeEntities(str) {
 }
 
 function makeStream(name, title, url, quality, headers, mediaInfo) {
-    const cleanName = decodeEntities(name).replace(/[\n\t]+/g, '').trim();
-    let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
-    
-    let filename = "";
-    let fileSize = "Unknown Size";
-    
-    // 1. Safely extract the bracketed filename exactly as the original did
-    const fileMatch = cleanTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
-    if (fileMatch) {
-        filename = fileMatch[1].trim();
-        cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
+  const cleanName = decodeEntities(name).replace(/[\n\t]+/g, '').trim();
+  let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  
+  let filename = "";
+  const fileMatch = cleanTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
+  if (fileMatch) {
+      filename = fileMatch[1].trim();
+      cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
+  }
+  
+  if (cleanTitle.length > 50) {
+      cleanTitle = cleanTitle.substring(0, 47) + '...';
+  }
+  
+  if (filename) {
+      cleanTitle = cleanTitle + '\n📦 ' + filename;
+  }
+  
+  const label = PROVIDER_NAME + ' | ' + (quality || 'HD');
+  
+  return {
+    name: label,
+    title: cleanTitle,
+    quality: quality || "HD",
+    size: cleanTitle,
+    url: url || "",
+    behaviorHints: {
+      notWebReady: true,
+      proxyHeaders: {
+        request: headers || { "Referer": baseUrl + "/" }
+      }
     }
-
-    // 2. Extract the file size just for our custom visual text string
-    const sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
-    if (sizeMatch) {
-        fileSize = sizeMatch[1].trim();
-    }
-
-    // 3. Setup the custom header configuration
-    const displayQuality = quality || "1080p";
-    let audioType = "Single Audio";
-    if (/dual|hindi\-eng|eng\-hin/i.test(title || "")) {
-        audioType = "Dual-Audio";
-    }
-    const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
-
-    // 4. Construct the custom layout using the working \n📦 mobile layout trick
-    let formattedTitle = `${displayQuality} • ${cleanTitle}\n`;
-    formattedTitle += `📦 💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳 | 💾 ${fileSize}`;
-    
-    if (filename) {
-        formattedTitle += ` |\n📄 ${filename}`;
-    }
-
-    // 5. DO NOT TOUCH THESE VALUES: Keeps the original processing rules alive
-    return {
-        name: label,
-        title: formattedTitle,      // Displays your custom mobile UI layout safely
-        quality: quality || "HD",   // CRITICAL: Original state for loop matching
-        size: cleanTitle,           // CRITICAL: Restored exactly to original text variable for link resolution
-        url: url || "",
-        behaviorHints: {
-            notWebReady: true,
-            proxyHeaders: {
-                request: headers || { "Referer": baseUrl + "/" }
-            }
-        }
-    };
+  };
 }
 
 function dedupe(streams) {

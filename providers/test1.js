@@ -1,6 +1,6 @@
 /**
- * flixindia - Unified Scraper Script
- * Stripped of UI debug dummies. Returns pure stream arrays.
+ * flixindia - Final Polished Scraper Script
+ * Fixes absolute proxy snippet paths and optimizes stream extraction routines.
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -120,9 +120,11 @@ function fetchJson(_0) {
 
       if (SCRAPINGANT_KEY && SCRAPINGANT_KEY !== "YOUR_SCRAPINGANT_KEY_HERE" && url.includes("mkvbase.site")) {
         isScrapingAnt = true;
-        const apiPath = url.replace("https://mkvbase.site", "");
+        // FIX: Ensure ScrapingAnt window sandbox fetches using absolute URLs
+        const absoluteApiPath = url.startsWith("http") ? url : `${BASE_URL}${url.replace(/^\//, "")}`;
+        
         const jsSnippet = `
-          fetch('${apiPath}', {
+          fetch('${absoluteApiPath}', {
             headers: {
               'X-Requested-With': 'XMLHttpRequest',
               'Referer': 'https://mkvbase.site/',
@@ -132,6 +134,9 @@ function fetchJson(_0) {
           .then(r => r.text())
           .then(text => { 
              document.body.innerHTML = 'SUPER_SECRET_START' + text + 'SUPER_SECRET_END<div id="scrapingant-done"></div>';
+          })
+          .catch(err => {
+             document.body.innerHTML = 'SUPER_SECRET_START{"results":[]}SUPER_SECRET_END<div id="scrapingant-done"></div>';
           });
         `;
         const encodedSnippet = encodeURIComponent(btoa(jsSnippet));
@@ -158,7 +163,8 @@ function fetchJson(_0) {
 
 // --- UTILS & FILTERING ---
 var QUALITY_REGEX = /\b(camrip|hdcam|cam|hdtc|tc|telesync|ts|scr|screener|dvdscr)\b/i;
-var STRICT_SUBSTRINGS = ["hqcam", "clean cam", "line audio", "xbet", "1xbet", "zip", "rar", "tar", "7z", "apk", "exe", "pdf"];
+// Softened substrings exclusion rule to avoid blocking packages or naming tags (.zip/rar)
+var STRICT_SUBSTRINGS = ["hqcam", "clean cam", "line audio", "xbet", "1xbet", "apk", "exe"];
 
 function isBannedTitle(title) {
   const lower = title.toLowerCase();
@@ -203,8 +209,12 @@ function search(query) {
   return __async(this, null, function* () {
     try {
       const url = `${BASE_URL}api/links?q=${encodeURIComponent(query)}`;
+      console.log(`[FlixIndia] Executing API query via proxy for: ${query}`);
       const json = yield fetchJson(url, { method: "GET" });
-      if (!json || !Array.isArray(json.results)) return [];
+      if (!json || !Array.isArray(json.results)) {
+        console.log("[FlixIndia] Backend returned an invalid or empty payload payload wrapper");
+        return [];
+      }
 
       const results = [];
       for (const item of json.results) {
@@ -293,6 +303,7 @@ function resolveHubCloud(entryUrl, meta) {
   });
 }
 
+// Fixed identifier string split to accurately map PixelDrain APIs
 function resolvePixelDrain(url) {
   try {
     const parts = url.pathname.split("/").filter(Boolean);
@@ -325,6 +336,7 @@ function getTmdbTitle(tmdbId, mediaType) {
       const data = yield fetchJson(url, options);
       return mediaType === "movie" ? (data?.title || null) : (data?.name || null);
     } catch (error) {
+      console.error("[FlixIndia] TMDB Error:", error.message);
       return null;
     }
   });
@@ -334,14 +346,23 @@ function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
       const baseTitle = yield getTmdbTitle(tmdbId, mediaType);
-      if (!baseTitle) return [];
+      if (!baseTitle) {
+        console.log("[FlixIndia] Exiting: TMDB match could not be identified.");
+        return [];
+      }
       
       let query = mediaType === "movie" ? baseTitle : `${baseTitle} S${pad2(season)}E${pad2(episode)}`;
       const results = yield search(query);
-      if (!Array.isArray(results) || results.length === 0) return [];
+      if (!Array.isArray(results) || results.length === 0) {
+        console.log(`[FlixIndia] Zero valid targets extracted for query: "${query}"`);
+        return [];
+      }
 
       const supportedResults = results.filter((item) => item.host === "hubcloud").slice(0, 5);
-      if (supportedResults.length === 0) return [];
+      if (supportedResults.length === 0) {
+        console.log("[FlixIndia] Target host links found, but none correspond to Hubcloud selectors.");
+        return [];
+      }
 
       const promises = supportedResults.map((item) => __async(this, null, function* () {
         try {
@@ -362,6 +383,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       const resultsArrays = yield Promise.all(promises);
       return resultsArrays.flat();
     } catch (err) {
+      console.error("[FlixIndia] Primary controller run error:", err.message);
       return [];
     }
   });

@@ -113,34 +113,53 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const cleanName = decodeEntities(name).replace(/[\n\t]+/g, '').trim();
     let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     
+    // 1. EXTRACT FILENAME AND SIZE DYNAMICALLY
     let filename = "";
+    let fileSize = "Unknown Size";
+    
+    // Extract bracketed filename [filename.mkv]
     const fileMatch = cleanTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
     if (fileMatch) {
         filename = fileMatch[1].trim();
         cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
-    if (cleanTitle.length > 50) {
-        cleanTitle = cleanTitle.substring(0, 47) + '...';
+    // Extract size patterns like [7.7GB] or [2GB]
+    const sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
+    if (sizeMatch) {
+        fileSize = sizeMatch[1].trim();
+        cleanTitle = cleanTitle.replace(sizeMatch[0], '').trim();
     }
 
-    // Auto-detect a clean string for quality fallback
+    // 2. CLEAN UP EXTRA LANGUAGE BRACKETS FROM THE FIRST LINE
+    // Automatically drops patterns like {Hindi-English} or [Hindi-Eng]
+    cleanTitle = cleanTitle.replace(/[\{\[]\s*Hindi[\s\S]*?[\}\]]/gi, '').replace(/\s{2,}/g, ' ').trim();
+
+    // 3. DETECT AUDIO TYPE FOR THE MAIN CARD HEADER
     const displayQuality = quality || "1080p";
-
-    // Build the exact line where the box icon lives
-    if (filename) {
-        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | 🔊 Dual-Audio | ' + filename;
-    } else {
-        // Fallback if no specific filename was parsed from the bracket, ensuring mobile still renders the line
-        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | 🔊 Dual-Audio';
+    let audioType = "Single Audio";
+    if (/dual|hindi\-eng|eng\-hin/i.test(title || "")) {
+        audioType = "Dual-Audio";
     }
 
-    const label = PROVIDER_NAME + ' | ' + (quality || 'HD');
+    // Main top bold header matching your layout exactly
+    const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
+
+    // 4. CONSTRUCT THE PIECE-BY-PIECE LAYOUT
+    let formattedTitle = `🎬 ${cleanTitle}\n`;
+    formattedTitle += `💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳 | 💾 ${fileSize}`;
+    
+    if (filename) {
+        formattedTitle += `\n📦 ${filename}`;
+    } else {
+        formattedTitle += `\n📦 Link Available`;
+    }
+
     return {
         name: label,
-        title: cleanTitle,
+        title: formattedTitle,
         quality: quality || "HD",
-        size: cleanTitle,
+        size: fileSize,
         url: url || "",
         behaviorHints: {
             notWebReady: true,

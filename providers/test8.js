@@ -110,49 +110,42 @@ function decodeEntities(str) {
 }
 
 function makeStream(name, title, url, quality, headers, mediaInfo) {
+function makeStream(name, title, url, quality, headers, mediaInfo) {
     const cleanName = decodeEntities(name).replace(/[\n\t]+/g, '').trim();
     let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     
-    // 1. EXTRACT FILENAME AND SIZE DYNAMICALLY
     let filename = "";
     let fileSize = "Unknown Size";
     
-    // Extract bracketed filename [filename.mkv]
+    // Extract filename out first
     const fileMatch = cleanTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
     if (fileMatch) {
         filename = fileMatch[1].trim();
         cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
-    // Extract size patterns like [7.7GB] or [2GB]
+    // Extract file size out next
     const sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
     if (sizeMatch) {
         fileSize = sizeMatch[1].trim();
-        cleanTitle = cleanTitle.replace(sizeMatch[0], '').trim();
     }
 
-    // 2. CLEAN UP EXTRA LANGUAGE BRACKETS FROM THE FIRST LINE
-    // Automatically drops patterns like {Hindi-English} or [Hindi-Eng]
-    cleanTitle = cleanTitle.replace(/[\{\[]\s*Hindi[\s\S]*?[\}\]]/gi, '').replace(/\s{2,}/g, ' ').trim();
-
-    // 3. DETECT AUDIO TYPE FOR THE MAIN CARD HEADER
+    // Detect Audio Type for the header
     const displayQuality = quality || "1080p";
     let audioType = "Single Audio";
     if (/dual|hindi\-eng|eng\-hin/i.test(title || "")) {
         audioType = "Dual-Audio";
     }
 
-    // Main top bold header matching your layout exactly
+    // Set the bold card header that works perfectly in your image
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. CONSTRUCT THE PIECE-BY-PIECE LAYOUT
-    let formattedTitle = `🎬 ${cleanTitle}\n`;
-    formattedTitle += `💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳 | 💾 ${fileSize}`;
+    // Force Stremio Mobile layout: First line MUST start with text/numbers. Second line MUST start with \n📦
+    let formattedTitle = `${displayQuality} • ${cleanTitle}\n`;
+    formattedTitle += `📦 💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳 | 💾 ${fileSize}`;
     
     if (filename) {
-        formattedTitle += `\n📦 ${filename}`;
-    } else {
-        formattedTitle += `\n📦 Link Available`;
+        formattedTitle += ` |\n📄 ${filename}`;
     }
 
     return {

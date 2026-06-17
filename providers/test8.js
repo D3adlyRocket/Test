@@ -111,7 +111,7 @@ function parseLanguagesAndFlags(filename, title) {
     const combined = String(filename + " " + title).toLowerCase();
     const matches = [];
 
-    // Filtered to map only target deployment track values
+    // Explicit filter: Only look for Hindi and English as requested
     const languageMaps = [
         { keys: ["hindi", "hin"], name: "Hindi", flag: "🇮🇳" },
         { keys: ["english", "eng"], name: "English", flag: "🇺🇸" }
@@ -158,28 +158,17 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
 
     const qIcon = cleanQuality.includes("2160") || cleanQuality.includes("4K") ? "🌟" : "💎";
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
-    const displayYear = mediaYear ? ` (${mediaYear})` : "";
     
-    // Check if handling a mobile request header environment context to alter display output mechanics
-    const isMobileUser = headers && headers["User-Agent"] && /Android|iPhone|iPad|iPod/i.test(headers["User-Agent"]);
-
-    let structuredTitle = "";
-    if (isMobileUser) {
-        // Flat, concise formatting to protect screen edge limits on Mobile layouts
-        structuredTitle = `🎬 ${mediaTitle}${displayYear} | ${qIcon} ${cleanQuality} | 🌏 ${langData.subRow} | 🔊 ${audioSpecs} | 📦 ${format} | ⏱️ ${durationText} | 📌 ${videoData.codec}`;
-        if (videoData.hdr !== "SDR") {
-            structuredTitle += ` • ${videoData.hdr}`;
-        }
-    } else {
-        // Multi-line formatting template block structure optimized for Smart TVs
-        const line1 = `🎬 ${mediaTitle}${displayYear}`;
-        const line2 = `${qIcon} ${cleanQuality} | 🌏 ${langData.subRow} | 🔊 ${audioSpecs}`;
-        let line3 = `📦 ${format} | ⏱️ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}`;
-        if (videoData.hdr !== "SDR") {
-            line3 += ` • ${videoData.hdr}`;
-        }
-        structuredTitle = `${line1}\n${line2}\n${line3}`;
+    // Clean multi-line block syntax using your customized icons
+    const line1 = `${qIcon} ${cleanQuality} | 🌏 ${langData.subRow}`;
+    const line2 = `🔊 ${audioSpecs} | 📦 ${format}`;
+    let line3 = `⏱️ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}`;
+    if (videoData.hdr !== "SDR") {
+        line3 += ` • ${videoData.hdr}`;
     }
+
+    // Combine them into a standardized format that works flawlessly across all devices
+    const structuredTitle = `${line1}\n${line2}\n${line3}`;
 
     return { 
         name: `${PROVIDER_NAME} | ${cleanQuality}`, 
@@ -188,7 +177,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
         url: url || "", 
         behaviorHints: { 
             notWebReady: true, 
-            proxyHeaders: { request: headers || { "Referer": baseUrl + "/" } } 
+            proxyHeaders: { request: { "Referer": baseUrl + "/" } } 
         } 
     }; 
 } 
@@ -477,7 +466,7 @@ async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, disp
                     serverTasks.push(() => { streams.push(makeStream('FSLv2', (displayLabel || text), href, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } else if (lowerText.includes('fsl') || lowerText.includes('worker')) { 
                     const synced = href.includes('?') ? href + '&s=' + (1 + new Date().getMinutes()) : href + '?s=' + (1 + new Date().getMinutes()); 
-                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, href, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
+                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, bridgeQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } 
             } catch (e) {} 
         }); 

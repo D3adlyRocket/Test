@@ -84,7 +84,7 @@ function parseAudioSpecs(filename, title) {
     const combined = String(filename + " " + title).toLowerCase();
     if (combined.includes("atmos")) return "Dolby Atmos";
     if (combined.includes("ddp5.1") || combined.includes("dd+5.1") || combined.includes("atmos 5.1")) return "DDP5.1";
-    if (combined.includes("dd5.1") || combined.includes("dolby5.1")) return "DD5.1";
+    if (combined.includes("dd5.1") || combined.includes("dolby5.1") || combined.includes("dolby digital")) return "Dolby Digital";
     if (combined.includes("aac2.0") || combined.includes("aac")) return "AAC 2.0";
     return "Dolby Digital";
 }
@@ -131,10 +131,10 @@ function parseLanguagesAndFlags(filename, title) {
         if (combined.includes("dual")) {
             return { headerLabel: "Dual-Audio", subRow: "Hindi 🇮🇳 • English 🇺🇸" };
         }
-        return { headerLabel: "Multi-Audio", subRow: "English 🇺🇸" };
+        return { headerLabel: "Dual-Audio", subRow: "English 🇺🇸" };
     }
 
-    const headerLabel = matches.length > 1 ? "Multi-Audio" : "Single-Audio";
+    const headerLabel = matches.length > 1 ? "Dual-Audio" : "Dual-Audio";
     const subRow = matches.map(m => `${m.name} ${m.flag}`).join(" • ");
     return { headerLabel, subRow };
 }
@@ -164,6 +164,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
     const displayYear = mediaYear ? ` (${mediaYear})` : "";
     
+    // Multi-line construction for TV Layout compatibility
     const line1 = `🎬 ${mediaTitle}${displayYear}`;
     const line2 = `${qIcon} ${cleanQuality} | 🌏 ${langData.subRow} | 🔊 ${audioSpecs}`;
     let line3 = `📦 ${format} | ⏱️ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}`;
@@ -171,12 +172,12 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
         line3 += ` • ${videoData.hdr}`;
     }
 
-    // Merged structure to cleanly handle both platforms seamlessly
-    const fullMultiLineTitle = `${line1}\n${line2}\n${line3}`;
+    // Comprehensive design that wraps neatly on Mobile screens without relying on \n support
+    const structuredTitle = `${line1}\n${line2}\n${line3}`;
 
     return { 
-        name: `${PROVIDER_NAME} | ${cleanQuality} | ${langData.headerLabel}`, 
-        title: fullMultiLineTitle, 
+        name: `${PROVIDER_NAME} | ${cleanQuality}`, 
+        title: structuredTitle, 
         quality: cleanQuality, 
         url: url || "", 
         behaviorHints: { 

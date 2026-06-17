@@ -113,38 +113,34 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const cleanName = decodeEntities(name).replace(/[\n\t]+/g, '').trim();
     let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     
-    // Auto-detect resolution icon
-    const is4K = quality && (quality.includes('2160') || quality.includes('4k'));
-    const qIcon = is4K ? '🌟' : '💎';
-    const displayQuality = quality || '1080p';
-
-    // 1. STREMIO CARD HEADING (Bold Text at the top)
-    const boldLabel = `${PROVIDER_NAME} | ${displayQuality} | ${qIcon}`;
-
-    // 2. EXTRACTION LOGIC FOR ORIGINAL FILENAME
     let filename = "";
     const fileMatch = cleanTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
     if (fileMatch) {
         filename = fileMatch[1].trim();
         cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
-    } else if (cleanTitle.toLowerCase().includes('.mkv') || cleanTitle.toLowerCase().includes('.mp4')) {
-        filename = cleanTitle;
     }
 
-    // 3. STREMIO DESCRIPTION LAYOUT (The detailed block underneath)
-    let description = `🎬 The Super Mario Galaxy Movie (2026)\n`;
-    description += `${qIcon} ${displayQuality} | 🌐 Hindi 🇮🇳 • English 🇺🇸 • Spanish 🇪🇸\n`;
-    description += `📦 MKV | ⏱️ 98 min | 📌 x264 • WEB-DL`;
+    if (cleanTitle.length > 50) {
+        cleanTitle = cleanTitle.substring(0, 47) + '...';
+    }
 
+    // Auto-detect a clean string for quality fallback
+    const displayQuality = quality || "1080p";
+
+    // Build the exact line where the box icon lives
     if (filename) {
-        description += `\n📄 ${filename}`;
+        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | 🔊 Dual-Audio | ' + filename;
+    } else {
+        // Fallback if no specific filename was parsed from the bracket, ensuring mobile still renders the line
+        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | 🔊 Dual-Audio';
     }
 
+    const label = PROVIDER_NAME + ' | ' + (quality || 'HD');
     return {
-        name: boldLabel,
-        title: description,
-        quality: displayQuality,
-        size: filename || cleanTitle,
+        name: label,
+        title: cleanTitle,
+        quality: quality || "HD",
+        size: cleanTitle,
         url: url || "",
         behaviorHints: {
             notWebReady: true,

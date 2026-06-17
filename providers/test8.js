@@ -79,26 +79,25 @@ function decodeEntities(str) {
     return str.replace(/&#8211;/g, '-').replace(/&#8212;/g, '-').replace(/&#038;/g, '&').replace(/&#8217;/g, "'").replace(/&amp;/g, '&').replace(/&ndash;/g, '-').replace(/&mdash;/g, '-').replace(/&quot;/g, '"'); 
 } 
 
-// ---- Filename Specs Parsers ----
+// ---- Spec Extractors ----
 function parseAudioSpecs(filename, title) {
     const combined = String(filename + " " + title).toLowerCase();
     if (combined.includes("atmos")) return "Dolby Atmos";
     if (combined.includes("ddp5.1") || combined.includes("dd+5.1") || combined.includes("atmos 5.1")) return "DDP5.1";
     if (combined.includes("dd5.1") || combined.includes("dolby5.1") || combined.includes("dolby digital")) return "Dolby Digital";
     if (combined.includes("aac2.0") || combined.includes("aac")) return "AAC 2.0";
-    return "Dolby Digital";
+    return "Native Audio";
 }
 
 function parseVideoCodecAndTags(filename, title) {
     const combined = String(filename + " " + title).toLowerCase();
     let codec = "x264";
-    if (combined.includes("x265") || combined.includes("h265") || combined.includes("hevc")) {
-        codec = "x265";
-    }
-    let hdr = "SDR";
-    if (combined.includes("hdr10")) hdr = "⚡ HDR10";
-    else if (combined.includes("hdr")) hdr = "⚡ HDR";
-    else if (combined.includes("10bit")) hdr = "⚡ 10Bit";
+    if (combined.includes("x265") || combined.includes("h265") || combined.includes("hevc")) codec = "x265";
+    
+    let hdr = "";
+    if (combined.includes("hdr10")) hdr = " • ⚡ HDR10";
+    else if (combined.includes("hdr")) hdr = " • ⚡ HDR";
+    else if (combined.includes("10bit")) hdr = " • ⚡ 10Bit";
 
     let source = "WEB-DL";
     if (combined.includes("bluray") || combined.includes("bdrip")) source = "BluRay";
@@ -111,30 +110,25 @@ function parseLanguagesAndFlags(filename, title) {
     const combined = String(filename + " " + title).toLowerCase();
     const matches = [];
 
-    // Explicit filter: Only look for Hindi and English as requested
     const languageMaps = [
         { keys: ["hindi", "hin"], name: "Hindi", flag: "🇮🇳" },
-        { keys: ["english", "eng"], name: "English", flag: "🇺🇸" }
+        { keys: ["english", "eng"], name: "English", flag: "🇺🇸" },
+        { keys: ["spanish", "spa"], name: "Spanish", flag: "🇪🇸" },
+        { keys: ["italian", "ita"], name: "Italian", flag: "🇮🇹" }
     ];
 
     languageMaps.forEach(m => {
-        if (m.keys.some(k => combined.includes(k))) {
-            matches.push(m);
-        }
+        if (m.keys.some(k => combined.includes(k))) matches.push(m);
     });
 
     if (matches.length === 0) {
-        if (combined.includes("dual")) {
-            return { headerLabel: "Dual-Audio", subRow: "Hindi 🇮🇳 • English 🇺🇸" };
-        }
-        return { headerLabel: "Dual-Audio", subRow: "English 🇺🇸" };
+        if (combined.includes("dual")) return "Hindi 🇮🇳 • English 🇺🇸";
+        return "English 🇺🇸";
     }
-
-    const headerLabel = "Dual-Audio";
-    const subRow = matches.map(m => `${m.name} ${m.flag}`).join(" • ");
-    return { headerLabel, subRow };
+    return matches.map(m => `${m.name} ${m.flag}`).join(" • ");
 }
 
+// ---- Stream Maker Layer ----
 function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, mediaTitle, mediaYear) {
     let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     let filename = "";
@@ -149,30 +143,22 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
     const cleanQuality = quality || parseQuality(filename) || "1080p";
     const audioSpecs = parseAudioSpecs(filename, cleanTitle);
     const videoData = parseVideoCodecAndTags(filename, cleanTitle);
-    const langData = parseLanguagesAndFlags(filename, cleanTitle);
+    const languages = parseLanguagesAndFlags(filename, cleanTitle);
 
-    let durationText = "N/A";
-    if (runtimeSec && runtimeSec > 0) {
-        durationText = runtimeSec + " min";
-    }
-
+    let durationText = runtimeSec && runtimeSec > 0 ? `${runtimeSec} min` : "N/A";
     const qIcon = cleanQuality.includes("2160") || cleanQuality.includes("4K") ? "🌟" : "💎";
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
     
-    // Clean multi-line block syntax using your customized icons
-    const line1 = `${qIcon} ${cleanQuality} | 🌏 ${langData.subRow}`;
-    const line2 = `🔊 ${audioSpecs} | 📦 ${format}`;
-    let line3 = `⏱️ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}`;
-    if (videoData.hdr !== "SDR") {
-        line3 += ` • ${videoData.hdr}`;
-    }
+    // Clean, title-free stream layout mimicking the successful examples
+    // Removing the long title block lets mobile autowrap these strings into perfect subheadings
+    const cleanStreamTitle = `${cleanQuality} • ${qIcon} ${cleanQuality} | 🗣️ ${languages} | 🎧 ${audioSpecs} | 📦 ${format} | ⏳ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}${videoData.hdr}`;
 
-    // Combine them into a standardized format that works flawlessly across all devices
-    const structuredTitle = `${line1}\n${line2}\n${line3}`;
+    // Main Stream Category Card Label
+    const cardHeader = `${PROVIDER_NAME} | ${cleanQuality} | Dual-Audio`;
 
     return { 
-        name: `${PROVIDER_NAME} | ${cleanQuality}`, 
-        title: structuredTitle, 
+        name: cardHeader, 
+        title: cleanStreamTitle, 
         quality: cleanQuality, 
         url: url || "", 
         behaviorHints: { 
@@ -214,7 +200,7 @@ function isStrictMatch(requestedTitle, requestedYear, scrapedTitle, scrapedYear,
     return true; 
 } 
 
-// ---- dynamic domain updater ---- 
+// ---- Dynamic Domain Updater ---- 
 let cachedDomains = null; 
 let domainCacheTime = 0; 
 const DOMAIN_CACHE_TTL = 4 * 60 * 60 * 1000; 
@@ -241,7 +227,7 @@ async function refreshDomains() {
 function getLatestHubDomain() { return cachedHubDomain; } 
 function getLatestVcDomain() { return cachedVcDomain; } 
 
-// ---- TMDB resolver ---- 
+// ---- TMDB Resolver ---- 
 async function getTMDBInfo(id, type, season, episode) { 
     const idStr = String(id || '').trim(); 
     const isImdb = idStr.startsWith('tt'); 
@@ -271,11 +257,8 @@ async function getTMDBInfo(id, type, season, episode) {
                 let runtime = 0;
                 if (tmdbType === 'tv') {
                     const epData = await fetchJson(`https://api.themoviedb.org/3/tv/${idStr}/season/${sNum}/episode/${eNum}?api_key=${TMDB_API_KEY}`);
-                    if (epData && epData.runtime) {
-                        runtime = epData.runtime;
-                    } else if (data.episode_run_time && data.episode_run_time.length > 0) {
-                        runtime = data.episode_run_time[0];
-                    }
+                    if (epData && epData.runtime) runtime = epData.runtime;
+                    else if (data.episode_run_time && data.episode_run_time.length > 0) runtime = data.episode_run_time[0];
                 } else {
                     runtime = data.runtime || 0;
                 }
@@ -294,7 +277,7 @@ async function getTMDBInfo(id, type, season, episode) {
     return { title: idStr, year: null, imdbId: null, tmdbId: null, runtime: 0 }; 
 } 
 
-// ---- Typesense search ---- 
+// ---- Search Handler ---- 
 async function searchByTitle(query, year) { 
     if (!query) return []; 
     const searchQuery = encodeURIComponent(query + (year ? ' ' + year : '')); 
@@ -313,7 +296,7 @@ async function searchByTitle(query, year) {
     }); 
 } 
 
-// ---- WP-JSON content fetcher ---- 
+// ---- WP-JSON Content Fetcher ---- 
 async function fetchPostContent(postId, link) { 
     if (!postId) return null; 
     const apiUrl = baseUrl + '/wp-json/wp/v2/posts/' + postId; 
@@ -325,9 +308,7 @@ async function fetchPostContent(postId, link) {
                 const json = JSON.parse(text); 
                 if (json && json.content && json.content.rendered) { 
                     const rendered = json.content.rendered; 
-                    if (!/nexdrive|vcloud|hubcloud|fastdl|genxfm/i.test(rendered)) { 
-                        throw new Error("Missing links"); 
-                    } 
+                    if (!/nexdrive|vcloud|hubcloud|fastdl|genxfm/i.test(rendered)) throw new Error("Missing links"); 
                     return { title: (json.title && json.title.rendered || '').replace(/Download\s*/gi, '').trim(), html: rendered }; 
                 } 
             } catch (parseError) {} 
@@ -338,9 +319,7 @@ async function fetchPostContent(postId, link) {
         const htmlRes = await fetchHtml(fallbackUrl, { headers: getMobileHeaders() }); 
         if (htmlRes) { 
             const contentHtml = htmlRes('.entry-content').html() || htmlRes('.post-content').html(); 
-            if (contentHtml) { 
-                return { title: htmlRes('title').text().replace(/Download\s*/gi, '').trim(), html: contentHtml }; 
-            } 
+            if (contentHtml) return { title: htmlRes('title').text().replace(/Download\s*/gi, '').trim(), html: contentHtml }; 
         } 
     } catch (e) {} 
     return null; 
@@ -417,7 +396,7 @@ function extractSeasonFromContent(contentHtml, targetSeason) {
     return cleanHtml.substring(startPos, cutPos); 
 } 
 
-// ---- Extraction Layer Engine ---- 
+// ---- Link Extractor Engine ---- 
 async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, displayLabel, fallbackQuality, mediaInfo, runtimeSec, mediaTitle, mediaYear) { 
     const streams = []; 
     const lower = vcUrl.toLowerCase(); 
@@ -466,7 +445,7 @@ async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, disp
                     serverTasks.push(() => { streams.push(makeStream('FSLv2', (displayLabel || text), href, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } else if (lowerText.includes('fsl') || lowerText.includes('worker')) { 
                     const synced = href.includes('?') ? href + '&s=' + (1 + new Date().getMinutes()) : href + '?s=' + (1 + new Date().getMinutes()); 
-                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, bridgeQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
+                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } 
             } catch (e) {} 
         }); 
@@ -583,7 +562,7 @@ async function extractFromPost(post, label, isTv, targetSeason, targetEpisode, m
     } catch (e) { return []; } 
 } 
 
-// ---- main entry point ---- 
+// ---- Main Entry Handler ---- 
 async function getStreams(tmdbId, mediaType, season, episode) { 
     try { 
         await refreshDomains(); 

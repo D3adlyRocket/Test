@@ -111,14 +111,10 @@ function parseLanguagesAndFlags(filename, title) {
     const combined = String(filename + " " + title).toLowerCase();
     const matches = [];
 
+    // Filtered to map only target deployment track values
     const languageMaps = [
         { keys: ["hindi", "hin"], name: "Hindi", flag: "🇮🇳" },
-        { keys: ["english", "eng"], name: "English", flag: "🇺🇸" },
-        { keys: ["tamil", "tam"], name: "Tamil", flag: "🇮🇳" },
-        { keys: ["telugu", "tel"], name: "Telugu", flag: "🇮🇳" },
-        { keys: ["bengali", "ben"], name: "Bengali", flag: "🇧🇩" },
-        { keys: ["italian", "ita"], name: "Italian", flag: "🇮🇹" },
-        { keys: ["spanish", "esp", "spa"], name: "Spanish", flag: "🇪🇸" }
+        { keys: ["english", "eng"], name: "English", flag: "🇺🇸" }
     ];
 
     languageMaps.forEach(m => {
@@ -134,7 +130,7 @@ function parseLanguagesAndFlags(filename, title) {
         return { headerLabel: "Dual-Audio", subRow: "English 🇺🇸" };
     }
 
-    const headerLabel = matches.length > 1 ? "Dual-Audio" : "Dual-Audio";
+    const headerLabel = "Dual-Audio";
     const subRow = matches.map(m => `${m.name} ${m.flag}`).join(" • ");
     return { headerLabel, subRow };
 }
@@ -164,16 +160,26 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
     const displayYear = mediaYear ? ` (${mediaYear})` : "";
     
-    // Multi-line construction for TV Layout compatibility
-    const line1 = `🎬 ${mediaTitle}${displayYear}`;
-    const line2 = `${qIcon} ${cleanQuality} | 🌏 ${langData.subRow} | 🔊 ${audioSpecs}`;
-    let line3 = `📦 ${format} | ⏱️ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}`;
-    if (videoData.hdr !== "SDR") {
-        line3 += ` • ${videoData.hdr}`;
-    }
+    // Check if handling a mobile request header environment context to alter display output mechanics
+    const isMobileUser = headers && headers["User-Agent"] && /Android|iPhone|iPad|iPod/i.test(headers["User-Agent"]);
 
-    // Comprehensive design that wraps neatly on Mobile screens without relying on \n support
-    const structuredTitle = `${line1}\n${line2}\n${line3}`;
+    let structuredTitle = "";
+    if (isMobileUser) {
+        // Flat, concise formatting to protect screen edge limits on Mobile layouts
+        structuredTitle = `🎬 ${mediaTitle}${displayYear} | ${qIcon} ${cleanQuality} | 🌏 ${langData.subRow} | 🔊 ${audioSpecs} | 📦 ${format} | ⏱️ ${durationText} | 📌 ${videoData.codec}`;
+        if (videoData.hdr !== "SDR") {
+            structuredTitle += ` • ${videoData.hdr}`;
+        }
+    } else {
+        // Multi-line formatting template block structure optimized for Smart TVs
+        const line1 = `🎬 ${mediaTitle}${displayYear}`;
+        const line2 = `${qIcon} ${cleanQuality} | 🌏 ${langData.subRow} | 🔊 ${audioSpecs}`;
+        let line3 = `📦 ${format} | ⏱️ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}`;
+        if (videoData.hdr !== "SDR") {
+            line3 += ` • ${videoData.hdr}`;
+        }
+        structuredTitle = `${line1}\n${line2}\n${line3}`;
+    }
 
     return { 
         name: `${PROVIDER_NAME} | ${cleanQuality}`, 

@@ -116,30 +116,32 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     let filename = "";
     let fileSize = "Unknown Size";
     
-    // Extract filename out first
+    // 1. Extract the filename exactly as the original code did
     const fileMatch = cleanTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
     if (fileMatch) {
         filename = fileMatch[1].trim();
         cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
-    // Extract file size out next
+    // 2. Safely capture the size string for display purposes only
     const sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
     if (sizeMatch) {
         fileSize = sizeMatch[1].trim();
     }
 
-    // Detect Audio Type for the header
+    if (cleanTitle.length > 50) {
+        cleanTitle = cleanTitle.substring(0, 47) + '...';
+    }
+
+    // 3. Keep Header Auto-Detection intact
     const displayQuality = quality || "1080p";
     let audioType = "Single Audio";
     if (/dual|hindi\-eng|eng\-hin/i.test(title || "")) {
         audioType = "Dual-Audio";
     }
-
-    // Set the bold card header
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // Force Stremio Mobile layout: Line 1 starts with text. Line 2 starts with \n📦
+    // 4. Mobile Layout Structure: Line 1 starts with text. Line 2 triggers the dropdown box
     let formattedTitle = `${displayQuality} • ${cleanTitle}\n`;
     formattedTitle += `📦 💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳 | 💾 ${fileSize}`;
     
@@ -147,11 +149,12 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         formattedTitle += ` |\n📄 ${filename}`;
     }
 
+    // 5. RESTORE CRITICAL PROPERTIES EXACTLY TO ORIGINAL SPECIFICATION
     return {
         name: label,
-        title: formattedTitle,
-        quality: quality || "HD",
-        size: cleanTitle, // Restored to cleanTitle so link fetching doesn't break
+        title: formattedTitle,      // Visual design layout
+        quality: quality || "HD",   // CRITICAL: Must be original for matching loops
+        size: formattedTitle,       // CRITICAL: Original script sets size to the title variable
         url: url || "",
         behaviorHints: {
             notWebReady: true,

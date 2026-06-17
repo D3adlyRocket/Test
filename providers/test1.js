@@ -1,7 +1,46 @@
 /**
- * anidb - Built from src/anidb/
- * Generated: 2026-06-14T08:46:33.554Z
+ * flixindia - Built from src/flixindia/
+ * Generated: 2026-05-23T09:44:25.068Z
  */
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  // If the importer is in node compatibility mode or this is not an ESM
+  // file that has been converted to a CommonJS file using a Babel-
+  // compatible transform (i.e. "__esModule" has not been set), then set
+  // "default" to the CommonJS "module.exports" for node compatibility.
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
@@ -23,274 +62,430 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-// src/anidb/index.js
-var cheerio = require("cheerio-without-node-native");
-var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-var BASE_URL = "https://anidb.app";
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
-function getTmdbInfo(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    const tmdbType = mediaType === "tv" ? "tv" : "movie";
-    const sNum = Number.isInteger(season) ? season : 1;
-    const eNum = Number.isInteger(episode) ? episode : 1;
-    
-    try {
-      if (mediaType === "tv") {
-        const showUrl = "https://api.themoviedb.org/3/tv/" + tmdbId + "?api_key=" + TMDB_API_KEY;
-        const showResp = yield fetch(showUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
-        
-        if (!showResp.ok) return { title: "", year: null, runtime: 0 };
-        const showData = yield showResp.json();
-        const mainTitle = showData.name || "";
-        const year = showData.first_air_date ? parseInt(showData.first_air_date.slice(0, 4), 10) : null;
-        
-        const epUrl = "https://api.themoviedb.org/3/tv/" + tmdbId + "/season/" + sNum + "/episode/" + eNum + "?api_key=" + TMDB_API_KEY;
-        const epResp = yield fetch(epUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
-        let runtime = showData.episode_run_time ? showData.episode_run_time[0] : 0;
-        
-        if (epResp.ok) {
-          const epData = yield epResp.json();
-          if (epData.runtime) runtime = epData.runtime;
-        }
-        
-        return { title: mainTitle, year, runtime };
-      } else {
-        const movieUrl = "https://api.themoviedb.org/3/movie/" + tmdbId + "?api_key=" + TMDB_API_KEY;
-        const r = yield fetch(movieUrl, { headers: { "User-Agent": USER_AGENT, "Accept": "application/json" } });
-        if (!r.ok) return { title: "", year: null, runtime: 0 };
-        const data = yield r.json();
-        const year = data.release_date ? parseInt(data.release_date.slice(0, 4), 10) : null;
-        return { title: data.title || "", year, runtime: data.runtime || 0 };
-      }
-    } catch (e) {
-      return { title: "", year: null, runtime: 0 };
-    }
-  });
-}
-
-function normalize(s) {
-  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function rankResults(results, wantedTitle) {
-  const want = normalize(wantedTitle);
-  const exact = [];
-  const partial = [];
-  for (let i = 0; i < results.length; i++) {
-    const n = normalize(results[i].title);
-    if (n === want)
-      exact.push(results[i]);
-    else if (n.indexOf(want) !== -1 || want.indexOf(n) !== -1)
-      partial.push(results[i]);
+// src/flixindia/http.js
+var BASE_URL = "https://mkvbase.site/";
+var BASE_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+  Referer: BASE_URL,
+  Origin: BASE_URL,
+  "X-Requested-With": "XMLHttpRequest"
+};
+var COOKIE_JAR = "";
+function storeCookies(res) {
+  const setCookie = res.headers.get("set-cookie");
+  if (setCookie) {
+    COOKIE_JAR = setCookie.split(";")[0];
+    console.log("[HTTP][COOKIE] Stored:", COOKIE_JAR);
   }
-  return exact.concat(partial);
 }
-
-function absolutize(href) {
-  if (!href)
-    return "";
-  if (href.indexOf("http") === 0)
-    return href;
-  if (href.indexOf("//") === 0)
-    return "https:" + href;
-  if (href.charAt(0) === "/")
-    return BASE_URL + href;
-  return BASE_URL + "/" + href;
-}
-
-function searchSite(query) {
+function sleep(ms) {
   return __async(this, null, function* () {
-    const results = [];
-    const seen = {};
-    let html;
-    try {
-      const r = yield fetch(BASE_URL + "/browse?q=" + encodeURIComponent(query), {
-        headers: {
-          "User-Agent": USER_AGENT,
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9"
+    return new Promise((r) => setTimeout(r, ms));
+  });
+}
+function requestWithRetry(fetchFn, label, retries = 3) {
+  return __async(this, null, function* () {
+    let attempt = 0;
+    let delay = 500;
+    while (attempt < retries) {
+      try {
+        console.log(`[HTTP][RETRY] ${label} attempt ${attempt + 1}/${retries}`);
+        return yield fetchFn();
+      } catch (err) {
+        attempt++;
+        console.log(`[HTTP][RETRY] \u274C ${label} failed:`, err.message);
+        if (attempt >= retries) {
+          console.log(`[HTTP][RETRY] \u274C ${label} giving up`);
+          throw err;
         }
-      });
-      html = yield r.text();
-    } catch (_) {
-      return results;
+        yield sleep(delay);
+        delay *= 2;
+      }
     }
-    const $ = cheerio.load(html);
-    $("a.anime-card").each(function(i, el) {
-      const href = absolutize($(el).attr("href") || "");
-      const title = ($(el).attr("title") || $(el).find("img").attr("alt") || "").trim();
-      if (href && title && !seen[href]) {
-        seen[href] = true;
-        results.push({ url: href, title });
+  });
+}
+function fetchText(_0) {
+  return __async(this, arguments, function* (url, options = {}) {
+    return requestWithRetry(() => __async(this, null, function* () {
+      const res = yield fetch(url, __spreadProps(__spreadValues({}, options), {
+        headers: __spreadValues(__spreadValues(__spreadValues({}, BASE_HEADERS), COOKIE_JAR ? { Cookie: COOKIE_JAR } : {}), options.headers || {})
+      }));
+      storeCookies(res);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
       }
-    });
-    return results;
+      return yield res.text();
+    }), `GET ${url}`);
   });
 }
-
-function getEpisodes(siteId) {
-  return __async(this, null, function* () {
-    const r = yield fetch(BASE_URL + "/api/frontend/anime/" + siteId + "/episodes", {
-      headers: { "User-Agent": USER_AGENT, "X-Requested-With": "XMLHttpRequest" }
-    });
-    const data = yield r.json();
-    return data && data.episodes ? data.episodes : [];
-  });
-}
-
-function getLanguages(episodeId, slug) {
-  return __async(this, null, function* () {
-    const r = yield fetch(BASE_URL + "/api/frontend/episode/" + episodeId + "/languages", {
-      headers: {
-        "User-Agent": USER_AGENT,
-        "X-Requested-With": "XMLHttpRequest",
-        "Referer": BASE_URL + "/anime/" + slug
+function fetchJson(_0) {
+  return __async(this, arguments, function* (url, options = {}) {
+    const method = (options.method || "GET").toUpperCase();
+    return requestWithRetry(() => __async(this, null, function* () {
+      const res = yield fetch(url, __spreadProps(__spreadValues({}, options), {
+        headers: __spreadValues(__spreadValues(__spreadValues({}, BASE_HEADERS), COOKIE_JAR ? { Cookie: COOKIE_JAR } : {}), options.headers || {})
+      }));
+      storeCookies(res);
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}`);
       }
-    });
-    const data = yield r.json();
-    return data && data.languages ? data.languages : [];
+      return yield res.json();
+    }), `${method} ${url}`);
   });
 }
 
-var HLS_REGEXES = [
-  /file\s*:\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i,
-  /sources\s*:\s*\[\s*\{[^}]*file\s*:\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i,
-  /["'](https?:\/\/[^"']+\/master\.m3u8[^"']*)["']/i,
-  /["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i
+// src/flixindia/utils.js
+function extractCsrf(html) {
+  console.log("\n[CSRF] Extracting CSRF token...");
+  const match = html.match(/CSRF_TOKEN\s*=\s*['"]([^'"]+)['"]/);
+  if (!match) {
+    console.log("[CSRF] \u274C Not found");
+    return null;
+  }
+  console.log("[CSRF] \u2705 Found:", match[1]);
+  return match[1];
+}
+var QUALITY_REGEX = /\b(camrip|hdcam|cam|hdtc|tc|telesync|ts|scr|screener|dvdscr)\b/i;
+var STRICT_SUBSTRINGS = [
+  "hqcam",
+  "clean cam",
+  "line audio",
+  "xbet",
+  "1xbet",
+  "zip",
+  "rar",
+  "tar",
+  "7z",
+  "apk",
+  "exe",
+  "pdf"
 ];
+function isBannedTitle(title) {
+  const lower = title.toLowerCase();
+  for (const word of STRICT_SUBSTRINGS) {
+    if (lower.includes(word)) {
+      console.log(`[FILTER] \u274C STRICT exclude "${title}" (matched: ${word})`);
+      return true;
+    }
+  }
+  if (QUALITY_REGEX.test(lower)) {
+    console.log(`[FILTER] \u274C SOFT exclude "${title}" (quality tag match)`);
+    return true;
+  }
+  return false;
+}
 
-function extractEmbed(embedUrl) {
+// src/flixindia/hosts.js
+function getHostname(url) {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch (e) {
+    return "";
+  }
+}
+function getPath(url) {
+  try {
+    return new URL(url).pathname.toLowerCase();
+  } catch (e) {
+    return "";
+  }
+}
+function classifyHost(url) {
+  const hostname = getHostname(url);
+  const path = getPath(url);
+  if (hostname.includes("hubcloud")) {
+    let kind = "unknown";
+    if (path.startsWith("/drive"))
+      kind = "drive";
+    else if (path.startsWith("/video"))
+      kind = "video";
+    console.log("[HOST] hubcloud \u2192", kind, url);
+    return { host: "hubcloud", kind };
+  }
+  if (hostname.includes("gdflix") || hostname.includes("gdlink")) {
+    let kind = "unknown";
+    if (path.startsWith("/file"))
+      kind = "file";
+    else if (path.startsWith("/pack"))
+      kind = "pack";
+    console.log("[HOST] gdflix \u2192", kind, url);
+    return { host: "gdflix", kind };
+  }
+  if (hostname.includes("vcloud")) {
+    console.log("[HOST] vcloud \u2192 unknown", url);
+    return { host: "vcloud", kind: "unknown" };
+  }
+  console.log("[HOST] unknown \u2192", url);
+  return { host: "unknown", kind: "unknown" };
+}
+
+// src/flixindia/quality.js
+var QUALITY_PATTERNS = [
+  { label: "2160p", regex: /\b2160p\b/i },
+  { label: "1080p", regex: /\b1080p\b/i },
+  { label: "720p", regex: /\b720p\b/i },
+  { label: "480p", regex: /\b480p\b/i }
+];
+function extractQuality(title) {
+  for (const q of QUALITY_PATTERNS) {
+    if (q.regex.test(title)) {
+      console.log(`[QUALITY] ${q.label} \u2190 "${title}"`);
+      return q.label;
+    }
+  }
+  console.log(`[QUALITY] unknown \u2190 "${title}"`);
+  return "unknown";
+}
+
+// src/flixindia/search.js
+function search(query) {
+  return __async(this, null, function* () {
+    console.log("\n[SEARCH] \u25B6 Starting search:", query);
+    try {
+      const homeHtml = yield fetchText(BASE_URL);
+      const csrf = extractCsrf(homeHtml);
+      if (!csrf) {
+        console.log("[SEARCH] \u274C CSRF not found");
+        return [];
+      }
+      const body = new URLSearchParams({
+        action: "search",
+        csrf_token: csrf,
+        q: query
+      }).toString();
+      const json = yield fetchJson(BASE_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        body
+      });
+      if (!Array.isArray(json.results)) {
+        console.log("[SEARCH] \u26A0\uFE0F No results array");
+        return [];
+      }
+      const results = [];
+      for (const item of json.results) {
+        try {
+          if (!(item == null ? void 0 : item.title) || !(item == null ? void 0 : item.url))
+            continue;
+          if (isBannedTitle(item.title))
+            continue;
+          results.push(__spreadValues({
+            title: item.title,
+            url: item.url,
+            quality: extractQuality(item.title)
+          }, classifyHost(item.url)));
+        } catch (err) {
+          console.log("[SEARCH] \u26A0\uFE0F Skipping bad item:", err.message);
+        }
+      }
+      console.log("[SEARCH] \u25B6 Final results:", results.length);
+      return results;
+    } catch (err) {
+      console.log("[SEARCH] \u274C Search failed completely:", err.message);
+      return [];
+    }
+  });
+}
+
+// src/flixindia/hubcloud.js
+var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
+function resolveHubCloud(entryUrl, meta) {
+  return __async(this, null, function* () {
+    console.log("\n[HUBCLOUD] \u25B6 Resolving:", entryUrl);
+    const streams = [];
+    const entryHtml = yield fetchText(entryUrl);
+    console.log("[HUBCLOUD] Entry HTML length:", entryHtml.length);
+    const $entry = import_cheerio_without_node_native.default.load(entryHtml);
+    let fileSize = null;
+    try {
+      const sizeText = $entry("li").filter((_, el) => $entry(el).text().includes("File Size")).find("i").text().trim();
+      if (sizeText) {
+        fileSize = sizeText;
+        console.log(`[HUBCLOUD] \u{1F4E6} File Size: ${fileSize}`);
+      }
+    } catch (err) {
+      console.log("[HUBCLOUD] \u26A0\uFE0F Could not extract size:", err.message);
+    }
+    const generatorUrl = $entry("a#download").attr("href");
+    if (!generatorUrl) {
+      console.log("[HUBCLOUD] \u274C Generate link not found");
+      return streams;
+    }
+    console.log("[HUBCLOUD] Generate link found:", generatorUrl);
+    const finalHtml = yield fetchText(generatorUrl);
+    console.log("[HUBCLOUD] Final page HTML length:", finalHtml.length);
+    const $final = import_cheerio_without_node_native.default.load(finalHtml);
+    const fslUrl = $final("a#fsl").attr("href");
+    if (fslUrl) {
+      console.log("[HUBCLOUD] \u2705 FSL link found:", fslUrl);
+      streams.push({
+        name: "Flixindia - hubcloud - FSL",
+        title: meta.title,
+        url: fslUrl,
+        quality: meta.quality,
+        size: fileSize,
+        // <--- Added Size
+        source: "hubcloud-fsl"
+      });
+    } else {
+      console.log("[HUBCLOUD] \u26A0\uFE0F No FSL link found");
+    }
+    $final("a[href]").each((_, el) => {
+      const href = $final(el).attr("href");
+      if (!href)
+        return;
+      let url;
+      try {
+        url = new URL(href);
+      } catch (e) {
+        return;
+      }
+      console.log("[HUBCLOUD] Link found:", url.href);
+      if (url.hostname.includes("pixeldrain")) {
+        console.log("[HUBCLOUD] \u{1F7E3} PixelDrain candidate:", url.href);
+        const resolved = resolvePixelDrain(url);
+        if (resolved) {
+          streams.push({
+            name: "Flixindia - hubcloud - PixelDrain",
+            title: meta.title,
+            url: resolved,
+            quality: meta.quality,
+            size: fileSize,
+            // <--- Added Size
+            source: "hubcloud-pixeldrain"
+          });
+        }
+      }
+    });
+    const filtered = streams.filter((s) => {
+      if (s.url.includes("gpdl") || s.url.includes("hubcdn")) {
+        console.log("[HUBCLOUD] \u274C Excluding direct / non-streamable:", s.url);
+        return false;
+      }
+      return true;
+    });
+    console.log("[HUBCLOUD] \u25B6 Final streams:", filtered.length);
+    return filtered;
+  });
+}
+function resolvePixelDrain(url) {
+  try {
+    const parts = url.pathname.split("/").filter(Boolean);
+    let fileId = null;
+    if (parts[0] === "u" && parts[1]) {
+      fileId = parts[1];
+    } else if (parts[0] === "file" && parts[1]) {
+      fileId = parts[1];
+    } else if (parts[0] === "api" && parts[1] === "file" && parts[2]) {
+      fileId = parts[2];
+    }
+    if (!fileId) {
+      console.log("[PIXELDRAIN] \u274C Unsupported format:", url.href);
+      return null;
+    }
+    const finalUrl = `https://${url.hostname}/api/file/${fileId}`;
+    console.log("[PIXELDRAIN] \u2705 Final stream URL:", finalUrl);
+    return finalUrl;
+  } catch (err) {
+    console.log("[PIXELDRAIN] \u274C Error:", err.message);
+    return null;
+  }
+}
+
+// src/flixindia/index.js
+var TMDB_API_KEY = "919605fd567bbffcf76492a03eb4d527";
+var TMDB_BASE = "https://api.themoviedb.org/3";
+function pad2(num) {
+  return String(num).padStart(2, "0");
+}
+function isV4Key(key) {
+  return key && key.length > 40;
+}
+function getTmdbTitle(tmdbId, mediaType) {
   return __async(this, null, function* () {
     try {
-      const r = yield fetch(embedUrl, {
-        headers: { "User-Agent": USER_AGENT, "Referer": BASE_URL + "/" }
-      });
-      const text = yield r.text();
-      for (let i = 0; i < HLS_REGEXES.length; i++) {
-        const m = text.match(HLS_REGEXES[i]);
-        if (m && m[1])
-          return m[1];
+      if (!TMDB_API_KEY || TMDB_API_KEY === "YOUR_TMDB_API_KEY_HERE") {
+        console.error("[FlixIndia] \u274C Missing TMDB API Key");
+        return null;
       }
-    } catch (_) {
+      let endpoint;
+      if (mediaType === "movie")
+        endpoint = `/movie/${tmdbId}`;
+      else if (mediaType === "tv")
+        endpoint = `/tv/${tmdbId}`;
+      else
+        return null;
+      let url = `${TMDB_BASE}${endpoint}`;
+      const options = { method: "GET", headers: {} };
+      if (isV4Key(TMDB_API_KEY)) {
+        options.headers.Authorization = `Bearer ${TMDB_API_KEY}`;
+      } else {
+        url += `?api_key=${TMDB_API_KEY}`;
+      }
+      const data = yield fetchJson(url, options);
+      if (mediaType === "movie")
+        return (data == null ? void 0 : data.title) || null;
+      if (mediaType === "tv")
+        return (data == null ? void 0 : data.name) || null;
+      return null;
+    } catch (error) {
+      console.error(`[TMDB] Error: ${error.message}`);
+      return null;
     }
-    return null;
   });
 }
-
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
-      const info = yield getTmdbInfo(tmdbId, mediaType, season, episode);
-      if (!info.title)
+      const baseTitle = yield getTmdbTitle(tmdbId, mediaType);
+      if (!baseTitle) {
+        console.log("[FlixIndia] TMDB title not found");
         return [];
-      console.log("[AniDB] " + mediaType + ' "' + info.title + '" S' + season + "E" + episode);
-      const ranked = rankResults(yield searchSite(info.title), info.title);
-      const targetEpisode = mediaType === "tv" ? episode || 1 : 1;
-      for (let ci = 0; ci < Math.min(3, ranked.length); ci++) {
-        const candidate = ranked[ci];
-        const slug = candidate.url.split("/").filter(Boolean).pop() || "";
-        const idStr = slug.split("-").pop();
-        const siteId = parseInt(idStr, 10);
-        if (!siteId)
-          continue;
-        let episodes = [];
-        try {
-          episodes = yield getEpisodes(siteId);
-        } catch (_) {
-          continue;
-        }
-        if (!episodes.length)
-          continue;
-        let target = null;
-        for (let i = 0; i < episodes.length; i++) {
-          if (episodes[i].number === targetEpisode) {
-            target = episodes[i];
-            break;
-          }
-        }
-        if (!target)
-          target = episodes[targetEpisode - 1] || episodes[0];
-        if (!target || target.id == null)
-          continue;
-        let languages = [];
-        try {
-          languages = yield getLanguages(target.id, slug);
-        } catch (_) {
-          continue;
-        }
-        const embedUrls = [];
-        for (let i = 0; i < languages.length; i++) {
-          const eu = languages[i].embed_url;
-          if (eu)
-            embedUrls.push({ url: eu, name: languages[i].name || languages[i].code || "" });
-        }
-        if (!embedUrls.length)
-          continue;
-        const resolved = yield Promise.all(embedUrls.map(function(e) {
-          return extractEmbed(e.url);
-        }));
-        const streams = [];
-        const seen = {};
-        for (let i = 0; i < resolved.length; i++) {
-          const m3u8 = resolved[i];
-          if (!m3u8 || seen[m3u8])
-            continue;
-          seen[m3u8] = true;
-          
-          const rawLang = String(embedUrls[i].name || "").toLowerCase();
-          let langLabel = embedUrls[i].name ? embedUrls[i].name : "RAW / SUB";
-          
-          // FIXED: Parse metadata strings to map language codes, names and flags natively
-          let flag = "🗣️";
-          let headerAudioTag = "Subbed / Dubbed";
-
-          if (rawLang.includes("japanese") || rawLang.includes("jp") || rawLang.includes("jap")) {
-            flag = "🇯🇵";
-            headerAudioTag = "Japanese Audio";
-          } else if (rawLang.includes("english") || rawLang.includes("eng") || rawLang.includes("en")) {
-            flag = "🇺🇸";
-            headerAudioTag = "English Audio";
-          } else if (rawLang.includes("korean") || rawLang.includes("kor") || rawLang.includes("kr")) {
-            flag = "🇰🇷";
-            headerAudioTag = "Korean Audio";
-          }
-
-          const displayYear = info.year ? " (" + info.year + ")" : "";
-
-          // Custom Runtime Layout Logic
-          let durationText = "N/A";
-          if (info.runtime && Number.isInteger(info.runtime) && info.runtime > 0) {
-            durationText = info.runtime + " min";
-          }
-
-          // FIXED: Layout block with localized flags, dynamic track tags, and dropped redundant elements
-          var row1 = "🎋 " + info.title + displayYear;
-          var row2 = "🏷️ Auto | " + flag + " " + langLabel + " | 🔊 Native";
-          var row3 = "⚡ HLS | ⏱️ " + durationText + " | 📌 AniDB Stream";
-          var finalBlock = row1 + "\n" + row2 + "\n" + row3;
-
-          streams.push({
-            name: "AniDB | Auto | " + headerAudioTag,
-            title: finalBlock,
-            url: m3u8,
-            quality: "Auto",
-            description: finalBlock,
-            headers: { "Referer": BASE_URL + "/" }
-          });
-        }
-        if (streams.length) {
-          console.log("[AniDB] found " + streams.length + " streams");
-          return streams;
-        }
       }
-      console.log("[AniDB] no streams found");
-      return [];
-    } catch (e) {
-      console.error("[AniDB] Fatal: " + (e && e.message));
+      let query;
+      if (mediaType === "movie") {
+        query = baseTitle;
+      } else if (mediaType === "tv") {
+        if (season == null || episode == null)
+          return [];
+        query = `${baseTitle} S${pad2(season)}E${pad2(episode)}`;
+      } else {
+        return [];
+      }
+      const results = yield search(query);
+      if (!Array.isArray(results))
+        return [];
+      const limitedResults = results.slice(0, 5);
+      const promises = limitedResults.map((item) => __async(this, null, function* () {
+        try {
+          if (item.host === "hubcloud") {
+            const resolved = yield resolveHubCloud(item.url, {
+              title: item.title,
+              quality: item.quality
+            });
+            return resolved.map((stream) => ({
+              name: stream.name,
+              title: stream.title,
+              url: stream.url,
+              quality: stream.quality || "unknown",
+              size: stream.size || null,
+              // <--- New Field
+              headers: {}
+            }));
+          }
+        } catch (err) {
+          console.log(`[FlixIndia] Error resolving ${item.url}: ${err.message}`);
+        }
+        return [];
+      }));
+      const resultsArrays = yield Promise.all(promises);
+      return resultsArrays.flat();
+    } catch (err) {
+      console.error(`[FlixIndia] Critical Error: ${err.message}`);
       return [];
     }
   });
 }
-
 module.exports = { getStreams };

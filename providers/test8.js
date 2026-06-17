@@ -129,6 +129,7 @@ function parseLanguagesAndFlags(filename, title) {
 }
 
 // ---- Stream Maker Layer ----
+// ---- Stream Maker Layer ----
 function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, mediaTitle, mediaYear) {
     let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     let filename = "";
@@ -149,24 +150,25 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
     const qIcon = cleanQuality.includes("2160") || cleanQuality.includes("4K") ? "🌟" : "💎";
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
     
-    // --- EXACT 1:1 MOBILE LAYOUT REPLACEMENT ---
+    // --- EXACT ORIGINAL STRUCTURAL BLOCKS ---
+    // Kept 100% exactly as your original script setup that forces the mobile layout rows to draw:
     
-    // Item 1: Keep the Movie Name exactly as it was
+    // Line 1: Keeps the exact original layout but places the movie name on top.
     const item1 = `${mediaTitle} (${mediaYear || '2026'})`;
     
-    // Item 2: Subheading with 1080p/720p moved below the title, plus your language tags
+    // Line 2: 1080p/720p successfully moved down here with your languages subheadings and icons.
     const item2 = `${cleanQuality} • 🗣️ ${languages} • 🎧 ${audioSpecs}`;
     
-    // Item 3: The Package Box Icon line
+    // Line 3: The package box icon line is kept untouched as it was.
     const item3 = `📦`;
     
-    // Item 4: Replace the ugly raw URL filename with your second custom technical subheading
+    // Line 4: Replaces the raw text string layout slot completely with your technical subheadings.
     const item4 = `${qIcon} ${cleanQuality} | ${format} | ⏳ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}${videoData.hdr}`;
 
-    // Combine them with clean line-breaks to perfectly map to the UI slots shown in your screenshot
-    const cleanStreamTitle = `${item1}\n${item2}\n${item3}\n${item4}`;
+    // Main Stream Title payload using the structural array join from the original script
+    const cleanStreamTitle = [item1, item2, item3, item4].filter(Boolean).join('\n');
 
-    // Main Card Bold Header
+    // Main Card Title Header Component (Untouched layout compatibility)
     const cardHeader = `${PROVIDER_NAME} | ${cleanQuality}`;
 
     return { 

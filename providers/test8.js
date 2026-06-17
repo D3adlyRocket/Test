@@ -116,7 +116,9 @@ function parseLanguagesAndFlags(filename, title) {
         { keys: ["english", "eng"], name: "English", flag: "🇺🇸" },
         { keys: ["tamil", "tam"], name: "Tamil", flag: "🇮🇳" },
         { keys: ["telugu", "tel"], name: "Telugu", flag: "🇮🇳" },
-        { keys: ["bengali", "ben"], name: "Bengali", flag: "🇧🇩" }
+        { keys: ["bengali", "ben"], name: "Bengali", flag: "🇧🇩" },
+        { keys: ["italian", "ita"], name: "Italian", flag: "🇮🇹" },
+        { keys: ["spanish", "esp", "spa"], name: "Spanish", flag: "🇪🇸" }
     ];
 
     languageMaps.forEach(m => {
@@ -129,10 +131,10 @@ function parseLanguagesAndFlags(filename, title) {
         if (combined.includes("dual")) {
             return { headerLabel: "Dual-Audio", subRow: "Hindi 🇮🇳 • English 🇺🇸" };
         }
-        return { headerLabel: "Single-Audio", subRow: "English 🇺🇸" };
+        return { headerLabel: "Multi-Audio", subRow: "English 🇺🇸" };
     }
 
-    const headerLabel = matches.length > 1 ? "Dual-Audio" : "Single-Audio";
+    const headerLabel = matches.length > 1 ? "Multi-Audio" : "Single-Audio";
     const subRow = matches.map(m => `${m.name} ${m.flag}`).join(" • ");
     return { headerLabel, subRow };
 }
@@ -162,7 +164,6 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
     const displayYear = mediaYear ? ` (${mediaYear})` : "";
     
-    // Line layout updates
     const line1 = `🎬 ${mediaTitle}${displayYear}`;
     const line2 = `${qIcon} ${cleanQuality} | 🌏 ${langData.subRow} | 🔊 ${audioSpecs}`;
     let line3 = `📦 ${format} | ⏱️ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}`;
@@ -170,7 +171,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
         line3 += ` • ${videoData.hdr}`;
     }
 
-    // Fixed double rendering quality logic for cross-platform support
+    // Merged structure to cleanly handle both platforms seamlessly
     const fullMultiLineTitle = `${line1}\n${line2}\n${line3}`;
 
     return { 
@@ -469,7 +470,7 @@ async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, disp
                     serverTasks.push(() => { streams.push(makeStream('FSLv2', (displayLabel || text), href, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } else if (lowerText.includes('fsl') || lowerText.includes('worker')) { 
                     const synced = href.includes('?') ? href + '&s=' + (1 + new Date().getMinutes()) : href + '?s=' + (1 + new Date().getMinutes()); 
-                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
+                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, href, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } 
             } catch (e) {} 
         }); 

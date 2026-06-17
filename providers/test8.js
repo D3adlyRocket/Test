@@ -29,9 +29,7 @@ async function fetchSafe(url, options = {}, timeout = REQUEST_TIMEOUT) {
         const fetchPromise = fetch(url, merged); 
         const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), timeout)); 
         return await Promise.race([fetchPromise, timeoutPromise]); 
-    } catch (e) { 
-        return null; 
-    } 
+    } catch (e) { return null; } 
 } 
 
 async function fetchJson(url, options = {}) { 
@@ -81,28 +79,22 @@ function decodeEntities(str) {
     return str.replace(/&#8211;/g, '-').replace(/&#8212;/g, '-').replace(/&#038;/g, '&').replace(/&#8217;/g, "'").replace(/&amp;/g, '&').replace(/&ndash;/g, '-').replace(/&mdash;/g, '-').replace(/&quot;/g, '"'); 
 } 
 
-// ---- NEW: Metadata Extractors from Filenames / Titles ----
+// ---- Filename Specs Parser ----
 function parseAudioSpecs(filename, title) {
     const combined = String(filename + " " + title).toLowerCase();
-    let audio = "Native";
-    if (combined.includes("atmos")) audio = "Dolby Atmos";
-    else if (combined.includes("ddp5.1") || combined.includes("dd+5.1")) audio = "DDP5.1";
-    else if (combined.includes("dd5.1") || combined.includes("dolby5.1")) audio = "DD5.1";
-    else if (combined.includes("aac2.0") || combined.includes("aac")) audio = "AAC 2.0";
-    else if (combined.includes("mp3")) audio = "MP3";
-    return audio;
+    if (combined.includes("atmos")) return "Dolby Atmos";
+    if (combined.includes("ddp5.1") || combined.includes("dd+5.1") || combined.includes("atmos 5.1")) return "DDP5.1";
+    if (combined.includes("dd5.1") || combined.includes("dolby5.1")) return "DD5.1";
+    if (combined.includes("aac2.0") || combined.includes("aac")) return "AAC 2.0";
+    return "Dolby Digital";
 }
 
 function parseVideoCodecAndTags(filename, title) {
     const combined = String(filename + " " + title).toLowerCase();
-    
-    let codec = "x264";
+    let codec = "x264 (H.264/AVC)";
     if (combined.includes("x265") || combined.includes("h265") || combined.includes("hevc")) {
         codec = "x265 (H.265/HEVC)";
-    } else if (combined.includes("x264") || combined.includes("h264")) {
-        codec = "x264 (H.264/AVC)";
     }
-
     let hdr = "SDR";
     if (combined.includes("hdr10")) hdr = "⚡ HDR10";
     else if (combined.includes("hdr")) hdr = "⚡ HDR";
@@ -119,75 +111,72 @@ function parseLanguagesAndFlags(filename, title) {
     const combined = String(filename + " " + title).toLowerCase();
     const matches = [];
 
-    const maps = [
-        { keys: ["hindi", "hin", "ind"], name: "Hindi", flag: "🇮🇳" },
-        { keys: ["english", "eng", "en"], name: "English", flag: "🇺🇸" },
-        { keys: ["spanish", "esp", "es"], name: "Spanish", flag: "🇪🇸" },
-        { keys: ["japanese", "jap", "jp"], name: "Japanese", flag: "🇯🇵" },
-        { keys: ["korean", "kor", "kr"], name: "Korean", flag: "🇰🇷" },
-        { keys: ["italian", "ita", "it"], name: "Italian", flag: "🇮🇹" },
-        { keys: ["french", "fre", "fr"], name: "French", flag: "🇫🇷" },
+    const languageMaps = [
+        { keys: ["hindi", "hin"], name: "Hindi", flag: "🇮🇳" },
+        { keys: ["english", "eng"], name: "English", flag: "🇺🇸" },
         { keys: ["tamil", "tam"], name: "Tamil", flag: "🇮🇳" },
-        { keys: ["telugu", "tel"], name: "Telugu", flag: "🇮🇳" }
+        { keys: ["telugu", "tel"], name: "Telugu", flag: "🇮🇳" },
+        { keys: ["bengali", "ben"], name: "Bengali", flag: "🇧🇩" }
     ];
 
-    maps.forEach(m => {
+    languageMaps.forEach(m => {
         if (m.keys.some(k => combined.includes(k))) {
             matches.push(m);
         }
     });
 
     if (matches.length === 0) {
-        return { display: "English", headerLabel: "Single-Audio", subRow: "🔊 English 🇺🇸" };
+        // If nothing is found in the filename, fall back to parsing standard Vega context rules
+        if (combined.includes("dual")) {
+            return { headerLabel: "Dual-Audio", subRow: "🔊 Hindi 🇮🇳 • English 🇺🇸" };
+        }
+        return { headerLabel: "Single-Audio", subRow: "🔊 English 🇺🇸" };
     }
 
     const headerLabel = matches.length > 1 ? "Dual-Audio" : "Single-Audio";
-    const displayNames = matches.map(m => m.name).join(" • ");
-    const subRowText = "🔊 " + matches.map(m => `${m.name} ${m.flag}`).join(" • ");
-
-    return { display: displayNames, headerLabel, subRow: subRowText };
+    const subRow = "🔊 " + matches.map(m => `${m.name} ${m.flag}`).join(" • ");
+    return { headerLabel, subRow };
 }
 
-function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, requestedTitle) {
+function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, mediaTitle, mediaYear) {
     let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
-    let filename = "Stream Link";
+    let filename = "";
     
     const fileMatch = cleanTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|ts))\s*\]/i);
     if (fileMatch) {
         filename = fileMatch[1].trim();
-        cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     } else if (url.includes('/') && url.split('/').pop().includes('.')) {
         filename = url.split('/').pop();
     }
 
-    // Extraction processing
     const cleanQuality = quality || parseQuality(filename) || "1080p";
     const audioSpecs = parseAudioSpecs(filename, cleanTitle);
     const videoData = parseVideoCodecAndTags(filename, cleanTitle);
     const langData = parseLanguagesAndFlags(filename, cleanTitle);
 
     let durationText = "N/A";
-    if (runtimeSec && Number.isInteger(runtimeSec) && runtimeSec > 0) {
+    if (runtimeSec && runtimeSec > 0) {
         durationText = runtimeSec + " min";
     }
 
     const qIcon = cleanQuality.includes("2160") || cleanQuality.includes("4K") ? "🌟" : "💎";
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
 
-    // Build Three-Row Custom Layout System
-    const row1 = `🎬 ${requestedTitle || cleanTitle}`;
+    // Row Mappings
+    const displayYear = mediaYear ? ` (${mediaYear})` : "";
+    const row1 = `🎬 ${mediaTitle}${displayYear}`;
     const row2 = `${qIcon} ${cleanQuality} | ${langData.subRow} | 🎧 ${audioSpecs}`;
+    
     let row3 = `🎞️ ${format} • ${videoData.codec} | ⏱️ ${durationText} | `;
     if (videoData.hdr !== "SDR") row3 += `${videoData.hdr} | `;
     row3 += `☁️ ${videoData.source}`;
 
-    const parsedUiBlock = `${row1}\n${row2}\n${row3}`;
-
     return { 
         name: `${PROVIDER_NAME} | ${cleanQuality} | ${langData.headerLabel}`, 
-        title: parsedUiBlock, 
-        quality: cleanQuality, 
+        title: row1, 
         size: row2, 
+        description: row3,
+        quality: cleanQuality, 
         url: url || "", 
         behaviorHints: { 
             notWebReady: true, 
@@ -432,7 +421,7 @@ function extractSeasonFromContent(contentHtml, targetSeason) {
 } 
 
 // ---- Extraction Layer Engine ---- 
-async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, displayLabel, fallbackQuality, mediaInfo, runtimeSec, requestedTitle) { 
+async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, displayLabel, fallbackQuality, mediaInfo, runtimeSec, mediaTitle, mediaYear) { 
     const streams = []; 
     const lower = vcUrl.toLowerCase(); 
     if (lower.includes('vcloud') || lower.includes('hubcloud') || lower.includes('nexdrive') || lower.includes('fastdl')) { 
@@ -465,7 +454,7 @@ async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, disp
         if (bridgeUrl && bridgeUrl.includes('.workers.dev')) { 
             const synced = bridgeUrl + '?s=' + (1 + new Date().getMinutes()); 
             serverTasks.push(() => { 
-                streams.push(makeStream('Worker', (displayLabel || 'Worker Server') + ' [' + headerText + ']', synced, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, requestedTitle)); 
+                streams.push(makeStream('Worker', (displayLabel || 'Worker Server'), synced, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); 
             }); 
             bridgeUrl = ''; 
         } 
@@ -477,10 +466,10 @@ async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, disp
                 if (!href || href === '#') return; 
                 if (lowerText.includes('10gbps') || lowerText.includes('gdflix') || lowerText.includes('telegram')) return; 
                 if (lowerText.includes('fslv2')) { 
-                    serverTasks.push(() => { streams.push(makeStream('FSLv2', (displayLabel || text), href, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, requestedTitle)); }); 
+                    serverTasks.push(() => { streams.push(makeStream('FSLv2', (displayLabel || text), href, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } else if (lowerText.includes('fsl') || lowerText.includes('worker')) { 
                     const synced = href.includes('?') ? href + '&s=' + (1 + new Date().getMinutes()) : href + '?s=' + (1 + new Date().getMinutes()); 
-                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, requestedTitle)); }); 
+                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, extractedQuality, { 'Referer': newUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } 
             } catch (e) {} 
         }); 
@@ -509,10 +498,10 @@ async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, disp
                 let lowerText = text.toLowerCase(); 
                 if (!href || href === '#') return; 
                 if (lowerText.includes('fslv2')) { 
-                    serverTasks.push(() => { streams.push(makeStream('FSLv2', (displayLabel || text), href, bridgeQuality, { 'Referer': bridgeUrl }, mediaInfo, runtimeSec, requestedTitle)); }); 
+                    serverTasks.push(() => { streams.push(makeStream('FSLv2', (displayLabel || text), href, bridgeQuality, { 'Referer': bridgeUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } else if (lowerText.includes('fsl')) { 
                     const synced = href + '?s=' + (1 + new Date().getMinutes()); 
-                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, bridgeQuality, { 'Referer': bridgeUrl }, mediaInfo, runtimeSec, requestedTitle)); }); 
+                    serverTasks.push(() => { streams.push(makeStream('FSL', (displayLabel || text), synced, bridgeQuality, { 'Referer': bridgeUrl }, mediaInfo, runtimeSec, mediaTitle, mediaYear)); }); 
                 } 
             } catch (e) {} 
         }); 
@@ -521,10 +510,10 @@ async function extractSingleVc(vcUrl, referer, targetSeason, targetEpisode, disp
     return streams; 
 } 
 
-async function loadStreamsFromUrl(url, label, quality, referer, targetSeason, targetEpisode, mediaInfo, runtimeSec, requestedTitle) { 
+async function loadStreamsFromUrl(url, label, quality, referer, targetSeason, targetEpisode, mediaInfo, runtimeSec, mediaTitle, mediaYear) { 
     const lower = url.toLowerCase(); 
     if (lower.includes('vcloud') || lower.includes('hubcloud')) { 
-        return await extractSingleVc(url, referer || url, targetSeason, targetEpisode, label, quality, mediaInfo, runtimeSec, requestedTitle); 
+        return await extractSingleVc(url, referer || url, targetSeason, targetEpisode, label, quality, mediaInfo, runtimeSec, mediaTitle, mediaYear); 
     } 
     if (lower.includes('nexdrive') || lower.includes('genxfm') || lower.includes('fastdl')) { 
         const $ = await fetchHtml(url, { headers: { ...getMobileHeaders(), 'Referer': referer || baseUrl + '/' }, redirect: 'manual' }); 
@@ -539,12 +528,12 @@ async function loadStreamsFromUrl(url, label, quality, referer, targetSeason, ta
                         const $api = await fetchHtml(vhref, { headers: { ...getMobileHeaders(), 'Referer': url }, redirect: 'manual' }); 
                         if (!$api) return []; 
                         let rVhref = $api('a.btn-success, a.btn').attr('href'); 
-                        if (rVhref) return await extractSingleVc(fixUrl(rVhref), vhref, targetSeason, targetEpisode, label, quality, mediaInfo, runtimeSec, requestedTitle); 
+                        if (rVhref) return await extractSingleVc(fixUrl(rVhref), vhref, targetSeason, targetEpisode, label, quality, mediaInfo, runtimeSec, mediaTitle, mediaYear); 
                         return []; 
                     }); 
                     return; 
                 } 
-                tasks.push(async () => { return await extractSingleVc(vhref, url, targetSeason, targetEpisode, label, quality, mediaInfo, runtimeSec, requestedTitle); }); 
+                tasks.push(async () => { return await extractSingleVc(vhref, url, targetSeason, targetEpisode, label, quality, mediaInfo, runtimeSec, mediaTitle, mediaYear); }); 
             } 
         }); 
         if (targetEpisode != null) { 
@@ -567,15 +556,18 @@ async function loadStreamsFromUrl(url, label, quality, referer, targetSeason, ta
     return []; 
 } 
 
-async function extractFromPost(post, label, isTv, targetSeason, targetEpisode, mediaYear, runtimeSec, requestedTitle) { 
+async function extractFromPost(post, label, isTv, targetSeason, targetEpisode, mediaYear, runtimeSec, mediaTitle) { 
     try { 
         let contentHtml = post.html; 
         let seasonLabel = ''; 
+        let formattedTitle = mediaTitle;
+
         if (isTv && targetSeason != null) { 
             const filtered = extractSeasonFromContent(contentHtml, targetSeason); 
             if (filtered) contentHtml = filtered; 
             seasonLabel = ' S' + targetSeason; 
             if (targetEpisode) seasonLabel += 'E' + targetEpisode; 
+            formattedTitle = `${mediaTitle} - S${String(targetSeason).padStart(2, '0')}E${String(targetEpisode || 1).padStart(2, '0')}`;
         } 
         const mediaInfo = (seasonLabel.trim() || mediaYear || '').trim(); 
         const links = extractNexdriveLinks(contentHtml); 
@@ -586,7 +578,7 @@ async function extractFromPost(post, label, isTv, targetSeason, targetEpisode, m
         for (const link of efficientLinks) { 
             const quality = link.quality || '1080p'; 
             const displayLabel = link.label || (seasonLabel + ' [' + quality + ']'); 
-            tasks.push(() => loadStreamsFromUrl(link.href, displayLabel, quality, baseUrl + '/', targetSeason, targetEpisode, mediaInfo, runtimeSec, requestedTitle)); 
+            tasks.push(() => loadStreamsFromUrl(link.href, displayLabel, quality, baseUrl + '/', targetSeason, targetEpisode, mediaInfo, runtimeSec, formattedTitle, mediaYear)); 
         } 
         const results = await Promise.all(tasks.map(fn => fn())); 
         results.forEach(r => { if (Array.isArray(r)) r.forEach(s => { if (s && s.url) streams.push(s); }); }); 
@@ -641,11 +633,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         const postData = await fetchPostContent(bestMatch.postId, bestMatch.permalink); 
         if (!postData) return []; 
 
-        // Set the structured title based on user guidelines
-        const displayYearStr = mediaYear ? ` (${mediaYear})` : "";
-        let formattedRequestedTitle = isTv ? `${mediaTitle} - S${String(season || 1).padStart(2, '0')}E${String(episode || 1).padStart(2, '0')}${displayYearStr}` : `${mediaTitle}${displayYearStr}`;
-
-        const streams = await extractFromPost(postData, postData.title || bestMatch.title, isTv, season != null ? Number(season) : null, episode != null ? Number(episode) : null, mediaYear, media.runtime, formattedRequestedTitle); 
+        const streams = await extractFromPost(postData, postData.title || bestMatch.title, isTv, season != null ? Number(season) : null, episode != null ? Number(episode) : null, mediaYear, media.runtime, mediaTitle); 
         
         const qWeight = { '2160p': 1, '1440p': 2, '1080p': 3, '720p': 4, '480p': 5, 'HD': 6 }; 
         const srcPriority = (name) => { 

@@ -146,15 +146,24 @@ function makeStream(name, title, url, quality, headers, mediaInfo, runtimeSec, m
     const languages = parseLanguagesAndFlags(filename, cleanTitle);
 
     let durationText = runtimeSec && runtimeSec > 0 ? `${runtimeSec} min` : "98 min";
-    const qIcon = cleanQuality.includes("2160") || cleanQuality.includes("4K") ? "🌟" : "💎";
+    
+    // Switch to clean resolution text indicators to prevent mobile engine collapse
+    let displayRes = "FHD";
+    let qIcon = "💎";
+    if (cleanQuality.includes("2160") || cleanQuality.includes("4k")) {
+        displayRes = "4K UHD";
+        qIcon = "🌟";
+    } else if (cleanQuality.includes("720")) {
+        displayRes = "HD";
+    }
+
     const format = filename.toLowerCase().includes(".mp4") ? "MP4" : "MKV";
     
-    // Line 1 (Subheading 1): Quality, Languages, and Audio Profiles
-    // Line 2 (Subheading 2): Container format, Runtime, Codec, Source, and HDR status
-    // Note: The raw file name block is intentionally omitted to allow the mobile UI to wrap text smoothly.
-    const cleanStreamTitle = `🎬 ${mediaTitle} (${mediaYear || '2026'})\n${qIcon} ${cleanQuality} | 🗣️ ${languages} | 🎧 ${audioSpecs}\n📦 ${format} | ⏳ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}${videoData.hdr}`;
+    // We remove duplicate resolution strings (like 1080p | 💎 1080p) which breaks mobile
+    // This layouts the icons perfectly onto the mobile lines
+    const cleanStreamTitle = `🎬 ${mediaTitle} (${mediaYear || '2026'})\n${qIcon} ${displayRes} | 🗣️ ${languages} | 🎧 ${audioSpecs}\n📦 ${format} | ⏳ ${durationText} | 📌 ${videoData.codec} • ${videoData.source}${videoData.hdr}`;
 
-    // Main Card Category Header Component
+    // Main Card Title Header Component
     const cardHeader = `${PROVIDER_NAME} | ${cleanQuality} | Dual-Audio`;
 
     return { 

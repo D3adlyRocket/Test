@@ -186,11 +186,11 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const isDual = /dual|hindi\-eng|eng\-hin/i.test(title || "");
     
     if (isDual) {
-        langFlags.push("English 🇺🇸 • Hindi 🇮🇳");
+        langFlags.push("Eng 🇺🇸 • Hin 🇮🇳");
     } else {
-        if (/hindi|hin/i.test(lowerTitle)) langFlags.push("Hindi 🇮🇳");
-        if (/english|eng/i.test(lowerTitle)) langFlags.push("English 🇺🇸");
-        if (langFlags.length === 0) langFlags.push("English 🇺🇸");
+        if (/hindi|hin/i.test(lowerTitle)) langFlags.push("Hin 🇮🇳");
+        if (/english|eng/i.test(lowerTitle)) langFlags.push("Eng 🇺🇸");
+        if (langFlags.length === 0) langFlags.push("Eng 🇺🇸");
     }
     const displayLanguages = langFlags.join(' • ');
 
@@ -222,14 +222,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     const displayQuality = quality || "1080p";
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
-    
-    // Sort prefix ensures 2160p groups above 1080p natively without requiring the buggy quality property
-    let sortPrefix = "   ";
-    if (displayQuality.includes("2160") || displayQuality.toLowerCase().includes("4k")) sortPrefix = " 1 ";
-    else if (displayQuality.includes("1080")) sortPrefix = " 2 ";
-    else if (displayQuality.includes("720")) sortPrefix = " 3 ";
-
-    const label = `${sortPrefix}${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
+    const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
     // 4. GATEWAY HOST MAPPER (With Whistle & Homelander support)
     let hostLabel = "Play Stream";
@@ -248,12 +241,15 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     cleanTitle = `${line1}\n${line2}\n${line3}\n${line4}`;
 
+    // Helper properties attached to help the array sorting routine below
     return {
         name: label,
         title: cleanTitle,
-        quality: " ", // Keeps the front of your custom lines pristine on mobile viewports
+        quality: "\u200B", // Zero-width space completely shields mobile title rows from duplicating text
         size: cleanTitle,
         url: url || "",
+        _resWeight: displayQuality.includes("2160") || displayQuality.toLowerCase().includes("4k") ? 3 : (displayQuality.includes("1080") ? 2 : 1),
+        _sizeWeight: sizeMatch ? parseFloat(sizeMatch[1]) * (sizeMatch[1].toUpperCase().includes("GB") ? 1024 : 1) : 0,
         behaviorHints: {
             notWebReady: true,
             proxyHeaders: {
@@ -1002,18 +998,18 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     
     const streams = await extractFromPost(postData, exactScrapedTitle, isTv, season != null ? Number(season) : null, episode != null ? Number(episode) : null, mediaYear);
     
-    const qWeight = { '2160p': 1, '1440p': 2, '1080p': 3, '720p': 4, '480p': 5, 'HD': 6, 'SD': 7 };
-    const srcPriority = (name) => {
-      if (/HubCloud|FSLv2/i.test(name)) return 2;
-      if (/Worker/i.test(name)) return 1;
-      return 0;
-    };
-    return dedupe(streams).sort((a, b) => {
-      const pa = srcPriority(a.name);
-      const pb = srcPriority(b.name);
-      if (pa !== pb) return pb - pa;
-      return (qWeight[a.quality] || 99) - (qWeight[b.quality] || 99);
+        // PASTE THIS NEW BLOCK HERE:
+    const sortedStreams = dedupe(streams).sort((a, b) => {
+      // Primary: Highest resolution group first (2160p -> 1080p -> 720p)
+      if (b._resWeight !== a._resWeight) {
+        return b._resWeight - a._resWeight;
+      }
+      // Secondary: Largest file size down to smallest file size
+      return b._sizeWeight - a._sizeWeight;
     });
+
+    return sortedStreams;
+
     
   } catch (e) {
     console.error("[" + PROVIDER_NAME + "] Fatal: " + e.message);

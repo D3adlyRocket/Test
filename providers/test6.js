@@ -224,10 +224,10 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. GATEWAY HOST MAPPER (With Whistle & Homelander support)
+        // 4. GATEWAY HOST MAPPER (With Whistle & Homelander support)
     let hostLabel = "Play Stream";
     const lowerUrl = (url || "").toLowerCase();
-    if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud") || lowerUrl.includes("homelander.buzz") || lowerUrl.includes("whistle.lat")) || lowerUrl.includes("mandalorian.buzz")) {
+    if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud") || lowerUrl.includes("homelander.buzz") || lowerUrl.includes("whistle.lat") || lowerUrl.includes("mandalorian.buzz")) {
         hostLabel = "HubCloud";
     } else if (lowerUrl.includes(".r2.dev") || lowerUrl.includes("vcloud")) {
         hostLabel = "vCloud";

@@ -234,7 +234,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
 
     // 5. OUTPUT LAYOUT STRUCTURE 
-    const line1 = '\u00A0🎬 ' + cleanedMainTitle;
+    const line1 = '🎬 ' + cleanedMainTitle;
     const line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
     const line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
     const line4 = '🔗 ' + hostLabel + ' | ☁️ ' + sourceTag + imaxTag;

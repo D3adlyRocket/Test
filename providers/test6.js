@@ -234,7 +234,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
 
     // 5. OUTPUT LAYOUT STRUCTURE 
-    const line1 = '\u00A0🎬 ' + cleanedMainTitle;
+    const line1 = '🎬 ' + cleanedMainTitle;
     const line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
     const line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
     const line4 = '🔗 ' + hostLabel + ' | ☁️ ' + sourceTag + imaxTag;
@@ -245,7 +245,6 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     return {
         name: label,
         title: cleanTitle,
-        quality: "\u200B", // Zero-width space completely shields mobile title rows from duplicating text
         size: cleanTitle,
         url: url || "",
         _resWeight: displayQuality.includes("2160") || displayQuality.toLowerCase().includes("4k") ? 3 : (displayQuality.includes("1080") ? 2 : 1),

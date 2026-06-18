@@ -110,57 +110,43 @@ function decodeEntities(str) {
 }
 
 function makeStream(name, title, url, quality, headers, mediaInfo) {
-    // Keep the core strings untouched so background systems don't break
     const cleanName = decodeEntities(name).replace(/[\n\t]+/g, '').trim();
-    const rawTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     
-    // 1. Parse the size and filename safely out of a separate string copy
-    let displaySize = "Unknown Size";
-    const sizeMatch = rawTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
-    if (sizeMatch) {
-        displaySize = sizeMatch[1].trim();
-    }
-
     let filename = "";
-    const fileMatch = rawTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
+    const fileMatch = cleanTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
     if (fileMatch) {
         filename = fileMatch[1].trim();
+        cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
-    // 2. Format a clean title row for the mobile layout preview line
-    // This strips out the brackets text so the layout line is clean
-    let titleRow = rawTitle.replace(/\[\s*[^\]]+\.(?:mkv|mp4|avi|zip|rar|ts)\s*\]/gi, '')
-                           .replace(/\[\s*\d+(?:\.\d+)?\s*[MG]B\s*\]/gi, '')
-                           .replace(/[\{\[]\s*Hindi[\s\S]*?[\}\]]/gi, '')
-                           .replace(/\s{2,}/g, ' ').trim();
-
-    if (titleRow.length > 45) {
-        titleRow = titleRow.substring(0, 42) + '...';
+    if (cleanTitle.length > 50) {
+        cleanTitle = cleanTitle.substring(0, 47) + '...';
     }
 
-    // 3. Dynamic header configuration
     const displayQuality = quality || "1080p";
+
+    // Detect if layout needs Dual or Single audio layout string
     let audioType = "Single Audio";
-    if (/dual|hindi\-eng|eng\-hin/i.test(rawTitle)) {
+    if (/dual|hindi\-eng|eng\-hin/i.test(title || "")) {
         audioType = "Dual-Audio";
     }
+
+    // Set Header
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. Force mobile drop-down menu layout
-    let formattedTitle = `${titleRow}\n`;
-    formattedTitle += `💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳 | 💾 ${displaySize}`;
-    
+    // Revert completely to the exact working layout string structure from screenshot #2
     if (filename) {
-        formattedTitle += `\n📦 ${filename}`;
+        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳 | ' + filename;
     } else {
-        formattedTitle += `\n📦 Link Stream`;
+        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳';
     }
 
     return {
         name: label,
-        title: formattedTitle,      // Layout view
+        title: cleanTitle,
         quality: quality || "HD",
-        size: rawTitle,             // Restored original object for fetch matching
+        size: cleanTitle,
         url: url || "",
         behaviorHints: {
             notWebReady: true,

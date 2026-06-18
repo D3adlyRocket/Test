@@ -110,48 +110,57 @@ function decodeEntities(str) {
 }
 
 function makeStream(name, title, url, quality, headers, mediaInfo) {
+    // Keep the core strings untouched so background systems don't break
     const cleanName = decodeEntities(name).replace(/[\n\t]+/g, '').trim();
-    let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    const rawTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     
+    // 1. Parse the size and filename safely out of a separate string copy
+    let displaySize = "Unknown Size";
+    const sizeMatch = rawTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
+    if (sizeMatch) {
+        displaySize = sizeMatch[1].trim();
+    }
+
     let filename = "";
-    let fileSize = "Unknown Size";
-    
-    // Extract filename out first
-    const fileMatch = cleanTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
+    const fileMatch = rawTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
     if (fileMatch) {
         filename = fileMatch[1].trim();
-        cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
-    // Extract file size out next
-    const sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
-    if (sizeMatch) {
-        fileSize = sizeMatch[1].trim();
+    // 2. Format a clean title row for the mobile layout preview line
+    // This strips out the brackets text so the layout line is clean
+    let titleRow = rawTitle.replace(/\[\s*[^\]]+\.(?:mkv|mp4|avi|zip|rar|ts)\s*\]/gi, '')
+                           .replace(/\[\s*\d+(?:\.\d+)?\s*[MG]B\s*\]/gi, '')
+                           .replace(/[\{\[]\s*Hindi[\s\S]*?[\}\]]/gi, '')
+                           .replace(/\s{2,}/g, ' ').trim();
+
+    if (titleRow.length > 45) {
+        titleRow = titleRow.substring(0, 42) + '...';
     }
 
-    // Detect Audio Type for the header
+    // 3. Dynamic header configuration
     const displayQuality = quality || "1080p";
     let audioType = "Single Audio";
-    if (/dual|hindi\-eng|eng\-hin/i.test(title || "")) {
+    if (/dual|hindi\-eng|eng\-hin/i.test(rawTitle)) {
         audioType = "Dual-Audio";
     }
-
-    // Set the bold card header that works perfectly in your image
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // Force Stremio Mobile layout: First line MUST start with text/numbers. Second line MUST start with \n📦
-    let formattedTitle = `${displayQuality} • ${cleanTitle}\n`;
-    formattedTitle += `📦 💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳 | 💾 ${fileSize}`;
+    // 4. Force mobile drop-down menu layout
+    let formattedTitle = `${titleRow}\n`;
+    formattedTitle += `💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳 | 💾 ${displaySize}`;
     
     if (filename) {
-        formattedTitle += ` |\n📄 ${filename}`;
+        formattedTitle += `\n📦 ${filename}`;
+    } else {
+        formattedTitle += `\n📦 Link Stream`;
     }
 
     return {
         name: label,
-        title: formattedTitle,
+        title: formattedTitle,      // Layout view
         quality: quality || "HD",
-        size: fileSize,
+        size: rawTitle,             // Restored original object for fetch matching
         url: url || "",
         behaviorHints: {
             notWebReady: true,

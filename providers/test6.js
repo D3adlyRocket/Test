@@ -227,7 +227,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     // 4. GATEWAY HOST MAPPER (With Whistle & Homelander support)
     let hostLabel = "Play Stream";
     const lowerUrl = (url || "").toLowerCase();
-    if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud") || lowerUrl.includes("homelander.buzz") || lowerUrl.includes("whistle.lat")) {
+    if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud") || lowerUrl.includes("homelander.buzz") || lowerUrl.includes("whistle.lat")) || lowerUrl.includes("mandalorian.buzz")) {
         hostLabel = "HubCloud";
     } else if (lowerUrl.includes(".r2.dev") || lowerUrl.includes("vcloud")) {
         hostLabel = "vCloud";

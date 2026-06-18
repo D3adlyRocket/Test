@@ -239,7 +239,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
     const line4 = '🔗 ' + hostLabel + ' | ☁️ ' + sourceTag + imaxTag;
 
-    cleanTitle = `n${line1}\n${line2}\n${line3}\n${line4}`;
+    cleanTitle = `\n${line1}\n${line2}\n${line3}\n${line4}`;
 
     // Helper properties attached to help the array sorting routine below
     return {

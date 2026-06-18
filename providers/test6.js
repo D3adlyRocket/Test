@@ -154,7 +154,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         codecTag = "H.264";
     }
 
-    // Strict Layout Injection: Conditionally renders the symbol only if profile tags exist
+    // Conditionally renders the symbol only if profile tags exist
     if (rangeTag) {
         videoRangeBlock = ` | 🔆 ${rangeTag} • ⚡ ${codecTag}`;
     } else {
@@ -186,11 +186,11 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const isDual = /dual|hindi\-eng|eng\-hin/i.test(title || "");
     
     if (isDual) {
-        langFlags.push("Eng 🇺🇸 • Hin 🇮🇳");
+        langFlags.push("English 🇺🇸 • Hindi 🇮🇳");
     } else {
-        if (/hindi|hin/i.test(lowerTitle)) langFlags.push("Hin 🇮🇳");
-        if (/english|eng/i.test(lowerTitle)) langFlags.push("Eng 🇺🇸");
-        if (langFlags.length === 0) langFlags.push("Eng 🇺🇸");
+        if (/hindi|hin/i.test(lowerTitle)) langFlags.push("Hindi 🇮🇳");
+        if (/english|eng/i.test(lowerTitle)) langFlags.push("English 🇺🇸");
+        if (langFlags.length === 0) langFlags.push("English 🇺🇸");
     }
     const displayLanguages = langFlags.join(' • ');
 
@@ -222,9 +222,16 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     const displayQuality = quality || "1080p";
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
-    const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
+    
+    // Sort prefix ensures 2160p groups above 1080p natively without requiring the buggy quality property
+    let sortPrefix = "   ";
+    if (displayQuality.includes("2160") || displayQuality.toLowerCase().includes("4k")) sortPrefix = " 1 ";
+    else if (displayQuality.includes("1080")) sortPrefix = " 2 ";
+    else if (displayQuality.includes("720")) sortPrefix = " 3 ";
 
-    // 4. ADVANCED GATEWAY HOST MAPPER (Includes whistle.lat domain signature check)
+    const label = `${sortPrefix}${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
+
+    // 4. GATEWAY HOST MAPPER (With Whistle & Homelander support)
     let hostLabel = "Play Stream";
     const lowerUrl = (url || "").toLowerCase();
     if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud") || lowerUrl.includes("homelander.buzz") || lowerUrl.includes("whistle.lat")) {
@@ -233,7 +240,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         hostLabel = "vCloud";
     }
 
-    // 5. STREMIO DESIRED OUTPUT LAYOUT STRUCTURE 
+    // 5. OUTPUT LAYOUT STRUCTURE 
     const line1 = '🎬 ' + cleanedMainTitle;
     const line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
     const line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
@@ -244,7 +251,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     return {
         name: label,
         title: cleanTitle,
-        quality: displayQuality, // This forces Stremio's internal engine to correctly index 2160p -> 1080p -> 720p top down
+        quality: " ", // Keeps the front of your custom lines pristine on mobile viewports
         size: cleanTitle,
         url: url || "",
         behaviorHints: {

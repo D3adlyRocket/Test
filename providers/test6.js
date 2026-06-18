@@ -120,26 +120,37 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
+    // 1. REMOVE THE ORANGE BOX PIECE ({Hindi-Engl...} brackets)
+    cleanTitle = cleanTitle.replace(/\{[^\}]+\}/g, '').replace(/\s{2,}/g, ' ').trim();
+
     if (cleanTitle.length > 50) {
         cleanTitle = cleanTitle.substring(0, 47) + '...';
     }
 
     const displayQuality = quality || "1080p";
 
-    // Detect if layout needs Dual or Single audio layout string
     let audioType = "Single Audio";
     if (/dual|hindi\-eng|eng\-hin/i.test(title || "")) {
         audioType = "Dual-Audio";
     }
 
-    // Set Header
+    // 2. DETECT AUDIO CHANNEL FOR THE PINK BOX (🎧 DDP5.1 / DD5.1 / 5.1 / AAC)
+    let audioChannelTag = "";
+    const audioMatch = title.match(/(DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
+    if (audioMatch) {
+        // Normalizes variations like "ddp5.1" to "DDP5.1"
+        let matchedTag = audioMatch[1].toUpperCase().replace(/\s+/g, '');
+        if (matchedTag === "5.1") matchedTag = "DDP5.1"; // Default view styling preferred
+        audioChannelTag = ' | 🎧 ' + matchedTag;
+    }
+
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // Revert completely to the exact working layout string structure from screenshot #2
+    // Append your custom metrics into the working mobile layout string
     if (filename) {
-        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳 | ' + filename;
+        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + ' |\n' + filename;
     } else {
-        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳';
+        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag;
     }
 
     return {

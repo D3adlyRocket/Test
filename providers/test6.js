@@ -146,11 +146,15 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         audioChannelTag = ' | 🎧 ' + matchedTag;
     }
 
-    // 3. CLEAN UP THE MAIN PREVIEW TITLE ROW
-    // Drops any messy trailing parts like {Hindi-Eng}, 1080p WEB-D, etc.
-    let titleRow = cleanTitle.split(/\{|\[/)[0]; // Split at first bracket/brace
-    titleRow = titleRow.replace(/\d{3,4}p.*/i, '').trim(); // Strip quality leakage
-    if (!titleRow) titleRow = "The Super Mario Galaxy Movie (2026)"; // Safeguard fallback
+    // 3. SAFE CLEAN UP FOR LINE 1 (Removes language tags without breaking)
+    let titleRow = cleanTitle.replace(/\{[^\}]+\}/g, '') // Remove curly braces language
+                             .replace(/\[\s*\d+(?:\.\d+)?\s*[MG]B\s*\]/gi, '') // Remove size brackets
+                             .replace(/\s{2,}/g, ' ')
+                             .trim();
+
+    if (titleRow.length > 50) {
+        titleRow = titleRow.substring(0, 47) + '...';
+    }
 
     const displayQuality = quality || "1080p";
     let audioType = "Single Audio";
@@ -161,18 +165,16 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     // Main Bold Header Card
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. CONSTRUCT THE MULTI-LINE DROPDOWN LAYOUT Safely
-    let formattedTitle = `${titleRow}\n`;
-    formattedTitle += `📦 💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳${audioChannelTag} |\n`;
-    formattedTitle += `🎞️ ${fileFormat} | 💾 ${fileSize} | ☁️ ${sourceTag}${hdrTag}`;
-
+    // 4. CONSTRUCT THE MULTI-LINE DROPDOWN LAYOUT
     if (filename) {
-        formattedTitle += ` |\n📄 ${filename}`;
+        cleanTitle = titleRow + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + ' |\n🎞️ ' + fileFormat + ' | 💾 ' + fileSize + ' | ☁️ ' + sourceTag + hdrTag + ' |\n' + filename;
+    } else {
+        cleanTitle = titleRow + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + ' |\n🎞️ ' + fileFormat + ' | 💾 ' + fileSize + ' | ☁️ ' + sourceTag + hdrTag;
     }
 
     return {
         name: label,
-        title: formattedTitle,
+        title: cleanTitle,
         quality: quality || "HD",
         size: cleanTitle,
         url: url || "",

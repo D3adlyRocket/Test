@@ -135,11 +135,12 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     let imaxTag = "";
     if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
-    // Dynamic HDR / SDR Detection Engine (Fixes issue #3)
-    let rangeTag = " • ⚡ SDR";
+    // Dynamic High Dynamic Range & Conditional SDR Scanner
+    let rangeTag = "";
     if (/hdr10/i.test(title)) rangeTag = " • ⚡ HDR10";
     else if (/hdr/i.test(title)) rangeTag = " • ⚡ HDR";
     else if (/10bit|10\-bit/i.test(title)) rangeTag = " • ⚡ 10Bit";
+    else if (/sdr/i.test(title.toLowerCase())) rangeTag = " • ⚡ SDR";
 
     let codecTag = "⚡ H.264";
     if (/hevc/i.test(title)) {
@@ -148,7 +149,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         codecTag = "⚡ H.265" + rangeTag.replace(" • ⚡", "");
     } else if (/x264|h264/i.test(title)) {
         codecTag = "⚡ H.264" + rangeTag.replace(" • ⚡", "");
-    } else {
+    } else if (rangeTag) {
         codecTag = codecTag + rangeTag;
     }
 
@@ -218,15 +219,21 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. CONSTRUCT CUSTOM MOBILE LAYOUT (Fixes issue #2)
-    // Shifted WEB-DL to the bottom stream link row line cleanly
-    cleanTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 Play Stream | ☁️ ' + sourceTag;
+    // 4. CONSTRUCT CUSTOM MOBILE/TV BALANCED DROPDOWN
+    const formattedUiTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 Play Stream | ☁️ ' + sourceTag;
+
+    // 5. INTERNAL STREMIO CUSTOM SORTING MATCH ENGINE
+    // Injects priority weight indices directly into size vectors for strict sorting order layout resolution
+    let sortingWeight = 10;
+    if (/4k|2160p/i.test(displayQuality)) sortingWeight = 1000;
+    else if (/1080p/i.test(displayQuality)) sortingWeight = 500;
+    else if (/720p/i.test(displayQuality)) sortingWeight = 100;
 
     return {
         name: label,
-        title: cleanTitle,
-        quality: " ", // Fixes issue #1: Single space proxy avoids duplicate rendering on mobile!
-        size: cleanTitle,
+        title: formattedUiTitle,
+        quality: displayQuality, // Restored original track tokens to solve TV "Unknown" text display bug
+        size: sortingWeight,     // Fixed TV sorting engine issues by applying priority order rules
         url: url || "",
         behaviorHints: {
             notWebReady: true,

@@ -120,7 +120,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
-    // 1. DYNAMIC METADATA SCANNING
+    // 1. METADATA SCANNING
     let fileSizeOnly = "Link";
     const sizeMatch = title.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
     if (sizeMatch) fileSizeOnly = sizeMatch[1].trim();
@@ -132,11 +132,11 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (/bluray|blu\-ray|bdrip/i.test(title)) sourceTag = "BluRay";
     else if (/hdrip|webrip/i.test(title)) sourceTag = "WEBRip";
 
-    // iMAX Flag Scanner
+    // iMAX Allocation Flag
     let imaxTag = "";
     if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
-    // Conditional Video Range / Brightness Scanning
+    // Dynamic Video Profiles Checking
     let videoRangeBlock = "";
     let rangeTag = "";
     if (/dolby\s*vision|dovi/i.test(title.toLowerCase())) rangeTag = "Dolby Vision";
@@ -154,14 +154,14 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         codecTag = "H.264";
     }
 
-    // Only appends 🔆 if a range tag exists, otherwise keeps it clean
+    // Strict Layout Injection: Conditionally renders the symbol only if profile tags exist
     if (rangeTag) {
         videoRangeBlock = ` | 🔆 ${rangeTag} • ⚡ ${codecTag}`;
     } else {
         videoRangeBlock = ` | ⚡ ${codecTag}`;
     }
 
-    // Advanced Audio Features (Defaults to Auto)
+    // Audio Layout Pipeline (Defaults strictly to Auto)
     let audioChannelTag = "";
     const audioMatch = title.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
     if (audioMatch) {
@@ -180,7 +180,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
     if (!audioChannelTag) audioChannelTag = "Auto";
 
-    // 2. DYNAMIC LANGUAGE DETECTION
+    // 2. LANGUAGE MATRIX ENGINE
     let langFlags = [];
     const lowerTitle = title.toLowerCase();
     const isDual = /dual|hindi\-eng|eng\-hin/i.test(title || "");
@@ -194,7 +194,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
     const displayLanguages = langFlags.join(' • ');
 
-    // 3. REVISED SERIES / MOVIE TITLE PARSER
+    // 3. TITLE RENDERING SYSTEM
     let cleanedMainTitle = "";
     const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
     const displayYear = yearMatch ? `(${yearMatch[1]})` : "";
@@ -222,20 +222,18 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     const displayQuality = quality || "1080p";
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
-    
-    // Changing the end of this string cleanly substitutes "- Unknown" on TV layouts without breaking anything else
-    const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType} - •`;
+    const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. ACCURATE HOST MAPPING
+    // 4. ADVANCED GATEWAY HOST MAPPER (Includes whistle.lat domain signature check)
     let hostLabel = "Play Stream";
     const lowerUrl = (url || "").toLowerCase();
-    if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud") || lowerUrl.includes("homelander.buzz")) {
+    if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud") || lowerUrl.includes("homelander.buzz") || lowerUrl.includes("whistle.lat")) {
         hostLabel = "HubCloud";
     } else if (lowerUrl.includes(".r2.dev") || lowerUrl.includes("vcloud")) {
         hostLabel = "vCloud";
     }
 
-    // 5. EXACT SPECIFICATION DROPDOWN LAYOUT
+    // 5. STREMIO DESIRED OUTPUT LAYOUT STRUCTURE 
     const line1 = '🎬 ' + cleanedMainTitle;
     const line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
     const line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
@@ -246,7 +244,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     return {
         name: label,
         title: cleanTitle,
-        quality: " ", 
+        quality: displayQuality, // This forces Stremio's internal engine to correctly index 2160p -> 1080p -> 720p top down
         size: cleanTitle,
         url: url || "",
         behaviorHints: {

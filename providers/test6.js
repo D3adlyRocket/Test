@@ -121,7 +121,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
 
     // 1. METADATA SCANNING
-    let fileSizeOnly = "Link";
+    let fileSizeOnly = "N/A";
     const sizeMatch = title.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
     if (sizeMatch) fileSizeOnly = sizeMatch[1].trim();
 

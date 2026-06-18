@@ -503,12 +503,7 @@ function extractNexdriveLinks(contentHtml) {
       }
     
 if (quality === '480p') return;
-links.push({ 
-  href: fixUrl(href), 
-  quality: quality || 'HD', 
-  label: fullLabel,
-  contextText: beforeHref // 🌟 Pass the parent context text along
-});
+links.push({ href: fixUrl(href), quality: quality || 'HD', label: fullLabel });
     } catch (e) { }
   });
   

@@ -132,10 +132,12 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (/bluray|blu\-ray|bdrip/i.test(title)) sourceTag = "BluRay";
     else if (/hdrip|webrip/i.test(title)) sourceTag = "WEBRip";
 
+    // iMAX Flag Scanner
     let imaxTag = "";
-    if (/imax/i.test(title)) imaxTag = "👁️ iMAX • ";
+    if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
-    // Dynamic Range Detection Engine
+    // Conditional Video Range / Brightness Scanning
+    let videoRangeBlock = "";
     let rangeTag = "";
     if (/dolby\s*vision|dovi/i.test(title.toLowerCase())) rangeTag = "Dolby Vision";
     else if (/hdr10/i.test(title)) rangeTag = "HDR10";
@@ -152,15 +154,14 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         codecTag = "H.264";
     }
 
-    // Construct the combined Range + Codec string matching your spec
-    let videoFeatures = "";
-    if (rangeTag && codecTag) {
-        videoFeatures = `${rangeTag} • ⚡ ${codecTag}`;
+    // Only appends 🔆 if a range tag exists, otherwise keeps it clean
+    if (rangeTag) {
+        videoRangeBlock = ` | 🔆 ${rangeTag} • ⚡ ${codecTag}`;
     } else {
-        videoFeatures = rangeTag || `⚡ ${codecTag}`;
+        videoRangeBlock = ` | ⚡ ${codecTag}`;
     }
 
-    // Advanced Audio Features
+    // Advanced Audio Features (Defaults to Auto)
     let audioChannelTag = "";
     const audioMatch = title.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
     if (audioMatch) {
@@ -177,7 +178,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (/atmos/i.test(title)) {
         audioChannelTag = audioChannelTag ? `${audioChannelTag} • 🔊 Atmos` : '🔊 Atmos';
     }
-    if (!audioChannelTag) audioChannelTag = "Stereo";
+    if (!audioChannelTag) audioChannelTag = "Auto";
 
     // 2. DYNAMIC LANGUAGE DETECTION
     let langFlags = [];
@@ -221,7 +222,9 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     const displayQuality = quality || "1080p";
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
-    const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
+    
+    // Changing the end of this string cleanly substitutes "- Unknown" on TV layouts without breaking anything else
+    const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType} - •`;
 
     // 4. ACCURATE HOST MAPPING
     let hostLabel = "Play Stream";
@@ -232,19 +235,18 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         hostLabel = "vCloud";
     }
 
-    // 5. NEW SPECIFICATION CUSTOM LAYOUT CONSTRUCTOR
+    // 5. EXACT SPECIFICATION DROPDOWN LAYOUT
     const line1 = '🎬 ' + cleanedMainTitle;
-    const line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeLengthRow(fileSizeOnly);
-    const line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + ' | 🔆 ' + imaxTag + videoFeatures;
-    const line4 = '🔗 ' + hostLabel + ' | ☁️ ' + sourceTag;
+    const line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
+    const line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
+    const line4 = '🔗 ' + hostLabel + ' | ☁️ ' + sourceTag + imaxTag;
 
     cleanTitle = `${line1}\n${line2}\n${line3}\n${line4}`;
 
     return {
         name: label,
         title: cleanTitle,
-        quality: displayQuality, // Setting this natively orders 2160p -> 1080p -> 720p correctly on TV
-        language: "en",          // Fixed: Tricking Stremio TV layout into dropping the "- Unknown" text cleanly without breaking mobile labels
+        quality: " ", 
         size: cleanTitle,
         url: url || "",
         behaviorHints: {
@@ -254,11 +256,6 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
             }
         }
     };
-}
-
-// Helper to keep formatting safe if file sizes alter layout
-function fileSizeLengthRow(val) {
-    return val ? val : "Link";
 }
 
 function dedupe(streams) {

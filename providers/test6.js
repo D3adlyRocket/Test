@@ -234,12 +234,12 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
 
     // 5. OUTPUT LAYOUT STRUCTURE 
-    const line1 = ' 🎬 ' + cleanedMainTitle;
+    const line1 = '🎬 ' + cleanedMainTitle;
     const line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
     const line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
     const line4 = '🔗 ' + hostLabel + ' | ☁️ ' + sourceTag + imaxTag;
 
-    cleanTitle = `${line1}\n${line2}\n${line3}\n${line4}`;
+    cleanTitle = `\t${line1}\n${line2}\n${line3}\n${line4}`;
 
     // Helper properties attached to help the array sorting routine below
     return {

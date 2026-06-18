@@ -135,11 +135,12 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     let imaxTag = "";
     if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
-    // Dynamic HDR / SDR Detection Engine (Fixes issue #3)
-    let rangeTag = " • ⚡ SDR";
+    // Dynamic Range Detection Engine (Fixes issue #2: SDR only if explicit)
+    let rangeTag = "";
     if (/hdr10/i.test(title)) rangeTag = " • ⚡ HDR10";
     else if (/hdr/i.test(title)) rangeTag = " • ⚡ HDR";
     else if (/10bit|10\-bit/i.test(title)) rangeTag = " • ⚡ 10Bit";
+    else if (/sdr/i.test(title.toLowerCase())) rangeTag = " • ⚡ SDR";
 
     let codecTag = "⚡ H.264";
     if (/hevc/i.test(title)) {
@@ -148,7 +149,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         codecTag = "⚡ H.265" + rangeTag.replace(" • ⚡", "");
     } else if (/x264|h264/i.test(title)) {
         codecTag = "⚡ H.264" + rangeTag.replace(" • ⚡", "");
-    } else {
+    } else if (rangeTag) {
         codecTag = codecTag + rangeTag;
     }
 
@@ -218,14 +219,22 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. CONSTRUCT CUSTOM MOBILE LAYOUT (Fixes issue #2)
-    // Shifted WEB-DL to the bottom stream link row line cleanly
-    cleanTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 Play Stream | ☁️ ' + sourceTag;
+    // Dynamic Host Mapping Engine (Fixes issue #1)
+    let hostLabel = "Play Stream";
+    const lowerUrl = (url || "").toLowerCase();
+    if (lowerUrl.includes("hubcloud")) {
+        hostLabel = "HubCloud";
+    } else if (lowerUrl.includes("vidcloud")) {
+        hostLabel = "VidCloud";
+    }
+
+    // 4. CONSTRUCT CUSTOM MOBILE LAYOUT
+    cleanTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 ' + hostLabel + ' | ☁️ ' + sourceTag;
 
     return {
         name: label,
         title: cleanTitle,
-        quality: " ", // Fixes issue #1: Single space proxy avoids duplicate rendering on mobile!
+        quality: " ", 
         size: cleanTitle,
         url: url || "",
         behaviorHints: {

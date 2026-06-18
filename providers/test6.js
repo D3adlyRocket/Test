@@ -121,9 +121,9 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
 
     // 1. DYNAMIC METADATA SCANNING
-    let fileSize = "Unknown Size";
+    let fileSize = "";
     const sizeMatch = title.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
-    if (sizeMatch) fileSize = sizeMatch[1].trim();
+    if (sizeMatch) fileSize = ' | 💾 ' + sizeMatch[1].trim();
 
     let fileFormat = "MKV";
     if (filename && filename.toLowerCase().endsWith(".mp4")) fileFormat = "MP4";
@@ -132,9 +132,8 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (/bluray|blu\-ray|bdrip/i.test(title)) sourceTag = "BluRay";
     else if (/hdrip|webrip/i.test(title)) sourceTag = "WEBRip";
 
-    // Advanced Video Extra Features
     let imaxTag = "";
-    if (/imax/i.test(title)) imaxTag = "👁️ iMAX • ";
+    if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
     let codecTag = "⚡ H.264";
     if (/hevc/i.test(title)) {
@@ -164,46 +163,62 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         atmosTag = " | 🔊 Atmos";
     }
 
-    // 2. INTELLIGENT SERIES / MOVIE TITLE SANITIZER
-    let cleanedMainTitle = cleanTitle;
+    // 2. DYNAMIC LANGUAGE DETECTION (Fixes issue #4)
+    let langFlags = [];
+    const lowerTitle = title.toLowerCase();
     
-    // Check if it's a TV Show parsing footprint (e.g., S01 E01 or S1 E1)
-    const seriesMatch = cleanedMainTitle.match(/([sS]\d+\s*[eE]\d+|[sS]eason\s*\d+\s*[eE]pisode\s*\d+)/i);
+    // Check for Dual Audio indicators first
+    const isDual = /dual|hindi\-eng|eng\-hin/i.test(title || "");
+    
+    if (isDual) {
+        langFlags.push("🇺🇸", "🇮🇳");
+    } else {
+        // Evaluate single language presence
+        if (/hindi|hin/i.test(lowerTitle)) langFlags.push("🇮🇳");
+        if (/english|eng/i.test(lowerTitle)) langFlags.push("🇺🇸");
+        // Fallback flag if nothing explicitly matches
+        if (langFlags.length === 0) langFlags.push("🇺🇸");
+    }
+    const displayLanguages = ' | 🗣️ ' + langFlags.join(' • ');
+
+    // 3. INTELLIGENT SERIES / MOVIE TITLE SANITIZER (Fixes issue #3)
+    let cleanedMainTitle = cleanTitle;
     const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
     const displayYear = yearMatch ? `(${yearMatch[1]})` : "";
 
+    // Comprehensive check for Series attributes (S01E01, S1, Season 1 Episode 1, etc.)
+    const seriesMatch = cleanedMainTitle.match(/([sS]\d+[^eE]*[eE]\d+|\b[sS]\d+\b|\b[eE]\d+\b|season\s*\d+|episode\s*\d+)/i);
+
     if (seriesMatch) {
-        // Clean out garbage formatting artifacts from series titles
-        let showName = cleanedMainTitle.split(/s\d+/i)[0].replace(/[\{\[\(].*$/g, '').trim();
-        let sAndE = seriesMatch[1].toUpperCase().replace(/\s+/g, '');
-        // Turn S01E01 into S1 E1 format style
-        sAndE = sAndE.replace(/S0?(\d+)E0?(\d+)/i, 'S$1 E$2');
-        cleanedMainTitle = `${showName} - ${sAndE} - ${displayYear}`;
+        let showName = cleanedMainTitle.split(/s\d+|season/i)[0].replace(/[\{\[\(].*$/g, '').trim();
+        
+        // Extract raw integers for season and episode numbers
+        let sNum = cleanedMainTitle.match(/s(?:eason)?\s*(\d+)/i);
+        let eNum = cleanedMainTitle.match(/e(?:pisode)?\s*(\d+)/i);
+        
+        let sStr = sNum ? `S${parseInt(sNum[1], 10)}` : "S1";
+        let eStr = eNum ? ` E${parseInt(eNum[1], 10)}` : "";
+        
+        cleanedMainTitle = `${showName} - ${sStr}${eStr} - ${displayYear}`;
     } else {
-        // Clean out garbage formatting artifacts from film titles
         let movieName = cleanedMainTitle.replace(/\d{3,4}p.*/i, '')
                                          .replace(/[\{\[\(].*$/g, '')
                                          .trim();
         cleanedMainTitle = `${movieName} - ${displayYear}`;
     }
     
-    // Final text string safety patch
     cleanedMainTitle = cleanedMainTitle.replace(/\s+-\s+-\s+/g, ' - ').replace(/-\s*$/, '').trim();
 
+    // 4. HEADER CONFIGURATION
     const displayQuality = quality || "1080p";
-    let audioType = "Single Audio";
-    if (/dual|hindi\-eng|eng\-hin/i.test(title || "")) {
-        audioType = "Dual-Audio";
-    }
-
-    // Top Card Header Box
+    const audioType = isDual ? "Dual-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 3. CONSTRUCT CUSTOM RESPONSIVE MOBILE MULTI-LINE DROPDOWN
+    // 5. CONSTRUCT FINAL DROPDOWN STRING WITH ENHANCED SPACING
     if (filename) {
-        cleanTitle = cleanedMainTitle + '\n💎 ' + displayQuality + ' | 🗣️ English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + ' | ' + imaxTag + codecTag + ' | ☁️ ' + sourceTag + ' |\n🔗 ' + filename;
+        cleanTitle = cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' | ☁️ ' + sourceTag + ' |\n🔗 ' + filename;
     } else {
-        cleanTitle = cleanedMainTitle + '\n💎 ' + displayQuality + ' | 🗣️ English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + ' | ' + imaxTag + codecTag + ' | ☁️ ' + sourceTag;
+        cleanTitle = cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' | ☁️ ' + sourceTag;
     }
 
     return {

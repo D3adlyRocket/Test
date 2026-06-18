@@ -121,13 +121,9 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
 
     // 1. DYNAMIC METADATA SCANNING
-    let rawSize = "";
     let fileSize = "";
     const sizeMatch = title.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
-    if (sizeMatch) {
-        rawSize = sizeMatch[1].trim();
-        fileSize = ' | 💾 ' + rawSize;
-    }
+    if (sizeMatch) fileSize = ' | 💾 ' + sizeMatch[1].trim();
 
     let fileFormat = "MKV";
     if (filename && filename.toLowerCase().endsWith(".mp4")) fileFormat = "MP4";
@@ -139,12 +135,11 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     let imaxTag = "";
     if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
-    // Strict Range Enforcement (Only shows SDR if explicitly in text)
-    let rangeTag = "";
+    // Dynamic HDR / SDR Detection Engine (Fixes issue #3)
+    let rangeTag = " • ⚡ SDR";
     if (/hdr10/i.test(title)) rangeTag = " • ⚡ HDR10";
     else if (/hdr/i.test(title)) rangeTag = " • ⚡ HDR";
     else if (/10bit|10\-bit/i.test(title)) rangeTag = " • ⚡ 10Bit";
-    else if (/sdr/i.test(title.toLowerCase())) rangeTag = " • ⚡ SDR";
 
     let codecTag = "⚡ H.264";
     if (/hevc/i.test(title)) {
@@ -153,7 +148,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         codecTag = "⚡ H.265" + rangeTag.replace(" • ⚡", "");
     } else if (/x264|h264/i.test(title)) {
         codecTag = "⚡ H.264" + rangeTag.replace(" • ⚡", "");
-    } else if (rangeTag) {
+    } else {
         codecTag = codecTag + rangeTag;
     }
 
@@ -190,46 +185,48 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
     const displayLanguages = ' | 🗣️ ' + langFlags.join(' • ');
 
-    // 3. BULLETPROOF SERIES / MOVIE TITLE PARSER
+    // 3. REVISED SERIES / MOVIE TITLE PARSER
     let cleanedMainTitle = "";
     const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
     const displayYear = yearMatch ? `(${yearMatch[1]})` : "";
-    const targetText = filename || cleanTitle;
-    
-    const accurateTvMatch = targetText.match(/[sS](\d+)\s*[eE](\d+)/i);
+    const searchString = filename || cleanTitle;
+    const preciseSAndEMatch = searchString.match(/[sS](\d+)\s*[eE](\d+)/);
 
-    if (accurateTvMatch) {
-        let showName = targetText.split(/[sS]\d+/i)[0]
+    if (preciseSAndEMatch) {
+        let rawShowName = searchString.split(/[sS]\d+/i)[0]
                             .replace(/[\.\-_]/g, ' ')
                             .replace(/[\{\[\(].*$/g, '')
                             .trim();
-        let sNum = parseInt(accurateTvMatch[1], 10);
-        let eNum = parseInt(accurateTvMatch[2], 10);
-        cleanedMainTitle = `${showName} - S${sNum} E${eNum}`;
+        let sNum = parseInt(preciseSAndEMatch[1], 10);
+        let eNum = parseInt(preciseSAndEMatch[2], 10);
+        cleanedMainTitle = `${rawShowName} - S${sNum} E${eNum} - ${displayYear}`;
     } else {
         let movieName = cleanTitle.split(/[\.\-_]\d{3,4}p/i)[0]
                                   .replace(/[\.\-_]/g, ' ')
                                   .replace(/\d{3,4}p.*/i, '')
                                   .replace(/[\{\[\(].*$/g, '')
                                   .trim();
-        cleanedMainTitle = movieName + (displayYear ? ` - ${displayYear}` : "");
+        cleanedMainTitle = `${movieName} - ${displayYear}`;
     }
     
-    cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ').replace(/\s+-\s+-\s+/g, ' - ').replace(/-\s*$/, '').trim();
+    cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ')
+                                       .replace(/\s+-\s+-\s+/g, ' - ')
+                                       .replace(/-\s*$/, '')
+                                       .trim();
 
     const displayQuality = quality || "1080p";
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. CONSTRUCT CUSTOM MOBILE/TV BALANCED DROPDOWN
-    // To completely fix the extra quality display on mobile line 1, we drop the duplicate displayQuality from line 2 
-    const formattedUiTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 Play Stream | ☁️ ' + sourceTag;
+    // 4. CONSTRUCT CUSTOM MOBILE LAYOUT (Fixes issue #2)
+    // Shifted WEB-DL to the bottom stream link row line cleanly
+    cleanTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 Play Stream | ☁️ ' + sourceTag;
 
     return {
         name: label,
-        title: formattedUiTitle,
-        quality: displayQuality, 
-        size: rawSize || "Link",
+        title: cleanTitle,
+        quality: " ", // Fixes issue #1: Single space proxy avoids duplicate rendering on mobile!
+        size: cleanTitle,
         url: url || "",
         behaviorHints: {
             notWebReady: true,

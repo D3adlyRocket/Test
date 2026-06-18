@@ -135,7 +135,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     let imaxTag = "";
     if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
-    // Dynamic Range Detection Engine (Only shows if explicitly in title string)
+    // Dynamic Range Detection Engine (SDR only shows if explicit)
     let rangeTag = "";
     if (/hdr10/i.test(title)) rangeTag = " • ⚡ HDR10";
     else if (/hdr/i.test(title)) rangeTag = " • ⚡ HDR";
@@ -217,26 +217,27 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     const displayQuality = quality || "1080p";
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
+    
+    // Changing the structure layout inside the name property satisfies the TV UI renderer to strip out "- Unknown" natively
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. ACCURATE CLOUDFLARE SIGNATURE HOST MAPPING
+    // 4. ACCURATE HOST MAPPING (With new homelander link support)
     let hostLabel = "Play Stream";
     const lowerUrl = (url || "").toLowerCase();
 
-    if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud")) {
+    if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud") || lowerUrl.includes("homelander.buzz")) {
         hostLabel = "HubCloud";
     } else if (lowerUrl.includes(".r2.dev") || lowerUrl.includes("vcloud")) {
         hostLabel = "vCloud";
     }
 
-    // 5. CONSTRUCT CUSTOM MOBILE LAYOUT
+    // 5. CONSTRUCT CUSTOM DROPDOWN VIEW
     cleanTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 ' + hostLabel + ' | ☁️ ' + sourceTag;
 
     return {
         name: label,
         title: cleanTitle,
-        quality: displayQuality, // Fixed: Restoring this enables native sorting order on TV
-        language: isDual ? "Dual Audio" : "Single Audio", // Fixed: Replaces "- Unknown" header string on TV
+        quality: " ", // Single space safely shields mobile line 1 from duplicate prefixes
         size: cleanTitle,
         url: url || "",
         behaviorHints: {

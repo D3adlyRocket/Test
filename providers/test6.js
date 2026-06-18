@@ -186,11 +186,11 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const isDual = /dual|hindi\-eng|eng\-hin/i.test(title || "");
     
     if (isDual) {
-        langFlags.push("Eng 🇺🇸 • Hin 🇮🇳");
+        langFlags.push("English 🇺🇸 • Hindi 🇮🇳");
     } else {
-        if (/hindi|hin/i.test(lowerTitle)) langFlags.push("Hin 🇮🇳");
-        if (/english|eng/i.test(lowerTitle)) langFlags.push("Eng 🇺🇸");
-        if (langFlags.length === 0) langFlags.push("Eng 🇺🇸");
+        if (/hindi|hin/i.test(lowerTitle)) langFlags.push("Hindi 🇮🇳");
+        if (/english|eng/i.test(lowerTitle)) langFlags.push("English 🇺🇸");
+        if (langFlags.length === 0) langFlags.push("English 🇺🇸");
     }
     const displayLanguages = langFlags.join(' • ');
 
@@ -234,7 +234,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
 
     // 5. OUTPUT LAYOUT STRUCTURE 
-    const line1 = '🎬 ' + cleanedMainTitle;
+    const line1 = '\u200B🎬 ' + cleanedMainTitle;
     const line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
     const line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
     const line4 = '🔗 ' + hostLabel + ' | ☁️ ' + sourceTag + imaxTag;

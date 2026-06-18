@@ -120,7 +120,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
-    // 1. DYNAMIC SEARCH FOR METADATA TAGS
+    // 1. DYNAMIC METADATA SCANNING
     let fileSize = "Unknown Size";
     const sizeMatch = title.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
     if (sizeMatch) fileSize = sizeMatch[1].trim();
@@ -132,29 +132,63 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (/bluray|blu\-ray|bdrip/i.test(title)) sourceTag = "BluRay";
     else if (/hdrip|webrip/i.test(title)) sourceTag = "WEBRip";
 
-    let hdrTag = "";
-    if (/hdr10/i.test(title)) hdrTag = " • ⚡ HDR10";
-    else if (/hdr/i.test(title)) hdrTag = " • ⚡ HDR";
-    else if (/10bit|10\-bit/i.test(title)) hdrTag = " • ⚡ 10Bit";
+    // Advanced Video Extra Features
+    let imaxTag = "";
+    if (/imax/i.test(title)) imaxTag = "👁️ iMAX • ";
 
-    // 2. DETECT AUDIO CHANNEL (🎧 DDP5.1 / DD5.1 / 5.1 / AAC)
+    let codecTag = "⚡ H.264";
+    if (/hevc/i.test(title)) {
+        codecTag = /10bit|10\-bit/i.test(title) ? "⚡ HEVC 10Bit" : "⚡ HEVC";
+    } else if (/x265|h265/i.test(title)) {
+        codecTag = /10bit|10\-bit/i.test(title) ? "⚡ H.265 10Bit" : "⚡ H.265";
+    } else if (/x264|h264/i.test(title)) {
+        codecTag = /10bit|10\-bit/i.test(title) ? "⚡ H.264 10Bit" : "⚡ H.264";
+    }
+
+    // Advanced Audio Features
     let audioChannelTag = "";
-    const audioMatch = title.match(/(DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
+    const audioMatch = title.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
     if (audioMatch) {
         let matchedTag = audioMatch[1].toUpperCase().replace(/\s+/g, '');
         if (matchedTag === "5.1") matchedTag = "DDP5.1";
+        if (matchedTag.includes("TRUEHD")) matchedTag = "TrueHD 7.1";
         audioChannelTag = ' | 🎧 ' + matchedTag;
+    } else if (/dolby\s*digital|dd/i.test(title)) {
+        audioChannelTag = ' | 🎧 Dolby Digital';
+    } else if (/dolby/i.test(title)) {
+        audioChannelTag = ' | 🎧 Dolby';
     }
 
-    // 3. SAFE CLEAN UP FOR LINE 1 (Removes language tags without breaking)
-    let titleRow = cleanTitle.replace(/\{[^\}]+\}/g, '') // Remove curly braces language
-                             .replace(/\[\s*\d+(?:\.\d+)?\s*[MG]B\s*\]/gi, '') // Remove size brackets
-                             .replace(/\s{2,}/g, ' ')
-                             .trim();
-
-    if (titleRow.length > 50) {
-        titleRow = titleRow.substring(0, 47) + '...';
+    let atmosTag = "";
+    if (/atmos/i.test(title)) {
+        atmosTag = " | 🔊 Atmos";
     }
+
+    // 2. INTELLIGENT SERIES / MOVIE TITLE SANITIZER
+    let cleanedMainTitle = cleanTitle;
+    
+    // Check if it's a TV Show parsing footprint (e.g., S01 E01 or S1 E1)
+    const seriesMatch = cleanedMainTitle.match(/([sS]\d+\s*[eE]\d+|[sS]eason\s*\d+\s*[eE]pisode\s*\d+)/i);
+    const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
+    const displayYear = yearMatch ? `(${yearMatch[1]})` : "";
+
+    if (seriesMatch) {
+        // Clean out garbage formatting artifacts from series titles
+        let showName = cleanedMainTitle.split(/s\d+/i)[0].replace(/[\{\[\(].*$/g, '').trim();
+        let sAndE = seriesMatch[1].toUpperCase().replace(/\s+/g, '');
+        // Turn S01E01 into S1 E1 format style
+        sAndE = sAndE.replace(/S0?(\d+)E0?(\d+)/i, 'S$1 E$2');
+        cleanedMainTitle = `${showName} - ${sAndE} - ${displayYear}`;
+    } else {
+        // Clean out garbage formatting artifacts from film titles
+        let movieName = cleanedMainTitle.replace(/\d{3,4}p.*/i, '')
+                                         .replace(/[\{\[\(].*$/g, '')
+                                         .trim();
+        cleanedMainTitle = `${movieName} - ${displayYear}`;
+    }
+    
+    // Final text string safety patch
+    cleanedMainTitle = cleanedMainTitle.replace(/\s+-\s+-\s+/g, ' - ').replace(/-\s*$/, '').trim();
 
     const displayQuality = quality || "1080p";
     let audioType = "Single Audio";
@@ -162,14 +196,14 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         audioType = "Dual-Audio";
     }
 
-    // Main Bold Header Card
+    // Top Card Header Box
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. CONSTRUCT THE MULTI-LINE DROPDOWN LAYOUT
+    // 3. CONSTRUCT CUSTOM RESPONSIVE MOBILE MULTI-LINE DROPDOWN
     if (filename) {
-        cleanTitle = titleRow + '\n 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + ' |\n🎞️ ' + fileFormat + ' | 💾 ' + fileSize + ' | ☁️ ' + sourceTag + hdrTag + ' |\n🔗 ' + filename;
+        cleanTitle = cleanedMainTitle + '\n💎 ' + displayQuality + ' | 🗣️ English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + ' | ' + imaxTag + codecTag + ' | ☁️ ' + sourceTag + ' |\n🔗 ' + filename;
     } else {
-        cleanTitle = titleRow + '\n 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + ' |\n🎞️ ' + fileFormat + ' | 💾 ' + fileSize + ' | ☁️ ' + sourceTag + hdrTag;
+        cleanTitle = cleanedMainTitle + '\n💎 ' + displayQuality + ' | 🗣️ English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + ' | ' + imaxTag + codecTag + ' | ☁️ ' + sourceTag;
     }
 
     return {

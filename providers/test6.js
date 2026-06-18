@@ -501,9 +501,14 @@ function extractNexdriveLinks(contentHtml) {
           if (headingQ) quality = parseQuality(headingQ[1]);
         }
       }
-      
-      if (quality === '480p') return;
-      links.push({ href: fixUrl(href), quality: quality || 'HD', label: fullLabel });
+    
+if (quality === '480p') return;
+links.push({ 
+  href: fixUrl(href), 
+  quality: quality || 'HD', 
+  label: fullLabel,
+  contextText: beforeHref // 🌟 Pass the parent context text along
+});
     } catch (e) { }
   });
   
@@ -880,11 +885,14 @@ async function extractFromPost(post, label, isTv, targetSeason, targetEpisode, m
     const tasks = [];
     
     for (const link of efficientLinks) {
-      const quality = link.quality || 'HD';
-      // Use the specific folder label instead of prefixing the massive post title
-      const displayLabel = link.label || (seasonLabel + ' [' + quality + ']');
-      tasks.push(() => loadStreamsFromUrl(link.href, displayLabel, quality, baseUrl + '/', targetSeason, targetEpisode, mediaInfo));
-    }
+  const quality = link.quality || 'HD';
+  const displayLabel = link.label || (seasonLabel + ' [' + quality + ']');
+  
+  // If we have parent context text, append it so makeStream can scan it for sizes
+  const scrapingContext = link.contextText ? `${link.label} ${link.contextText}` : displayLabel;
+  
+  tasks.push(() => loadStreamsFromUrl(link.href, scrapingContext, quality, baseUrl + '/', targetSeason, targetEpisode, mediaInfo));
+}
     
     console.log(`[${PROVIDER_NAME}] Resolving ${tasks.length} nexdrive links for post...`);
     const results = await Promise.all(tasks.map(fn => (async () => { try { return await fn(); } catch (e) { return []; } })()));

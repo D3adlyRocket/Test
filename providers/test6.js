@@ -135,7 +135,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     let imaxTag = "";
     if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
-    // Dynamic Range Detection Engine (Fixes issue #2: SDR only if explicit)
+    // Dynamic Range Detection Engine
     let rangeTag = "";
     if (/hdr10/i.test(title)) rangeTag = " • ⚡ HDR10";
     else if (/hdr/i.test(title)) rangeTag = " • ⚡ HDR";
@@ -219,12 +219,14 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // Dynamic Host Mapping Engine (Fixes issue #1)
+    // Expanded Host Mapping Engine (Checks text + extended domain signatures)
     let hostLabel = "Play Stream";
     const lowerUrl = (url || "").toLowerCase();
-    if (lowerUrl.includes("hubcloud")) {
+    const lowerFullTitle = title.toLowerCase();
+
+    if (lowerUrl.includes("hubcloud") || lowerUrl.includes("hubshare") || lowerFullTitle.includes("hubcloud")) {
         hostLabel = "HubCloud";
-    } else if (lowerUrl.includes("vidcloud")) {
+    } else if (lowerUrl.includes("vidcloud") || lowerUrl.includes("vcloud") || lowerUrl.includes("dood") || lowerFullTitle.includes("vidcloud")) {
         hostLabel = "VidCloud";
     }
 

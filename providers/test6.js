@@ -167,9 +167,9 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     // 4. CONSTRUCT THE MULTI-LINE DROPDOWN LAYOUT
     if (filename) {
-        cleanTitle = titleRow + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + ' |\n🎞️ ' + fileFormat + ' | 💾 ' + fileSize + ' | ☁️ ' + sourceTag + hdrTag + ' |\n🔗 ' + filename;
+        cleanTitle = titleRow + '\n 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + ' |\n🎞️ ' + fileFormat + ' | 💾 ' + fileSize + ' | ☁️ ' + sourceTag + hdrTag + ' |\n🔗 ' + filename;
     } else {
-        cleanTitle = titleRow + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + ' |\n🎞️ ' + fileFormat + ' | 💾 ' + fileSize + ' | ☁️ ' + sourceTag + hdrTag;
+        cleanTitle = titleRow + '\n 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + ' |\n🎞️ ' + fileFormat + ' | 💾 ' + fileSize + ' | ☁️ ' + sourceTag + hdrTag;
     }
 
     return {

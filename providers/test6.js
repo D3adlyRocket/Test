@@ -887,11 +887,7 @@ async function extractFromPost(post, label, isTv, targetSeason, targetEpisode, m
     for (const link of efficientLinks) {
   const quality = link.quality || 'HD';
   const displayLabel = link.label || (seasonLabel + ' [' + quality + ']');
-  
-  // If we have parent context text, append it so makeStream can scan it for sizes
-  const scrapingContext = link.contextText ? `${link.label} ${link.contextText}` : displayLabel;
-  
-  tasks.push(() => loadStreamsFromUrl(link.href, scrapingContext, quality, baseUrl + '/', targetSeason, targetEpisode, mediaInfo));
+  tasks.push(() => loadStreamsFromUrl(link.href, displayLabel, quality, baseUrl + '/', targetSeason, targetEpisode, mediaInfo));
 }
     
     console.log(`[${PROVIDER_NAME}] Resolving ${tasks.length} nexdrive links for post...`);

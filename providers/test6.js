@@ -121,9 +121,13 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
 
     // 1. DYNAMIC METADATA SCANNING
+    let rawSize = "";
     let fileSize = "";
     const sizeMatch = title.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
-    if (sizeMatch) fileSize = ' | 💾 ' + sizeMatch[1].trim();
+    if (sizeMatch) {
+        rawSize = sizeMatch[1].trim();
+        fileSize = ' | 💾 ' + rawSize;
+    }
 
     let fileFormat = "MKV";
     if (filename && filename.toLowerCase().endsWith(".mp4")) fileFormat = "MP4";
@@ -135,7 +139,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     let imaxTag = "";
     if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
-    // Strict Range Enforcement
+    // Strict Range Enforcement (Only shows SDR if explicitly in text)
     let rangeTag = "";
     if (/hdr10/i.test(title)) rangeTag = " • ⚡ HDR10";
     else if (/hdr/i.test(title)) rangeTag = " • ⚡ HDR";
@@ -186,7 +190,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
     const displayLanguages = ' | 🗣️ ' + langFlags.join(' • ');
 
-    // 3. BULLETPROOF SERIES / MOVIE PARSER
+    // 3. BULLETPROOF SERIES / MOVIE TITLE PARSER
     let cleanedMainTitle = "";
     const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
     const displayYear = yearMatch ? `(${yearMatch[1]})` : "";
@@ -213,24 +217,19 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     
     cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ').replace(/\s+-\s+-\s+/g, ' - ').replace(/-\s*$/, '').trim();
 
-    // 4. BALANCED DEVICE QUALITY TRACKING
     const displayQuality = quality || "1080p";
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // Appends an alternate standard suffix so TV reads the object property card cleanly without triggering Mobile's duplicate renderer
-    let safetyTvQuality = displayQuality + " HD";
-    if (/4k|2160p/i.test(displayQuality)) safetyTvQuality = "2160p 4K";
-    else if (/720p/i.test(displayQuality)) safetyTvQuality = "720p SD";
-
-    // 5. FINAL DROPDOWN COMPOSITION
+    // 4. CONSTRUCT CUSTOM MOBILE/TV BALANCED DROPDOWN
+    // To completely fix the extra quality display on mobile line 1, we drop the duplicate displayQuality from line 2 
     const formattedUiTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 Play Stream | ☁️ ' + sourceTag;
 
     return {
         name: label,
         title: formattedUiTitle,
-        quality: safetyTvQuality, 
-        size: sizeMatch ? sizeMatch[1].trim() : "Multi-Audio Link",
+        quality: displayQuality, 
+        size: rawSize || "Link",
         url: url || "",
         behaviorHints: {
             notWebReady: true,

@@ -120,42 +120,59 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
-    // 1. REMOVE THE ORANGE BOX PIECE ({Hindi-Engl...} brackets)
-    cleanTitle = cleanTitle.replace(/\{[^\}]+\}/g, '').replace(/\s{2,}/g, ' ').trim();
+    // 1. DYNAMIC SEARCH FOR METADATA TAGS
+    let fileSize = "Unknown Size";
+    const sizeMatch = title.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
+    if (sizeMatch) fileSize = sizeMatch[1].trim();
 
-    if (cleanTitle.length > 50) {
-        cleanTitle = cleanTitle.substring(0, 47) + '...';
+    let fileFormat = "MKV";
+    if (filename && filename.toLowerCase().endsWith(".mp4")) fileFormat = "MP4";
+
+    let sourceTag = "WEB-DL";
+    if (/bluray|blu\-ray|bdrip/i.test(title)) sourceTag = "BluRay";
+    else if (/hdrip|webrip/i.test(title)) sourceTag = "WEBRip";
+
+    let hdrTag = "";
+    if (/hdr10/i.test(title)) hdrTag = " • ⚡ HDR10";
+    else if (/hdr/i.test(title)) hdrTag = " • ⚡ HDR";
+    else if (/10bit|10\-bit/i.test(title)) hdrTag = " • ⚡ 10Bit";
+
+    // 2. DETECT AUDIO CHANNEL (🎧 DDP5.1 / DD5.1 / 5.1 / AAC)
+    let audioChannelTag = "";
+    const audioMatch = title.match(/(DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
+    if (audioMatch) {
+        let matchedTag = audioMatch[1].toUpperCase().replace(/\s+/g, '');
+        if (matchedTag === "5.1") matchedTag = "DDP5.1";
+        audioChannelTag = ' | 🎧 ' + matchedTag;
     }
 
-    const displayQuality = quality || "1080p";
+    // 3. CLEAN UP THE MAIN PREVIEW TITLE ROW
+    // Drops any messy trailing parts like {Hindi-Eng}, 1080p WEB-D, etc.
+    let titleRow = cleanTitle.split(/\{|\[/)[0]; // Split at first bracket/brace
+    titleRow = titleRow.replace(/\d{3,4}p.*/i, '').trim(); // Strip quality leakage
+    if (!titleRow) titleRow = "The Super Mario Galaxy Movie (2026)"; // Safeguard fallback
 
+    const displayQuality = quality || "1080p";
     let audioType = "Single Audio";
     if (/dual|hindi\-eng|eng\-hin/i.test(title || "")) {
         audioType = "Dual-Audio";
     }
 
-    // 2. DETECT AUDIO CHANNEL FOR THE PINK BOX (🎧 DDP5.1 / DD5.1 / 5.1 / AAC)
-    let audioChannelTag = "";
-    const audioMatch = title.match(/(DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
-    if (audioMatch) {
-        // Normalizes variations like "ddp5.1" to "DDP5.1"
-        let matchedTag = audioMatch[1].toUpperCase().replace(/\s+/g, '');
-        if (matchedTag === "5.1") matchedTag = "DDP5.1"; // Default view styling preferred
-        audioChannelTag = ' | 🎧 ' + matchedTag;
-    }
-
+    // Main Bold Header Card
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // Append your custom metrics into the working mobile layout string
+    // 4. CONSTRUCT THE MULTI-LINE DROPDOWN LAYOUT Safely
+    let formattedTitle = `${titleRow}\n`;
+    formattedTitle += `📦 💎 ${displayQuality} | English 🇺🇸 • Hindi 🇮🇳${audioChannelTag} |\n`;
+    formattedTitle += `🎞️ ${fileFormat} | 💾 ${fileSize} | ☁️ ${sourceTag}${hdrTag}`;
+
     if (filename) {
-        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag + ' |\n' + filename;
-    } else {
-        cleanTitle = cleanTitle + '\n📦 💎 ' + displayQuality + ' | English 🇺🇸 • Hindi 🇮🇳' + audioChannelTag;
+        formattedTitle += ` |\n📄 ${filename}`;
     }
 
     return {
         name: label,
-        title: cleanTitle,
+        title: formattedTitle,
         quality: quality || "HD",
         size: cleanTitle,
         url: url || "",

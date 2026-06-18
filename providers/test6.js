@@ -135,7 +135,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     let imaxTag = "";
     if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
-    // Dynamic Range Detection Engine
+    // Dynamic Range Detection Engine (Only shows if explicitly in title string)
     let rangeTag = "";
     if (/hdr10/i.test(title)) rangeTag = " • ⚡ HDR10";
     else if (/hdr/i.test(title)) rangeTag = " • ⚡ HDR";
@@ -219,18 +219,17 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // Expanded Host Mapping Engine (Checks text + extended domain signatures)
+    // 4. ACCURATE CLOUDFLARE SIGNATURE HOST MAPPING
     let hostLabel = "Play Stream";
     const lowerUrl = (url || "").toLowerCase();
-    const lowerFullTitle = title.toLowerCase();
 
-    if (lowerUrl.includes("hubcloud") || lowerUrl.includes("hubshare") || lowerFullTitle.includes("hubcloud")) {
+    if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud")) {
         hostLabel = "HubCloud";
-    } else if (lowerUrl.includes("vidcloud") || lowerUrl.includes("vcloud") || lowerUrl.includes("dood") || lowerFullTitle.includes("vidcloud")) {
-        hostLabel = "VidCloud";
+    } else if (lowerUrl.includes(".r2.dev") || lowerUrl.includes("vcloud")) {
+        hostLabel = "vCloud";
     }
 
-    // 4. CONSTRUCT CUSTOM MOBILE LAYOUT
+    // 5. CONSTRUCT CUSTOM MOBILE LAYOUT
     cleanTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 ' + hostLabel + ' | ☁️ ' + sourceTag;
 
     return {

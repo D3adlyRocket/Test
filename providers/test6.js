@@ -235,7 +235,8 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     return {
         name: label,
         title: cleanTitle,
-        quality: " ", 
+        quality: displayQuality, // Fixed: Restoring this enables native sorting order on TV
+        language: isDual ? "Dual Audio" : "Single Audio", // Fixed: Replaces "- Unknown" header string on TV
         size: cleanTitle,
         url: url || "",
         behaviorHints: {

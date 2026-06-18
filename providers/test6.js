@@ -135,13 +135,21 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     let imaxTag = "";
     if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
+    // Dynamic HDR / SDR Detection Engine (Fixes issue #3)
+    let rangeTag = " • ⚡ SDR";
+    if (/hdr10/i.test(title)) rangeTag = " • ⚡ HDR10";
+    else if (/hdr/i.test(title)) rangeTag = " • ⚡ HDR";
+    else if (/10bit|10\-bit/i.test(title)) rangeTag = " • ⚡ 10Bit";
+
     let codecTag = "⚡ H.264";
     if (/hevc/i.test(title)) {
-        codecTag = /10bit|10\-bit/i.test(title) ? "⚡ HEVC 10Bit" : "⚡ HEVC";
+        codecTag = "⚡ HEVC" + rangeTag.replace(" • ⚡", "");
     } else if (/x265|h265/i.test(title)) {
-        codecTag = /10bit|10\-bit/i.test(title) ? "⚡ H.265 10Bit" : "⚡ H.265";
+        codecTag = "⚡ H.265" + rangeTag.replace(" • ⚡", "");
     } else if (/x264|h264/i.test(title)) {
-        codecTag = /10bit|10\-bit/i.test(title) ? "⚡ H.264 10Bit" : "⚡ H.264";
+        codecTag = "⚡ H.264" + rangeTag.replace(" • ⚡", "");
+    } else {
+        codecTag = codecTag + rangeTag;
     }
 
     // Advanced Audio Features
@@ -177,28 +185,22 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
     const displayLanguages = ' | 🗣️ ' + langFlags.join(' • ');
 
-    // 3. ADVANCED SERIES / MOVIE TITLE PARSER (Fixes issue #1)
+    // 3. REVISED SERIES / MOVIE TITLE PARSER
     let cleanedMainTitle = "";
     const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
     const displayYear = yearMatch ? `(${yearMatch[1]})` : "";
-
-    // Deep trace file name text for accurate Season / Episode numbers
     const searchString = filename || cleanTitle;
     const preciseSAndEMatch = searchString.match(/[sS](\d+)\s*[eE](\d+)/);
 
     if (preciseSAndEMatch) {
-        // Safe split logic to capture parent show title text cleanly before dots/dashes
         let rawShowName = searchString.split(/[sS]\d+/i)[0]
                             .replace(/[\.\-_]/g, ' ')
                             .replace(/[\{\[\(].*$/g, '')
                             .trim();
-        
         let sNum = parseInt(preciseSAndEMatch[1], 10);
         let eNum = parseInt(preciseSAndEMatch[2], 10);
-        
         cleanedMainTitle = `${rawShowName} - S${sNum} E${eNum} - ${displayYear}`;
     } else {
-        // Standard Movie Cleaning Engine
         let movieName = cleanTitle.split(/[\.\-_]\d{3,4}p/i)[0]
                                   .replace(/[\.\-_]/g, ' ')
                                   .replace(/\d{3,4}p.*/i, '')
@@ -207,7 +209,6 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         cleanedMainTitle = `${movieName} - ${displayYear}`;
     }
     
-    // Final punctuation cleanup
     cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ')
                                        .replace(/\s+-\s+-\s+/g, ' - ')
                                        .replace(/-\s*$/, '')
@@ -217,14 +218,14 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. CONSTRUCT MULTI-LINE DROPDOWN (Fixes issues #2 & #3)
-    // Replace raw quality token prefix with 🎬 clapper and swap raw path string with "Play Stream"
-    cleanTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' | ☁️ ' + sourceTag + ' |\n🔗 Play Stream';
+    // 4. CONSTRUCT CUSTOM MOBILE LAYOUT (Fixes issue #2)
+    // Shifted WEB-DL to the bottom stream link row line cleanly
+    cleanTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 Play Stream | ☁️ ' + sourceTag;
 
     return {
         name: label,
         title: cleanTitle,
-        quality: quality || "HD",
+        quality: " ", // Fixes issue #1: Single space proxy avoids duplicate rendering on mobile!
         size: cleanTitle,
         url: url || "",
         behaviorHints: {

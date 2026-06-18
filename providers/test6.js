@@ -121,9 +121,9 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
 
     // 1. DYNAMIC METADATA SCANNING
-    let fileSize = "";
+    let fileSizeOnly = "Link";
     const sizeMatch = title.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
-    if (sizeMatch) fileSize = ' | 💾 ' + sizeMatch[1].trim();
+    if (sizeMatch) fileSizeOnly = sizeMatch[1].trim();
 
     let fileFormat = "MKV";
     if (filename && filename.toLowerCase().endsWith(".mp4")) fileFormat = "MP4";
@@ -133,24 +133,31 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     else if (/hdrip|webrip/i.test(title)) sourceTag = "WEBRip";
 
     let imaxTag = "";
-    if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
+    if (/imax/i.test(title)) imaxTag = "👁️ iMAX • ";
 
-    // Dynamic Range Detection Engine (SDR only shows if explicit)
+    // Dynamic Range Detection Engine
     let rangeTag = "";
-    if (/hdr10/i.test(title)) rangeTag = " • ⚡ HDR10";
-    else if (/hdr/i.test(title)) rangeTag = " • ⚡ HDR";
-    else if (/10bit|10\-bit/i.test(title)) rangeTag = " • ⚡ 10Bit";
-    else if (/sdr/i.test(title.toLowerCase())) rangeTag = " • ⚡ SDR";
+    if (/dolby\s*vision|dovi/i.test(title.toLowerCase())) rangeTag = "Dolby Vision";
+    else if (/hdr10/i.test(title)) rangeTag = "HDR10";
+    else if (/hdr/i.test(title)) rangeTag = "HDR";
+    else if (/10bit|10\-bit/i.test(title)) rangeTag = "10Bit";
+    else if (/sdr/i.test(title.toLowerCase())) rangeTag = "SDR";
 
-    let codecTag = "⚡ H.264";
+    let codecTag = "H.264";
     if (/hevc/i.test(title)) {
-        codecTag = "⚡ HEVC" + rangeTag.replace(" • ⚡", "");
+        codecTag = "HEVC";
     } else if (/x265|h265/i.test(title)) {
-        codecTag = "⚡ H.265" + rangeTag.replace(" • ⚡", "");
+        codecTag = "H.265";
     } else if (/x264|h264/i.test(title)) {
-        codecTag = "⚡ H.264" + rangeTag.replace(" • ⚡", "");
-    } else if (rangeTag) {
-        codecTag = codecTag + rangeTag;
+        codecTag = "H.264";
+    }
+
+    // Construct the combined Range + Codec string matching your spec
+    let videoFeatures = "";
+    if (rangeTag && codecTag) {
+        videoFeatures = `${rangeTag} • ⚡ ${codecTag}`;
+    } else {
+        videoFeatures = rangeTag || `⚡ ${codecTag}`;
     }
 
     // Advanced Audio Features
@@ -160,17 +167,17 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         let matchedTag = audioMatch[1].toUpperCase().replace(/\s+/g, '');
         if (matchedTag === "5.1") matchedTag = "DDP5.1";
         if (matchedTag.includes("TRUEHD")) matchedTag = "TrueHD 7.1";
-        audioChannelTag = ' | 🎧 ' + matchedTag;
+        audioChannelTag = matchedTag;
     } else if (/dolby\s*digital|dd/i.test(title)) {
-        audioChannelTag = ' | 🎧 Dolby Digital';
+        audioChannelTag = 'Dolby Digital';
     } else if (/dolby/i.test(title)) {
-        audioChannelTag = ' | 🎧 Dolby';
+        audioChannelTag = 'Dolby';
     }
 
-    let atmosTag = "";
     if (/atmos/i.test(title)) {
-        atmosTag = " | 🔊 Atmos";
+        audioChannelTag = audioChannelTag ? `${audioChannelTag} • 🔊 Atmos` : '🔊 Atmos';
     }
+    if (!audioChannelTag) audioChannelTag = "Stereo";
 
     // 2. DYNAMIC LANGUAGE DETECTION
     let langFlags = [];
@@ -178,13 +185,13 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     const isDual = /dual|hindi\-eng|eng\-hin/i.test(title || "");
     
     if (isDual) {
-        langFlags.push("🇺🇸", "🇮🇳");
+        langFlags.push("Eng 🇺🇸 • Hin 🇮🇳");
     } else {
-        if (/hindi|hin/i.test(lowerTitle)) langFlags.push("🇮🇳");
-        if (/english|eng/i.test(lowerTitle)) langFlags.push("🇺🇸");
-        if (langFlags.length === 0) langFlags.push("🇺🇸");
+        if (/hindi|hin/i.test(lowerTitle)) langFlags.push("Hin 🇮🇳");
+        if (/english|eng/i.test(lowerTitle)) langFlags.push("Eng 🇺🇸");
+        if (langFlags.length === 0) langFlags.push("Eng 🇺🇸");
     }
-    const displayLanguages = ' | 🗣️ ' + langFlags.join(' • ');
+    const displayLanguages = langFlags.join(' • ');
 
     // 3. REVISED SERIES / MOVIE TITLE PARSER
     let cleanedMainTitle = "";
@@ -200,44 +207,44 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
                             .trim();
         let sNum = parseInt(preciseSAndEMatch[1], 10);
         let eNum = parseInt(preciseSAndEMatch[2], 10);
-        cleanedMainTitle = `${rawShowName} - S${sNum} E${eNum} - ${displayYear}`;
+        cleanedMainTitle = `${rawShowName} - S${sNum} E${eNum}`;
     } else {
         let movieName = cleanTitle.split(/[\.\-_]\d{3,4}p/i)[0]
                                   .replace(/[\.\-_]/g, ' ')
                                   .replace(/\d{3,4}p.*/i, '')
                                   .replace(/[\{\[\(].*$/g, '')
                                   .trim();
-        cleanedMainTitle = `${movieName} - ${displayYear}`;
+        cleanedMainTitle = movieName + (displayYear ? ` - ${displayYear}` : "");
     }
     
-    cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ')
-                                       .replace(/\s+-\s+-\s+/g, ' - ')
-                                       .replace(/-\s*$/, '')
-                                       .trim();
+    cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ').replace(/\s+-\s+-\s+/g, ' - ').replace(/-\s*$/, '').trim();
 
     const displayQuality = quality || "1080p";
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
-    
-    // Changing the structure layout inside the name property satisfies the TV UI renderer to strip out "- Unknown" natively
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. ACCURATE HOST MAPPING (With new homelander link support)
+    // 4. ACCURATE HOST MAPPING
     let hostLabel = "Play Stream";
     const lowerUrl = (url || "").toLowerCase();
-
     if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud") || lowerUrl.includes("homelander.buzz")) {
         hostLabel = "HubCloud";
     } else if (lowerUrl.includes(".r2.dev") || lowerUrl.includes("vcloud")) {
         hostLabel = "vCloud";
     }
 
-    // 5. CONSTRUCT CUSTOM DROPDOWN VIEW
-    cleanTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 ' + hostLabel + ' | ☁️ ' + sourceTag;
+    // 5. NEW SPECIFICATION CUSTOM LAYOUT CONSTRUCTOR
+    const line1 = '🎬 ' + cleanedMainTitle;
+    const line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeLengthRow(fileSizeOnly);
+    const line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + ' | 🔆 ' + imaxTag + videoFeatures;
+    const line4 = '🔗 ' + hostLabel + ' | ☁️ ' + sourceTag;
+
+    cleanTitle = `${line1}\n${line2}\n${line3}\n${line4}`;
 
     return {
         name: label,
         title: cleanTitle,
-        quality: " ", // Single space safely shields mobile line 1 from duplicate prefixes
+        quality: displayQuality, // Setting this natively orders 2160p -> 1080p -> 720p correctly on TV
+        language: "en",          // Fixed: Tricking Stremio TV layout into dropping the "- Unknown" text cleanly without breaking mobile labels
         size: cleanTitle,
         url: url || "",
         behaviorHints: {
@@ -247,6 +254,11 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
             }
         }
     };
+}
+
+// Helper to keep formatting safe if file sizes alter layout
+function fileSizeLengthRow(val) {
+    return val ? val : "Link";
 }
 
 function dedupe(streams) {

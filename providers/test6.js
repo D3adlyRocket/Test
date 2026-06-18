@@ -163,63 +163,63 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         atmosTag = " | 🔊 Atmos";
     }
 
-    // 2. DYNAMIC LANGUAGE DETECTION (Fixes issue #4)
+    // 2. DYNAMIC LANGUAGE DETECTION
     let langFlags = [];
     const lowerTitle = title.toLowerCase();
-    
-    // Check for Dual Audio indicators first
     const isDual = /dual|hindi\-eng|eng\-hin/i.test(title || "");
     
     if (isDual) {
         langFlags.push("🇺🇸", "🇮🇳");
     } else {
-        // Evaluate single language presence
         if (/hindi|hin/i.test(lowerTitle)) langFlags.push("🇮🇳");
         if (/english|eng/i.test(lowerTitle)) langFlags.push("🇺🇸");
-        // Fallback flag if nothing explicitly matches
         if (langFlags.length === 0) langFlags.push("🇺🇸");
     }
     const displayLanguages = ' | 🗣️ ' + langFlags.join(' • ');
 
-    // 3. INTELLIGENT SERIES / MOVIE TITLE SANITIZER (Fixes issue #3)
-    let cleanedMainTitle = cleanTitle;
+    // 3. ADVANCED SERIES / MOVIE TITLE PARSER (Fixes issue #1)
+    let cleanedMainTitle = "";
     const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
     const displayYear = yearMatch ? `(${yearMatch[1]})` : "";
 
-    // Comprehensive check for Series attributes (S01E01, S1, Season 1 Episode 1, etc.)
-    const seriesMatch = cleanedMainTitle.match(/([sS]\d+[^eE]*[eE]\d+|\b[sS]\d+\b|\b[eE]\d+\b|season\s*\d+|episode\s*\d+)/i);
+    // Deep trace file name text for accurate Season / Episode numbers
+    const searchString = filename || cleanTitle;
+    const preciseSAndEMatch = searchString.match(/[sS](\d+)\s*[eE](\d+)/);
 
-    if (seriesMatch) {
-        let showName = cleanedMainTitle.split(/s\d+|season/i)[0].replace(/[\{\[\(].*$/g, '').trim();
+    if (preciseSAndEMatch) {
+        // Safe split logic to capture parent show title text cleanly before dots/dashes
+        let rawShowName = searchString.split(/[sS]\d+/i)[0]
+                            .replace(/[\.\-_]/g, ' ')
+                            .replace(/[\{\[\(].*$/g, '')
+                            .trim();
         
-        // Extract raw integers for season and episode numbers
-        let sNum = cleanedMainTitle.match(/s(?:eason)?\s*(\d+)/i);
-        let eNum = cleanedMainTitle.match(/e(?:pisode)?\s*(\d+)/i);
+        let sNum = parseInt(preciseSAndEMatch[1], 10);
+        let eNum = parseInt(preciseSAndEMatch[2], 10);
         
-        let sStr = sNum ? `S${parseInt(sNum[1], 10)}` : "S1";
-        let eStr = eNum ? ` E${parseInt(eNum[1], 10)}` : "";
-        
-        cleanedMainTitle = `${showName} - ${sStr}${eStr} - ${displayYear}`;
+        cleanedMainTitle = `${rawShowName} - S${sNum} E${eNum} - ${displayYear}`;
     } else {
-        let movieName = cleanedMainTitle.replace(/\d{3,4}p.*/i, '')
-                                         .replace(/[\{\[\(].*$/g, '')
-                                         .trim();
+        // Standard Movie Cleaning Engine
+        let movieName = cleanTitle.split(/[\.\-_]\d{3,4}p/i)[0]
+                                  .replace(/[\.\-_]/g, ' ')
+                                  .replace(/\d{3,4}p.*/i, '')
+                                  .replace(/[\{\[\(].*$/g, '')
+                                  .trim();
         cleanedMainTitle = `${movieName} - ${displayYear}`;
     }
     
-    cleanedMainTitle = cleanedMainTitle.replace(/\s+-\s+-\s+/g, ' - ').replace(/-\s*$/, '').trim();
+    // Final punctuation cleanup
+    cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ')
+                                       .replace(/\s+-\s+-\s+/g, ' - ')
+                                       .replace(/-\s*$/, '')
+                                       .trim();
 
-    // 4. HEADER CONFIGURATION
     const displayQuality = quality || "1080p";
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 5. CONSTRUCT FINAL DROPDOWN STRING WITH ENHANCED SPACING
-    if (filename) {
-        cleanTitle = cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' | ☁️ ' + sourceTag + ' |\n🔗 ' + filename;
-    } else {
-        cleanTitle = cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' | ☁️ ' + sourceTag;
-    }
+    // 4. CONSTRUCT MULTI-LINE DROPDOWN (Fixes issues #2 & #3)
+    // Replace raw quality token prefix with 🎬 clapper and swap raw path string with "Play Stream"
+    cleanTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' | ☁️ ' + sourceTag + ' |\n🔗 Play Stream';
 
     return {
         name: label,

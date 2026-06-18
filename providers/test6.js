@@ -135,7 +135,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     let imaxTag = "";
     if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
 
-    // Dynamic High Dynamic Range & Conditional SDR Scanner
+    // Strict Range Enforcement
     let rangeTag = "";
     if (/hdr10/i.test(title)) rangeTag = " • ⚡ HDR10";
     else if (/hdr/i.test(title)) rangeTag = " • ⚡ HDR";
@@ -186,54 +186,51 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
     const displayLanguages = ' | 🗣️ ' + langFlags.join(' • ');
 
-    // 3. REVISED SERIES / MOVIE TITLE PARSER
+    // 3. BULLETPROOF SERIES / MOVIE PARSER
     let cleanedMainTitle = "";
     const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
     const displayYear = yearMatch ? `(${yearMatch[1]})` : "";
-    const searchString = filename || cleanTitle;
-    const preciseSAndEMatch = searchString.match(/[sS](\d+)\s*[eE](\d+)/);
+    const targetText = filename || cleanTitle;
+    
+    const accurateTvMatch = targetText.match(/[sS](\d+)\s*[eE](\d+)/i);
 
-    if (preciseSAndEMatch) {
-        let rawShowName = searchString.split(/[sS]\d+/i)[0]
+    if (accurateTvMatch) {
+        let showName = targetText.split(/[sS]\d+/i)[0]
                             .replace(/[\.\-_]/g, ' ')
                             .replace(/[\{\[\(].*$/g, '')
                             .trim();
-        let sNum = parseInt(preciseSAndEMatch[1], 10);
-        let eNum = parseInt(preciseSAndEMatch[2], 10);
-        cleanedMainTitle = `${rawShowName} - S${sNum} E${eNum} - ${displayYear}`;
+        let sNum = parseInt(accurateTvMatch[1], 10);
+        let eNum = parseInt(accurateTvMatch[2], 10);
+        cleanedMainTitle = `${showName} - S${sNum} E${eNum}`;
     } else {
         let movieName = cleanTitle.split(/[\.\-_]\d{3,4}p/i)[0]
                                   .replace(/[\.\-_]/g, ' ')
                                   .replace(/\d{3,4}p.*/i, '')
                                   .replace(/[\{\[\(].*$/g, '')
                                   .trim();
-        cleanedMainTitle = `${movieName} - ${displayYear}`;
+        cleanedMainTitle = movieName + (displayYear ? ` - ${displayYear}` : "");
     }
     
-    cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ')
-                                       .replace(/\s+-\s+-\s+/g, ' - ')
-                                       .replace(/-\s*$/, '')
-                                       .trim();
+    cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ').replace(/\s+-\s+-\s+/g, ' - ').replace(/-\s*$/, '').trim();
 
+    // 4. BALANCED DEVICE QUALITY TRACKING
     const displayQuality = quality || "1080p";
     const audioType = isDual ? "Dual-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-    // 4. CONSTRUCT CUSTOM MOBILE/TV BALANCED DROPDOWN
-    const formattedUiTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 Play Stream | ☁️ ' + sourceTag;
+    // Appends an alternate standard suffix so TV reads the object property card cleanly without triggering Mobile's duplicate renderer
+    let safetyTvQuality = displayQuality + " HD";
+    if (/4k|2160p/i.test(displayQuality)) safetyTvQuality = "2160p 4K";
+    else if (/720p/i.test(displayQuality)) safetyTvQuality = "720p SD";
 
-    // 5. INTERNAL STREMIO CUSTOM SORTING MATCH ENGINE
-    // Injects priority weight indices directly into size vectors for strict sorting order layout resolution
-    let sortingWeight = 10;
-    if (/4k|2160p/i.test(displayQuality)) sortingWeight = 1000;
-    else if (/1080p/i.test(displayQuality)) sortingWeight = 500;
-    else if (/720p/i.test(displayQuality)) sortingWeight = 100;
+    // 5. FINAL DROPDOWN COMPOSITION
+    const formattedUiTitle = '🎬 ' + cleanedMainTitle + '\n💎 ' + displayQuality + displayLanguages + audioChannelTag + atmosTag + ' |\n🎞️ ' + fileFormat + fileSize + imaxTag + ' | ' + codecTag + ' |\n🔗 Play Stream | ☁️ ' + sourceTag;
 
     return {
         name: label,
         title: formattedUiTitle,
-        quality: displayQuality, // Restored original track tokens to solve TV "Unknown" text display bug
-        size: sortingWeight,     // Fixed TV sorting engine issues by applying priority order rules
+        quality: safetyTvQuality, 
+        size: sizeMatch ? sizeMatch[1].trim() : "Multi-Audio Link",
         url: url || "",
         behaviorHints: {
             notWebReady: true,

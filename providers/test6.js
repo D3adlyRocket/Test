@@ -481,7 +481,9 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
     cleanName = cleanName.replace(/\(\d{4}\).*$/gi, '').replace(/\d{3,4}p.*$/gi, '').trim();
 
-    // 1. METADATA & SIZE ENGINE
+    var lowerContext = cleanTitle.toLowerCase();
+
+    // 1. AUTOMATIC METADATA & SIZE HARVESTER
     var fileSizeOnly = "N/A";
     var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i) || cleanTitle.match(/(\d+(?:\.\d+)?\s*[MG]B)/i);
     if (sizeMatch) fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
@@ -497,36 +499,52 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (url && url.toLowerCase().split('?')[0].endsWith(".mp4")) fileFormat = "MP4";
 
     var sourceTag = "WEB-DL";
+    if (/\b(bluray|blu\-ray)\b/i.test(lowerContext)) sourceTag = "BluRay";
+    else if (/\b(hdrip|webrip)\b/i.test(lowerContext)) sourceTag = "WEBRip";
 
-    // 2. STRICT RULE MAPPING (Based on Quality Label Context)
-    var is4K = quality.includes("2160") || quality.toLowerCase().includes("4k") || cleanTitle.toLowerCase().includes("2160p");
-    var isHevcLabel = /\b(hevc|x265|h265)\b/i.test(cleanTitle.toLowerCase());
+    // 2. AUTOMATIC CODEC DETECTION
+    // If the link text explicitly states HEVC/X265, or if it's a 2160p stream, it's HEVC. Otherwise, H.264.
+    var is4K = quality.includes("2160") || quality.toLowerCase().includes("4k") || lowerContext.includes("2160p");
+    var codecTag = "H.264";
+    if (/\b(hevc|x265|h265)\b/i.test(lowerContext) || is4K) {
+        codecTag = "HEVC";
+    }
 
-    // CODEC MAPPING: Only the 3 explicit HEVC links and the 2160p link are HEVC. The rest are H.264.
-    var codecTag = (isHevcLabel || is4K) ? "HEVC" : "H.264";
-
-    // VIDEO PROFILE MAPPING: Only the 2160p stream gets HDR and Dolby Vision tags.
+    // 3. AUTOMATIC VIDEO PROFILE DETECTION
     var videoRangeBlock = "";
-    if (is4K) {
-        videoRangeBlock = " | 🔆 Dolby Vision • ⚡ HEVC";
-    } else {
-        videoRangeBlock = " | ⚡ " + codecTag;
-    }
+    var rangeTag = "";
+    if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext)) rangeTag = "Dolby Vision";
+    else if (/\bhdr10\b/i.test(lowerContext)) rangeTag = "HDR10";
+    else if (/\bhdr\b/i.test(lowerContext)) rangeTag = "HDR";
+    else if (/\b(10bit|10\-bit)\b/i.test(lowerContext)) rangeTag = "10Bit";
 
-    // AUDIO MAPPING: 2160p is DOLBY ATMOS. 1GB profile is Auto/Stereo. All others are DD5.1.
+    if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
+    else videoRangeBlock = " | ⚡ " + codecTag;
+
+    // 4. AUTOMATIC AUDIO PROFILE DETECTION
+    // Default to DD5.1 unless it finds an explicit match or meets your specific size/resolution exemptions
     var audioChannelTag = "DD5.1";
-    if (is4K) {
+    
+    var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|Atmos|AAC|Stereo)/i);
+    if (audioMatch) {
+        var foundAudio = audioMatch[1].toUpperCase().replace(/\s+/g, '');
+        if (foundAudio === "5.1") audioChannelTag = "DDP5.1";
+        else if (foundAudio === "ATMOS") audioChannelTag = "DOLBY ATMOS";
+        else audioChannelTag = audioMatch[1].toUpperCase().trim();
+    } else if (/\batmos\b/i.test(lowerContext)) {
         audioChannelTag = "DOLBY ATMOS";
-    } else if (fileSizeOnly === "1GB" || fileSizeOnly === "1.0GB") {
-        audioChannelTag = "Auto"; 
+    } else if (is4K) {
+        audioChannelTag = "DOLBY ATMOS"; // Fallback for 4K profiles
+    } else if (fileSizeOnly === "1GB" || fileSizeOnly === "1.0GB" || fileSizeOnly.startsWith("400") || fileSizeOnly.startsWith("500")) {
+        audioChannelTag = "Auto"; // Low-tier sample files drop back to Auto/Stereo
     }
 
-    // 3. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE
-    var isDualAudio = /\b(dual|multi|dubbed|hindi)\b/i.test(cleanTitle.toLowerCase());
+    // 5. AUTOMATIC LANGUAGE TRACK REPIAR
+    var isDualAudio = /\b(dual|multi|dubbed|hindi)\b/i.test(lowerContext);
     var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
     var displayLanguages = isDualAudio ? "English 🇺🇸 • Hindi 🇮🇳" : "English 🇺🇸";
 
-    // 4. TITLE & GENERATION FORMATTERS
+    // 6. LAYOUT GENERATION
     var displayQuality = quality || "1080p";
     var label = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
 
@@ -546,7 +564,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 
-    // Strict Device Math Sort to place 2160p at the peak position
+    // Strict Device Math Sort to safely place 2160p at the absolute top of the index stream arrays
     var baseResWeight = is4K ? 9000000 : (displayQuality.includes("1080") ? 6000000 : 3000000);
     var structuralSortWeight = baseResWeight + numericalSizeWeight;
 
@@ -637,31 +655,23 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       epLabel = 'S' + (s < 10 ? '0' : '') + s + 'E' + (e < 10 ? '0' : '') + e + ' ';
     }
 
-    var streams = [];
-    // Split the raw page HTML by container again to extract the technical context block for each link
-    var rawParts = html.split('dlbtn-container');
-
+        var streams = [];
     for (var qi = 0; qi < filtered.length; qi++) {
       var q = filtered[qi];
       var fslUrl = await resolveFslUrl(q.decodedUrl, sessionUA);
       if (fslUrl) {
-        var streamName = bestPost.title + (epLabel ? " - " + epLabel.trim() : "");
-        
-        // Find the specific text block belonging to this quality index
-        var technicalContextText = q.label;
-        if (rawParts[qi]) {
-           technicalContextText += " " + rawParts[qi].replace(/<[^>]*>/g, ' ');
-        }
+        // Pass q.label (which contains the resolution, codec, and brackets from extractMovieQualities)
+        // directly into the title parameter so makeStream can automatically read it.
+        var searchContext = q.label + " " + bestPost.title;
         
         var streamObj = makeStream(
-            streamName, 
-            technicalContextText, // 🌟 Now contains the actual hidden webpage specs!
+            bestPost.title, 
+            searchContext, 
             fslUrl, 
             q.quality, 
             { 'Referer': CINECLOUD_BASE + '/', 'User-Agent': sessionUA },
             epLabel.trim()
         );
-        
         streams.push(streamObj);
       }
     }

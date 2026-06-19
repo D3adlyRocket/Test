@@ -90,55 +90,44 @@ var require_formatter = __commonJS({
       return normalized || void 0;
     }
     function formatStream2(stream, providerName) {
-      let quality = stream.quality || "";
-      const is4K = quality === "4K" || quality === "2160p";
+      // 1. Quality Parser
+      let rawQuality = stream.quality || "1080p";
+      let cleanQuality = "1080p";
+      if (["2160p", "4k"].includes(rawQuality.toLowerCase())) cleanQuality = "4K";
+      else if (rawQuality.toLowerCase() === "1440p") cleanQuality = "1440p";
+      else if (rawQuality.toLowerCase() === "720p") cleanQuality = "720p";
+      else if (["576p", "480p", "360p", "240p"].includes(rawQuality.toLowerCase())) cleanQuality = "SD";
+
+      // 2. Audio Tracker
+      let audioChannels = "Stereo";
+      if (cleanQuality === "4K") {
+        audioChannels = "DD5.1";
+      } else if (stream.url && (stream.url.includes("hq") || stream.url.includes("hevc"))) {
+        audioChannels = "DD5.1";
+      }
+
+      // 3. Header formatting 
+      const nameTag = `🎦 VixSrc | ${cleanQuality} | Multi-Audio`;
+
+      // 4. Subheading Building
+      let subLine1 = `🎬 Stream`;
+      if (stream._meta_layout) {
+        if (stream._meta_layout.type === "movie") {
+          const yearPart = stream._meta_layout.year ? ` - ${stream._meta_layout.year}` : "";
+          subLine1 = `🎬 ${stream._meta_layout.title}${yearPart}`;
+        } else if (stream._meta_layout.type === "tv") {
+          const epNamePart = stream._meta_layout.episodeName ? ` | ${stream._meta_layout.episodeName}` : "";
+          subLine1 = `🎬 S${stream._meta_layout.season} E${stream._meta_layout.episode} | ${stream._meta_layout.title}${epNamePart}`;
+        }
+      }
+
+      let subLine2 = `💎 ${cleanQuality} | 🌍 English 🇺🇸 • Italian 🇮🇹 | 🎧 ${audioChannels}`;
       
-      if (quality === "2160p" || quality === "4K") quality = "\u{1F525} 4K UHD";
-      else if (quality === "1440p") quality = "\u2728 QHD";
-      else if (quality === "1080p") quality = "\u{1F680} FHD";
-      else if (quality === "720p") quality = "\u{1F4BF} HD";
-      else if (quality === "576p" || quality === "480p" || quality === "360p" || quality === "240p") quality = "\u{1F4A9} Low Quality";
-      else if (!quality || ["auto", "unknown", "unknow"].includes(String(quality).toLowerCase())) quality = "\u{1F4BF} HD";
+      let formatCodec = (cleanQuality === "4K" || (stream.url && stream.url.includes("hevc"))) ? "HEVC" : "H.264";
+      let durationStr = stream._meta_layout && stream._meta_layout.duration ? `${stream._meta_layout.duration} min` : "Variable";
+      let subLine3 = `🎞️ ${formatCodec} | ⏱️ ${durationStr} | 📁 Server 1`;
 
-      let language = stream.language;
-      if (language === "Italian") {
-        language = "\u{1F1EE}\u{1F1F9}";
-      } else if (stream.name && (stream.name.includes("SUB ITA") || stream.name.includes("SUB"))) {
-        language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
-      } else if (stream.title && (stream.title.includes("SUB ITA") || stream.title.includes("SUB"))) {
-        language = "\u{1F1EF}\u{1F1F5} \u{1F1EE}\u{1F1F9}";
-      } else if (language === void 0 || language === null) {
-        language = "";
-      }
-
-      // Dynamic Audio Routing Rules Logic
-      const lowerUrl = String(stream.url || "").toLowerCase();
-      let codecTag = "H.264";
-      if (lowerUrl.includes("hevc") || lowerUrl.includes("x265") || is4K) {
-        codecTag = "HEVC";
-      }
-
-      var audioChannelTag = "DD5.1"; 
-      var rawSizeNum = parseFloat(stream.size) || 0;
-      var isSizeParsed = stream.size && (String(stream.size).includes("GB") || String(stream.size).includes("MB"));
-      var sizeInGB = String(stream.size).includes("MB") ? rawSizeNum / 1024 : rawSizeNum;
-
-      if (is4K) {
-        audioChannelTag = "DDP5.1 \u2022 \u{1F50A} Atmos";
-      } else if (isSizeParsed && sizeInGB < 1.3) {
-        audioChannelTag = "Stereo";
-      } else if (lowerUrl.includes("hq")) {
-        audioChannelTag = "DDP5.1";
-      } else if (codecTag === "HEVC") {
-        audioChannelTag = "DD5.1";
-      }
-
-      let sizeLabel = stream.size || "Variable Size";
-      let details = [];
-      if (stream.size) details.push(`\u{1F4E6} ${stream.size}`);
-      const desc = details.join(" | ");
-
-      let pName = "VixSrc";
+      const finalTitle = `${subLine1}\n${subLine2}\n${subLine3}`;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       let finalHeaders = stream.headers;
@@ -148,8 +137,6 @@ var require_formatter = __commonJS({
         finalHeaders = behaviorHints.headers;
       }
       finalHeaders = normalizePlaybackHeaders(finalHeaders);
-
-      const isVixSrcProvider = true;
 
       if (finalHeaders) {
         behaviorHints.proxyHeaders = behaviorHints.proxyHeaders || {};
@@ -165,27 +152,18 @@ var require_formatter = __commonJS({
         delete behaviorHints.notWebReady;
       }
 
-      // Mobile Card Component Structural Overrides (\n optimization)
-      const finalName = `\u{1F4E1} ${pName} | ${quality}`;
-      
-      let line1 = `\u{1F4C1} ${stream.title || "Stream"}`;
-      let line2 = `\u{1F4E6} ${sizeLabel} | \u{1F3A7} ${audioChannelTag} | \u26A1 ${codecTag}`;
-      if (language) line2 += ` | ${language}`;
-      
-      let finalTitle = `${line1}\n${line2}`;
-
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
       return __spreadProps(__spreadValues({}, stream), {
-        name: finalName,
+        name: nameTag,
         title: finalTitle,
-        size: finalTitle, // Ensures mobile engine renders identical subheadings block layout
-        providerName: pName,
-        qualityTag: quality,
-        description: desc,
+        size: finalTitle, 
+        providerName: "VixSrc",
+        qualityTag: cleanQuality,
+        description: finalTitle,
         originalTitle: stream.title || "Stream",
-        language,
+        language: "Italian",
         _nuvio_formatted: true,
         behaviorHints,
         provider: normalizeProviderId("VixSrc"),
@@ -490,6 +468,18 @@ function getMetadata(id, type) {
     }
   });
 }
+function getEpisodeMetadata(tvId, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      const url = `https://api.themoviedb.org/3/tv/${tvId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}&language=it-IT`;
+      const response = yield fetch(url);
+      if (!response.ok) return null;
+      return yield response.json();
+    } catch (e) {
+      return null;
+    }
+  });
+}
 function getStreams(id, type, season, episode, providerContext = null) {
   return __async(this, null, function* () {
     const requestedType = String(type).toLowerCase();
@@ -518,9 +508,42 @@ function getStreams(id, type, season, episode, providerContext = null) {
     } catch (e) {
       console.error("[VixSrc] Error fetching metadata:", e);
     }
-    const title = metadata && (metadata.title || metadata.name || metadata.original_title || metadata.original_name) ? metadata.title || metadata.name || metadata.original_title || metadata.original_name : normalizedType === "movie" ? "Film Sconosciuto" : "Serie TV";
-    const displayName = normalizedType === "movie" ? title : `${title} ${resolvedSeason}x${episode}`;
-    const finalDisplayName = displayName;
+
+    // Advanced dynamic layout data object building
+    let layoutMeta = {
+      type: normalizedType,
+      title: "Stream",
+      year: "",
+      season: resolvedSeason,
+      episode: episode,
+      episodeName: "",
+      duration: "Variable"
+    };
+
+    if (metadata) {
+      layoutMeta.title = metadata.title || metadata.name || metadata.original_title || metadata.original_name || "Stream";
+      let dateRaw = metadata.release_date || metadata.first_air_date || "";
+      if (dateRaw) {
+        layoutMeta.year = dateRaw.split("-")[0];
+      }
+      if (metadata.runtime) {
+        layoutMeta.duration = metadata.runtime.toString();
+      } else if (metadata.episode_run_time && metadata.episode_run_time.length > 0) {
+        layoutMeta.duration = metadata.episode_run_time[0].toString();
+      }
+    }
+
+    // Dynamic extraction of Episode Name & Runtime directly from TMDB
+    if (normalizedType === "tv") {
+      try {
+        const epMeta = yield getEpisodeMetadata(tmdbId, resolvedSeason, episode);
+        if (epMeta) {
+          if (epMeta.name) layoutMeta.episodeName = epMeta.name;
+          if (epMeta.runtime) layoutMeta.duration = epMeta.runtime.toString();
+        }
+      } catch (_) {}
+    }
+
     let url;
     let apiUrl;
     if (normalizedType === "movie") {
@@ -586,53 +609,25 @@ function getStreams(id, type, season, episode, providerContext = null) {
       const streamHeaders = getPlaylistHeaders(embedUrl);
       console.log(`[VixSrc] Final stream URL: ${streamUrl}`);
       let quality = "1080p";
-      let hasItalianAudio = false;
-      let playlistFetched = false;
       try {
         const playlistResponse = yield fetch(streamUrl, {
           headers: streamHeaders,
           dispatcher: proxyAgent || void 0
         });
         if (playlistResponse.ok) {
-          playlistFetched = true;
           const playlistText = yield playlistResponse.text();
           if (playlistText) {
-            hasItalianAudio = /#EXT-X-MEDIA:TYPE=AUDIO.*(?:LANGUAGE="it"|LANGUAGE="ita"|NAME="Italian"|NAME="Ita")/i.test(playlistText);
             const detected = checkQualityFromText(playlistText);
             if (detected) quality = detected;
-            const originalLanguageItalian = metadata && (metadata.original_language === "it" || metadata.original_language === "ita");
-            if (!hasItalianAudio && !originalLanguageItalian) {
-              console.log(`[VixSrc] No Italian audio found. Showing without flag.`);
-            }
           }
         }
       } catch (e) {
         console.warn(`[VixSrc] Playlist pre-check failed, continuing:`, e);
       }
       const normalizedQuality = getQualityFromName(quality);
-      const hasOriginalItalian = metadata && (metadata.original_language === "it" || metadata.original_language === "ita");
-      const isItalianAudio = playlistFetched ? hasItalianAudio : true;
-      const resultLanguage = isItalianAudio || hasOriginalItalian ? "Italian" : "";
-      if (providerContext == null ? void 0 : providerContext.proxyUrl) {
-        const rawPageUrl = url.endsWith("/") ? url : `${url}/`;
-        console.log(`[VixSrc] Proxy enabled, returning raw page URL: ${rawPageUrl}`);
-        const result2 = {
-          name: `VixSrc`,
-          title: finalDisplayName,
-          url: rawPageUrl,
-          easyProxySourceUrl: rawPageUrl,
-          quality: normalizedQuality,
-          type: "direct",
-          language: resultLanguage,
-          behaviorHints: {
-            notWebReady: false
-          }
-        };
-        return [formatStream(result2, "VixSrc")].filter((s) => s !== null);
-      }
+      
       const result = {
         name: `VixSrc`,
-        title: finalDisplayName,
         url: streamUrl,
         easyProxySourceUrl: embedUrl,
         quality: normalizedQuality,
@@ -641,7 +636,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         behaviorHints: {
           notWebReady: false
         },
-        language: resultLanguage
+        _meta_layout: layoutMeta
       };
       return [formatStream(result, "VixSrc")].filter((s) => s !== null);
     } catch (error) {

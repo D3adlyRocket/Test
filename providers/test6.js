@@ -320,27 +320,33 @@ function extractMovieQualities(html) {
   if (!html) return [];
   var results = [];
 
-  // Split by dlbtn-container — parts[i-1] is the section before container i
   var parts = html.split('dlbtn-container');
   for (var i = 1; i < parts.length; i++) {
     var container = parts[i];
-    var beforeSection = parts[i - 1]; // h4 heading is in the part RIGHT before this container
+    var beforeSection = parts[i - 1]; 
 
-    // Extract generate.php link from this container
     var genMatch = container.match(/href="(?:https?:\/\/[^"]*?)?\/generate\.php\?id=([a-zA-Z0-9+/=]+)"/);
     if (!genMatch) continue;
     var encoded = genMatch[1];
     var decodedUrl = decodeGenerateUrl(encoded);
     if (!decodedUrl || decodedUrl.indexOf('/f/') === -1) continue;
 
-    // Extract quality from h4 heading in beforeSection
     var qualityLabel = '';
-    // Pattern: "...<span>[info]</span> HEVC 1080p [size]" or "...<span>[info]</span> 4K-2160p SDR HEVC [size]"
-    var qualMatch = beforeSection.match(/<\/span>\s*([^<]*?(?:2160|1080|720|480|4K)[^<]*?)\s*\[/i);
+    // Look for both the quality resolution AND the bracketed file size together!
+    var qualMatch = beforeSection.match(/<\/span>\s*([^<]*?(?:2160|1080|720|480|4K)[^<]*?\[[^\]]+\])/i);
+    if (!qualMatch) {
+      qualMatch = beforeSection.match(/<\/span>\s*([^<]*?(?:2160|1080|720|480|4K)[^<]*?)\s*\[/i);
+    }
     if (qualMatch) {
       qualityLabel = qualMatch[1].trim();
     }
-    // Pattern 2: standalone quality
+    
+    // Fallback context: grab anything within that entire h4 bracket block to search for size metrics
+    if (!qualityLabel || !qualityLabel.includes('[')) {
+      var h4Match = beforeSection.match(/<h4[^>]*>([\s\S]*?)<\/h4>/i);
+      if (h4Match) qualityLabel = (qualityLabel + " " + h4Match[1].replace(/<[^>]*>/g, '')).trim();
+    }
+
     if (!qualityLabel) {
       qualMatch = beforeSection.match(/\b(?:4K\s*2160p|UHD|2160p|1080p|720p|480p)\b/i);
       if (!qualMatch) qualMatch = beforeSection.match(/\b(?:SD|HD)\b/i);
@@ -350,7 +356,6 @@ function extractMovieQualities(html) {
 
     var quality = parseQuality(qualityLabel);
 
-    // Deduplicate by decodedUrl
     var dup = false;
     for (var j = 0; j < results.length; j++) {
       if (results[j].decodedUrl === decodedUrl) { dup = true; break; }
@@ -468,22 +473,20 @@ function decodeEntities(encodedString) {
 }
 
 function makeStream(name, title, url, quality, headers, mediaInfo) {
-    // 1. DECODE HTML ENTITIES & CLEAN UP RAW WEBSITE TITLES
     var cleanName = decodeEntities(name || '').replace(/[\n\t]+/g, '').trim();
     var cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     
-    // Trim massive fallback paragraphs down to just the clean film name
-    if (cleanName.indexOf('(') > 0) {
-        cleanName = cleanName.split('(')[0].trim();
-    } else if (cleanName.match(/\d{3,4}p/i)) {
-        cleanName = cleanName.split(/\d{3,4}p/i)[0].trim();
+    // Extract a clean title without website residue tags
+    if (cleanName.indexOf(' - ') > 0) {
+        cleanName = cleanName.split(' - ')[0].trim();
     }
+    cleanName = cleanName.replace(/\(\d{4}\).*$/gi, '').replace(/\d{3,4}p.*$/gi, '').trim();
 
-    // 2. METADATA & SIZE SCANNING
+    // 1. METADATA & SIZE ENGINE
     var fileSizeOnly = "N/A";
-    // Check both the post context text and title details for bracketed file sizes
-    var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
-    if (sizeMatch) fileSizeOnly = sizeMatch[1].trim();
+    // Checks for standard layouts like [1.2GB], [400MB], 1.2 GB, etc.
+    var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i) || cleanTitle.match(/(\d+(?:\.\d+)?\s*[MG]B)/i);
+    if (sizeMatch) fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
 
     var fileFormat = "MKV";
     if (url && url.toLowerCase().split('?')[0].endsWith(".mp4")) fileFormat = "MP4";
@@ -492,7 +495,6 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (/bluray|blu\-ray|bdrip/i.test(cleanTitle)) sourceTag = "BluRay";
     else if (/hdrip|webrip/i.test(cleanTitle)) sourceTag = "WEBRip";
 
-    // Dynamic Video Profiles Checking
     var videoRangeBlock = "";
     var rangeTag = "";
     if (/dolby\s*vision|dovi/i.test(cleanTitle.toLowerCase())) rangeTag = "Dolby Vision";
@@ -504,12 +506,8 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (/hevc|x265|h265/i.test(cleanTitle) || /2160p|4k/i.test(quality.toLowerCase())) {
         codecTag = "HEVC";
     }
-
-    if (rangeTag) {
-        videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
-    } else {
-        videoRangeBlock = " | ⚡ " + codecTag;
-    }
+    if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
+    else videoRangeBlock = " | ⚡ " + codecTag;
 
     var audioChannelTag = "Auto";
     var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
@@ -518,7 +516,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         if (audioChannelTag === "5.1") audioChannelTag = "DDP5.1";
     }
 
-    // 3. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE
+    // 2. AUDIO & LANGUAGE TRACK MATRIX
     var lowerContext = cleanTitle.toLowerCase();
     var isDualAudio = /dual|multi|dubbed|hindi/i.test(lowerContext);
     var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
@@ -530,12 +528,23 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         displayLanguages = "English 🇺🇸 • Dutch 🇳🇱";
     }
 
-    // 4. HEADER LAYOUT GENERATOR
+    // 3. TITLE & GENERATION FORMATTERS
     var displayQuality = quality || "1080p";
     var label = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
 
-    // 5. OUTPUT DISPLAY RENDERER
-    var line1 = '🎬 ' + cleanName;
+    // Detect year safely from context
+    var yearMatch = cleanTitle.match(/\b(19|20)\d{2}\b/);
+    var displayYear = yearMatch ? yearMatch[0] : "2026";
+
+    var line1 = "";
+    if (mediaInfo && (mediaInfo.startsWith("S") || mediaInfo.includes("E"))) {
+        // Series Formatting: 🎦 Name (Year) - S1 E1
+        line1 = '🎦 ' + cleanName + ' (' + displayYear + ') - ' + mediaInfo.replace(/E0*(\d+)/i, 'E$1').replace(/S0*(\d+)/i, 'S$1');
+    } else {
+        // Movie Formatting: 🎦 Name - (Year)
+        line1 = '🎦 ' + cleanName + ' - (' + displayYear + ')';
+    }
+
     var line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
     var line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
     var line4 = '🔗 FSL Server | ☁️ ' + sourceTag;

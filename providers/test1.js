@@ -177,15 +177,16 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-            // 1. Build base object using empty spacing to clean up the TV header and prevent mobile fallback fragments
+      // 1. Detect if the environment is a TV screen
+      const isTV = typeof window !== 'undefined' && window.navigator && 
+                   /tv|smarttv|googletv|appletv|hbbtv|netcast|viera|box/i.test(window.navigator.userAgent);
+
+      // 2. Build our standard base object
       const baseStream = __spreadProps(__spreadValues({}, stream), {
         name: nameTag,
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
-        qualityTag: "",
-        quality: "1080p", // Sets a valid string to keep the TV header from falling back to Unknown
-        language: "Dual-Audio", // Fulfills validation requirements cleanly
         description: finalTitle,
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,
@@ -196,13 +197,18 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // 2. Override internal properties dynamically so the app relies strictly on the clean finalTitle layout lines
-      try {
-        Object.defineProperties(baseStream, {
-          qualityTag: { get: () => "", enumerable: true, configurable: true },
-          language: { get: () => "", enumerable: true, configurable: true }
-        });
-      } catch (e) {}
+      // 3. Apply custom tailored rules for TV vs Mobile
+      if (isTV) {
+        // TV Mode: Needs values to prevent "Unknown", but relies on empty strings to clear bullets
+        baseStream.qualityTag = "";
+        baseStream.quality = "1080p"; 
+        baseStream.language = ""; 
+      } else {
+        // Mobile Mode: Needs clean empty properties so it doesn't inject prefixing/suffixing bullet lines
+        baseStream.qualityTag = "";
+        baseStream.quality = "";
+        baseStream.language = "";
+      }
 
       return baseStream;
     }

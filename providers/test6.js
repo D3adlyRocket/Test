@@ -471,6 +471,7 @@ function decodeEntities(encodedString) {
     return String.fromCharCode(num);
   });
 }
+
 function makeStream(name, title, url, quality, headers, mediaInfo) {
     var cleanName = decodeEntities(name || '').replace(/[\n\t]+/g, '').trim();
     var cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
@@ -525,41 +526,13 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
     else videoRangeBlock = " | ⚡ " + codecTag;
 
-    // 4. DYNAMIC AUDIO MAPPING (Reverted with DDP5.1 Tweak Added)
-    var audioChannelTag = "DD5.1"; 
-    
-    var hasAtmosOrDA = lowerContext.includes("atmos") || 
-                       lowerContext.includes("🔊") ||
-                       lowerContext.includes("dolby") ||
-                       /\bda\b/i.test(lowerContext) || 
-                       lowerContext.includes("[da]") ||
-                       lowerContext.includes("-da") ||
-                       lowerUrl.includes("atmos") ||
-                       lowerUrl.includes(".da.");
+    // 4. URL PATH AUDIO ROUTING ENGINE (HQ vs HD vs Stereo)
+    var audioChannelTag = "Stereo"; 
 
-    if (hasAtmosOrDA || is4K) {
-        audioChannelTag = "DD5.1 • 🔊 DA";
-    } else if (fileSizeOnly === "1GB" || fileSizeOnly === "1.0GB" || fileSizeOnly.startsWith("400") || fileSizeOnly.startsWith("500")) {
-        audioChannelTag = "Auto"; 
-    } else {
-        // Tweak: Specifically scan for DDP/E-AC3 signatures before falling back to generic DD
-        var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC|Stereo)/i) ||
-                         lowerUrl.match(/(ddp5\.1|ddp7\.1|truehd)/i);
-                         
-        if (audioMatch) {
-            var foundAudio = audioMatch[1].toUpperCase().replace(/\s+/g, '');
-            if (foundAudio === "5.1" || foundAudio === "DD5.1") {
-                audioChannelTag = "DD5.1";
-            } else if (foundAudio.includes("DDP5.1")) {
-                audioChannelTag = "DDP5.1";
-            } else if (foundAudio.includes("DDP7.1")) {
-                audioChannelTag = "DDP7.1";
-            } else {
-                audioChannelTag = audioMatch[1].toUpperCase().trim();
-            }
-        } else if (lowerContext.includes("ddp") || lowerUrl.includes("ddp")) {
-            audioChannelTag = "DDP5.1";
-        }
+    if (lowerUrl.includes("hq")) {
+        audioChannelTag = "DDP5.1 • 🔊 Atmos";
+    } else if (lowerUrl.includes("hd")) {
+        audioChannelTag = "DD5.1";
     }
 
     // 5. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE
@@ -604,7 +577,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
             }
         }
     };
-}
+}  
             
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {

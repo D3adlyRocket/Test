@@ -158,7 +158,7 @@ var require_formatter = __commonJS({
       return __spreadProps(__spreadValues({}, stream), {
         name: nameTag,
         title: finalTitle,
-        size: finalTitle, 
+        size: "", 
         providerName: "VixSrc",
         qualityTag: cleanQuality,
         description: finalTitle,
@@ -345,7 +345,7 @@ function getCommonHeaders() {
     "User-Agent": USER_AGENT,
     "Referer": `${getVixSrcBaseUrl()}/`,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Language": "en-US,en;q=0.9",
     "Sec-Fetch-Dest": "document",
     "Sec-Fetch-Mode": "navigate",
     "Sec-Fetch-Site": "none",
@@ -358,7 +358,7 @@ function getEmbedHeaders(embedUrl) {
     "User-Agent": USER_AGENT,
     "Referer": `${getVixSrcBaseUrl()}/`,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
-    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7"
+    "Accept-Language": "en-US,en;q=0.9"
   };
 }
 function getPlaylistHeaders(embedUrl) {
@@ -367,7 +367,7 @@ function getPlaylistHeaders(embedUrl) {
     "Referer": embedUrl,
     "Origin": getVixSrcBaseUrl(),
     "Accept": "*/*",
-    "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Language": "en-US,en;q=0.9",
     "Sec-Fetch-Dest": "empty",
     "Sec-Fetch-Mode": "cors",
     "Sec-Fetch-Site": "same-origin"
@@ -447,10 +447,10 @@ function getMetadata(id, type) {
       const normalizedType = String(type).toLowerCase();
       let url;
       if (String(id).startsWith("tt")) {
-        url = `https://api.themoviedb.org/3/find/${id}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=it-IT`;
+        url = `https://api.themoviedb.org/3/find/${id}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=en-US`;
       } else {
         const endpoint = normalizedType === "movie" ? "movie" : "tv";
-        url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&language=it-IT`;
+        url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}&language=en-US`;
       }
       const response = yield fetch(url);
       if (!response.ok) return null;
@@ -471,7 +471,7 @@ function getMetadata(id, type) {
 function getEpisodeMetadata(tvId, season, episode) {
   return __async(this, null, function* () {
     try {
-      const url = `https://api.themoviedb.org/3/tv/${tvId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}&language=it-IT`;
+      const url = `https://api.themoviedb.org/3/tv/${tvId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}&language=en-US`;
       const response = yield fetch(url);
       if (!response.ok) return null;
       return yield response.json();

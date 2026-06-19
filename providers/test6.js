@@ -539,7 +539,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         audioChannelTag = "Stereo";
     } else if (lowerUrl.includes("hq")) {
         // Explicit HQ labels in URLs: Map to DDP5.1
-        audioChannelTag = "DDP5.1";
+        audioChannelTag = "DDP5.1 • 🔊 Atmos";
     } else if (codecTag === "HEVC") {
         // Standard HEVC links over 1.3GB limit: Map to DD5.1
         audioChannelTag = "DD5.1";

@@ -502,19 +502,17 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (/\b(bluray|blu\-ray)\b/i.test(lowerContext)) sourceTag = "BluRay";
     else if (/\b(hdrip|webrip)\b/i.test(lowerContext)) sourceTag = "WEBRip";
 
-    // 2. AUTOMATIC CODEC DETECTION (Isolated to Link Info)
+    // 2. AUTOMATIC CODEC DETECTION
     var is4K = quality.includes("2160") || quality.toLowerCase().includes("4k") || lowerContext.includes("2160p");
     var codecTag = "H.264";
     if (/\b(hevc|x265|h265)\b/i.test(lowerContext) || is4K) {
         codecTag = "HEVC";
     }
 
-    // 3. AUTOMATIC VIDEO PROFILE DETECTION
+    // 3. AUTOMATIC VIDEO PROFILE DETECTION (Removed forced 4K Dolby Vision fallback)
     var videoRangeBlock = "";
     var rangeTag = "";
-    if (is4K) {
-        rangeTag = "Dolby Vision"; // Automatically match 4K to Dolby Vision
-    } else if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext)) {
+    if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext)) {
         rangeTag = "Dolby Vision";
     } else if (/\bhdr10\b/i.test(lowerContext)) {
         rangeTag = "HDR10";
@@ -527,8 +525,8 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
     else videoRangeBlock = " | ⚡ " + codecTag;
 
-    // 4. AUTOMATIC AUDIO PROFILE DETECTION (Isolated Fallbacks)
-    var audioChannelTag = "DD5.1"; // Standard default
+    // 4. AUTOMATIC AUDIO PROFILE DETECTION (Removed forced 4K Atmos fallback)
+    var audioChannelTag = "DD5.1"; 
     
     var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|Atmos|AAC|Stereo)/i);
     if (audioMatch) {
@@ -536,10 +534,10 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         if (foundAudio === "5.1") audioChannelTag = "DDP5.1";
         else if (foundAudio === "ATMOS") audioChannelTag = "DOLBY ATMOS";
         else audioChannelTag = audioMatch[1].toUpperCase().trim();
-    } else if (/\batmos\b/i.test(lowerContext) || is4K) {
-        audioChannelTag = "DOLBY ATMOS"; // 4K automatically inherits Dolby Atmos
+    } else if (/\batmos\b/i.test(lowerContext)) {
+        audioChannelTag = "DOLBY ATMOS";
     } else if (fileSizeOnly === "1GB" || fileSizeOnly === "1.0GB" || fileSizeOnly.startsWith("400") || fileSizeOnly.startsWith("500")) {
-        audioChannelTag = "Auto"; // Low-tier sample files drop to Auto
+        audioChannelTag = "Auto"; 
     }
 
     // 5. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE
@@ -551,7 +549,6 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     var displayQuality = quality || "1080p";
     var label = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
 
-    // Pull year safely from search parent block
     var yearMatch = decodeEntities(name || "").match(/\b(19|20)\d{2}\b/);
     var displayYear = yearMatch ? yearMatch[0] : "2026";
 

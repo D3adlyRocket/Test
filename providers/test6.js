@@ -525,10 +525,17 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
     else videoRangeBlock = " | ⚡ " + codecTag;
 
-    // 4. DYNAMIC AUDIO CHANNEL MAPPING MATRIX (Now supports checking for explicit DA tags)
+    // 4. DYNAMIC AUDIO CHANNEL MAPPING MATRIX (Boundary-relaxed DA verification)
     var audioChannelTag = "DD5.1"; 
     
-    if (/\b(atmos|da)\b/i.test(lowerContext) || is4K) {
+    // Checks for atmos, isolated "da", or bracketed "[da]" / "-da" safely without strict word boundary failures
+    var hasAtmosOrDA = lowerContext.includes("atmos") || 
+                       /\bda\b/i.test(lowerContext) || 
+                       lowerContext.includes("[da]") || 
+                       lowerContext.includes(" da ") ||
+                       lowerContext.includes("-da");
+
+    if (hasAtmosOrDA || is4K) {
         audioChannelTag = "DD5.1 • 🔊 DA";
     } else if (fileSizeOnly === "1GB" || fileSizeOnly === "1.0GB" || fileSizeOnly.startsWith("400") || fileSizeOnly.startsWith("500")) {
         audioChannelTag = "Auto"; 

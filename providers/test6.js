@@ -525,11 +525,10 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
     else videoRangeBlock = " | ⚡ " + codecTag;
 
-    // 4. DYNAMIC AUDIO CHANNEL MAPPING MATRIX
+    // 4. DYNAMIC AUDIO CHANNEL MAPPING MATRIX (Now supports checking for explicit DA tags)
     var audioChannelTag = "DD5.1"; 
     
-    // Check for explicit Atmos keywords or if it's a 4K link
-    if (/\batmos\b/i.test(lowerContext) || is4K) {
+    if (/\b(atmos|da)\b/i.test(lowerContext) || is4K) {
         audioChannelTag = "DD5.1 • 🔊 DA";
     } else if (fileSizeOnly === "1GB" || fileSizeOnly === "1.0GB" || fileSizeOnly.startsWith("400") || fileSizeOnly.startsWith("500")) {
         audioChannelTag = "Auto"; 
@@ -585,7 +584,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         }
     };
 }
-
+        
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
     var isTv = (mediaType === 'tv' || mediaType === 'series');

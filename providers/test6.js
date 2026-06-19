@@ -448,6 +448,25 @@ async function resolveFslUrl(decodedUrl, sessionUA) {
   if (!html) return null;
   return extractFslUrl(html);
 }
+
+function decodeEntities(encodedString) {
+  if (!encodedString) return '';
+  var translate_re = /&(nbsp|amp|quot|lt|gt|#038);/g;
+  var translate = {
+    "nbsp": " ",
+    "amp" : "&",
+    "quot": "\"",
+    "lt"  : "<",
+    "gt"  : ">",
+    "#038": "&"
+  };
+  return encodedString.replace(translate_re, function(match, entity) {
+    return translate[entity];
+  }).replace(/&#(\d+);/g, function(match, num) {
+    return String.fromCharCode(num);
+  });
+}
+
 function makeStream(name, title, url, quality, headers, mediaInfo) {
     // 1. DECODE HTML ENTITIES & CLEAN UP RAW WEBSITE TITLES
     var cleanName = decodeEntities(name || '').replace(/[\n\t]+/g, '').trim();

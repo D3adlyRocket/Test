@@ -490,10 +490,12 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (sizeMatch) fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
 
     var numericalSizeWeight = 0;
+    var sizeInGB = 0;
     if (sizeMatch) {
         var num = parseFloat(sizeMatch[1]);
         var unit = sizeMatch[1].toUpperCase();
         numericalSizeWeight = unit.includes("GB") ? num * 1024 : num;
+        sizeInGB = unit.includes("GB") ? num : num / 1024;
     }
 
     var fileFormat = "MKV";
@@ -526,20 +528,22 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
     else videoRangeBlock = " | ⚡ " + codecTag;
 
-    // 4. COMBINED AUDIO MAPPING ENGINE (Scans Link Title + URL Fallbacks)
+    // 4. INTELLIGENT AUDIO MAPPING (Codec + Size Filter Combination)
     var audioChannelTag = "DD5.1"; 
     
-    var hasAtmosOrDA = lowerContext.includes("atmos") || 
-                       lowerContext.includes("🔊") ||
-                       lowerContext.includes("dolby") ||
-                       /\bda\b/i.test(lowerContext) || 
-                       lowerContext.includes("[da]") ||
-                       lowerContext.includes("-da") ||
-                       lowerUrl.includes("atmos") ||
-                       lowerUrl.includes(".da.") ||
-                       lowerUrl.includes("ddp5.1");
+    var hasExplicitAtmosText = lowerContext.includes("atmos") || 
+                               lowerContext.includes("🔊") ||
+                               lowerContext.includes("dolby") ||
+                               /\bda\b/i.test(lowerContext) || 
+                               lowerContext.includes("[da]") ||
+                               lowerUrl.includes("atmos") ||
+                               lowerUrl.includes("ddp5.1");
 
-    if (hasAtmosOrDA || is4K) {
+    // Smart Filter: Target 1080p HEVC tracks inside a target size threshold (2.2GB - 7.5GB)
+    // Prevents giant H.264 files (like your 9GB Michael link) from getting falsely flagged as Atmos.
+    var isPremium1080pHEVC = (!is4K && codecTag === "HEVC" && sizeInGB >= 2.2 && sizeInGB <= 7.5);
+
+    if (hasExplicitAtmosText || is4K || isPremium1080pHEVC) {
         audioChannelTag = "DD5.1 • 🔊 DA";
     } else if (fileSizeOnly === "1GB" || fileSizeOnly === "1.0GB" || fileSizeOnly.startsWith("400") || fileSizeOnly.startsWith("500")) {
         audioChannelTag = "Auto"; 

@@ -182,10 +182,6 @@ var require_formatter = __commonJS({
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
-        // Trick engine with non-breaking zero width character formulas to swallow "Unknown" and eliminate trailing bullets cross-platform
-        qualityTag: "",
-        quality: "",
-        language: "",
         description: finalTitle,
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,

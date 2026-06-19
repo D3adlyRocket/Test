@@ -509,7 +509,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         codecTag = "HEVC";
     }
 
-    // 3. AUTOMATIC VIDEO PROFILE DETECTION (Removed forced 4K Dolby Vision fallback)
+    // 3. AUTOMATIC VIDEO PROFILE DETECTION
     var videoRangeBlock = "";
     var rangeTag = "";
     if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext)) {
@@ -525,19 +525,21 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
     else videoRangeBlock = " | ⚡ " + codecTag;
 
-    // 4. AUTOMATIC AUDIO PROFILE DETECTION (Removed forced 4K Atmos fallback)
+    // 4. DYNAMIC AUDIO CHANNEL MAPPING MATRIX
     var audioChannelTag = "DD5.1"; 
     
-    var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|Atmos|AAC|Stereo)/i);
-    if (audioMatch) {
-        var foundAudio = audioMatch[1].toUpperCase().replace(/\s+/g, '');
-        if (foundAudio === "5.1") audioChannelTag = "DDP5.1";
-        else if (foundAudio === "ATMOS") audioChannelTag = "DOLBY ATMOS";
-        else audioChannelTag = audioMatch[1].toUpperCase().trim();
-    } else if (/\batmos\b/i.test(lowerContext)) {
-        audioChannelTag = "DOLBY ATMOS";
+    // Check for explicit Atmos keywords or if it's a 4K link
+    if (/\batmos\b/i.test(lowerContext) || is4K) {
+        audioChannelTag = "DD5.1 • 🔊 DA";
     } else if (fileSizeOnly === "1GB" || fileSizeOnly === "1.0GB" || fileSizeOnly.startsWith("400") || fileSizeOnly.startsWith("500")) {
         audioChannelTag = "Auto"; 
+    } else {
+        var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC|Stereo)/i);
+        if (audioMatch) {
+            var foundAudio = audioMatch[1].toUpperCase().replace(/\s+/g, '');
+            if (foundAudio === "5.1") audioChannelTag = "DDP5.1";
+            else audioChannelTag = audioMatch[1].toUpperCase().trim();
+        }
     }
 
     // 5. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE

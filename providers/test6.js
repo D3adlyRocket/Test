@@ -496,52 +496,37 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     var fileFormat = "MKV";
     if (url && url.toLowerCase().split('?')[0].endsWith(".mp4")) fileFormat = "MP4";
 
-    // Strict local context matching for Source tags (Avoids global descriptions)
     var sourceTag = "WEB-DL";
-    var lowerContext = cleanTitle.toLowerCase();
-    if (/\b(bluray|blu-ray)\b/i.test(lowerContext)) sourceTag = "BluRay";
-    else if (/\b(hdrip|webrip)\b/i.test(lowerContext)) sourceTag = "WEBRip";
 
-    // Strict Dynamic Video Profiles Checking
+    // 2. STRICT RULE MAPPING (Based on Quality Label Context)
+    var is4K = quality.includes("2160") || quality.toLowerCase().includes("4k") || cleanTitle.toLowerCase().includes("2160p");
+    var isHevcLabel = /\b(hevc|x265|h265)\b/i.test(cleanTitle.toLowerCase());
+
+    // CODEC MAPPING: Only the 3 explicit HEVC links and the 2160p link are HEVC. The rest are H.264.
+    var codecTag = (isHevcLabel || is4K) ? "HEVC" : "H.264";
+
+    // VIDEO PROFILE MAPPING: Only the 2160p stream gets HDR and Dolby Vision tags.
     var videoRangeBlock = "";
-    var rangeTag = "";
-    if (/\b(dolby\s*vision|dovi)\b/i.test(lowerContext)) rangeTag = "Dolby Vision";
-    else if (/\bhdr10\b/i.test(lowerContext)) rangeTag = "HDR10";
-    else if (/\bhdr\b/i.test(lowerContext)) rangeTag = "HDR";
-    else if (/\b(10bit|10-bit)\b/i.test(lowerContext)) rangeTag = "10Bit";
-    else if (/\bsdr\b/i.test(lowerContext)) rangeTag = "SDR";
-
-    // Codec matching - Checks local link string or sets HEVC automatically if 4K
-    var codecTag = "H.264";
-    if (/\b(hevc|x265|h265)\b/i.test(lowerContext)) {
-        codecTag = "HEVC";
-    } else if (/\b(x264|h264)\b/i.test(lowerContext)) {
-        codecTag = "H.264";
-    } else if (quality.includes("2160") || quality.toLowerCase().includes("4k")) {
-        codecTag = "HEVC";
+    if (is4K) {
+        videoRangeBlock = " | 🔆 Dolby Vision • ⚡ HEVC";
+    } else {
+        videoRangeBlock = " | ⚡ " + codecTag;
     }
 
-    if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
-    else videoRangeBlock = " | ⚡ " + codecTag;
-
-    // Advanced Audio Mapping Channels (Auto replaced by DD5.1 / Atmos fallback layouts)
-    var audioChannelTag = "DD5.1"; 
-    var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|Atmos|Dolby|AAC|Stereo)/i);
-    if (audioMatch) {
-        var exactAudio = audioMatch[1].toUpperCase().replace(/\s+/g, '');
-        if (exactAudio === "5.1" || exactAudio === "DOLBY") audioChannelTag = "DD5.1";
-        else if (exactAudio === "ATMOS") audioChannelTag = "DOLBY ATMOS";
-        else audioChannelTag = audioMatch[1].toUpperCase().trim();
-    } else if (lowerContext.includes("atmos")) {
+    // AUDIO MAPPING: 2160p is DOLBY ATMOS. 1GB profile is Auto/Stereo. All others are DD5.1.
+    var audioChannelTag = "DD5.1";
+    if (is4K) {
         audioChannelTag = "DOLBY ATMOS";
+    } else if (fileSizeOnly === "1GB" || fileSizeOnly === "1.0GB") {
+        audioChannelTag = "Auto"; 
     }
 
-    // 2. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE
-    var isDualAudio = /dual|multi|dubbed|hindi/i.test(lowerContext);
+    // 3. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE
+    var isDualAudio = /\b(dual|multi|dubbed|hindi)\b/i.test(cleanTitle.toLowerCase());
     var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
     var displayLanguages = isDualAudio ? "English 🇺🇸 • Hindi 🇮🇳" : "English 🇺🇸";
 
-    // 3. TITLE & GENERATION FORMATTERS
+    // 4. TITLE & GENERATION FORMATTERS
     var displayQuality = quality || "1080p";
     var label = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
 
@@ -561,8 +546,8 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 
-    // Strict Mobile + TV Math sort multiplier injection 
-    var baseResWeight = displayQuality.includes("2160") || displayQuality.toLowerCase().includes("4k") ? 9000000 : (displayQuality.includes("1080") ? 6000000 : 3000000);
+    // Strict Device Math Sort to place 2160p at the peak position
+    var baseResWeight = is4K ? 9000000 : (displayQuality.includes("1080") ? 6000000 : 3000000);
     var structuralSortWeight = baseResWeight + numericalSizeWeight;
 
     return {
@@ -570,8 +555,8 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         title: formattedTitle,
         size: formattedTitle,
         url: url || "",
-        _resWeight: baseResWeight, // Kept for backend sorting compatibility
-        _sortWeight: structuralSortWeight, // Boosted sorting fallback weights
+        _resWeight: baseResWeight,
+        _sortWeight: structuralSortWeight,
         behaviorHints: {
             notWebReady: true,
             proxyHeaders: {

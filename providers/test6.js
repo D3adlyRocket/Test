@@ -490,10 +490,12 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (sizeMatch) fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
 
     var numericalSizeWeight = 0;
+    var sizeInGB = 0;
     if (sizeMatch) {
         var num = parseFloat(sizeMatch[1]);
         var unit = sizeMatch[1].toUpperCase();
         numericalSizeWeight = unit.includes("GB") ? num * 1024 : num;
+        sizeInGB = unit.includes("GB") ? num : num / 1024;
     }
 
     var fileFormat = "MKV";
@@ -526,12 +528,20 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
     else videoRangeBlock = " | ⚡ " + codecTag;
 
-    // 4. URL PATH AUDIO ROUTING ENGINE (HQ vs HD vs Stereo)
-    var audioChannelTag = "Stereo"; 
+    // 4. CLEAN STRATIFIED AUDIO ENGINE
+    var audioChannelTag = "DD5.1"; // Default fallback layout
 
-    if (lowerUrl.includes("hq")) {
+    if (is4K) {
+        // 4K links: Locked to premium Atmos tier
         audioChannelTag = "DDP5.1 • 🔊 Atmos";
-    } else if (lowerUrl.includes("hd")) {
+    } else if (sizeMatch && sizeInGB < 1.3) {
+        // Anything under 1.3GB: Dropped down to clean stereo setup
+        audioChannelTag = "Stereo";
+    } else if (lowerUrl.includes("hq")) {
+        // Explicit HQ labels in URLs: Map to DDP5.1
+        audioChannelTag = "DDP5.1";
+    } else if (codecTag === "HEVC") {
+        // Standard HEVC links over 1.3GB limit: Map to DD5.1
         audioChannelTag = "DD5.1";
     }
 
@@ -577,8 +587,8 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
             }
         }
     };
-}  
-            
+}
+           
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
     var isTv = (mediaType === 'tv' || mediaType === 'series');

@@ -471,7 +471,6 @@ function decodeEntities(encodedString) {
     return String.fromCharCode(num);
   });
 }
-
 function makeStream(name, title, url, quality, headers, mediaInfo) {
     var cleanName = decodeEntities(name || '').replace(/[\n\t]+/g, '').trim();
     var cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
@@ -490,12 +489,10 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (sizeMatch) fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
 
     var numericalSizeWeight = 0;
-    var sizeInGB = 0;
     if (sizeMatch) {
         var num = parseFloat(sizeMatch[1]);
         var unit = sizeMatch[1].toUpperCase();
         numericalSizeWeight = unit.includes("GB") ? num * 1024 : num;
-        sizeInGB = unit.includes("GB") ? num : num / 1024;
     }
 
     var fileFormat = "MKV";
@@ -528,31 +525,40 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
     else videoRangeBlock = " | ⚡ " + codecTag;
 
-    // 4. INTELLIGENT AUDIO MAPPING (Codec + Size Filter Combination)
+    // 4. DYNAMIC AUDIO MAPPING (Reverted with DDP5.1 Tweak Added)
     var audioChannelTag = "DD5.1"; 
     
-    var hasExplicitAtmosText = lowerContext.includes("atmos") || 
-                               lowerContext.includes("🔊") ||
-                               lowerContext.includes("dolby") ||
-                               /\bda\b/i.test(lowerContext) || 
-                               lowerContext.includes("[da]") ||
-                               lowerUrl.includes("atmos") ||
-                               lowerUrl.includes("ddp5.1");
+    var hasAtmosOrDA = lowerContext.includes("atmos") || 
+                       lowerContext.includes("🔊") ||
+                       lowerContext.includes("dolby") ||
+                       /\bda\b/i.test(lowerContext) || 
+                       lowerContext.includes("[da]") ||
+                       lowerContext.includes("-da") ||
+                       lowerUrl.includes("atmos") ||
+                       lowerUrl.includes(".da.");
 
-    // Smart Filter: Target 1080p HEVC tracks inside a target size threshold (2.2GB - 7.5GB)
-    // Prevents giant H.264 files (like your 9GB Michael link) from getting falsely flagged as Atmos.
-    var isPremium1080pHEVC = (!is4K && codecTag === "HEVC" && sizeInGB >= 2.2 && sizeInGB <= 7.5);
-
-    if (hasExplicitAtmosText || is4K || isPremium1080pHEVC) {
+    if (hasAtmosOrDA || is4K) {
         audioChannelTag = "DD5.1 • 🔊 DA";
     } else if (fileSizeOnly === "1GB" || fileSizeOnly === "1.0GB" || fileSizeOnly.startsWith("400") || fileSizeOnly.startsWith("500")) {
         audioChannelTag = "Auto"; 
     } else {
-        var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC|Stereo)/i);
+        // Tweak: Specifically scan for DDP/E-AC3 signatures before falling back to generic DD
+        var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC|Stereo)/i) ||
+                         lowerUrl.match(/(ddp5\.1|ddp7\.1|truehd)/i);
+                         
         if (audioMatch) {
             var foundAudio = audioMatch[1].toUpperCase().replace(/\s+/g, '');
-            if (foundAudio === "5.1") audioChannelTag = "DDP5.1";
-            else audioChannelTag = audioMatch[1].toUpperCase().trim();
+            if (foundAudio === "5.1" || foundAudio === "DD5.1") {
+                audioChannelTag = "DD5.1";
+            } else if (foundAudio.includes("DDP5.1")) {
+                audioChannelTag = "DDP5.1";
+            } else if (foundAudio.includes("DDP7.1")) {
+                audioChannelTag = "DDP7.1";
+            } else {
+                audioChannelTag = audioMatch[1].toUpperCase().trim();
+            }
+        } else if (lowerContext.includes("ddp") || lowerUrl.includes("ddp")) {
+            audioChannelTag = "DDP5.1";
         }
     }
 

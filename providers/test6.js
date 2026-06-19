@@ -646,43 +646,50 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
     console.log("[" + PROVIDER_NAME + "] Qualities: " + filtered.map(function(q) { return q.quality; }).join(', '));
 
-      // Step 7: Resolve FSL URLs for each quality
-  var epLabel = '';
-  if (isTv) {
-    var s = parseInt(season, 10) || 1;
-    var e = parseInt(episode, 10) || 1;
-    epLabel = 'S' + (s < 10 ? '0' : '') + s + 'E' + (e < 10 ? '0' : '') + e + ' ';
-  }
-
-  var streams = [];
-  for (var qi = 0; qi < filtered.length; qi++) {
-    var q = filtered[qi];
-    var fslUrl = await resolveFslUrl(q.decodedUrl, sessionUA);
-    if (fslUrl) {
-      // 🌟 Use your layout engine mapping variables:
-      var streamName = bestPost.title + (epLabel ? " - " + epLabel.trim() : "");
-      var lookupContextText = q.label + " " + bestPost.title; 
-      
-      var streamObj = makeStream(
-          streamName, 
-          lookupContextText, 
-          fslUrl, 
-          q.quality, 
-          { 'Referer': CINECLOUD_BASE + '/', 'User-Agent': sessionUA },
-          epLabel.trim()
-      );
-      
-      streams.push(streamObj);
+          // Step 7: Resolve FSL URLs for each quality
+    var epLabel = '';
+    if (isTv) {
+      var s = parseInt(season, 10) || 1;
+      var e = parseInt(episode, 10) || 1;
+      epLabel = 'S' + (s < 10 ? '0' : '') + s + 'E' + (e < 10 ? '0' : '') + e + ' ';
     }
-  }
 
-    // Deduplicate and Sort automatically by resolution group hierarchies and file sizing matrix balances
-  var sortedStreams = streams.sort(function(a, b) {
-      return b._sortWeight - a._sortWeight;
-  });
+    var streams = [];
+    // Split the raw page HTML by container again to extract the technical context block for each link
+    var rawParts = html.split('dlbtn-container');
 
-  console.log("[" + PROVIDER_NAME + "] Returning " + sortedStreams.length + " stream(s)");
-  return sortedStreams;
+    for (var qi = 0; qi < filtered.length; qi++) {
+      var q = filtered[qi];
+      var fslUrl = await resolveFslUrl(q.decodedUrl, sessionUA);
+      if (fslUrl) {
+        var streamName = bestPost.title + (epLabel ? " - " + epLabel.trim() : "");
+        
+        // Find the specific text block belonging to this quality index
+        var technicalContextText = q.label;
+        if (rawParts[qi]) {
+           technicalContextText += " " + rawParts[qi].replace(/<[^>]*>/g, ' ');
+        }
+        
+        var streamObj = makeStream(
+            streamName, 
+            technicalContextText, // 🌟 Now contains the actual hidden webpage specs!
+            fslUrl, 
+            q.quality, 
+            { 'Referer': CINECLOUD_BASE + '/', 'User-Agent': sessionUA },
+            epLabel.trim()
+        );
+        
+        streams.push(streamObj);
+      }
+    }
+
+    // Dynamic Top-Down Sorting Algorithm (Highest Sort Weights First)
+    var sortedStreams = streams.sort(function(a, b) {
+        return (b._sortWeight || 0) - (a._sortWeight || 0);
+    });
+
+    console.log("[" + PROVIDER_NAME + "] Returning " + sortedStreams.length + " stream(s)");
+    return sortedStreams;
 
   } catch (e) {
     console.log("[" + PROVIDER_NAME + "] Fatal error: " + (e.message || e));

@@ -483,7 +483,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     var lowerContext = cleanTitle.toLowerCase();
 
-    // 1. AUTOMATIC METADATA & SIZE HARVESTER
+    // 1. METADATA & SIZE ENGINE
     var fileSizeOnly = "N/A";
     var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i) || cleanTitle.match(/(\d+(?:\.\d+)?\s*[MG]B)/i);
     if (sizeMatch) fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
@@ -502,8 +502,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (/\b(bluray|blu\-ray)\b/i.test(lowerContext)) sourceTag = "BluRay";
     else if (/\b(hdrip|webrip)\b/i.test(lowerContext)) sourceTag = "WEBRip";
 
-    // 2. AUTOMATIC CODEC DETECTION
-    // If the link text explicitly states HEVC/X265, or if it's a 2160p stream, it's HEVC. Otherwise, H.264.
+    // 2. AUTOMATIC CODEC DETECTION (Isolated to Link Info)
     var is4K = quality.includes("2160") || quality.toLowerCase().includes("4k") || lowerContext.includes("2160p");
     var codecTag = "H.264";
     if (/\b(hevc|x265|h265)\b/i.test(lowerContext) || is4K) {
@@ -513,17 +512,23 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     // 3. AUTOMATIC VIDEO PROFILE DETECTION
     var videoRangeBlock = "";
     var rangeTag = "";
-    if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext)) rangeTag = "Dolby Vision";
-    else if (/\bhdr10\b/i.test(lowerContext)) rangeTag = "HDR10";
-    else if (/\bhdr\b/i.test(lowerContext)) rangeTag = "HDR";
-    else if (/\b(10bit|10\-bit)\b/i.test(lowerContext)) rangeTag = "10Bit";
+    if (is4K) {
+        rangeTag = "Dolby Vision"; // Automatically match 4K to Dolby Vision
+    } else if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext)) {
+        rangeTag = "Dolby Vision";
+    } else if (/\bhdr10\b/i.test(lowerContext)) {
+        rangeTag = "HDR10";
+    } else if (/\bhdr\b/i.test(lowerContext)) {
+        rangeTag = "HDR";
+    } else if (/\b(10bit|10\-bit)\b/i.test(lowerContext)) {
+        rangeTag = "10Bit";
+    }
 
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
     else videoRangeBlock = " | ⚡ " + codecTag;
 
-    // 4. AUTOMATIC AUDIO PROFILE DETECTION
-    // Default to DD5.1 unless it finds an explicit match or meets your specific size/resolution exemptions
-    var audioChannelTag = "DD5.1";
+    // 4. AUTOMATIC AUDIO PROFILE DETECTION (Isolated Fallbacks)
+    var audioChannelTag = "DD5.1"; // Standard default
     
     var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|Atmos|AAC|Stereo)/i);
     if (audioMatch) {
@@ -531,16 +536,14 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         if (foundAudio === "5.1") audioChannelTag = "DDP5.1";
         else if (foundAudio === "ATMOS") audioChannelTag = "DOLBY ATMOS";
         else audioChannelTag = audioMatch[1].toUpperCase().trim();
-    } else if (/\batmos\b/i.test(lowerContext)) {
-        audioChannelTag = "DOLBY ATMOS";
-    } else if (is4K) {
-        audioChannelTag = "DOLBY ATMOS"; // Fallback for 4K profiles
+    } else if (/\batmos\b/i.test(lowerContext) || is4K) {
+        audioChannelTag = "DOLBY ATMOS"; // 4K automatically inherits Dolby Atmos
     } else if (fileSizeOnly === "1GB" || fileSizeOnly === "1.0GB" || fileSizeOnly.startsWith("400") || fileSizeOnly.startsWith("500")) {
-        audioChannelTag = "Auto"; // Low-tier sample files drop back to Auto/Stereo
+        audioChannelTag = "Auto"; // Low-tier sample files drop to Auto
     }
 
-    // 5. AUTOMATIC LANGUAGE TRACK REPIAR
-    var isDualAudio = /\b(dual|multi|dubbed|hindi)\b/i.test(lowerContext);
+    // 5. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE
+    var isDualAudio = /\b(dual|multi|dubbed|hindi)\b/i.test(lowerContext) || decodeEntities(name || "").toLowerCase().includes("dual audio");
     var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
     var displayLanguages = isDualAudio ? "English 🇺🇸 • Hindi 🇮🇳" : "English 🇺🇸";
 
@@ -548,7 +551,8 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     var displayQuality = quality || "1080p";
     var label = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
 
-    var yearMatch = cleanTitle.match(/\b(19|20)\d{2}\b/);
+    // Pull year safely from search parent block
+    var yearMatch = decodeEntities(name || "").match(/\b(19|20)\d{2}\b/);
     var displayYear = yearMatch ? yearMatch[0] : "2026";
 
     var line1 = "";
@@ -564,7 +568,6 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 
-    // Strict Device Math Sort to safely place 2160p at the absolute top of the index stream arrays
     var baseResWeight = is4K ? 9000000 : (displayQuality.includes("1080") ? 6000000 : 3000000);
     var structuralSortWeight = baseResWeight + numericalSizeWeight;
 
@@ -583,7 +586,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         }
     };
 }
-    
+
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
     var isTv = (mediaType === 'tv' || mediaType === 'series');
@@ -655,18 +658,15 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       epLabel = 'S' + (s < 10 ? '0' : '') + s + 'E' + (e < 10 ? '0' : '') + e + ' ';
     }
 
-        var streams = [];
+            var streams = [];
     for (var qi = 0; qi < filtered.length; qi++) {
       var q = filtered[qi];
       var fslUrl = await resolveFslUrl(q.decodedUrl, sessionUA);
       if (fslUrl) {
-        // Pass q.label (which contains the resolution, codec, and brackets from extractMovieQualities)
-        // directly into the title parameter so makeStream can automatically read it.
-        var searchContext = q.label + " " + bestPost.title;
-        
+        // ONLY pass q.label as the title parameter so regex scans the individual link metadata, NOT the global post title!
         var streamObj = makeStream(
             bestPost.title, 
-            searchContext, 
+            q.label, 
             fslUrl, 
             q.quality, 
             { 'Referer': CINECLOUD_BASE + '/', 'User-Agent': sessionUA },

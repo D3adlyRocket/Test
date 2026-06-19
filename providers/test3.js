@@ -1,236 +1,487 @@
-/**
- * afds - Built from src/afds/
- * Generated: 2026-06-16
- */
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
-
-// src/afds/index.js
-console.log("[AFDS] Initializing provider");
+var PROVIDER_NAME = "CineFreak";
+var BASE_URL = "https://cinefreak.nl";
+var CINECLOUD_BASE = "https://new5.cinecloud.site";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var BASE_URL = "https://afds.pages.dev";
-var API_BASE = "https://tga-hd.api.hashhackers.com";
+var REQUEST_TIMEOUT = 12000;
 
-// Updated token and user profile headers from your DevTools screenshot
-var DEVIL_AUTH_TOKEN = "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJ1c2VySWQiOjI5NjQ5LCJlbWFpbCI6ImQzYWRseTIwMjRAb3V0bG9vay5jb20iLCJleHAiOjE3ODIyMjI2NzAsImlhdCI6MTc4MTYxNzg3MH0.YQ72LeIOdESq2Mk85_vO9QIYV6lGOvfgAndBkOvKZ2E";
-var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
+const MOBILE_UAS = [
+  "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+];
 
-var HEADERS = {
-  "User-Agent": USER_AGENT,
-  "Referer": BASE_URL + "/",
-  "Origin": BASE_URL,
-  "Accept": "*/*",
-  "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
-  "Sec-Fetch-Dest": "empty",
-  "Sec-Fetch-Mode": "cors",
-  "Sec-Fetch-Site": "cross-site",
-  "sec-ch-ua-mobile": "?1",
-  "sec-ch-ua-platform": '"Android"'
-};
-
-if (DEVIL_AUTH_TOKEN) {
-  HEADERS["Authorization"] = `Bearer ${DEVIL_AUTH_TOKEN}`;
-}
-
-function formatBytes(bytes) {
-  if (!+bytes)
-    return "0 Bytes";
-  const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-}
-
-function getStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    var _a, _b;
-    try {
-      let id = String(tmdbId);
-      let s = season;
-      let e = episode;
-      let isTV = mediaType === "tv" || mediaType === "series";
-      if (id.includes(":")) {
-        const parts = id.split(":");
-        id = parts[0];
-        s = s || parts[1];
-        e = e || parts[2];
-        isTV = true;
-      }
-      let tmdbUrl = `https://api.themoviedb.org/3/${isTV ? "tv" : "movie"}/${id}?api_key=${TMDB_API_KEY}`;
-      if (isTV && id.startsWith("tt")) {
-        tmdbUrl = `https://api.themoviedb.org/3/find/${id}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
-      }
-      const metaRes = yield fetch(tmdbUrl);
-      const meta = yield metaRes.json();
-      let baseName = "";
-      if (isTV && id.startsWith("tt")) {
-        baseName = (_b = (_a = meta.tv_results) == null ? void 0 : _a[0]) == null ? void 0 : _b.name;
-      } else {
-        baseName = isTV ? meta.name : meta.title;
-      }
-      if (!baseName)
-        return [];
-        
-      const simpleName = baseName.replace(/[^a-zA-Z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
-      let searchQuery = simpleName;
-      let tvFilter = "";
-      if (isTV && s && e) {
-        const padS = String(parseInt(s)).padStart(2, "0");
-        const padE = String(parseInt(e)).padStart(2, "0");
-        tvFilter = `s${padS}e${padE}`;
-        searchQuery = `${simpleName} ${tvFilter}`;
-      }
-      
-      // Request search payload from API
-      const apiUrl = `${API_BASE}/mix_media_files/search?q=${encodeURIComponent(searchQuery)}&page=1`;
-      const searchRes = yield fetch(apiUrl, { headers: HEADERS });
-      const searchData = yield searchRes.json();
-      if (!searchData || !searchData.files || searchData.files.length === 0)
-        return [];
-        
-      const matchName = simpleName.toLowerCase().replace(/[^a-z0-9]/g, "");
-      const taskQueue = [];
-
-      // Process and screen files matching criteria
-      for (const file of searchData.files) {
-        const name = file.file_name;
-        const matchFile = name.toLowerCase().replace(/[^a-z0-9]/g, "");
-        if (/\.zip$|\.rar$/i.test(name) || /part[0-9]/i.test(name) || /\.flac$|\.mp3$/i.test(name))
-          continue;
-        if (!matchFile.includes(matchName))
-          continue;
-        if (isTV && tvFilter && !matchFile.includes(tvFilter))
-          continue;
-          
-        let quality = "SD";
-        if (/4k|2160p/i.test(name))
-          quality = "4K";
-        else if (/1080p/i.test(name))
-          quality = "1080p";
-        else if (/720p/i.test(name))
-          quality = "720p";
-          
-        const fileSize = formatBytes(parseInt(file.file_size));
-        const cleanName = name.replace(/\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i, "");
-        
-        let codec = "";
-        if (/x265|h265|hevc|hev\b/i.test(name))
-          codec = "HEVC";
-        else if (/x264|h264|avc/i.test(name))
-          codec = "H264";
-        else if (/av1/i.test(name))
-          codec = "AV1";
-          
-        let hdr = "";
-        if (/dolby.?vision|\bDV\b(?!D)/i.test(name))
-          hdr = "DV";
-        else if (/hdr10\+/i.test(name))
-          hdr = "HDR10+";
-        else if (/hdr10/i.test(name))
-          hdr = "HDR10";
-        else if (/hdr/i.test(name))
-          hdr = "HDR";
-          
-        let audio = "";
-        if (/atmos/i.test(name))
-          audio = "Atmos";
-        else if (/ddp.?5\.?1/i.test(name))
-          audio = "DDP5.1";
-        else if (/ac3.?5.?1/i.test(name))
-          audio = "AC3 5.1";
-        else if (/dts/i.test(name))
-          audio = "DTS";
-        else if (/aac/i.test(name))
-          audio = "AAC";
-          
-        const languages = [];
-        if (/hindi/i.test(name))
-          languages.push("Hindi");
-        if (/english|eng/i.test(name))
-          languages.push("ENG");
-        if (/tamil/i.test(name))
-          languages.push("Tamil");
-        if (/telugu/i.test(name))
-          languages.push("Telugu");
-        if (/malayalam/i.test(name))
-          languages.push("Malayalam");
-        if (/kannada/i.test(name))
-          languages.push("Kannada");
-          
-        const details = [fileSize];
-        if (codec) details.push(codec);
-        if (hdr) details.push(hdr);
-        if (audio) details.push(audio);
-        if (languages.length) details.push(languages.join("+"));
-
-        // Add task data to queue for controlled execution processing
-        taskQueue.push({
-          id: file.id,
-          meta: {
-            name: `${cleanName}\n${details.join(" \u2022 ")}`,
-            quality
-          }
-        });
-      } 
-
-      const resolvedStreams = [];
-      const BATCH_SIZE = 3; // Controlled small parallel bursts bypass the API's automatic firewall blocks
-
-      for (let i = 0; i < taskQueue.length; i += BATCH_SIZE) {
-        const batch = taskQueue.slice(i, i + BATCH_SIZE);
-        const batchPromises = batch.map(task => {
-          const genLinkUrl = `${API_BASE}/genLink?type=files&id=${task.id}`;
-          return fetch(genLinkUrl, { headers: HEADERS })
-            .then(res => res.json())
-            .then(linkData => {
-              // Grabs the true, direct media stream URL target location
-              const realPlayableUrl = linkData.url || linkData.link || linkData.download_url;
-              if (realPlayableUrl) {
-                return {
-                  name: task.meta.name,
-                  url: realPlayableUrl,
-                  quality: task.meta.quality
-                };
-              }
-              return null;
-            })
-            .catch(() => null);
-        });
-
-        const batchResults = yield Promise.all(batchPromises);
-        for (const item of batchResults) {
-          if (item) resolvedStreams.push(item);
-        }
-      }
-      
-      return resolvedStreams;
-    } catch (e) {
-      console.log(`[AFDS] Crash: ${e.message}`);
-      return [];
-    }
+function decodeEntities(encodedString) {
+  if (!encodedString) return '';
+  var translate_re = /&(nbsp|amp|quot|lt|gt|#038);/g;
+  var translate = { "nbsp": " ", "amp" : "&", "quot": "\"", "lt"  : "<", "gt"  : ">", "#038": "&" };
+  return encodedString.replace(translate_re, function(match, entity) {
+    return translate[entity];
+  }).replace(/&#(\d+);/g, function(match, num) {
+    return String.fromCharCode(num);
   });
 }
 
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getStreams };
+function getHeaders(sessionUA) {
+  return {
+    "User-Agent": sessionUA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.5"
+  };
+}
+
+async function fetchText(url, sessionUA) {
+  try {
+    var opts = { headers: getHeaders(sessionUA || MOBILE_UAS[0]) };
+    const timeout = new Promise(function(_, r) { setTimeout(function() { r(new Error('timeout')); }, 4000); });
+    const res = await Promise.race([fetch(url, opts), timeout]);
+    if (!res.ok) return null;
+    return await res.text();
+  } catch (e) { return null; }
+}
+
+async function fetchJson(url, sessionUA) {
+  try {
+    var text = await fetchText(url, sessionUA);
+    if (!text) return null;
+    return JSON.parse(text);
+  } catch (e) { return null; }
+}
+
+function parseQuality(text) {
+  var t = String(text || '').toLowerCase();
+  if (t.indexOf('2160') >= 0 || t.indexOf('4k') >= 0) return '2160p';
+  if (t.indexOf('1080') >= 0) return '1080p';
+  if (t.indexOf('720') >= 0) return '720p';
+  if (t.indexOf('480') >= 0) return '480p';
+  return 'HD';
+}
+
+function extractFslUrl(html) {
+  var fileRegex = /href="([^"]+)"[^>]*id="fsl"|href="([^"]+(?:\.workers\.dev|\.r2\.dev|\.buzz|\.cloudflarestorage\.com)\/[^"]+)"|href="(https?:\/\/[^"]+\.(?:mkv|mp4)[^*]*)"|href="(https:\/\/pub-[^"]+)"/ig;
+  var fm;
+  while ((fm = fileRegex.exec(html)) !== null) {
+      var finalUrl = fm[1] || fm[2] || fm[3] || fm[4];
+      if (finalUrl && !finalUrl.includes(".zip")) {
+          return finalUrl.replace(/&amp;/g, '&');
+      }
+  }
+  var marker = 'href="https://pub-';
+  var idx = html.indexOf(marker);
+  if (idx === -1) return null;
+  var start = idx + 6;
+  var end = html.indexOf('"', start);
+  if (end === -1) return null;
+  var url = html.substring(start, end);
+  return url.replace(/&amp;/g, '&');
+}
+
+function decodeGenerateUrl(encoded) {
+  try {
+    var decoded = atob(encoded);
+    return decoded.replace(/newgo32$/, '');
+  } catch (e) { return null; }
+}
+
+function encodeUri(str) {
+  try { return encodeURIComponent(str); } catch (e) { return str; }
+}
+
+function manifest() {
+  return {
+    id: "cinefreak",
+    name: "CineFreak",
+    description: "Direct MKV/MP4 streams from cinefreak.nl",
+    version: "1.0.1",
+    logo: "https://cinefreak.nl/wp-content/uploads/2024/08/cropped-cgk-192x192.png",
+    background: "https://cinefreak.nl/wp-content/uploads/2024/08/cropped-cgk-192x192.png",
+    types: ["movie", "tv"],
+    resources: ["stream"],
+    idPrefixes: ["tt", "tmdb"]
+  };
+}
+
+async function search(query, type) {
+  if (!query) return [];
+  var searchUrl = BASE_URL + "/wp-json/wp/v2/search?search=" + encodeUri(query) + "&per_page=10";
+  var data = await fetchJson(searchUrl);
+  if (!data || !data.length) return [];
+  var results = [];
+  for (var i = 0; i < data.length; i++) {
+    var item = data[i];
+    if (!item || !item.title || !item.url) continue;
+    var title = String(item.title).replace(/Download\s*/gi, '').trim();
+    if (!title) continue;
+    results.push({ id: item.url, title: title, url: item.url });
+  }
+  return results;
+}
+
+async function getTMDBInfo(tmdbId, mediaType, sessionUA) {
+  var isTv = (mediaType === 'tv' || mediaType === 'series');
+  var url = isTv ? 'https://api.themoviedb.org/3/tv/' + tmdbId + '?api_key=' + TMDB_API_KEY : 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_API_KEY;
+  var data = await fetchJson(url, sessionUA);
+  if (!data) return null;
+  return {
+    title: isTv ? data.name : data.title,
+    year: isTv ? (data.first_air_date || '').substring(0, 4) : (data.release_date || '').substring(0, 4),
+    isTv: isTv
+  };
+}
+
+function wordMatchScore(searchTitle, postTitle) {
+  var st = String(searchTitle || '').toLowerCase().trim();
+  var pt = String(postTitle || '').toLowerCase();
+  var stWords = st.replace(/[^a-z0-9\s]/g, ' ').split(/\s+/);
+  var matchCount = 0;
+  var totalWords = 0;
+  for (var w = 0; w < stWords.length; w++) {
+    var word = stWords[w];
+    if (word.length < 3) continue;
+    totalWords++;
+    var re = new RegExp('\\b' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'i');
+    if (re.test(postTitle)) matchCount++;
+  }
+  return totalWords === 0 ? 0 : matchCount / totalWords;
+}
+
+function titleStartsWith(title, searchTitle) {
+  var t = String(title || '').toLowerCase().trim();
+  var s = String(searchTitle || '').toLowerCase().trim();
+  return t.indexOf(s) === 0 || t.indexOf(s + ' ') === 0 || t.indexOf('(' + s + ')') === 0;
+}
+
+function urlContains(url, searchTitle) {
+  var u = String(url || '').toLowerCase();
+  var slug = String(searchTitle || '').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+  var words = slug.split('-').filter(function(w) { return w.length > 2; });
+  var matchCount = 0;
+  for (var i = 0; i < words.length; i++) {
+    if (u.indexOf(words[i]) >= 0) matchCount++;
+  }
+  return words.length > 0 ? matchCount / words.length : 0;
+}
+
+function matchByTitleYear(searchTitle, searchYear, posts, targetSeason) {
+  if (!posts || !posts.length) return null;
+  function scorePost(p) {
+    if (!p) return 0;
+    var s = 0;
+    if (titleStartsWith(p.title, searchTitle)) s += 10;
+    s += urlContains(p.url, searchTitle) * 5;
+    s += wordMatchScore(searchTitle, p.title);
+    if (searchYear && String(p.title).toLowerCase().indexOf(String(searchYear)) >= 0) s += 3;
+    return s;
+  }
+  if (targetSeason) {
+    var seasonRegex = new RegExp('(?:season|s)\\s*' + targetSeason + '\\b', 'i');
+    var best = null, bestScore = -1;
+    for (var i = 0; i < posts.length; i++) {
+      var p = posts[i]; if (!p || !p.title) continue;
+      if (seasonRegex.test(p.title)) {
+        var s = scorePost(p) + 10;
+        if (s > bestScore) { bestScore = s; best = p; }
+      }
+    }
+    if (best) return best;
+  }
+  var best = null, bestScore = -1;
+  for (var i = 0; i < posts.length; i++) {
+    var p = posts[i]; if (!p || !p.title) continue;
+    var s = scorePost(p);
+    if (s > bestScore) { bestScore = s; best = p; }
+  }
+  return (best && bestScore >= 3) ? best : null;
+}
+
+async function searchCinefreak(query, year, sessionUA) {
+  if (!query) return [];
+  var searchUrl = BASE_URL + "/wp-json/wp/v2/search?search=" + encodeUri(query) + "&per_page=10";
+  var data = await fetchJson(searchUrl, sessionUA);
+  if (!data || !data.length) return [];
+  var posts = [];
+  for (var i = 0; i < data.length; i++) {
+    var item = data[i]; if (!item || !item.title || !item.url) continue;
+    posts.push({
+      id: item.id,
+      title: String(item.title).replace(/Download\s*/gi, '').trim(),
+      url: item.url
+    });
+  }
+  return posts;
+}
+
+async function fetchPostPage(url, sessionUA) {
+  if (!url) return null;
+  var fullUrl = url.indexOf('http') === 0 ? url : (url.indexOf('/') === 0 ? BASE_URL + url : BASE_URL + '/' + url);
+  return await fetchText(fullUrl, sessionUA);
+}
+
+function extractAllGenerateLinks(html) {
+  if (!html) return [];
+  var results = [];
+  var searchStart = 0;
+  var marker = '/generate.php?id=';
+  while (true) {
+    var idx = html.indexOf(marker, searchStart); if (idx === -1) break;
+    var hrefStart = html.lastIndexOf('<a ', idx);
+    if (hrefStart === -1 || hrefStart < searchStart) { searchStart = idx + 1; continue; }
+    var closeA = html.indexOf('</a>', idx); if (closeA === -1) { searchStart = idx + 1; continue; }
+    var anchorStart = html.indexOf('>', idx);
+    if (anchorStart === -1 || anchorStart > closeA) { searchStart = closeA + 4; continue; }
+    var label = html.substring(anchorStart + 1, closeA).trim();
+    var idEnd = html.indexOf('"', idx); if (idEnd === -1) { searchStart = closeA + 4; continue; }
+    var hrefAttr = html.substring(idx, idEnd);
+    var idMatch = hrefAttr.match(/id=([a-zA-Z0-9+/=]+)/);
+    if (!idMatch) { searchStart = closeA + 4; continue; }
+    var encoded = idMatch[1];
+    var decodedUrl = decodeGenerateUrl(encoded);
+    results.push({ encodedId: encoded, decodedUrl: decodedUrl || '', label: label });
+    searchStart = closeA + 4;
+  }
+  return results;
+}
+
+function extractMovieQualities(html) {
+  if (!html) return [];
+  var results = [];
+  var parts = html.split('dlbtn-container');
+  
+  for (var i = 1; i < parts.length; i++) {
+    var container = parts[i];
+    var beforeSection = parts[i - 1]; 
+
+    var genMatch = container.match(/href="(?:https?:\/\/[^"]*?)?\/generate\.php\?id=([a-zA-Z0-9+/=]+)"/);
+    if (!genMatch) continue;
+    var encoded = genMatch[1];
+    var decodedUrl = decodeGenerateUrl(encoded);
+    if (!decodedUrl || decodedUrl.indexOf('/f/') === -1) continue;
+
+    var qualityLabel = '';
+    var qualMatch = beforeSection.match(/<\/span>\s*([^<]*?(?:2160|1080|720|480|4K)[^<]*?\[[^\]]+\])/i);
+    if (!qualMatch) qualMatch = beforeSection.match(/<\/span>\s*([^<]*?(?:2160|1080|720|480|4K)[^<]*?)\s*\[/i);
+    
+    if (qualMatch) qualityLabel = qualMatch[1].trim();
+    
+    var h4Match = beforeSection.match(/<h4[^>]*>([\s\S]*?)<\/h4>/i);
+    var fullBlockHeading = h4Match ? h4Match[1].replace(/<[^>]*>/g, ' ').trim() : '';
+
+    if (!qualityLabel) {
+      qualMatch = beforeSection.match(/\b(4K\s*2160p|UHD|2160p|1080p|720p|480p)\b/i);
+      qualityLabel = qualMatch ? qualMatch[0] : decodedUrl;
+    }
+
+    var quality = parseQuality(qualityLabel);
+    var dup = false;
+    for (var j = 0; j < results.length; j++) {
+      if (results[j].decodedUrl === decodedUrl) { dup = true; break; }
+    }
+    if (dup) continue;
+
+    results.push({
+      encodedId: encoded,
+      decodedUrl: decodedUrl,
+      label: qualityLabel,
+      headingContext: fullBlockHeading, // Bound context to right element
+      quality: quality
+    });
+  }
+  return results;
+}
+
+function extractEpisodeQualities(html, targetEpisode) {
+  if (!html) return [];
+  var cards = html.split('<div class="ep-card"');
+  var targetCard = null;
+  for (var c = 1; c < cards.length; c++) {
+    var card = cards[c];
+    var epMatch = card.match(/episode-badge[^>]*>Episode\s*(\d+)/i);
+    if (!epMatch) continue;
+    if (parseInt(epMatch[1], 10) === targetEpisode) { targetCard = card; break; }
+  }
+  if (!targetCard) return [];
+  var allLinks = extractAllGenerateLinks(targetCard);
+  var results = [];
+  for (var i = 0; i < allLinks.length; i++) {
+    var link = allLinks[i];
+    if (!link.decodedUrl || link.decodedUrl.indexOf('/f/') === -1) continue;
+    var quality = parseQuality(link.label || link.decodedUrl);
+    var dup = false;
+    for (var j = 0; j < results.length; j++) {
+      if (results[j].decodedUrl === link.decodedUrl) { dup = true; break; }
+    }
+    if (dup) continue;
+    results.push({
+      encodedId: link.encodedId,
+      decodedUrl: link.decodedUrl,
+      label: link.label,
+      headingContext: link.label,
+      quality: quality
+    });
+  }
+  return results;
+}
+
+function filterQualities(qualities) {
+  if (!qualities || !qualities.length) return [];
+  var keep = [];
+  for (var i = 0; i < qualities.length; i++) {
+    if (qualities[i].quality === '480p' || qualities[i].quality === 'SD') continue;
+    keep.push(qualities[i]);
+  }
+  return keep;
+}
+
+function extractHash(decodedUrl) {
+  if (!decodedUrl) return '';
+  var fIdx = decodedUrl.indexOf('/f/'), xIdx = decodedUrl.indexOf('/x/');
+  var slashIdx = fIdx >= 0 ? fIdx + 3 : (xIdx >= 0 ? xIdx + 3 : -1);
+  return slashIdx < 0 ? '' : decodedUrl.substring(slashIdx);
+}
+
+async function resolveFslUrl(decodedUrl, sessionUA) {
+  if (!decodedUrl) return null;
+  var hash = extractHash(decodedUrl); if (!hash) return null;
+  var html = await fetchText(CINECLOUD_BASE + '/f/' + hash, sessionUA);
+  return html ? extractFslUrl(html) : null;
+}
+
+function makeStream(name, title, url, quality, headers, mediaInfo, headingContext) {
+    var cleanName = decodeEntities(name || '').replace(/[\n\t]+/g, '').trim();
+    var scanTargetText = decodeEntities((headingContext || "") + " " + (title || "")).replace(/[\n\t]+/g, ' ').trim();
+    
+    if (cleanName.indexOf(' - ') > 0) cleanName = cleanName.split(' - ')[0].trim();
+    cleanName = cleanName.replace(/\(\d{4}\).*$/gi, '').replace(/\d{3,4}p.*$/gi, '').trim();
+
+    // 1. EXACT METADATA & SIZE HARVESTER
+    var fileSizeOnly = "N/A";
+    var sizeMatch = scanTargetText.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i) || scanTargetText.match(/(\d+(?:\.\d+)?\s*[MG]B)/i);
+    if (sizeMatch) fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
+
+    var numericalSizeWeight = 0;
+    if (sizeMatch) {
+        var num = parseFloat(sizeMatch[1]);
+        numericalSizeWeight = sizeMatch[1].toUpperCase().includes("GB") ? num * 1024 : num;
+    }
+
+    var fileFormat = "MKV";
+    if (url && url.toLowerCase().split('?')[0].endsWith(".mp4")) fileFormat = "MP4";
+
+    var sourceTag = "WEB-DL";
+    if (/\b(bluray|blu\-ray|bdrip)\b/i.test(scanTargetText)) sourceTag = "BluRay";
+    else if (/\b(hdrip|webrip)\b/i.test(scanTargetText)) sourceTag = "WEBRip";
+
+    // 2. VIDEO PROFILE VALIDATIONS
+    var videoRangeBlock = "";
+    var rangeTag = "";
+    if (/\b(dolby\s*vision|dovi|dv)\b/i.test(scanTargetText)) rangeTag = "Dolby Vision";
+    else if (/\bhdr10\b/i.test(scanTargetText)) rangeTag = "HDR10";
+    else if (/\bhdr\b/i.test(scanTargetText)) rangeTag = "HDR";
+    else if (/\b(10bit|10\-bit)\b/i.test(scanTargetText)) rangeTag = "10Bit";
+    else if (/\bsdr\b/i.test(scanTargetText)) rangeTag = "SDR";
+
+    // 3. CODEC ASSIGNMENT FIX
+    var codecTag = "H.264";
+    if (/\b(hevc|x265|h265)\b/i.test(scanTargetText)) codecTag = "HEVC";
+    else if (/\b(x264|h264)\b/i.test(scanTargetText)) codecTag = "H.264";
+    else if (quality.includes("2160") || quality.toLowerCase().includes("4k")) codecTag = "HEVC";
+
+    if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
+    else videoRangeBlock = " | ⚡ " + codecTag;
+
+    var audioChannelTag = "Auto";
+    var audioMatch = scanTargetText.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|Atmos|AAC|Stereo)/i);
+    if (audioMatch) {
+        audioChannelTag = audioMatch[1].toUpperCase().replace(/\s+/g, '');
+        if (audioChannelTag === "5.1") audioChannelTag = "DDP5.1";
+        if (audioChannelTag === "ATMOS") audioChannelTag = "ATMOS 5.1";
+    }
+
+    // 4. LANGUAGE TRACK REPAIR (Fixed Dual-Audio / Dutch Mismatch)
+    var isDualAudio = /\b(dual|multi|dubbed|hindi)\b/i.test(scanTargetText);
+    var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
+    var displayLanguages = isDualAudio ? "English 🇺🇸 • Hindi 🇮🇳" : "English 🇺🇸";
+
+    var displayQuality = quality || "1080p";
+    var label = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
+
+    var yearMatch = scanTargetText.match(/\b(19|20)\d{2}\b/);
+    var displayYear = yearMatch ? yearMatch[0] : "2026";
+
+    var line1 = (mediaInfo && (mediaInfo.startsWith("S") || mediaInfo.includes("E")))
+        ? '🎦 ' + cleanName + ' (' + displayYear + ') - ' + mediaInfo.replace(/E0*(\d+)/i, 'E$1').replace(/S0*(\d+)/i, 'S$1')
+        : '🎦 ' + cleanName + ' - (' + displayYear + ')';
+
+    var line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
+    var line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
+    var line4 = '🔗 FSL Server | ☁️ ' + sourceTag;
+
+    // Strict Weight Calculation to bubble 2160p to the very top on all devices
+    var baseResWeight = displayQuality.includes("2160") || displayQuality.toLowerCase().includes("4k") ? 9000000 : (displayQuality.includes("1080") ? 6000000 : 3000000);
+    var structuralSortWeight = baseResWeight + numericalSizeWeight;
+
+    return {
+        name: label,
+        title: line1 + '\n' + line2 + '\n' + line3 + '\n' + line4,
+        url: url || "",
+        _sortWeight: structuralSortWeight,
+        behaviorHints: { notWebReady: true, proxyHeaders: { request: headers || { "Referer": CINECLOUD_BASE + "/" } } }
+    };
+}
+
+async function getStreams(tmdbId, mediaType, season, episode) {
+  try {
+    var isTv = (mediaType === 'tv' || mediaType === 'series');
+    var sessionUA = MOBILE_UAS[Math.floor(Math.random() * MOBILE_UAS.length)];
+
+    var tmdbInfo = await getTMDBInfo(tmdbId, mediaType, sessionUA);
+    if (!tmdbInfo || !tmdbInfo.title) return [];
+
+    var targetSeason = isTv ? (parseInt(season, 10) || 1) : null;
+    var searchResults = await searchCinefreak(tmdbInfo.title, null, sessionUA);
+    if (!searchResults || searchResults.length < 3) {
+      var results2 = await searchCinefreak(tmdbInfo.title + ' ' + tmdbInfo.year, null, sessionUA);
+      if (results2 && results2.length) searchResults = results2;
+    }
+    if (!searchResults || !searchResults.length) return [];
+
+    var bestPost = matchByTitleYear(tmdbInfo.title, tmdbInfo.year, searchResults, targetSeason);
+    if (!bestPost) return [];
+
+    var html = await fetchPostPage(bestPost.url, sessionUA);
+    if (!html) return [];
+
+    var qualities = isTv ? extractEpisodeQualities(html, parseInt(episode, 10) || 1) : extractMovieQualities(html);
+    var filtered = filterQualities(qualities);
+    if (!filtered.length) return [];
+
+    var epLabel = isTv ? 'S' + (parseInt(season, 10) < 10 ? '0' : '') + parseInt(season, 10) + 'E' + (parseInt(episode, 10) < 10 ? '0' : '') + parseInt(episode, 10) : '';
+
+    var streams = [];
+    for (var qi = 0; qi < filtered.length; qi++) {
+      var q = filtered[qi];
+      var fslUrl = await resolveFslUrl(q.decodedUrl, sessionUA);
+      if (fslUrl) {
+        var streamObj = makeStream(
+            bestPost.title, 
+            q.label, 
+            fslUrl, 
+            q.quality, 
+            { 'Referer': CINECLOUD_BASE + '/', 'User-Agent': sessionUA },
+            epLabel.trim(),
+            q.headingContext // Send matching targeted segment element down
+        );
+        streams.push(streamObj);
+      }
+    }
+
+    return streams.sort(function(a, b) { return b._sortWeight - a._sortWeight; });
+
+  } catch (e) { return []; }
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { manifest: manifest, search: search, getStreams: getStreams };
 } else {
-  global.getStreams = getStreams;
+  global.manifest = manifest; global.search = search; global.getStreams = getStreams;
 }

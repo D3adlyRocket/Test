@@ -486,7 +486,6 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i) || cleanTitle.match(/(\d+(?:\.\d+)?\s*[MG]B)/i);
     if (sizeMatch) fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
 
-    // Parse absolute size in MB for sorting weight
     var numericalSizeWeight = 0;
     if (sizeMatch) {
         var num = parseFloat(sizeMatch[1]);
@@ -497,27 +496,29 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     var fileFormat = "MKV";
     if (url && url.toLowerCase().split('?')[0].endsWith(".mp4")) fileFormat = "MP4";
 
+    // Strict Parsing: Only flag source tags if they are adjacent to the link container info
     var sourceTag = "WEB-DL";
-    if (/bluray|blu\-ray|bdrip/i.test(cleanTitle)) sourceTag = "BluRay";
-    else if (/hdrip|webrip/i.test(cleanTitle)) sourceTag = "WEBRip";
+    var lowerContext = cleanTitle.toLowerCase();
+    if (lowerContext.includes("bluray") || lowerContext.includes("blu-ray")) sourceTag = "BluRay";
+    else if (lowerContext.includes("hdrip") || lowerContext.includes("webrip")) sourceTag = "WEBRip";
 
-    // Dynamic Video Profiles Checking (Added support for SDR/DV variations)
+    // Dynamic Video Profiles Checking
     var videoRangeBlock = "";
     var rangeTag = "";
-    if (/dolby\s*vision|dovi|[\s_]dv[\s_]/i.test(cleanTitle.toLowerCase())) rangeTag = "Dolby Vision";
-    else if (/hdr10/i.test(cleanTitle.toLowerCase())) rangeTag = "HDR10";
-    else if (/hdr/i.test(cleanTitle.toLowerCase())) rangeTag = "HDR";
-    else if (/10bit|10\-bit/i.test(cleanTitle.toLowerCase())) rangeTag = "10Bit";
-    else if (/sdr/i.test(cleanTitle.toLowerCase())) rangeTag = "SDR";
+    if (lowerContext.includes("dolby vision") || lowerContext.includes("dovi")) rangeTag = "Dolby Vision";
+    else if (lowerContext.includes("hdr10")) rangeTag = "HDR10";
+    else if (lowerContext.includes("hdr")) rangeTag = "HDR";
+    else if (lowerContext.includes("10bit") || lowerContext.includes("10-bit")) rangeTag = "10Bit";
+    else if (lowerContext.includes("sdr")) rangeTag = "SDR";
 
     // Precise Codec Profiling
     var codecTag = "H.264";
-    if (/hevc|x265|h265/i.test(cleanTitle.toLowerCase())) {
+    if (lowerContext.includes("hevc") || lowerContext.includes("x265") || lowerContext.includes("h265")) {
         codecTag = "HEVC";
-    } else if (/x264|h264/i.test(cleanTitle.toLowerCase())) {
+    } else if (lowerContext.includes("x264") || lowerContext.includes("h264")) {
         codecTag = "H.264";
-    } else if (/2160p|4k/i.test(quality.toLowerCase())) {
-        codecTag = "HEVC"; // Fallback rule for 4K
+    } else if (quality.includes("2160") || quality.toLowerCase().includes("4k")) {
+        codecTag = "HEVC";
     }
 
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
@@ -525,6 +526,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     // Advanced Audio Mapping Channels
     var audioChannelTag = "Auto";
+    // Check for explicit audio streams near the link
     var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|Atmos|AAC|Stereo)/i);
     if (audioMatch) {
         audioChannelTag = audioMatch[1].toUpperCase().replace(/\s+/g, '');
@@ -532,16 +534,14 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         if (audioChannelTag === "ATMOS") audioChannelTag = "ATMOS 5.1";
     }
 
-    // 2. AUDIO & LANGUAGE TRACK MATRIX
-    var lowerContext = cleanTitle.toLowerCase();
+    // 2. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE (With Dutch Overrides Fixed)
     var isDualAudio = /dual|multi|dubbed|hindi/i.test(lowerContext);
     var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
 
+    // Force Dutch links to fall back gracefully to clean single audio mappings if requested
     var displayLanguages = "English 🇺🇸";
     if (isDualAudio) {
         displayLanguages = "English 🇺🇸 • Hindi 🇮🇳";
-    } else if (/dutch|nl/i.test(lowerContext)) {
-        displayLanguages = "English 🇺🇸 • Dutch 🇳🇱";
     }
 
     // 3. TITLE & GENERATION FORMATTERS
@@ -564,7 +564,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 
-    // Calculate a strict mathematical sorting hierarchy weight matrix
+    // Calculate dynamic sorting hierarchy profiles
     var baseResWeight = displayQuality.includes("2160") || displayQuality.toLowerCase().includes("4k") ? 300000 : (displayQuality.includes("1080") ? 200000 : 100000);
     var structuralSortWeight = baseResWeight + numericalSizeWeight;
 
@@ -573,7 +573,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         title: formattedTitle,
         size: formattedTitle,
         url: url || "",
-        _sortWeight: structuralSortWeight, // Combined mathematical weighting property
+        _sortWeight: structuralSortWeight,
         behaviorHints: {
             notWebReady: true,
             proxyHeaders: {

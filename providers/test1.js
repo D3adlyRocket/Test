@@ -89,7 +89,7 @@ var require_formatter = __commonJS({
       const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
       return normalized || void 0;
     }
-    function formatStream2(stream, providerName) {
+        function formatStream2(stream, providerName) {
       // 1. Quality Parser
       let rawQuality = stream.quality || "1080p";
       let cleanQuality = "1080p";
@@ -106,8 +106,8 @@ var require_formatter = __commonJS({
         audioChannels = "DD5.1";
       }
 
-      // 3. Header formatting 
-      const nameTag = `🎦 VixSrc | ${cleanQuality} | Multi-Audio`;
+      // 3. Header formatting
+      const nameTag = `🎦 VixSrc | ${cleanQuality} | Language Dual- Audio`;
 
       // 4. Subheading Building
       let subLine1 = `🎬 Stream`;
@@ -158,7 +158,7 @@ var require_formatter = __commonJS({
       return __spreadProps(__spreadValues({}, stream), {
         name: nameTag,
         title: finalTitle,
-        size: "", 
+        size: finalTitle, 
         providerName: "VixSrc",
         qualityTag: cleanQuality,
         description: finalTitle,
@@ -172,6 +172,7 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
     }
+
     module2.exports = { formatStream: formatStream2 };
   }
 });

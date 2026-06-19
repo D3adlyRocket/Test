@@ -177,14 +177,15 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
+      // 1. Build base object using zero-width spaces to hide 'Unknown' on TV and prevent fragments on Mobile
       const baseStream = __spreadProps(__spreadValues({}, stream), {
         name: nameTag,
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
-        qualityTag: null,
-        quality: null,
-        language: null,
+        qualityTag: "\u200B",
+        quality: "\u200B",
+        language: "\u200B",
         description: finalTitle,
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,
@@ -195,7 +196,7 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // 2. Intercept typecast checking so Mobile treats null properties as hidden formatting objects instead of literal words
+      // 2. Extra safety layer for platform string handling
       try {
         Object.defineProperties(baseStream, {
           toString: { value: () => finalTitle, enumerable: false },

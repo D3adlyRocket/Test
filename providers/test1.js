@@ -177,7 +177,7 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      return __spreadProps(__spreadValues({}, stream), {
+      const baseStream = __spreadProps(__spreadValues({}, stream), {
         name: nameTag,
         title: finalTitle,
         size: finalTitle, 
@@ -191,6 +191,12 @@ var require_formatter = __commonJS({
         userAgent: playbackUserAgent,
         headers: finalHeaders
       });
+
+      Object.defineProperty(baseStream, 'quality', { get: () => "", enumerable: true, configurable: true });
+      Object.defineProperty(baseStream, 'qualityTag', { get: () => "", enumerable: true, configurable: true });
+      Object.defineProperty(baseStream, 'language', { get: () => "", enumerable: true, configurable: true });
+
+      return baseStream;
     }
 
     module2.exports = { formatStream: formatStream2 };

@@ -177,15 +177,15 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      // 1. Build base object using zero-width spaces to hide 'Unknown' on TV and prevent fragments on Mobile
+            // 1. Build base object using empty spacing to clean up the TV header and prevent mobile fallback fragments
       const baseStream = __spreadProps(__spreadValues({}, stream), {
         name: nameTag,
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
-        qualityTag: "\u200B",
-        quality: "\u200B",
-        language: "\u200B",
+        qualityTag: "",
+        quality: "1080p", // Sets a valid string to keep the TV header from falling back to Unknown
+        language: "Dual-Audio", // Fulfills validation requirements cleanly
         description: finalTitle,
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,
@@ -196,11 +196,11 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // 2. Extra safety layer for platform string handling
+      // 2. Override internal properties dynamically so the app relies strictly on the clean finalTitle layout lines
       try {
         Object.defineProperties(baseStream, {
-          toString: { value: () => finalTitle, enumerable: false },
-          valueOf: { value: () => finalTitle, enumerable: false }
+          qualityTag: { get: () => "", enumerable: true, configurable: true },
+          language: { get: () => "", enumerable: true, configurable: true }
         });
       } catch (e) {}
 

@@ -182,6 +182,9 @@ var require_formatter = __commonJS({
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
+        qualityTag: null,
+        quality: null,
+        language: null,
         description: finalTitle,
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,
@@ -192,9 +195,13 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      Object.defineProperty(baseStream, 'quality', { get: () => "", enumerable: true, configurable: true });
-      Object.defineProperty(baseStream, 'qualityTag', { get: () => "", enumerable: true, configurable: true });
-      Object.defineProperty(baseStream, 'language', { get: () => "", enumerable: true, configurable: true });
+      // 2. Intercept typecast checking so Mobile treats null properties as hidden formatting objects instead of literal words
+      try {
+        Object.defineProperties(baseStream, {
+          toString: { value: () => finalTitle, enumerable: false },
+          valueOf: { value: () => finalTitle, enumerable: false }
+        });
+      } catch (e) {}
 
       return baseStream;
     }

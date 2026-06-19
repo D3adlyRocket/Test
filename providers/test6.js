@@ -482,6 +482,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     cleanName = cleanName.replace(/\(\d{4}\).*$/gi, '').replace(/\d{3,4}p.*$/gi, '').trim();
 
     var lowerContext = cleanTitle.toLowerCase();
+    var lowerUrl = (url || "").toLowerCase();
 
     // 1. METADATA & SIZE ENGINE
     var fileSizeOnly = "N/A";
@@ -496,7 +497,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
 
     var fileFormat = "MKV";
-    if (url && url.toLowerCase().split('?')[0].endsWith(".mp4")) fileFormat = "MP4";
+    if (url && lowerUrl.split('?')[0].endsWith(".mp4")) fileFormat = "MP4";
 
     var sourceTag = "WEB-DL";
     if (/\b(bluray|blu\-ray)\b/i.test(lowerContext)) sourceTag = "BluRay";
@@ -505,36 +506,38 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     // 2. AUTOMATIC CODEC DETECTION
     var is4K = quality.includes("2160") || quality.toLowerCase().includes("4k") || lowerContext.includes("2160p");
     var codecTag = "H.264";
-    if (/\b(hevc|x265|h265)\b/i.test(lowerContext) || is4K) {
+    if (/\b(hevc|x265|h265)\b/i.test(lowerContext) || lowerUrl.includes("hevc") || lowerUrl.includes("x265") || is4K) {
         codecTag = "HEVC";
     }
 
     // 3. AUTOMATIC VIDEO PROFILE DETECTION
     var videoRangeBlock = "";
     var rangeTag = "";
-    if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext)) {
+    if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext) || lowerUrl.includes("dovi") || lowerUrl.includes("dolby.vision")) {
         rangeTag = "Dolby Vision";
-    } else if (/\bhdr10\b/i.test(lowerContext)) {
+    } else if (/\bhdr10\b/i.test(lowerContext) || lowerUrl.includes("hdr10")) {
         rangeTag = "HDR10";
-    } else if (/\bhdr\b/i.test(lowerContext)) {
+    } else if (/\bhdr\b/i.test(lowerContext) || lowerUrl.includes("hdr")) {
         rangeTag = "HDR";
-    } else if (/\b(10bit|10\-bit)\b/i.test(lowerContext)) {
+    } else if (/\b(10bit|10\-bit)\b/i.test(lowerContext) || lowerUrl.includes("10bit")) {
         rangeTag = "10Bit";
     }
 
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
     else videoRangeBlock = " | ⚡ " + codecTag;
 
-    // 4. DYNAMIC AUDIO CHANNEL MAPPING MATRIX (Literal Audio Indicator Scanner)
+    // 4. COMBINED AUDIO MAPPING ENGINE (Scans Link Title + URL Fallbacks)
     var audioChannelTag = "DD5.1"; 
     
-    // Check for "atmos", literal speaker emoji, isolated "da", or text mentions of "dolby"
     var hasAtmosOrDA = lowerContext.includes("atmos") || 
                        lowerContext.includes("🔊") ||
                        lowerContext.includes("dolby") ||
                        /\bda\b/i.test(lowerContext) || 
                        lowerContext.includes("[da]") ||
-                       lowerContext.includes("-da");
+                       lowerContext.includes("-da") ||
+                       lowerUrl.includes("atmos") ||
+                       lowerUrl.includes(".da.") ||
+                       lowerUrl.includes("ddp5.1");
 
     if (hasAtmosOrDA || is4K) {
         audioChannelTag = "DD5.1 • 🔊 DA";
@@ -550,7 +553,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     }
 
     // 5. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE
-    var isDualAudio = /\b(dual|multi|dubbed|hindi)\b/i.test(lowerContext) || decodeEntities(name || "").toLowerCase().includes("dual audio");
+    var isDualAudio = /\b(dual|multi|dubbed|hindi)\b/i.test(lowerContext) || decodeEntities(name || "").toLowerCase().includes("dual audio") || lowerUrl.includes("dual");
     var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
     var displayLanguages = isDualAudio ? "English 🇺🇸 • Hindi 🇮🇳" : "English 🇺🇸";
 

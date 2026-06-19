@@ -525,14 +525,15 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
     else videoRangeBlock = " | ⚡ " + codecTag;
 
-    // 4. DYNAMIC AUDIO CHANNEL MAPPING MATRIX (Boundary-relaxed DA verification)
+    // 4. DYNAMIC AUDIO CHANNEL MAPPING MATRIX (Literal Audio Indicator Scanner)
     var audioChannelTag = "DD5.1"; 
     
-    // Checks for atmos, isolated "da", or bracketed "[da]" / "-da" safely without strict word boundary failures
+    // Check for "atmos", literal speaker emoji, isolated "da", or text mentions of "dolby"
     var hasAtmosOrDA = lowerContext.includes("atmos") || 
+                       lowerContext.includes("🔊") ||
+                       lowerContext.includes("dolby") ||
                        /\bda\b/i.test(lowerContext) || 
-                       lowerContext.includes("[da]") || 
-                       lowerContext.includes(" da ") ||
+                       lowerContext.includes("[da]") ||
                        lowerContext.includes("-da");
 
     if (hasAtmosOrDA || is4K) {
@@ -591,7 +592,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         }
     };
 }
-        
+            
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
     var isTv = (mediaType === 'tv' || mediaType === 'series');

@@ -89,7 +89,7 @@ var require_formatter = __commonJS({
       const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
       return normalized || void 0;
     }
-        function formatStream2(stream, providerName) {
+         function formatStream2(stream, providerName) {
       // 1. Quality Parser
       let rawQuality = stream.quality || "1080p";
       let cleanQuality = "1080p";
@@ -106,10 +106,17 @@ var require_formatter = __commonJS({
         audioChannels = "DD5.1";
       }
 
-      // 3. Header formatting
-      const nameTag = `🎦 VixSrc | ${cleanQuality} | Language Dual- Audio`;
+      // 3. Dynamic Language / Dual-Audio Mapping Logic
+      let languageLabel = "Single-Audio";
+      // Inspect headers or streams for dual setup triggers (VixSrc defaults to Multi/Dual stream tracks)
+      if (stream.url && (stream.url.includes("lang=it") || stream.url.includes("dual") || stream.url.includes("multi"))) {
+        languageLabel = "Dual-Audio";
+      }
 
-      // 4. Subheading Building
+      // 4. Header formatting
+      const nameTag = `🎦 VixSrc | ${cleanQuality} | Language ${languageLabel}`;
+
+      // 5. Subheading Building
       let subLine1 = `🎬 Stream`;
       if (stream._meta_layout) {
         if (stream._meta_layout.type === "movie") {
@@ -160,10 +167,12 @@ var require_formatter = __commonJS({
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
-        qualityTag: cleanQuality,
+        // Nullify or map these properties to clean strings so the player cannot generate the appended bullet values
+        qualityTag: "",
+        quality: "",
+        language: "",
         description: finalTitle,
         originalTitle: stream.title || "Stream",
-        language: "Italian",
         _nuvio_formatted: true,
         behaviorHints,
         provider: normalizeProviderId("VixSrc"),
@@ -171,7 +180,7 @@ var require_formatter = __commonJS({
         userAgent: playbackUserAgent,
         headers: finalHeaders
       });
-    }
+    }   
 
     module2.exports = { formatStream: formatStream2 };
   }

@@ -449,11 +449,20 @@ async function resolveFslUrl(decodedUrl, sessionUA) {
   return extractFslUrl(html);
 }
 function makeStream(name, title, url, quality, headers, mediaInfo) {
-    var cleanName = String(name || '').replace(/[\n\t]+/g, '').trim();
-    var cleanTitle = String(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+    // 1. DECODE HTML ENTITIES & CLEAN UP RAW WEBSITE TITLES
+    var cleanName = decodeEntities(name || '').replace(/[\n\t]+/g, '').trim();
+    var cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     
-    // 1. METADATA SCANNING
-    var fileSizeOnly = "N/A"; // Defaults to N/A as requested!
+    // Trim massive fallback paragraphs down to just the clean film name
+    if (cleanName.indexOf('(') > 0) {
+        cleanName = cleanName.split('(')[0].trim();
+    } else if (cleanName.match(/\d{3,4}p/i)) {
+        cleanName = cleanName.split(/\d{3,4}p/i)[0].trim();
+    }
+
+    // 2. METADATA & SIZE SCANNING
+    var fileSizeOnly = "N/A";
+    // Check both the post context text and title details for bracketed file sizes
     var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
     if (sizeMatch) fileSizeOnly = sizeMatch[1].trim();
 
@@ -483,7 +492,6 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         videoRangeBlock = " | ⚡ " + codecTag;
     }
 
-    // Audio Mapping Layout
     var audioChannelTag = "Auto";
     var audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
     if (audioMatch) {
@@ -491,17 +499,23 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         if (audioChannelTag === "5.1") audioChannelTag = "DDP5.1";
     }
 
-    // 2. LANGUAGE MATRIX ENGINE (CineFreak defaults primarily to Dutch/English combinations)
+    // 3. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE
+    var lowerContext = cleanTitle.toLowerCase();
+    var isDualAudio = /dual|multi|dubbed|hindi/i.test(lowerContext);
+    var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
+
     var displayLanguages = "English 🇺🇸";
-    if (/nl\s*subs|dutch|nl/i.test(cleanTitle.toLowerCase())) {
+    if (isDualAudio) {
+        displayLanguages = "English 🇺🇸 • Hindi 🇮🇳";
+    } else if (/dutch|nl/i.test(lowerContext)) {
         displayLanguages = "English 🇺🇸 • Dutch 🇳🇱";
     }
 
-    // 3. TITLE RENDERING SYSTEM
+    // 4. HEADER LAYOUT GENERATOR
     var displayQuality = quality || "1080p";
-    var label = PROVIDER_NAME + " | " + displayQuality + " | Direct Link";
+    var label = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
 
-    // 4. OUTPUT LAYOUT STRUCTURE 
+    // 5. OUTPUT DISPLAY RENDERER
     var line1 = '🎬 ' + cleanName;
     var line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
     var line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
@@ -509,7 +523,6 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 
-    // Notice: We do NOT append the quality property here to ensure the bullet points are removed on mobile UI layouts!
     return {
         name: label,
         title: formattedTitle,

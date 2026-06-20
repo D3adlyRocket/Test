@@ -177,7 +177,7 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-            // 1. Build the base object cleanly
+      // 1. Build the baseline stream object template
       const baseStream = __spreadProps(__spreadValues({}, stream), {
         title: finalTitle,
         size: finalTitle, 
@@ -192,14 +192,30 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // 2. Format properties so the TV's native "-" character acts as a separator
-      // TV merges: [name] + " | " + [quality] -> "🎦 VixSrc | 1080p | Dual-Audio"
-      baseStream.name = "🎦 VixSrc";
-      baseStream.quality = `${cleanQuality} | ${audioTypeLabel}`; 
-      
-      // Keep these strictly empty so no extra bullets or tags are generated
+      // 2. Fallback assignment logic
+      // Mobile expects everything embedded inside 'name' to keep subheadings pristine.
+      baseStream.name = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`;
       baseStream.qualityTag = "";
+      baseStream.quality = "";
       baseStream.language = "";
+
+      // 3. Heavy-handed interceptor for TV layouts:
+      // If the app engine attempts to append a hyphen + fallback text, we rewrite the keys on the fly
+      try {
+        let executionCount = 0;
+        Object.defineProperties(baseStream, {
+          quality: {
+            get: () => {
+              executionCount++;
+              // If the engine asks for quality multiple times, it's building the TV header layout line
+              return ""; 
+            },
+            set: () => {},
+            enumerable: true,
+            configurable: true
+          }
+        });
+      } catch (e) {}
 
       return baseStream;
     }

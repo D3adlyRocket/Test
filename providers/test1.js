@@ -89,7 +89,7 @@ var require_formatter = __commonJS({
       const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
       return normalized || void 0;
     }
-     function formatStream2(stream, providerName) {
+    function formatStream2(stream, providerName) {
       // 1. Quality Parser
       let rawQuality = stream.quality || "1080p";
       let cleanQuality = "1080p";
@@ -673,7 +673,9 @@ function getStreams(id, type, season, episode, providerContext = null) {
         },
         _meta_layout: layoutMeta
       };
-      return [formatStream(result, "VixSrc")].filter((s) => s !== null);
+      
+      const formatted = formatStream(result, "VixSrc");
+      return formatted ? [formatted] : [];
     } catch (error) {
       console.error("[VixSrc] Error:", error);
       return [];

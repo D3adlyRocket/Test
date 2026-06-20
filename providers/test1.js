@@ -177,7 +177,7 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-       // 1. Build the base object with a structural override for the app's native layout engine
+      // 1. Build the base object cleanly
       const baseStream = __spreadProps(__spreadValues({}, stream), {
         name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
         title: finalTitle,
@@ -193,13 +193,12 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // 2. Intercept quality properties with a string control code that actively drops trailing hyphens and "Unknown" text
+      // 2. Completely delete the keys from the object so the TV UI stops rendering the separators
       try {
-        Object.defineProperties(baseStream, {
-          qualityTag: { get: () => "", enumerable: true, configurable: true },
-          quality: { get: () => "\x08", enumerable: true, configurable: true }, // Backspace control character to delete the leading hyphen
-          language: { get: () => "", enumerable: true, configurable: true }
-        });
+        delete baseStream.quality;
+        delete baseStream.qualityTag;
+        delete baseStream.language;
+        delete baseStream.quality_tag;
       } catch (e) {}
 
       return baseStream;

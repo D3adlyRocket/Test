@@ -149,18 +149,20 @@ const rules = layoutRules[deviceType] || layoutRules.mobile;
       }
 
       // 4. Clean Header Layout (Removed the word "Language")
-      const q = safeLabel(cleanQuality);
-const a = safeLabel(audioTypeLabel);
+            // 4. Clean Header Layout
+      const q = cleanQuality;
+      const a = audioTypeLabel;
 
-let nameTag = "🎦 VixSrc";
+      let nameTag = "🎦 VixSrc";
 
-if (q && a) {
-  nameTag += ` | ${q} - ${a}`;
-} else if (q) {
-  nameTag += ` | ${q}`;
-} else if (a) {
-  nameTag += ` | ${a}`;
-}
+      if (q && a) {
+        nameTag += ` | ${q} - ${a}`;
+      } else if (q) {
+        nameTag += ` | ${q}`;
+      } else if (a) {
+        nameTag += ` | ${a}`;
+      }
+
        
       // 5. Four Line Clean Subheading Engine
       let subLine1 = `🎬 Stream`;

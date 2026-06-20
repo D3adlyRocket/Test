@@ -177,13 +177,14 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-       // 1. Build the base object with a structural override for the app's native layout engine
+             // 1. Build the base object with a structural override for the app's native layout engine
+      // The leading newlines (\n) trick the mobile engine into rendering its native bullet point on an empty, invisible line.
       const baseStream = __spreadProps(__spreadValues({}, stream), {
         name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
-        title: finalTitle,
-        size: finalTitle, 
+        title: `\n${finalTitle}`,
+        size: `\n${finalTitle}`, 
         providerName: "VixSrc",
-        description: finalTitle,
+        description: `\n${finalTitle}`,
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,
         behaviorHints,
@@ -203,7 +204,6 @@ var require_formatter = __commonJS({
       } catch (e) {}
 
       return baseStream;
-    }
 
     module2.exports = { formatStream: formatStream2 };
   }

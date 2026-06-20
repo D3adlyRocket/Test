@@ -89,6 +89,14 @@ var require_formatter = __commonJS({
       const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
       return normalized || void 0;
     }
+
+    function safeLabel(value) {
+  if (!value || String(value).toLowerCase() === "unknown") {
+    return "";
+  }
+  return String(value);
+}
+    
      function formatStream2(stream, providerName) {
      const deviceType = stream.deviceType || "mobile";
 
@@ -148,21 +156,18 @@ const rules = layoutRules[deviceType] || layoutRules.mobile;
       }
 
       // 4. Clean Header Layout (Removed the word "Language")
-      let nameTagParts = ["🎦 VixSrc"];
+      const q = safeLabel(cleanQuality);
+const a = safeLabel(audioTypeLabel);
 
-if (rules.showQuality && cleanQuality && cleanQuality !== "Unknown") {
-  nameTagParts.push(cleanQuality);
+let nameTag = "🎦 VixSrc";
+
+if (q && a) {
+  nameTag += ` | ${q} - ${a}`;
+} else if (q) {
+  nameTag += ` | ${q}`;
+} else if (a) {
+  nameTag += ` | ${a}`;
 }
-
-if (rules.showAudio && audioTypeLabel) {
-  nameTagParts.push(audioTypeLabel);
-}
-
-if (rules.showProvider) {
-  nameTagParts.push("VixSrc");
-}
-
-const nameTag = nameTagParts.join(" | ");
        
       // 5. Four Line Clean Subheading Engine
       let subLine1 = `🎬 Stream`;

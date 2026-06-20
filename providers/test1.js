@@ -177,14 +177,9 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-            // 1. Bulletproof TV detection check (catches Android TV WebViews + standard TV user agents)
-      const isTV = typeof window !== 'undefined' && window.navigator && 
-                   (/tv|smarttv|googletv|appletv|hbbtv|netcast|viera|box/i.test(window.navigator.userAgent) || 
-                    (window.navigator.userAgent.includes("Android") && typeof window.screen !== 'undefined' && window.screen.width > 960 && !('ontouchstart' in window)));
-
-      // 2. Build our standard base object
+       // 1. Build the base object with a structural override for the app's native layout engine
       const baseStream = __spreadProps(__spreadValues({}, stream), {
-        name: nameTag,
+        name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
@@ -198,18 +193,14 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // 3. Final tuned layouts for each screen profile
-      if (isTV) {
-        // Double space tricks the TV layout to clear the header hyphens and drop the hanging footer bullets
-        baseStream.qualityTag = "  ";
-        baseStream.quality = "  "; 
-        baseStream.language = "  "; 
-      } else {
-        // Mobile Mode: Stays completely clean
-        baseStream.qualityTag = "";
-        baseStream.quality = "";
-        baseStream.language = "";
-      }
+      // 2. Intercept quality properties with a string control code that actively drops trailing hyphens and "Unknown" text
+      try {
+        Object.defineProperties(baseStream, {
+          qualityTag: { get: () => "", enumerable: true, configurable: true },
+          quality: { get: () => "\x08", enumerable: true, configurable: true }, // Backspace control character to delete the leading hyphen
+          language: { get: () => "", enumerable: true, configurable: true }
+        });
+      } catch (e) {}
 
       return baseStream;
     }

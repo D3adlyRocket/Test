@@ -89,7 +89,7 @@ var require_formatter = __commonJS({
       const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
       return normalized || void 0;
     }
-    function formatStream2(stream, providerName) {
+     function formatStream2(stream, providerName) {
       // 1. Quality Parser
       let rawQuality = stream.quality || "1080p";
       let cleanQuality = "1080p";
@@ -177,38 +177,29 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      // 1. Build the base object with a structural override for the app's native layout engine
-      const baseStream = __spreadProps(__spreadValues({}, stream), {
-        name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
+      return __spreadProps(__spreadValues({}, stream), {
+        name: nameTag,
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
+        // Trick engine with non-breaking zero width character formulas to swallow "Unknown" and eliminate trailing bullets cross-platform
+        qualityTag: "",
+        quality: "",
+        language: "",
         description: finalTitle,
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,
         behaviorHints,
-        provider: normalizeProviderId(providerName),
+        provider: normalizeProviderId("VixSrc"),
         referer: playbackReferer,
         userAgent: playbackUserAgent,
         headers: finalHeaders
       });
+    }
 
-      // 2. Intercept quality properties with a string control code that actively drops trailing hyphens and "Unknown" text
-      try {
-        Object.defineProperties(baseStream, {
-          qualityTag: { get: () => "", enumerable: true, configurable: true },
-          quality: { get: () => "\x08", enumerable: true, configurable: true }, // Backspace control character to delete the leading hyphen
-          language: { get: () => "", enumerable: true, configurable: true }
-        });
-      } catch (e) {}
-
-      return baseStream;
-    } // This closes the formatStream2 function safely!
-  } // This closes the "src/formatter.js"(exports2, module2) module wrapper
-}); // This closes the __commonJS utility wrapper
-
-module2.exports = { formatStream: formatStream2 };
-
+    module2.exports = { formatStream: formatStream2 };
+  }
+});
 
 // src/fetch_helper.js
 var require_fetch_helper = __commonJS({
@@ -590,7 +581,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       return [];
     }
     try {
-      const proxySocks = VIXSRC_PROXY || typeof process !== "undefined" && process.env.VIXSRC_PROXY || "";
+      const proxySocks = VIXSRC_PROXY || typeof process !== "undefined" && process.env.SOCKS5_PROXY || "";
       const useProxyFetch = proxySocks && typeof ProxyAgent === "function";
       let proxyAgent = null;
       if (useProxyFetch) {
@@ -672,7 +663,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
         },
         _meta_layout: layoutMeta
       };
-      
       return [formatStream(result, "VixSrc")].filter((s) => s !== null);
     } catch (error) {
       console.error("[VixSrc] Error:", error);

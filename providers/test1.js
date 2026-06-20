@@ -240,12 +240,14 @@ const formatted = __spreadProps(__spreadValues({}, stream), {
   headers: finalHeaders
 });
 
-// Force getters to actively return your icon and override the app's native fallback layout engine
+// Intercept every possible layout key to ensure nothing triggers the "Unknown" fallback engine
 try {
   Object.defineProperties(formatted, {
     qualityTag: { get: () => "", enumerable: true, configurable: true },
     quality: { get: () => "", enumerable: true, configurable: true },
-    language: { get: () => "🎦", enumerable: true, configurable: true }
+    language: { get: () => "", enumerable: true, configurable: true },
+    resolution: { get: () => "", enumerable: true, configurable: true },
+    tag: { get: () => "", enumerable: true, configurable: true }
   });
 } catch (e) {}
 

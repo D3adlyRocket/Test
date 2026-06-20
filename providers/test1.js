@@ -174,7 +174,7 @@ var require_formatter = __commonJS({
       // --- EXPLICIT TV TEMPLATE COUPLING IMPLEMENTATION ---
       // Places the 🎦 first, allowing the engine's mandatory '-' to connect it seamlessly
       const baseStream = __spreadProps(__spreadValues({}, stream), {
-        name: "🎦",
+        name: "🎦 VixSrc",
         title: finalTitle,
         quality: `${providerName} | ${cleanQuality} | ${audioTypeLabel}`,
         qualityTag: "",

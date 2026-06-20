@@ -189,7 +189,7 @@ var require_formatter = __commonJS({
         behaviorHints,
         provider: normalizeProviderId("VixSrc"),
         // TEST FIELDS
-        language: {audioTypeLabel},
+        language: audioTypeLabel,
         referer: playbackReferer,
         userAgent: playbackUserAgent,
         headers: finalHeaders
@@ -200,7 +200,6 @@ var require_formatter = __commonJS({
         Object.defineProperties(baseStream, {
           qualityTag: { get: () => "", enumerable: true, configurable: true },
           quality: { get: () => "\x08", enumerable: true, configurable: true }, // Backspace control character to delete the leading hyphen
-          language: { get: () => "", enumerable: true, configurable: true }
         });
       } catch (e) {}
 

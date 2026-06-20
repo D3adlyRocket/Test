@@ -177,7 +177,7 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-              // --- EXPLICIT TV TEMPLATE COUPLING IMPLEMENTATION ---
+         // --- EXPLICIT TV TEMPLATE COUPLING IMPLEMENTATION ---
         // Places the 🎦 first, allowing the engine's mandatory '-' to connect it to the text payload seamlessly
         const result = {
           name: "🎦",

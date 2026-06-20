@@ -198,6 +198,7 @@ var require_formatter = __commonJS({
         Object.defineProperties(baseStream, {
           qualityTag: { get: () => "", enumerable: true, configurable: true },
           quality: { get: () => "\x08", enumerable: true, configurable: true }, // Backspace control character to delete the leading hyphen
+          language: { get: () => "", enumerable: true, configurable: true }
         });
       } catch (e) {}
 

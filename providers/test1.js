@@ -177,48 +177,31 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      // 1. Build the baseline stream object template
-      const baseStream = __spreadProps(__spreadValues({}, stream), {
-        title: finalTitle,
-        size: finalTitle, 
-        providerName: "VixSrc",
-        description: finalTitle,
-        originalTitle: stream.title || "Stream",
-        _nuvio_formatted: true,
-        behaviorHints,
-        provider: normalizeProviderId("VixSrc"),
-        referer: playbackReferer,
-        userAgent: playbackUserAgent,
-        headers: finalHeaders
-      });
-
-      // 2. Fallback assignment logic
-      // Mobile expects everything embedded inside 'name' to keep subheadings pristine.
-      baseStream.name = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`;
-      baseStream.qualityTag = "";
-      baseStream.quality = "";
-      baseStream.language = "";
-
-      // 3. Heavy-handed interceptor for TV layouts:
-      // If the app engine attempts to append a hyphen + fallback text, we rewrite the keys on the fly
-      try {
-        let executionCount = 0;
-        Object.defineProperties(baseStream, {
-          quality: {
-            get: () => {
-              executionCount++;
-              // If the engine asks for quality multiple times, it's building the TV header layout line
-              return ""; 
-            },
-            set: () => {},
-            enumerable: true,
-            configurable: true
-          }
-        });
-      } catch (e) {}
-
-      return baseStream;
+              // --- EXPLICIT TV TEMPLATE COUPLING IMPLEMENTATION ---
+        // Places the 🎦 first, allowing the engine's mandatory '-' to connect it to the text payload seamlessly
+        const result = {
+          name: "🎦",
+          title: generatedTitle,
+          url: streamUrl,
+          easyProxySourceUrl: embedUrl,
+          quality: `VixSrc | ${detectedQuality} | ${streamLanguage}`, 
+          qualityTag: "",
+          language: "",
+          type: "direct",
+          headers: streamHeaders,
+          behaviorHints: { notWebReady: false }
+        };
+        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
+      } else {
+        console.log("[VixSrc] Could not find playlist info in HTML");
+        return [];
+      }
+    } catch (error) {
+      console.error("[VixSrc] Error:", error);
+      return [];
     }
+  });
+}
     
     module2.exports = { formatStream: formatStream2 };
   }

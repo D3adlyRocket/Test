@@ -89,7 +89,7 @@ var require_formatter = __commonJS({
       const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
       return normalized || void 0;
     }
-    function formatStream2(stream, providerName) {
+     function formatStream2(stream, providerName) {
       // 1. Quality Parser
       let rawQuality = stream.quality || "1080p";
       let cleanQuality = "1080p";
@@ -128,7 +128,10 @@ var require_formatter = __commonJS({
         audioTypeLabel = "Single-Audio";
       }
 
-      // 4. Four Line Clean Subheading Engine
+      // 4. Clean Header Layout (Removed the word "Language")
+      const nameTag = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`;
+
+      // 5. Four Line Clean Subheading Engine
       let subLine1 = `🎬 Stream`;
       if (stream._meta_layout) {
         if (stream._meta_layout.type === "movie") {
@@ -164,24 +167,39 @@ var require_formatter = __commonJS({
       }
       
       const providerExplicitNotWebReady = stream.behaviorHints && "notWebReady" in stream.behaviorHints;
-      const shouldForceNotWebReady = shouldForceNotWebReadyForPlugin(stream, providerName, finalHeaders, behaviorHints);
+      const shouldForceNotWebReady = shouldForceNotWebReadyForPlugin(stream, "VixSrc", finalHeaders, behaviorHints);
       if (shouldForceNotWebReady) {
         behaviorHints.notWebReady = true;
       } else if (!providerExplicitNotWebReady) {
         delete behaviorHints.notWebReady;
       }
 
-      // --- EXPLICIT TV TEMPLATE COUPLING IMPLEMENTATION ---
-      // Places the 🎦 first, allowing the engine's mandatory '-' to connect it seamlessly
+      const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
+      const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
+      
+      // 1. Build the base object cleanly
       const baseStream = __spreadProps(__spreadValues({}, stream), {
-        name: "🎦 VixSrc",
+        name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
         title: finalTitle,
-        quality: `${providerName} | ${cleanQuality} | ${audioTypeLabel}`,
-        qualityTag: "",
-        language: "",
-        provider: normalizeProviderId(providerName),
-        behaviorHints
+        size: finalTitle, 
+        providerName: "VixSrc",
+        description: finalTitle,
+        originalTitle: stream.title || "Stream",
+        _nuvio_formatted: true,
+        behaviorHints,
+        provider: normalizeProviderId("VixSrc"),
+        referer: playbackReferer,
+        userAgent: playbackUserAgent,
+        headers: finalHeaders
       });
+
+      // 2. Completely delete the keys from the object so the TV UI stops rendering the separators
+      try {
+        delete baseStream.quality;
+        delete baseStream.qualityTag;
+        delete baseStream.language;
+        delete baseStream.quality_tag;
+      } catch (e) {}
 
       return baseStream;
     }

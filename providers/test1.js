@@ -156,6 +156,8 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
 
   // Construct Layout Formats
   var finalName = "4KHDHub | " + qUpper + " | " + lang;
+  
+  // Enforcing strict line breaks for title subheadings
   var finalTitle = 
     "🎬 " + cleanTitle + (year ? " - (" + year + ")" : "") + "\n" +
     qEmoji + " " + qUpper + " Quality | 🌍 " + lang + (fileSize ? " | 💾 " + fileSize : "") + "\n" +
@@ -166,7 +168,6 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   return {
     name: finalName,
     title: finalTitle,
-    size: fileSize || "⚡ Direct",
     url: encodedUrl,
     quality: quality,
     headers: { "Referer": referer || BASE_URL + "/" }

@@ -177,12 +177,17 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      const formatted = __spreadProps(__spreadValues({}, stream), {
+      let cleanedTitle = finalTitle
+  .replace(/\s*[-|]\s*Unknown\b/gi, "")
+  .replace(/\n\s*[-|]\s*Unknown\b/gi, "")
+  .trim();
+
+const formatted = __spreadProps(__spreadValues({}, stream), {
   name: nameTag,
-  title: finalTitle,
-  size: finalTitle,
+  title: cleanedTitle,
+  size: cleanedTitle,
   providerName: "VixSrc",
-  description: finalTitle,
+  description: cleanedTitle,
   originalTitle: stream.title || "Stream",
   _nuvio_formatted: true,
   behaviorHints,
@@ -195,8 +200,6 @@ var require_formatter = __commonJS({
 formatted.quality = null;
 delete formatted.qualityTag;
 
-const cleanedTitle = finalTitle.replace(/\s*-\s*Unknown\b/gi, "");
-       
 return formatted;
 }
 

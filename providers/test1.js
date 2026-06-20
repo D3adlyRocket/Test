@@ -190,15 +190,16 @@ var require_formatter = __commonJS({
   referer: playbackReferer,
   userAgent: playbackUserAgent,
   headers: finalHeaders
-}
+});
 
 delete formatted.quality;
 delete formatted.qualityTag;
 
 return formatted;
+}
 
-    module2.exports = { formatStream: formatStream2 };
-  }
+module2.exports = { formatStream: formatStream2 };
+}
 });
 
 // src/fetch_helper.js

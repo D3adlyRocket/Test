@@ -179,26 +179,26 @@ var require_formatter = __commonJS({
       
       // 1. Build the base object cleanly
       const baseStream = __spreadProps(__spreadValues({}, stream), {
-        name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
-        title: finalTitle,
-        size: finalTitle, 
-        providerName: "VixSrc",
-        description: finalTitle,
-        originalTitle: stream.title || "Stream",
-        _nuvio_formatted: true,
-        behaviorHints,
-        provider: normalizeProviderId("VixSrc"),
-        referer: playbackReferer,
-        userAgent: playbackUserAgent,
-        headers: finalHeaders
-      });
+  name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
+  title: finalTitle,
+  size: finalTitle,
+  providerName: "VixSrc",
+  description: finalTitle,
+  originalTitle: stream.title || "Stream",
+  _nuvio_formatted: true,
+  behaviorHints,
+  provider: normalizeProviderId("VixSrc"),
 
-      // 2. Completely delete the keys from the object so the TV UI stops rendering the separators
-      try {
-        delete baseStream.quality;
-        delete baseStream.qualityTag;
-        delete baseStream.quality_tag;
-      } catch (e) {}
+  // TEST FIELDS
+  source: "VixSrc",
+  server: "Server 1",
+  codec: "H264",
+  language: "English",
+
+  referer: playbackReferer,
+  userAgent: playbackUserAgent,
+  headers: finalHeaders
+});
 
       return baseStream;
     }
@@ -662,7 +662,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
         url: streamUrl,
         easyProxySourceUrl: embedUrl,
         quality: normalizedQuality,
-        language: "English, Italian",
         type: "direct",
         headers: streamHeaders,
         behaviorHints: {

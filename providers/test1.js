@@ -176,32 +176,23 @@ var require_formatter = __commonJS({
 
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
-      
-         // --- EXPLICIT TV TEMPLATE COUPLING IMPLEMENTATION ---
-        // Places the 🎦 first, allowing the engine's mandatory '-' to connect it to the text payload seamlessly
-        const result = {
-          name: "🎦",
-          title: generatedTitle,
-          url: streamUrl,
-          easyProxySourceUrl: embedUrl,
-          quality: `VixSrc | ${detectedQuality} | ${streamLanguage}`, 
-          qualityTag: "",
-          language: "",
-          type: "direct",
-          headers: streamHeaders,
-          behaviorHints: { notWebReady: false }
-        };
-        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
-      } else {
-        console.log("[VixSrc] Could not find playlist info in HTML");
-        return [];
-      }
-    } catch (error) {
-      console.error("[VixSrc] Error:", error);
-      return [];
+            
+      // --- EXPLICIT TV TEMPLATE COUPLING IMPLEMENTATION ---
+      // Places the 🎦 first, allowing the engine's mandatory '-' to connect it to the text payload seamlessly
+      const baseStream = __spreadProps(__spreadValues({}, stream), {
+        name: "🎦",
+        title: finalTitle,
+        quality: `VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
+        _nuvio_formatted: true,
+        behaviorHints
+      });
+
+      // Clear layout properties so the TV doesn't append fallback text
+      baseStream.qualityTag = "";
+      baseStream.language = "";
+
+      return baseStream;
     }
-  });
-}
     
     module2.exports = { formatStream: formatStream2 };
   }
@@ -657,8 +648,8 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
       const normalizedQuality = getQualityFromName(quality);
       
-      const result = {
-        name: `VixSrc`,
+        const result = {
+        name: "VixSrc",
         url: streamUrl,
         easyProxySourceUrl: embedUrl,
         quality: normalizedQuality,
@@ -670,6 +661,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         _meta_layout: layoutMeta
       };
       return [formatStream(result, "VixSrc")].filter((s) => s !== null);
+
     } catch (error) {
       console.error("[VixSrc] Error:", error);
       return [];

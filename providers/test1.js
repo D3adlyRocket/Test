@@ -129,7 +129,7 @@ var require_formatter = __commonJS({
       }
 
       // 4. Clean Header Layout (Removed the word "Language")
-      const nameTag = `🎦 VixSrc | ${audioTypeLabel}`;
+      const nameTag = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`;
 
       // 5. Four Line Clean Subheading Engine
       let subLine1 = `🎬 Stream`;

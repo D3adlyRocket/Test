@@ -190,7 +190,7 @@ var require_formatter = __commonJS({
   referer: playbackReferer,
   userAgent: playbackUserAgent,
   headers: finalHeaders
-});
+}
 
 delete formatted.quality;
 delete formatted.qualityTag;

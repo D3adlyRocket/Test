@@ -661,7 +661,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         name: `VixSrc`,
         url: streamUrl,
         easyProxySourceUrl: embedUrl,
-        quality: "\u200B",
+        quality: " ",
         type: "direct",
         headers: streamHeaders,
         behaviorHints: {

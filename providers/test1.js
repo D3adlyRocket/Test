@@ -92,7 +92,7 @@ var require_formatter = __commonJS({
       const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
       return normalized || void 0;
     }
-        function formatStream2(stream, providerName) {
+    function formatStream2(stream, providerName) {
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       let finalHeaders = stream.headers;
       if (behaviorHints.proxyHeaders && behaviorHints.proxyHeaders.request) {
@@ -119,6 +119,7 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
+      // 1. Build the base object preserving all layout structures and custom fields
       const baseStream = __spreadProps(__spreadValues({}, stream), {
         name: stream.name || `🎦 VixSrc`,
         title: stream.title,
@@ -134,19 +135,18 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // Intercept layout properties to destructively erase the app's trailing label additions
+      // 2. Intercept quality properties with control characters to actively drop trailing layout artifacts
       try {
         Object.defineProperties(baseStream, {
           qualityTag: { get: () => "", enumerable: true, configurable: true },
-          quality: { get: () => "", enumerable: true, configurable: true },
-          // The backspace character deletes the " - " spacer and forces "Unknown" to vanish
-          language: { get: () => "\x08\x08\x08", enumerable: true, configurable: true }
+          quality: { get: () => "", enumerable: true, configurable: true }, 
+          // Backspace characters consume the layout spacer " - " and the layout fallback text "Unknown"
+          language: { get: () => "\x08\x08\x08\x08\x08\x08\x08\x08\x08\x08", enumerable: true, configurable: true }
         });
       } catch (e) {}
 
       return baseStream;
     }
-
     module2.exports = { formatStream: formatStream2 };
   }
 });

@@ -177,8 +177,8 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      // Redefining nameTag here right before the object is built to force the newline trick
-      const adjustedNameTag = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}\n`;
+      // 1. Clean up the main tag so it doesn't duplicate what the app is about to append
+      const adjustedNameTag = "🎦 VixSrc";
 
       const baseStream = __spreadProps(__spreadValues({}, stream), {
         name: adjustedNameTag,
@@ -195,9 +195,10 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      baseStream.qualityTag = "";
-      baseStream.quality = "";
-      baseStream.language = "";
+      // 2. Feed real values to the native properties so the TV displays them natively without the "Unknown" fallback
+      baseStream.qualityTag = cleanQuality; // e.g., "1080p"
+      baseStream.quality = cleanQuality;
+      baseStream.language = audioTypeLabel; // e.g., "Dual-Audio"
 
       return baseStream;
     }

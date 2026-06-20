@@ -235,14 +235,14 @@ const formatted = __spreadProps(__spreadValues({}, stream), {
   headers: finalHeaders
 });
 
-// Intercept every possible layout key to ensure nothing triggers the "Unknown" fallback engine
+// Intercept layout properties to hijack the auto-append string
 try {
   Object.defineProperties(formatted, {
     qualityTag: { get: () => "", enumerable: true, configurable: true },
     quality: { get: () => "", enumerable: true, configurable: true },
-    language: { get: () => "", enumerable: true, configurable: true },
-    resolution: { get: () => "", enumerable: true, configurable: true },
-    tag: { get: () => "", enumerable: true, configurable: true }
+    
+    // Opt 1: Backspace character trick to wipe out the " - " spacer, then print your bullet/pipe
+    language: { get: () => "\x08\x08\x08 | ", enumerable: true, configurable: true }
   });
 } catch (e) {}
 

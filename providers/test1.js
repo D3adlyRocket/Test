@@ -174,7 +174,7 @@ var require_formatter = __commonJS({
         delete behaviorHints.notWebReady;
       }
 
-            const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
+      const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
       // 1. Build the base object with a structural override for the app's native layout engine
@@ -204,13 +204,10 @@ var require_formatter = __commonJS({
       } catch (e) {}
 
       return baseStream;
-    } catch (error) {
-      console.error("[VixSrc] Error formatting stream:", error);
-      return null;
-    }
-  }
-});
-    
+    } // This closes the formatStream2 function safely!
+  } // This closes the "src/formatter.js"(exports2, module2) module wrapper
+}); // This closes the __commonJS utility wrapper
+
 module2.exports = { formatStream: formatStream2 };
 
 

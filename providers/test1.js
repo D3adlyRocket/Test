@@ -90,6 +90,25 @@ var require_formatter = __commonJS({
       return normalized || void 0;
     }
      function formatStream2(stream, providerName) {
+     const deviceType = stream.deviceType || "mobile";
+
+     const layoutRules = {
+  tv: {
+    showQuality: true,
+    showAudio: true,
+    showProvider: true,
+    hideUnknown: true
+  },
+  mobile: {
+    showQuality: true,
+    showAudio: false,
+    showProvider: false,
+    hideUnknown: true
+  }
+};
+
+const rules = layoutRules[deviceType] || layoutRules.mobile;
+       
       // 1. Quality Parser
       let rawQuality = stream.quality || "1080p";
       let cleanQuality = "1080p";
@@ -129,20 +148,21 @@ var require_formatter = __commonJS({
       }
 
       // 4. Clean Header Layout (Removed the word "Language")
-      const safeQuality =
-  !cleanQuality || cleanQuality.toLowerCase() === "unknown"
-    ? null
-    : cleanQuality;
+      let nameTagParts = ["🎦 VixSrc"];
 
-const safeAudio =
-  !audioTypeLabel || audioTypeLabel.toLowerCase().includes("unknown")
-    ? null
-    : audioTypeLabel;
+if (rules.showQuality && cleanQuality && cleanQuality !== "Unknown") {
+  nameTagParts.push(cleanQuality);
+}
 
-const nameTag =
-  `🎦 VixSrc` +
-  (safeQuality ? ` | ${safeQuality}` : "") +
-  (safeAudio ? ` | ${safeAudio}` : "");
+if (rules.showAudio && audioTypeLabel) {
+  nameTagParts.push(audioTypeLabel);
+}
+
+if (rules.showProvider) {
+  nameTagParts.push("VixSrc");
+}
+
+const nameTag = nameTagParts.join(" | ");
        
       // 5. Four Line Clean Subheading Engine
       let subLine1 = `🎬 Stream`;
@@ -162,7 +182,12 @@ const nameTag =
       let durationStr = stream._meta_layout && stream._meta_layout.duration ? `${stream._meta_layout.duration} min` : "Variable";
       let subLine3 = `🎞️ ${formatCodec} | ⏱️ ${durationStr} | 📁 Server 1`;
 
-      const finalTitle = `${subLine1}\n${subLine2}\n${subLine3}`;
+      let finalTitle = `${subLine1}\n${subLine2}\n${subLine3}`;
+
+      finalTitle = finalTitle
+     .replace(/\bUnknown\b/gi, "")
+     .replace(/\s+\|\s+\|/g, " | ")
+     .trim();
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       let finalHeaders = stream.headers;

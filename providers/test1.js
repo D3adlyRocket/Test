@@ -188,8 +188,6 @@ var require_formatter = __commonJS({
         _nuvio_formatted: true,
         behaviorHints,
         provider: normalizeProviderId("VixSrc"),
-        // TEST FIELDS
-        language: audioTypeLabel,
         referer: playbackReferer,
         userAgent: playbackUserAgent,
         headers: finalHeaders

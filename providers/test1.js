@@ -193,7 +193,7 @@ var require_formatter = __commonJS({
   source: "VixSrc",
   server: "Server 1",
   codec: "H264",
-  language: "English",
+  language: "Dual-Audio",
 
   referer: playbackReferer,
   userAgent: playbackUserAgent,

@@ -189,7 +189,7 @@ var require_formatter = __commonJS({
         behaviorHints,
         provider: normalizeProviderId("VixSrc"),
         // TEST FIELDS
-        language: "Dual-Audio",
+        language: ${audioTypeLabel},
         referer: playbackReferer,
         userAgent: playbackUserAgent,
         headers: finalHeaders

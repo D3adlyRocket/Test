@@ -92,7 +92,7 @@ var require_formatter = __commonJS({
 
     function safeLabel(value) {
   if (!value || String(value).toLowerCase() === "unknown") {
-    return "";
+    return "🎦";
   }
   return String(value);
 }

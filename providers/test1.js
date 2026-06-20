@@ -195,6 +195,8 @@ var require_formatter = __commonJS({
 formatted.quality = null;
 delete formatted.qualityTag;
 
+finalTitle = finalTitle.replace(/\s*-\s*Unknown\b/gi, "");
+       
 return formatted;
 }
 
@@ -656,7 +658,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         name: `VixSrc`,
         url: streamUrl,
         easyProxySourceUrl: embedUrl,
-        quality: cleanQuality,
+        quality: normalizedQuality,
         type: "direct",
         headers: streamHeaders,
         behaviorHints: {

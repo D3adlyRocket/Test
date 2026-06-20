@@ -177,8 +177,8 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      return __spreadProps(__spreadValues({}, stream), {
-        name: nameTag,
+            // 1. Build the base object cleanly
+      const baseStream = __spreadProps(__spreadValues({}, stream), {
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
@@ -191,8 +191,19 @@ var require_formatter = __commonJS({
         userAgent: playbackUserAgent,
         headers: finalHeaders
       });
-    }
 
+      // 2. Format properties so the TV's native "-" character acts as a separator
+      // TV merges: [name] + " | " + [quality] -> "🎦 VixSrc | 1080p | Dual-Audio"
+      baseStream.name = "🎦 VixSrc";
+      baseStream.quality = `${cleanQuality} | ${audioTypeLabel}`; 
+      
+      // Keep these strictly empty so no extra bullets or tags are generated
+      baseStream.qualityTag = "";
+      baseStream.language = "";
+
+      return baseStream;
+    }
+    
     module2.exports = { formatStream: formatStream2 };
   }
 });

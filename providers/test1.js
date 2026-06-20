@@ -177,33 +177,43 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      // 1. Build the base object with a structural override for the app's native layout engine
-      // The leading newlines (\n) trick the mobile engine into rendering its native bullet point on an empty, invisible line.
-      const baseStream = __spreadProps(__spreadValues({}, stream), {
-        name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
-        title: `\n${finalTitle}`,
-        size: `\n${finalTitle}`, 
-        providerName: "VixSrc",
-        description: `\n${finalTitle}`,
-        originalTitle: stream.title || "Stream",
-        _nuvio_formatted: true,
-        behaviorHints,
-        provider: normalizeProviderId(providerName),
-        referer: playbackReferer,
-        userAgent: playbackUserAgent,
-        headers: finalHeaders
-      });
-
-      // 2. Intercept quality properties with a string control code that actively drops trailing hyphens and "Unknown" text
       try {
+        // 1. Build the base object with a structural override for the app's native layout engine
+        // \n on title/description safely hides the mobile bullet point. size MUST stay clean.
+        const baseStream = __spreadProps(__spreadValues({}, stream), {
+          name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
+          title: `\n${finalTitle}`,
+          size: stream.size || "", 
+          providerName: "VixSrc",
+          description: `\n${finalTitle}`,
+          originalTitle: stream.title || "Stream",
+          _nuvio_formatted: true,
+          behaviorHints,
+          provider: normalizeProviderId(providerName),
+          referer: playbackReferer,
+          userAgent: playbackUserAgent,
+          headers: finalHeaders
+        });
+
+        // 2. Intercept quality properties with a string control code that actively drops trailing hyphens and "Unknown" text
         Object.defineProperties(baseStream, {
           qualityTag: { get: () => "", enumerable: true, configurable: true },
           quality: { get: () => "\x08", enumerable: true, configurable: true }, // Backspace control character to delete the leading hyphen
           language: { get: () => "", enumerable: true, configurable: true }
         });
-      } catch (e) {}
 
-      return baseStream;
+        return baseStream;
+      } catch (e) {
+        // Fallback safety block to prevent fetch crashes if definition fails
+        return __spreadProps(__spreadValues({}, stream), {
+          name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
+          title: finalTitle,
+          description: finalTitle,
+          _nuvio_formatted: true,
+          provider: normalizeProviderId(providerName),
+          behaviorHints
+        });
+      }
     } // This closes the formatStream2 function safely!
   } // This closes the "src/formatter.js"(exports2, module2) module wrapper
 }); // This closes the __commonJS utility wrapper

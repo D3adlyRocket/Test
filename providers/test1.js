@@ -177,17 +177,15 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-            // 1. Bulletproof TV detection check (catches Android TV WebViews + standard TV user agents)
-      const isTV = typeof window !== 'undefined' && window.navigator && 
-                   (/tv|smarttv|googletv|appletv|hbbtv|netcast|viera|box/i.test(window.navigator.userAgent) || 
-                    (window.navigator.userAgent.includes("Android") && typeof window.screen !== 'undefined' && window.screen.width > 960 && !('ontouchstart' in window)));
-
-      // 2. Build our standard base object
+          // 1. Build base object using empty string templates to bypass the app's fallback rules on both screens
       const baseStream = __spreadProps(__spreadValues({}, stream), {
         name: nameTag,
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
+        qualityTag: "",
+        quality: "",
+        language: "",
         description: finalTitle,
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,
@@ -198,22 +196,16 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // 3. Final tuned layouts for each screen profile
-      if (isTV) {
-        // Double space tricks the TV layout to clear the header hyphens and drop the hanging footer bullets
-        baseStream.qualityTag = "  ";
-        baseStream.quality = "  "; 
-        baseStream.language = "  "; 
-      } else {
-        // Mobile Mode: Stays completely clean
-        baseStream.qualityTag = "";
-        baseStream.quality = "";
-        baseStream.language = "";
-      }
+      // 2. Direct descriptor overrides to wipe the fields out of memory cleanly
+      Object.defineProperties(baseStream, {
+        quality: { value: "", enumerable: true, writable: true },
+        qualityTag: { value: "", enumerable: true, writable: true },
+        language: { value: "", enumerable: true, writable: true }
+      });
 
       return baseStream;
     }
-
+    
     module2.exports = { formatStream: formatStream2 };
   }
 });

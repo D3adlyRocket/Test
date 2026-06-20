@@ -197,7 +197,6 @@ var require_formatter = __commonJS({
       try {
         delete baseStream.quality;
         delete baseStream.qualityTag;
-        delete baseStream.language;
         delete baseStream.quality_tag;
       } catch (e) {}
 
@@ -663,6 +662,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         url: streamUrl,
         easyProxySourceUrl: embedUrl,
         quality: normalizedQuality,
+        language: "English, Italian",
         type: "direct",
         headers: streamHeaders,
         behaviorHints: {

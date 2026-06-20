@@ -177,31 +177,53 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-              // --- EXPLICIT TV TEMPLATE COUPLING IMPLEMENTATION ---
-        // Places the 🎦 first, allowing the engine's mandatory '-' to connect it to the text payload seamlessly
-        const result = {
-          name: "🎦",
-          title: generatedTitle,
-          url: streamUrl,
-          easyProxySourceUrl: embedUrl,
-          quality: `VixSrc | ${detectedQuality} | ${streamLanguage}`, 
-          qualityTag: "",
-          language: "",
-          type: "direct",
-          headers: streamHeaders,
-          behaviorHints: { notWebReady: false }
-        };
-        return [formatStream(result, "StreamingCommunity")].filter((s) => s !== null);
+            // 1. Detect platform profile safely
+      const isTV = typeof window !== 'undefined' && window.navigator && 
+                   (/tv|smarttv|googletv|appletv|hbbtv|netcast|viera|box/i.test(window.navigator.userAgent) || 
+                    (window.navigator.userAgent.includes("Android") && typeof window.screen !== 'undefined' && window.screen.width > 960 && !('ontouchstart' in window)));
+
+      // 2. Build the structural differences
+      let finalName = "";
+      let finalQualityTag = "";
+      let finalQuality = "";
+      let finalLanguage = "";
+
+      if (isTV) {
+        // TV layout merges: [name] + " - " + [quality].
+        // We use an backspace control space trick so " - " visually reads as a spaced separator or pipeline.
+        finalName = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}\u200B`;
+        finalQualityTag = ""; 
+        finalQuality = ""; // Wipes out the auto-appended quality suffix text completely
+        finalLanguage = ""; // Wipes out the trailing bullet point after Server 1
       } else {
-        console.log("[VixSrc] Could not find playlist info in HTML");
-        return [];
+        // Mobile Layout: Feeds everything directly into the main header title block cleanly
+        finalName = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`;
+        finalQualityTag = "";
+        finalQuality = "";
+        finalLanguage = "";
       }
-    } catch (error) {
-      console.error("[VixSrc] Error:", error);
-      return [];
+
+      // 3. Assemble the stream payload object
+      const baseStream = __spreadProps(__spreadValues({}, stream), {
+        name: finalName,
+        title: finalTitle,
+        size: finalTitle, 
+        providerName: "VixSrc",
+        qualityTag: finalQualityTag,
+        quality: finalQuality,
+        language: finalLanguage,
+        description: finalTitle,
+        originalTitle: stream.title || "Stream",
+        _nuvio_formatted: true,
+        behaviorHints,
+        provider: normalizeProviderId("VixSrc"),
+        referer: playbackReferer,
+        userAgent: playbackUserAgent,
+        headers: finalHeaders
+      });
+
+      return baseStream;
     }
-  });
-}
     
     module2.exports = { formatStream: formatStream2 };
   }

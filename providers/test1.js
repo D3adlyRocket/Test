@@ -193,7 +193,7 @@ var require_formatter = __commonJS({
       });
 
       // 2. Format properties so the TV's native "-" character acts as a separator
-      // TV merges: [name] + " - " + [quality] -> "🎦 VixSrc | 1080p | Dual-Audio"
+      // TV merges: [name] + " | " + [quality] -> "🎦 VixSrc | 1080p | Dual-Audio"
       baseStream.name = "🎦 VixSrc";
       baseStream.quality = `${cleanQuality} | ${audioTypeLabel}`; 
       

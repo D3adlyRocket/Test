@@ -177,7 +177,7 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-            // 1. Detect if the environment is a TV screen
+      // 1. Detect if the environment is a TV screen
       const isTV = typeof window !== 'undefined' && window.navigator && 
                    /tv|smarttv|googletv|appletv|hbbtv|netcast|viera|box/i.test(window.navigator.userAgent);
 
@@ -197,15 +197,14 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // 3. Tailored platform logic
+      // 3. Precise Platform Branching Rules
       if (isTV) {
-        baseStream.qualityTag = ""; 
-        baseStream.quality = cleanQuality; // Satisfies header requirements so it doesn't show 'Unknown'
-        
-        // Use a dynamic getter to completely strip out the language field *only* on TV evaluation
-        Object.defineProperty(baseStream, 'language', { get: () => undefined, enumerable: true, configurable: true });
+        // Feed text to stop 'Unknown' fallback, while using space validation to trick layout elements out of rendering bullets
+        baseStream.qualityTag = " ";
+        baseStream.quality = cleanQuality; 
+        baseStream.language = "\u200C"; // Overrides the trailing block layout without registering as text
       } else {
-        // Mobile Mode (Keeps your working setup intact)
+        // Mobile Mode: Remains completely untouched
         baseStream.qualityTag = "";
         baseStream.quality = "";
         baseStream.language = "";
@@ -213,7 +212,6 @@ var require_formatter = __commonJS({
 
       return baseStream;
     }
-
     module2.exports = { formatStream: formatStream2 };
   }
 });

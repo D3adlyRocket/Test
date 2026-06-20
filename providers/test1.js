@@ -196,9 +196,9 @@ var require_formatter = __commonJS({
       // 2. Intercept quality properties with a string control code that actively drops trailing hyphens and "Unknown" text
       try {
         Object.defineProperties(baseStream, {
-          qualityTag: { get: () => "", enumerable: true, configurable: true },
+          qualityTag: { get: () => " ", enumerable: true, configurable: true },
           quality: { get: () => "\x08", enumerable: true, configurable: true }, // Backspace control character to delete the leading hyphen
-          language: { get: () => "", enumerable: true, configurable: true }
+          language: { get: () => " ", enumerable: true, configurable: true }
         });
       } catch (e) {}
 
@@ -663,7 +663,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         name: `VixSrc`,
         url: streamUrl,
         easyProxySourceUrl: embedUrl,
-        quality: "\u200B",
+        quality: normalizedquality,
         type: "direct",
         headers: streamHeaders,
         behaviorHints: {

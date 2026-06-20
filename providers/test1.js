@@ -176,9 +176,10 @@ var require_formatter = __commonJS({
 
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
-      
-            // 1. Build the base object cleanly
+            
+       // 1. Build the base object with a structural override for the app's native layout engine
       const baseStream = __spreadProps(__spreadValues({}, stream), {
+        name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
@@ -192,14 +193,14 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // 2. Format properties so the TV's native "-" character acts as a separator
-      // TV merges: [name] + " | " + [quality] -> "🎦 VixSrc | 1080p | Dual-Audio"
-      baseStream.name = "🎦 VixSrc";
-      baseStream.quality = `${cleanQuality} | ${audioTypeLabel}`; 
-      
-      // Keep these strictly empty so no extra bullets or tags are generated
-      baseStream.qualityTag = "";
-      baseStream.language = "";
+      // 2. Intercept quality properties with a string control code that actively drops trailing hyphens and "Unknown" text
+      try {
+        Object.defineProperties(baseStream, {
+          qualityTag: { get: () => "", enumerable: true, configurable: true },
+          quality: { get: () => "\x08", enumerable: true, configurable: true }, // Backspace control character to delete the leading hyphen
+          language: { get: () => "", enumerable: true, configurable: true }
+        });
+      } catch (e) {}
 
       return baseStream;
     }

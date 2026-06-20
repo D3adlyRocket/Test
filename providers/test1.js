@@ -89,7 +89,7 @@ var require_formatter = __commonJS({
       const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
       return normalized || void 0;
     }
-     function formatStream2(stream, providerName) {
+    function formatStream2(stream, providerName) {
       // 1. Quality Parser
       let rawQuality = stream.quality || "1080p";
       let cleanQuality = "1080p";
@@ -128,10 +128,7 @@ var require_formatter = __commonJS({
         audioTypeLabel = "Single-Audio";
       }
 
-      // 4. Clean Header Layout (Removed the word "Language")
-      const nameTag = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`;
-
-      // 5. Four Line Clean Subheading Engine
+      // 4. Four Line Clean Subheading Engine
       let subLine1 = `🎬 Stream`;
       if (stream._meta_layout) {
         if (stream._meta_layout.type === "movie") {
@@ -167,29 +164,24 @@ var require_formatter = __commonJS({
       }
       
       const providerExplicitNotWebReady = stream.behaviorHints && "notWebReady" in stream.behaviorHints;
-      const shouldForceNotWebReady = shouldForceNotWebReadyForPlugin(stream, "VixSrc", finalHeaders, behaviorHints);
+      const shouldForceNotWebReady = shouldForceNotWebReadyForPlugin(stream, providerName, finalHeaders, behaviorHints);
       if (shouldForceNotWebReady) {
         behaviorHints.notWebReady = true;
       } else if (!providerExplicitNotWebReady) {
         delete behaviorHints.notWebReady;
       }
 
-      const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
-      const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
-            
       // --- EXPLICIT TV TEMPLATE COUPLING IMPLEMENTATION ---
-      // Places the 🎦 first, allowing the engine's mandatory '-' to connect it to the text payload seamlessly
+      // Places the 🎦 first, allowing the engine's mandatory '-' to connect it seamlessly
       const baseStream = __spreadProps(__spreadValues({}, stream), {
         name: "🎦",
         title: finalTitle,
-        quality: `VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
-        _nuvio_formatted: true,
+        quality: `${providerName} | ${cleanQuality} | ${audioTypeLabel}`,
+        qualityTag: "",
+        language: "",
+        provider: normalizeProviderId(providerName),
         behaviorHints
       });
-
-      // Clear layout properties so the TV doesn't append fallback text
-      baseStream.qualityTag = "";
-      baseStream.language = "";
 
       return baseStream;
     }
@@ -648,8 +640,8 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
       const normalizedQuality = getQualityFromName(quality);
       
-        const result = {
-        name: "VixSrc",
+      const result = {
+        name: `VixSrc`,
         url: streamUrl,
         easyProxySourceUrl: embedUrl,
         quality: normalizedQuality,
@@ -661,7 +653,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
         _meta_layout: layoutMeta
       };
       return [formatStream(result, "VixSrc")].filter((s) => s !== null);
-
     } catch (error) {
       console.error("[VixSrc] Error:", error);
       return [];

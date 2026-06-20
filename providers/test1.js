@@ -177,41 +177,12 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-            // 1. Detect platform profile safely
-      const isTV = typeof window !== 'undefined' && window.navigator && 
-                   (/tv|smarttv|googletv|appletv|hbbtv|netcast|viera|box/i.test(window.navigator.userAgent) || 
-                    (window.navigator.userAgent.includes("Android") && typeof window.screen !== 'undefined' && window.screen.width > 960 && !('ontouchstart' in window)));
-
-      // 2. Build the structural differences
-      let finalName = "";
-      let finalQualityTag = "";
-      let finalQuality = "";
-      let finalLanguage = "";
-
-      if (isTV) {
-        // TV layout merges: [name] + " - " + [quality].
-        // We use an backspace control space trick so " - " visually reads as a spaced separator or pipeline.
-        finalName = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}\u200B`;
-        finalQualityTag = ""; 
-        finalQuality = ""; // Wipes out the auto-appended quality suffix text completely
-        finalLanguage = ""; // Wipes out the trailing bullet point after Server 1
-      } else {
-        // Mobile Layout: Feeds everything directly into the main header title block cleanly
-        finalName = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`;
-        finalQualityTag = "";
-        finalQuality = "";
-        finalLanguage = "";
-      }
-
-      // 3. Assemble the stream payload object
+      // 1. Build the base object with a structural override for the app's native layout engine
       const baseStream = __spreadProps(__spreadValues({}, stream), {
-        name: finalName,
+        name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
-        qualityTag: finalQualityTag,
-        quality: finalQuality,
-        language: finalLanguage,
         description: finalTitle,
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,
@@ -222,9 +193,18 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
+      // 2. Intercept quality properties with a string control code that actively drops trailing hyphens and "Unknown" text
+      try {
+        Object.defineProperties(baseStream, {
+          qualityTag: { get: () => "", enumerable: true, configurable: true },
+          quality: { get: () => "\x08", enumerable: true, configurable: true }, // Backspace control character to delete the leading hyphen
+          language: { get: () => "", enumerable: true, configurable: true }
+        });
+      } catch (e) {}
+
       return baseStream;
     }
-    
+
     module2.exports = { formatStream: formatStream2 };
   }
 });

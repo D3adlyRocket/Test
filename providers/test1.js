@@ -177,7 +177,7 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      // 1. Detect if the environment is a TV screen
+            // 1. Detect if the environment is a TV screen
       const isTV = typeof window !== 'undefined' && window.navigator && 
                    /tv|smarttv|googletv|appletv|hbbtv|netcast|viera|box/i.test(window.navigator.userAgent);
 
@@ -197,14 +197,15 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // 3. Apply custom tailored rules for TV vs Mobile
+      // 3. Tailored platform logic
       if (isTV) {
-        // TV Mode: Needs values to prevent "Unknown", but relies on empty strings to clear bullets
-        baseStream.qualityTag = "";
-        baseStream.quality = "1080p"; 
-        baseStream.language = ""; 
+        baseStream.qualityTag = ""; 
+        baseStream.quality = cleanQuality; // Satisfies header requirements so it doesn't show 'Unknown'
+        
+        // Use a dynamic getter to completely strip out the language field *only* on TV evaluation
+        Object.defineProperty(baseStream, 'language', { get: () => undefined, enumerable: true, configurable: true });
       } else {
-        // Mobile Mode: Needs clean empty properties so it doesn't inject prefixing/suffixing bullet lines
+        // Mobile Mode (Keeps your working setup intact)
         baseStream.qualityTag = "";
         baseStream.quality = "";
         baseStream.language = "";

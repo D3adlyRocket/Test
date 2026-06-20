@@ -177,14 +177,41 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      // 1. Clean up the main tag so it doesn't duplicate what the app is about to append
-      const adjustedNameTag = "🎦 VixSrc";
+            // 1. Detect platform profile safely
+      const isTV = typeof window !== 'undefined' && window.navigator && 
+                   (/tv|smarttv|googletv|appletv|hbbtv|netcast|viera|box/i.test(window.navigator.userAgent) || 
+                    (window.navigator.userAgent.includes("Android") && typeof window.screen !== 'undefined' && window.screen.width > 960 && !('ontouchstart' in window)));
 
+      // 2. Build the structural differences
+      let finalName = "";
+      let finalQualityTag = "";
+      let finalQuality = "";
+      let finalLanguage = "";
+
+      if (isTV) {
+        // TV layout merges: [name] + " - " + [quality].
+        // We use an backspace control space trick so " - " visually reads as a spaced separator or pipeline.
+        finalName = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}\u200B`;
+        finalQualityTag = ""; 
+        finalQuality = ""; // Wipes out the auto-appended quality suffix text completely
+        finalLanguage = ""; // Wipes out the trailing bullet point after Server 1
+      } else {
+        // Mobile Layout: Feeds everything directly into the main header title block cleanly
+        finalName = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`;
+        finalQualityTag = "";
+        finalQuality = "";
+        finalLanguage = "";
+      }
+
+      // 3. Assemble the stream payload object
       const baseStream = __spreadProps(__spreadValues({}, stream), {
-        name: adjustedNameTag,
+        name: finalName,
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
+        qualityTag: finalQualityTag,
+        quality: finalQuality,
+        language: finalLanguage,
         description: finalTitle,
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,
@@ -194,11 +221,6 @@ var require_formatter = __commonJS({
         userAgent: playbackUserAgent,
         headers: finalHeaders
       });
-
-      // 2. Feed real values to the native properties so the TV displays them natively without the "Unknown" fallback
-      baseStream.qualityTag = cleanQuality; // e.g., "1080p"
-      baseStream.quality = cleanQuality;
-      baseStream.language = audioTypeLabel; // e.g., "Dual-Audio"
 
       return baseStream;
     }

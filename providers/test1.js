@@ -177,21 +177,25 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      return __spreadProps(__spreadValues({}, stream), {
-        name: nameTag,
-        title: finalTitle,
-        size: finalTitle, 
-        providerName: "VixSrc",
-        description: finalTitle,
-        originalTitle: stream.title || "Stream",
-        _nuvio_formatted: true,
-        behaviorHints,
-        provider: normalizeProviderId("VixSrc"),
-        referer: playbackReferer,
-        userAgent: playbackUserAgent,
-        headers: finalHeaders
-      });
-    }
+      const formatted = __spreadProps(__spreadValues({}, stream), {
+  name: nameTag,
+  title: finalTitle,
+  size: finalTitle,
+  providerName: "VixSrc",
+  description: finalTitle,
+  originalTitle: stream.title || "Stream",
+  _nuvio_formatted: true,
+  behaviorHints,
+  provider: normalizeProviderId("VixSrc"),
+  referer: playbackReferer,
+  userAgent: playbackUserAgent,
+  headers: finalHeaders
+});
+
+delete formatted.quality;
+delete formatted.qualityTag;
+
+return formatted;
 
     module2.exports = { formatStream: formatStream2 };
   }

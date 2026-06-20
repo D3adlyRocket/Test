@@ -177,15 +177,14 @@ var require_formatter = __commonJS({
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-          // 1. Build base object using empty string templates to bypass the app's fallback rules on both screens
+      // Redefining nameTag here right before the object is built to force the newline trick
+      const adjustedNameTag = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}\n`;
+
       const baseStream = __spreadProps(__spreadValues({}, stream), {
-        name: nameTag,
+        name: adjustedNameTag,
         title: finalTitle,
         size: finalTitle, 
         providerName: "VixSrc",
-        qualityTag: "",
-        quality: "",
-        language: "",
         description: finalTitle,
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,
@@ -196,12 +195,9 @@ var require_formatter = __commonJS({
         headers: finalHeaders
       });
 
-      // 2. Direct descriptor overrides to wipe the fields out of memory cleanly
-      Object.defineProperties(baseStream, {
-        quality: { value: "", enumerable: true, writable: true },
-        qualityTag: { value: "", enumerable: true, writable: true },
-        language: { value: "", enumerable: true, writable: true }
-      });
+      baseStream.qualityTag = "";
+      baseStream.quality = "";
+      baseStream.language = "";
 
       return baseStream;
     }

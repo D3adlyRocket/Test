@@ -174,10 +174,10 @@ var require_formatter = __commonJS({
         delete behaviorHints.notWebReady;
       }
 
-      const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
+            const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-             // 1. Build the base object with a structural override for the app's native layout engine
+      // 1. Build the base object with a structural override for the app's native layout engine
       // The leading newlines (\n) trick the mobile engine into rendering its native bullet point on an empty, invisible line.
       const baseStream = __spreadProps(__spreadValues({}, stream), {
         name: `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`,
@@ -188,7 +188,7 @@ var require_formatter = __commonJS({
         originalTitle: stream.title || "Stream",
         _nuvio_formatted: true,
         behaviorHints,
-        provider: normalizeProviderId("VixSrc"),
+        provider: normalizeProviderId(providerName),
         referer: playbackReferer,
         userAgent: playbackUserAgent,
         headers: finalHeaders
@@ -204,10 +204,15 @@ var require_formatter = __commonJS({
       } catch (e) {}
 
       return baseStream;
-
-    module2.exports = { formatStream: formatStream2 };
+    } catch (error) {
+      console.error("[VixSrc] Error formatting stream:", error);
+      return null;
+    }
   }
 });
+    
+module2.exports = { formatStream: formatStream2 };
+
 
 // src/fetch_helper.js
 var require_fetch_helper = __commonJS({

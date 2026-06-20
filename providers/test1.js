@@ -89,27 +89,7 @@ var require_formatter = __commonJS({
       const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
       return normalized || void 0;
     }
-    
      function formatStream2(stream, providerName) {
-     const deviceType = stream.deviceType || "mobile";
-
-     const layoutRules = {
-  tv: {
-    showQuality: true,
-    showAudio: true,
-    showProvider: true,
-    hideUnknown: true
-  },
-  mobile: {
-    showQuality: true,
-    showAudio: false,
-    showProvider: false,
-    hideUnknown: true
-  }
-};
-
-const rules = layoutRules[deviceType] || layoutRules.mobile;
-       
       // 1. Quality Parser
       let rawQuality = stream.quality || "1080p";
       let cleanQuality = "1080p";
@@ -149,21 +129,8 @@ const rules = layoutRules[deviceType] || layoutRules.mobile;
       }
 
       // 4. Clean Header Layout (Removed the word "Language")
-            // 4. Clean Header Layout
-      const q = cleanQuality;
-      const a = audioTypeLabel;
+      const nameTag = `🎦 VixSrc | ${cleanQuality} | ${audioTypeLabel}`;
 
-      let nameTag = "🎦 VixSrc";
-
-      if (q && a) {
-        nameTag += ` | ${q} - ${a}`;
-      } else if (q) {
-        nameTag += ` | ${q}`;
-      } else if (a) {
-        nameTag += ` | ${a}`;
-      }
-
-       
       // 5. Four Line Clean Subheading Engine
       let subLine1 = `🎬 Stream`;
       if (stream._meta_layout) {
@@ -182,12 +149,7 @@ const rules = layoutRules[deviceType] || layoutRules.mobile;
       let durationStr = stream._meta_layout && stream._meta_layout.duration ? `${stream._meta_layout.duration} min` : "Variable";
       let subLine3 = `🎞️ ${formatCodec} | ⏱️ ${durationStr} | 📁 Server 1`;
 
-      let finalTitle = `${subLine1}\n${subLine2}\n${subLine3}`;
-
-      finalTitle = finalTitle
-     .replace(/\bUnknown\b/gi, "")
-     .replace(/\s+\|\s+\|/g, " | ")
-     .trim();
+      const finalTitle = `${subLine1}\n${subLine2}\n${subLine3}`;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       let finalHeaders = stream.headers;
@@ -215,42 +177,24 @@ const rules = layoutRules[deviceType] || layoutRules.mobile;
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
       
-      let cleanedTitle = finalTitle
-  .replace(/\s*[-|]\s*Unknown\b/gi, "")
-  .replace(/\n\s*[-|]\s*Unknown\b/gi, "")
-  .trim();
+      return __spreadProps(__spreadValues({}, stream), {
+        name: nameTag,
+        title: finalTitle,
+        size: finalTitle, 
+        providerName: "VixSrc",
+        description: finalTitle,
+        originalTitle: stream.title || "Stream",
+        _nuvio_formatted: true,
+        behaviorHints,
+        provider: normalizeProviderId("VixSrc"),
+        referer: playbackReferer,
+        userAgent: playbackUserAgent,
+        headers: finalHeaders
+      });
+    }
 
-const formatted = __spreadProps(__spreadValues({}, stream), {
-  name: nameTag,
-  title: cleanedTitle,
-  size: cleanedTitle,
-  providerName: "VixSrc",
-  description: cleanedTitle,
-  originalTitle: stream.title || "Stream",
-  _nuvio_formatted: true,
-  behaviorHints,
-  provider: normalizeProviderId("VixSrc"),
-  referer: playbackReferer,
-  userAgent: playbackUserAgent,
-  headers: finalHeaders
-});
-
-// Intercept layout properties to hijack the auto-append string
-try {
-  Object.defineProperties(formatted, {
-    qualityTag: { get: () => "", enumerable: true, configurable: true },
-    quality: { get: () => "", enumerable: true, configurable: true },
-    
-    // Opt 1: Backspace character trick to wipe out the " - " spacer, then print your bullet/pipe
-    language: { get: () => "\x08\x08\x08 | ", enumerable: true, configurable: true }
-  });
-} catch (e) {}
-
-return formatted;
-}
-
-module2.exports = { formatStream: formatStream2 };
-}
+    module2.exports = { formatStream: formatStream2 };
+  }
 });
 
 // src/fetch_helper.js

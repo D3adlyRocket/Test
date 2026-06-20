@@ -192,7 +192,7 @@ var require_formatter = __commonJS({
   headers: finalHeaders
 });
 
-delete formatted.quality;
+formatted.quality = cleanQuality;
 delete formatted.qualityTag;
 
 return formatted;

@@ -240,8 +240,14 @@ const formatted = __spreadProps(__spreadValues({}, stream), {
   headers: finalHeaders
 });
 
-formatted.quality = null;
-delete formatted.qualityTag;
+// Force getters to actively return your icon and override the app's native fallback layout engine
+try {
+  Object.defineProperties(formatted, {
+    qualityTag: { get: () => "", enumerable: true, configurable: true },
+    quality: { get: () => "", enumerable: true, configurable: true },
+    language: { get: () => "🎦", enumerable: true, configurable: true }
+  });
+} catch (e) {}
 
 return formatted;
 }

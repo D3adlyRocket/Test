@@ -89,13 +89,6 @@ var require_formatter = __commonJS({
       const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
       return normalized || void 0;
     }
-
-    function safeLabel(value) {
-  if (!value || String(value).toLowerCase() === "Unknown") {
-    return "🎦";
-  }
-  return String(value);
-}
     
      function formatStream2(stream, providerName) {
      const deviceType = stream.deviceType || "mobile";

@@ -195,7 +195,7 @@ var require_formatter = __commonJS({
 formatted.quality = null;
 delete formatted.qualityTag;
 
-finalTitle = finalTitle.replace(/\s*-\s*Unknown\b/gi, "");
+const cleanedTitle = finalTitle.replace(/\s*-\s*Unknown\b/gi, "");
        
 return formatted;
 }

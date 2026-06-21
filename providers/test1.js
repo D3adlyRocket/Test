@@ -160,9 +160,10 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var qEmoji = (displayQuality === "2160p" || displayQuality.includes("4k")) ? "🌟" : "💎";
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
-  // --- LINE 3 (Fixed: ⚡ strictly tied ONLY to HDR/SDR profiles) ---
+  // --- LINE 3 (Fixed: Lightning Bolt ONLY displays if exact dynamicHdr matches) ---
   var dynamicHdr = "";
   var showLightning = false;
+  
   if (/\b(hdr10\+|hdr10p)\b/i.test(combinedScanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
   else if (/\bhdr10\b/i.test(combinedScanText)) { dynamicHdr = "HDR10"; showLightning = true; }
   else if (/\bhdr\b/i.test(combinedScanText)) { dynamicHdr = "HDR"; showLightning = true; }
@@ -197,7 +198,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     line3 = "🎥 " + codecTag;
   }
 
-  // --- LINE 4 (Fixed: Smart Advanced Multi-Audio Array Layouts) ---
+  // --- LINE 4 (Fixed: Absolute Audio Mapping & Stacking Rules) ---
   var formatTag = "🎞️ MKV";
   if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
     formatTag = "🎞️ MP4";
@@ -206,32 +207,42 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var has51 = /\b5\.1\b/.test(combinedScanText);
   var has71 = /\b7\.1\b/.test(combinedScanText);
   var isTrueHD = /\btruehd\b/i.test(combinedScanText);
-  var isDDP = /\b(ddp|dd\+|eac3)\b/i.test(combinedScanText);
 
   var audioChannelTag = "DDP 5.1";
 
+  // Double match scenario checking
   if (has51 && has71) {
     if (isTrueHD) {
       audioChannelTag = "DDP 5.1 + TrueHD 7.1";
     } else {
       audioChannelTag = "DDP 5.1 + DDP 7.1";
     }
-  } else if (has71) {
+  } 
+  // Standalone channel scenario checking
+  else if (has71) {
     if (isTrueHD) {
       audioChannelTag = "TrueHD 7.1";
     } else {
       audioChannelTag = "DDP 7.1";
     }
-  } else {
-    // Default fallback setups if 7.1 is absent
+  } 
+  else if (has51) {
     if (isTrueHD) {
       audioChannelTag = "TrueHD 5.1";
-    } else if (isDDP) {
+    } else if (/\b(ddp|dd\+|eac3)\b/i.test(combinedScanText)) {
       audioChannelTag = "DDP 5.1";
     } else if (/\b(dd|ac3)\b/i.test(combinedScanText)) {
       audioChannelTag = "DD 5.1";
     } else if (/\baac\b/i.test(combinedScanText)) {
       audioChannelTag = "AAC 5.1";
+    } else {
+      audioChannelTag = "DDP 5.1";
+    }
+  } 
+  // Fallbacks if no specific channel tags are found in the string
+  else {
+    if (isTrueHD) {
+      audioChannelTag = "TrueHD 7.1";
     } else {
       audioChannelTag = "DDP 5.1";
     }
@@ -270,7 +281,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     }
   };
 }
-
+  
 async function getTMDBInfo(tmdbId, mediaType) {
   var type = (mediaType === "tv" || mediaType === "series") ? "tv" : "movie";
   try {

@@ -82,9 +82,9 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
-    // 1. METADATA SCANNING
+    // 1. METADATA SCANNING (Enhanced to find size anywhere in the string)
     let fileSizeOnly = "N/A";
-    const sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
+    const sizeMatch = cleanTitle.match(/(?:\[|\(|\s)(\d+(?:\.\d+)?\s*[MG]B)(?:\]|\)|\s|$)/i);
     if (sizeMatch) fileSizeOnly = sizeMatch[1].trim();
 
     let fileFormat = "MKV";
@@ -214,6 +214,18 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
             }
         }
     };
+
+    try {
+        Object.defineProperties(formattedStream, {
+            qualityTag: { get: () => "", enumerable: true, configurable: true },
+            quality: { get: () => "", enumerable: true, configurable: true },
+            language: { get: () => "", enumerable: true, configurable: true },
+            resolution: { get: () => "", enumerable: true, configurable: true }
+        });
+    } catch (e) {}
+
+    return formattedStream;
+}
 
     // Stremio layout interceptor to force remove the " - Unknown" badge tail completely
     try {
@@ -441,9 +453,9 @@ async function extractVcloud(vcloudUrl, referer, quality, showTitle, mediaInfo) 
 
   // Grab the precise metadata string from the vCloud page title or main header element
   let deepMetaString = showTitle || "";
-  const vcloudTitleMatch = html.match(/<title>([^<]+)<\/title>/i) || html.match(/<h\d[^>]*>([^<]+)<\/h\d>/i);
+  const vcloudTitleMatch = html.match(/<title>([\s\S]*?)<\/title>/i) || html.match(/<h\d[^>]*>([\s\S]*?)<\/h\d>/i);
   if (vcloudTitleMatch) {
-      deepMetaString = vcloudTitleMatch[1].replace(/Download/gi, '').trim();
+      deepMetaString = vcloudTitleMatch[1].replace(/Download/gi, '').replace(/[\n\t]+/g, ' ').trim();
   }
 
   let tokenUrl = '';

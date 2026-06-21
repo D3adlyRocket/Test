@@ -245,10 +245,8 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var imaxBlock = /\bimax\b/i.test(combinedScanText) ? " | 👁️ iMAX" : "";
   var line5 = "🔗 " + (serverType || "Worker") + " | ☁️ " + sourceOrigin + imaxBlock;
 
- // 4. STRATIFIED LAYOUT GENERATION
-  // Force a blank invisible character sequence into the internal name template tracking block
-  var blankQualityMask = "     "; 
-  var finalName = "4KHDHub | " + blankQualityMask + " | " + shortLangLabel;
+   // 4. STRATIFIED LAYOUT GENERATION
+  var finalName = "4KHDHub | " + qUpper + " | " + shortLangLabel;
   
   var finalTitle = 
     "🎬 " + cleanDisplayTitle + (yearBlock ? " - (" + yearBlock + ")" : "") + seasonEpisodeBlock + "\n" +
@@ -257,17 +255,28 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     line4 + "\n" +
     line5;
 
-  return {
+  // 1. Build the base stream object
+  var baseStream = {
     name: finalName,
     title: finalTitle,
     size: finalTitle, 
     url: encodedUrl,
-    quality: " ", // Use space string mask to completely break original parsing filters
     behaviorHints: {
       notWebReady: true,
       proxyHeaders: { request: { "Referer": referer || "https://4khdhub.org/" } }
     }
   };
+
+  // 2. Intercept quality properties using getters to force-delete the native text block
+  try {
+    Object.defineProperties(baseStream, {
+      qualityTag: { get: function() { return ""; }, enumerable: true, configurable: true },
+      quality: { get: function() { return "\x08"; }, enumerable: true, configurable: true }, // Backspace control character to delete native text
+      language: { get: function() { return ""; }, enumerable: true, configurable: true }
+    });
+  } catch (e) {}
+
+  return baseStream;
 }
 
 async function getTMDBInfo(tmdbId, mediaType) {

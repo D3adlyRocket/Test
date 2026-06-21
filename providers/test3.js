@@ -84,68 +84,65 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     // 1. METADATA SCANNING
     let fileSizeOnly = "N/A";
-    const sizeMatch = title.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
+    const sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i);
     if (sizeMatch) fileSizeOnly = sizeMatch[1].trim();
 
     let fileFormat = "MKV";
     if (filename && filename.toLowerCase().endsWith(".mp4")) fileFormat = "MP4";
+    if (cleanTitle.toLowerCase().includes(".mp4")) fileFormat = "MP4";
 
     let sourceTag = "WEB-DL";
-    if (/bluray|blu\-ray|bdrip/i.test(title)) sourceTag = "BluRay";
-    else if (/hdrip|webrip/i.test(title)) sourceTag = "WEBRip";
+    if (/bluray|blu\-ray|bdrip/i.test(cleanTitle)) sourceTag = "BluRay";
+    else if (/hdrip|webrip/i.test(cleanTitle)) sourceTag = "WEBRip";
 
-    // iMAX Allocation Flag
     let imaxTag = "";
-    if (/imax/i.test(title)) imaxTag = " | 👁️ iMAX";
+    if (/imax/i.test(cleanTitle)) imaxTag = " | 👁️ iMAX";
 
     // Dynamic Video Profiles Checking
     let videoRangeBlock = "";
     let rangeTag = "";
-    if (/dolby\s*vision|dovi/i.test(title.toLowerCase())) rangeTag = "Dolby Vision";
-    else if (/hdr10/i.test(title)) rangeTag = "HDR10";
-    else if (/hdr/i.test(title)) rangeTag = "HDR";
-    else if (/10bit|10\-bit/i.test(title)) rangeTag = "10Bit";
-    else if (/sdr/i.test(title.toLowerCase())) rangeTag = "SDR";
+    if (/dolby\s*vision|dovi|\bdv\b/i.test(cleanTitle)) rangeTag = "Dolby Vision";
+    else if (/hdr10/i.test(cleanTitle)) rangeTag = "HDR10";
+    else if (/hdr/i.test(cleanTitle)) rangeTag = "HDR";
+    else if (/10bit|10\-bit/i.test(cleanTitle)) rangeTag = "10Bit";
+    else if (/sdr/i.test(cleanTitle)) rangeTag = "SDR";
 
     let codecTag = "H.264";
-    if (/hevc/i.test(title)) {
+    if (/hevc|\bx265\b|\bh265\b/i.test(cleanTitle)) {
         codecTag = "HEVC";
-    } else if (/x265|h265/i.test(title)) {
-        codecTag = "H.265";
-    } else if (/x264|h264/i.test(title)) {
+    } else if (/x264|h264/i.test(cleanTitle)) {
         codecTag = "H.264";
     }
 
-    // Conditionally renders the symbol only if profile tags exist
     if (rangeTag) {
         videoRangeBlock = ` | 🔆 ${rangeTag} • ⚡ ${codecTag}`;
     } else {
         videoRangeBlock = ` | ⚡ ${codecTag}`;
     }
 
-    // Audio Layout Pipeline (Defaults strictly to Auto)
+    // Audio Layout Pipeline
     let audioChannelTag = "";
-    const audioMatch = title.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
+    const audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
     if (audioMatch) {
         let matchedTag = audioMatch[1].toUpperCase().replace(/\s+/g, '');
         if (matchedTag === "5.1") matchedTag = "DDP5.1";
         if (matchedTag.includes("TRUEHD")) matchedTag = "TrueHD 7.1";
         audioChannelTag = matchedTag;
-    } else if (/dolby\s*digital|dd/i.test(title)) {
+    } else if (/dolby\s*digital|dd\d/i.test(cleanTitle)) {
         audioChannelTag = 'Dolby Digital';
-    } else if (/dolby/i.test(title)) {
+    } else if (/dolby|dsnp/i.test(cleanTitle)) {
         audioChannelTag = 'Dolby';
     }
 
-    if (/atmos/i.test(title)) {
+    if (/atmos/i.test(cleanTitle)) {
         audioChannelTag = audioChannelTag ? `${audioChannelTag} • 🔊 Atmos` : '🔊 Atmos';
     }
     if (!audioChannelTag) audioChannelTag = "Auto";
 
     // 2. LANGUAGE MATRIX ENGINE
     let langFlags = [];
-    const lowerTitle = title.toLowerCase();
-    const isDual = /dual|hindi\-eng|eng\-hin/i.test(title || "");
+    const lowerTitle = cleanTitle.toLowerCase();
+    const isDual = /dual|hindi\-eng|eng\-hin|multi/i.test(cleanTitle);
     
     if (isDual) {
         langFlags.push("English 🇺🇸 • Hindi 🇮🇳");
@@ -158,7 +155,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     // 3. TITLE RENDERING SYSTEM
     let cleanedMainTitle = "";
-    const yearMatch = title.match(/\b(19\d{2}|20\d{2})\b/);
+    const yearMatch = cleanTitle.match(/\b(19\d{2}|20\d{2})\b/);
     const displayYear = yearMatch ? `(${yearMatch[1]})` : "";
     const searchString = filename || cleanTitle;
     const preciseSAndEMatch = searchString.match(/[sS](\d+)\s*[eE](\d+)/);
@@ -183,10 +180,10 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ').replace(/\s+-\s+-\s+/g, ' - ').replace(/-\s*$/, '').trim();
 
     const displayQuality = quality || "1080p";
-    const audioType = isDual ? "Dual-Audio" : "Single Audio";
+    const audioType = isDual ? "Multi-Audio" : "Single Audio";
     const label = `${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-        // 4. GATEWAY HOST MAPPER (With Whistle & Homelander support)
+    // 4. GATEWAY HOST MAPPER
     let hostLabel = "Play Stream";
     const lowerUrl = (url || "").toLowerCase();
     if (lowerUrl.includes("/hub2/") || lowerUrl.includes("hubcloud") || lowerUrl.includes("homelander.buzz") || lowerUrl.includes("whistle.lat") || lowerUrl.includes("mandalorian.buzz")) {
@@ -203,8 +200,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     cleanTitle = `${line1}\n${line2}\n${line3}\n${line4}`;
 
-    // Helper properties attached to help the array sorting routine below
-    return {
+    const formattedStream = {
         name: label,
         title: cleanTitle,
         size: cleanTitle,
@@ -218,6 +214,18 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
             }
         }
     };
+
+    // Stremio layout interceptor to force remove the " - Unknown" badge tail completely
+    try {
+        Object.defineProperties(formattedStream, {
+            qualityTag: { get: () => "", enumerable: true, configurable: true },
+            quality: { get: () => "", enumerable: true, configurable: true },
+            language: { get: () => "", enumerable: true, configurable: true },
+            resolution: { get: () => "", enumerable: true, configurable: true }
+        });
+    } catch (e) {}
+
+    return formattedStream;
 }
 
 function dedupe(streams) {
@@ -450,7 +458,7 @@ async function resolveNexdrive(nexdriveUrl, referer, fallbackQuality) {
   return vclouds;
 }
 
-// --- Extract streams from vcloud page ---
+// --- Modified Inner Scanner ---
 async function extractVcloud(vcloudUrl, referer, quality, showTitle, mediaInfo) {
   const streams = [];
   const headers = { ...getMobileHeaders(), 'Referer': referer, 'Cookie': 'xla=s4t' };
@@ -458,7 +466,13 @@ async function extractVcloud(vcloudUrl, referer, quality, showTitle, mediaInfo) 
   const html = await fetchHtml(vcloudUrl, { headers });
   if (!html) return streams;
 
-  // Get the token URL from double base64 or simple var
+  // Grab the precise metadata string from the vCloud page title or main header element
+  let deepMetaString = showTitle || "";
+  const vcloudTitleMatch = html.match(/<title>([^<]+)<\/title>/i) || html.match(/<h\d[^>]*>([^<]+)<\/h\d>/i);
+  if (vcloudTitleMatch) {
+      deepMetaString = vcloudTitleMatch[1].replace(/Download/gi, '').trim();
+  }
+
   let tokenUrl = '';
   const db64Match = html.match(/var\s+url\s*=\s*atob\(atob\('([^']+)'\)\)/);
   if (db64Match) {
@@ -469,34 +483,30 @@ async function extractVcloud(vcloudUrl, referer, quality, showTitle, mediaInfo) 
   }
   if (!tokenUrl) return streams;
 
-  // Fetch with token to reveal download links
   const tokenHtml = await fetchHtml(tokenUrl, { headers: { ...headers, 'Referer': vcloudUrl } });
   if (!tokenHtml) return streams;
 
-  const streamTitle = (showTitle + ' ' + mediaInfo).trim();
-
-  // FSLv2 (id="s3")
+  // FSLv2
   const s3 = tokenHtml.match(/<a[^>]*href="([^"]+)"[^>]*id="s3"[^>]*>/i);
   if (s3) {
     const name = showTitle + ' - ' + PROVIDER_NAME + ' | ' + quality + ' (FSLv2)';
-    streams.push(makeStream(name, streamTitle, s3[1], quality, vcloudUrl));
+    streams.push(makeStream(name, deepMetaString, s3[1], quality, vcloudUrl));
   }
 
-  // FSL (id="fsl")
+  // FSL
   const fsl = tokenHtml.match(/<a[^>]*href="([^"]+)"[^>]*id="fsl"[^>]*>/i);
   if (fsl) {
     const name = showTitle + ' - ' + PROVIDER_NAME + ' | ' + quality + ' (FSL)';
-    streams.push(makeStream(name, streamTitle, fsl[1], quality, vcloudUrl));
+    streams.push(makeStream(name, deepMetaString, fsl[1], quality, vcloudUrl));
   }
 
-  // Worker (var url with workers.dev)
+  // Worker
   const worker = tokenHtml.match(/var\s+url\s*=\s*['"]([^'"]*workers\.dev[^'"]*)['"]/i);
   if (worker) {
     const name = showTitle + ' - ' + PROVIDER_NAME + ' | ' + quality + ' (Worker)';
-    streams.push(makeStream(name, streamTitle, worker[1], quality, vcloudUrl));
+    streams.push(makeStream(name, deepMetaString, worker[1], quality, vcloudUrl));
   }
 
-  // Also scan for server buttons labeled "worker"/"fsl"/"fslv2"
   const btnRegex = /<a[^>]*href="([^"]+)"[^>]*class="btn[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
   let bm;
   while ((bm = btnRegex.exec(tokenHtml)) !== null) {
@@ -506,7 +516,7 @@ async function extractVcloud(vcloudUrl, referer, quality, showTitle, mediaInfo) 
     if (href.includes('.zip') || href.includes('pixeldrain') || href.includes('telegram')) continue;
     if (text.includes('worker') && !text.includes('fsl')) {
       const name = showTitle + ' - ' + PROVIDER_NAME + ' | ' + quality + ' (Worker)';
-      streams.push(makeStream(name, streamTitle, href, quality, vcloudUrl));
+      streams.push(makeStream(name, deepMetaString, href, quality, vcloudUrl));
     }
   }
 

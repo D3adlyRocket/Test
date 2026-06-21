@@ -182,9 +182,8 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     line5;
 
   return {
-    name: finalName, // Kept short to layout as the main bold TV header cleanly
-    title: finalTitle,
-    description: finalTitle,
+    name: finalName,      // Kept clean as requested by standard TV cards
+    title: finalTitle,    // Retained as the exclusive source of formatting tags
     url: encodedUrl,
     quality: quality,
     headers: { "Referer": referer || BASE_URL + "/" }

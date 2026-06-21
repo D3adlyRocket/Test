@@ -121,11 +121,10 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     else { shortLangLabel = "English"; langTag = "English 🇺🇸"; }
   }
 
-  // 2. SERIES & MOVIE TITLE CLEANING ENGINE (Fixes "FROM" and messy season titles)
+  // 2. SERIES & MOVIE TITLE CLEANING ENGINE
   var cleanDisplayTitle = cleanNameText;
   var seasonEpisodeBlock = "";
   
-  // Match standard season patterns like S01E01 or S1 E1
   var tvMatch = cleanNameText.match(/\b(S\d{1,2}\s*E\d{1,2})\b/i);
   if (tvMatch) {
     seasonEpisodeBlock = " | " + tvMatch[1].toUpperCase().replace(/\s+/g, "");
@@ -145,7 +144,6 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     }
   }
 
-  // Clean out common layout leak fragments
   cleanDisplayTitle = cleanDisplayTitle
     .replace(/AMZN|WEB-DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit/gi, "")
     .replace(/[-_()\[\]|]/g, " ")
@@ -162,22 +160,20 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var qEmoji = (displayQuality === "2160p" || displayQuality.includes("4k")) ? "🌟" : "💎";
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
-  // --- LINE 3 (Fixed: Keeps dynamic space completely empty if no SDR/HDR match) ---
+  // --- LINE 3 (Fixed: ⚡ hiding completely if empty & added hdr10p check) ---
   var dynamicHdr = "";
-  if (/\bhdr10\+\b/i.test(combinedScanText)) dynamicHdr = "HDR10+";
+  if (/\b(hdr10\+|hdr10p)\b/i.test(combinedScanText)) dynamicHdr = "HDR10+";
   else if (/\bhdr10\b/i.test(combinedScanText)) dynamicHdr = "HDR10";
   else if (/\bhdr\b/i.test(combinedScanText)) dynamicHdr = "HDR";
   else if (/\bsdr\b/i.test(combinedScanText)) dynamicHdr = "SDR";
 
   var bitDepth = /\b10bit\b/i.test(combinedScanText) ? "🔆 10Bit" : "";
   var dv = /\b(dv|dolby\s*vision)\b/i.test(combinedScanText) ? "🕵️‍♀️ DV" : "";
-  
   var isBluRay = /\bbluray\b/i.test(combinedScanText);
   
   var codecTag = "x264";
   if (/\b(hevc|x265|265)\b/i.test(combinedScanText) || displayQuality === "2160p") codecTag = "HEVC x265";
 
-  // Build Line 3 segments dynamically based strictly on true findings
   var line3Part1Elements = [];
   if (dynamicHdr) line3Part1Elements.push(dynamicHdr);
   if (bitDepth) line3Part1Elements.push(bitDepth);
@@ -188,24 +184,32 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   if (dv) line3Part2Elements.push(dv);
   var line3Part2 = line3Part2Elements.join(" • ");
 
-  // Join the pieces together cleanly with absolute pipes layout
-  var line3 = "⚡ " + (line3Part1 ? line3Part1 + " | " : "") + (line3Part2 ? line3Part2 + " | " : "") + "🎥 " + codecTag;
-  
-  // Clean double spaces or structural mishaps from empty parameters
-  line3 = line3.replace(/\s*\|\s*\|/g, " |").trim();
+  // Build the meta prefix block conditional on existing parameters
+  var metaParts = [];
+  if (line3Part1) metaParts.push(line3Part1);
+  if (line3Part2) metaParts.push(line3Part2);
 
-  // --- LINE 4 ---
+  var line3 = "";
+  if (metaParts.length > 0) {
+    line3 = "⚡ " + metaParts.join(" | ") + " | 🎥 " + codecTag;
+  } else {
+    line3 = "🎥 " + codecTag; // No ⚡ prefix or orphan trailing pipes if it's empty
+  }
+
+  // --- LINE 4 (Fixed: TrueHD overrides channels to 7.1) ---
   var formatTag = "🎞️ MKV";
   if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
     formatTag = "🎞️ MP4";
   }
 
+  var isTrueHD = /\btruehd\b/i.test(combinedScanText);
   var audioChannelTag = "DDP 5.1"; 
-  var channels = "5.1";
+  var channels = isTrueHD ? "7.1" : "5.1"; // Dynamic swap rule for TrueHD setups
+  
   if (/\b7\.1\b/.test(combinedScanText)) channels = "7.1";
   else if (/\b2\.0\b/.test(combinedScanText) || /\bstereo\b/.test(combinedScanText)) channels = "2.0";
 
-  if (/\btruehd\b/i.test(combinedScanText)) {
+  if (isTrueHD) {
     audioChannelTag = "TrueHD " + channels;
   } else if (/\b(ddp|dd\+|eac3)\b/i.test(combinedScanText)) {
     audioChannelTag = "DDP " + channels;
@@ -241,7 +245,6 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     title: finalTitle,
     size: finalTitle, 
     url: encodedUrl,
-    // Setting quality empty inside the return dictionary bypasses Stremio's auto-generated subtitle resolution badge
     quality: "", 
     behaviorHints: {
       notWebReady: true,

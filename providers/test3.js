@@ -228,6 +228,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     return formattedStream;
 }
 
+// --- Deduplication & Helper Methods ---
 function dedupe(streams) {
   const seen = new Set();
   return (streams || []).filter(s => {
@@ -265,13 +266,11 @@ function isStrictMatch(requestedTitle, requestedYear, scrapedTitle, scrapedYear,
   return true;
 }
 
-// --- TMDB ---
 async function getTMDBInfo(id, type) {
   const idStr = String(id || '').trim();
   const isImdb = idStr.startsWith('tt');
   const tmdbType = (type === 'tv' || type === 'series') ? 'tv' : 'movie';
 
-  // Try direct TMDB API
   try {
     if (isImdb) {
       const data = await fetchJson('https://api.themoviedb.org/3/find/' + idStr + '?api_key=' + TMDB_API_KEY + '&external_source=imdb_id');
@@ -280,13 +279,11 @@ async function getTMDBInfo(id, type) {
         const item = list[0];
         const title = tmdbType === 'tv' ? item.name : item.title;
         const year = (item.first_air_date || item.release_date || '').split('-')[0];
-        console.log('[' + PROVIDER_NAME + '] TMDB resolved: ' + title + ' (' + year + ')');
         return { title: title, year: year, imdbId: idStr, altTitles: [] };
       }
       return { title: idStr, year: null, imdbId: idStr, altTitles: [] };
     }
 
-    // Numeric TMDB ID
     const data = await fetchJson('https://api.themoviedb.org/3/' + tmdbType + '/' + idStr + '?api_key=' + TMDB_API_KEY + '&append_to_response=external_ids,alternative_titles');
     if (data && (data.title || data.name)) {
       let altTitles = [];
@@ -297,24 +294,16 @@ async function getTMDBInfo(id, type) {
       const title = tmdbType === 'tv' ? data.name : data.title;
       const year = (data.first_air_date || data.release_date || '').split('-')[0];
       const imdbId = data.imdb_id || (data.external_ids && data.external_ids.imdb_id) || null;
-      console.log('[' + PROVIDER_NAME + '] TMDB resolved: ' + title + ' (' + year + ') imdb=' + imdbId);
       return { title: title, year: year, imdbId: imdbId, altTitles: altTitles };
     }
-  } catch (e) {
-    console.log('[' + PROVIDER_NAME + '] TMDB API failed: ' + e.message);
-  }
-
-  // Fallback: try searching vegamovies by tmdbId as text
-  console.log('[' + PROVIDER_NAME + '] TMDB unavailable, will search vegamovies by ID');
+  } catch (e) {}
   return { title: idStr, year: null, imdbId: null, altTitles: [] };
 }
 
-// --- Typesense search ---
 async function searchByTitle(query, year) {
   if (!query) return [];
   const searchQuery = encodeURIComponent(query + (year ? ' ' + year : ''));
   const url = baseUrl + '/search.php?q=' + searchQuery + '&page=1&per_page=15';
-  console.log('[' + PROVIDER_NAME + '] Search: "' + query.substring(0, 60) + '" -> ' + url.substring(0, 120));
   const data = await fetchJson(url, { headers: { ...getMobileHeaders(), 'Accept-Encoding': 'identity' } });
   if (!data || !data.hits) return [];
   return data.hits.map(h => {
@@ -329,15 +318,12 @@ async function searchByTitle(query, year) {
   }).filter(r => r.postId);
 }
 
-// --- Post fetcher (HTML only) ---
 async function fetchPostContent(permalink) {
   const url = permalink.startsWith('http') ? permalink : baseUrl + permalink;
   const html = await fetchHtml(url, { headers: getMobileHeaders() });
   if (!html) return null;
-  // Extract title
   const tMatch = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
   const title = tMatch ? tMatch[1].replace(/<[^>]*>/g, '').replace(/Download\s*/gi, '').trim() : '';
-  // Extract content area
   let content = '';
   const cMatch = html.match(/class="(?:entry-content|page-body|post-content)[^"]*"[^>]*>([\s\S]*?)(?:<\/main>|<div class="post-tags"|<footer)/i);
   if (cMatch) content = cMatch[1];
@@ -345,7 +331,6 @@ async function fetchPostContent(permalink) {
   return { title, content };
 }
 
-// --- Season filter: extract only the target season's block ---
 function filterSeason(html, targetSeason) {
   const patterns = [
     new RegExp('<span[^>]*style="[^"]*color:\\s*#ff0000[^"]*"[^>]*>\\s*Season\\s+0*' + targetSeason + '\\b', 'i'),
@@ -381,37 +366,29 @@ function filterSeason(html, targetSeason) {
   return html.substring(startIdx, endIdx);
 }
 
-// --- Extract quality from text around a position ---
 function qualityNear(html, pos) {
   const before = html.substring(Math.max(0, pos - 1500), pos);
-  // Find the LAST <h1-6> or <strong> tag in before (closest to link)
   let lastQ = null;
   const hRegex = /<(h[1-6]|strong)[^>]*>[\s\S]*?(\d{3,4}p|4K|UHD)[\s\S]*?<\/\1>/gi;
   let hMatch;
   while ((hMatch = hRegex.exec(before)) !== null) lastQ = hMatch[2];
   if (lastQ) return parseQuality(lastQ);
-  // Last quality match (closest to link) using greedy backtracking
   const lastMatch = before.match(/[\s\S]*(\d{3,4}p|4K|UHD)/i);
   if (lastMatch) return parseQuality(lastMatch[1]);
   return 'HD';
 }
 
-// --- Check if a nexdrive link is a Batch/Zip button ---
 function isBatchZip(html, linkPos) {
-  // Find the enclosing <a> tag start
   const aStart = html.lastIndexOf('<a ', linkPos);
   if (aStart < 0) return false;
-  // Find the </a> end
   const aEnd = html.indexOf('</a>', linkPos);
   if (aEnd < 0) return false;
   const aTag = html.substring(aStart, aEnd + 4);
-  // Check for Batch/Zip text or purple gradient inside this <a> tag
   if (/Batch\/Zip/i.test(aTag)) return true;
   if (/linear-gradient\(135deg,#2ea1cf,#ff19d0\)/.test(aTag)) return true;
   return false;
 }
 
-// --- Extract nexdrive links from post content ---
 function extractNexdriveLinks(html) {
   const links = [];
   const seen = new Set();
@@ -428,11 +405,9 @@ function extractNexdriveLinks(html) {
   return links;
 }
 
-// --- Fetch nexdrive page, extract quality, get vcloud URLs ---
 async function resolveNexdrive(nexdriveUrl, referer, fallbackQuality) {
   const html = await fetchHtml(nexdriveUrl, { headers: { ...getMobileHeaders(), 'Referer': referer } });
   if (!html) return [];
-  // Extract quality from nexdrive page <title> tag
   let quality = fallbackQuality;
   const titleMatch = html.match(/<title>([^<]+)<\/title>/i);
   if (titleMatch) {
@@ -440,13 +415,11 @@ async function resolveNexdrive(nexdriveUrl, referer, fallbackQuality) {
     const qMatch = title.match(/(\d{3,4}p|4K|2160p|UHD)/i);
     if (qMatch) quality = parseQuality(qMatch[1]);
   }
-  // Direct vcloud links
   const vclouds = [];
   const dRegex = /href="(https:\/\/vcloud\.zip\/(?!api)[^"]+)"/gi;
   let m;
   while ((m = dRegex.exec(html)) !== null) vclouds.push({ url: m[1], quality });
   if (vclouds.length > 0) return vclouds;
-  // API bridge links
   const aRegex = /href="(https:\/\/vcloud\.zip\/api\/index\.php\?link=[^"]+)"/gi;
   while ((m = aRegex.exec(html)) !== null) {
     const bridgeHtml = await fetchHtml(m[1], { headers: { ...getMobileHeaders(), 'Referer': nexdriveUrl } });
@@ -523,61 +496,43 @@ async function extractVcloud(vcloudUrl, referer, quality, showTitle, mediaInfo) 
   return streams;
 }
 
-// --- Main entry point ---
+// --- Main Entry point ---
 async function getStreams(tmdbId, mediaType, season, episode) {
-  console.log('[' + PROVIDER_NAME + '] Request: ID=' + tmdbId + ' Type=' + mediaType + ' S=' + season + ' E=' + episode);
   await refreshDomains();
 
   const targetSeason = season != null ? Number(season) : null;
   const targetEpisode = episode != null ? Number(episode) : null;
   const isTv = (mediaType === 'tv' || mediaType === 'series');
 
-  // Get media info
   const media = await getTMDBInfo(tmdbId, mediaType);
-
-  // Search strategy
   let results = [];
 
-  // 1. By IMDb ID (if TMDB resolved it)
   if (media.imdbId && media.imdbId.startsWith('tt')) {
     results = await searchByTitle(media.imdbId, null);
   }
-
-  // 2. By `tt{id}` — platform sometimes passes numeric TMDB ID but vegamovies indexes imdb_id
   if (results.length === 0 && !isNaN(parseInt(tmdbId))) {
     results = await searchByTitle('tt' + String(tmdbId), null);
   }
-
-  // 3. By resolved title (or raw ID if TMDB failed)
   if (results.length === 0) {
     let query = media.title;
     if (isTv && targetSeason) query += ' season ' + targetSeason;
     else if (media.year) query += ' ' + media.year;
     results = await searchByTitle(query, media.year);
 
-    // 3b. Try without year/season qualifier
     if (results.length === 0) {
       results = await searchByTitle(media.title, null);
     }
-
-    // 3c. For TV, try just the title
     if (results.length === 0 && isTv && targetSeason) {
       results = await searchByTitle(media.title, media.year);
     }
   }
-  if (results.length === 0) {
-    console.log('[' + PROVIDER_NAME + '] Search: no results for ID=' + tmdbId);
-    return [];
-  }
+  if (results.length === 0) return [];
 
-  // Find best match
   let best = null;
   const targetImdb = (media.imdbId && media.imdbId.startsWith('tt')) ? media.imdbId : null;
-  // TMDB resolved successfully if we have a real title (not a raw numeric ID)
   const tmdbResolved = !!targetImdb || (media.title !== String(tmdbId) && media.title.length > 4);
 
   for (const r of results) {
-    // Exact IMDb ID match (preferred)
     if (targetImdb && r.imdbId === targetImdb) {
       if (!isTv || !targetSeason) { best = r; break; }
       const sRange = r.title.match(/(?:s|season)\s*0*(\d+)\s*(?:-|–|to)\s*0*(\d+)/i);
@@ -587,18 +542,14 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         best = r; break;
       }
     }
-
-    // Strict title match (when TMDB resolved properly)
     if (!best && tmdbResolved && isStrictMatch(media.title, media.year, r.title, r.year, media.altTitles)) {
       best = r;
     }
   }
 
-  // If no match and TMDB resolved properly, re-search by title+year
   if (!best && tmdbResolved) {
     let query = media.title;
     if (media.year) query += ' ' + media.year;
-    console.log('[' + PROVIDER_NAME + '] IMDb search failed, re-searching by title: "' + query.substring(0, 80) + '"');
     results = await searchByTitle(query, media.year);
     for (const r of results) {
       if (isStrictMatch(media.title, media.year, r.title, r.year, media.altTitles)) {
@@ -607,7 +558,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
   }
 
-  // Fallback: if TMDB failed, accept first result that has a valid imdb_id
   if (!best && !tmdbResolved && results.length > 0) {
     for (const r of results) {
       if (r.imdbId && r.imdbId.startsWith('tt')) { best = r; break; }
@@ -615,14 +565,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     if (!best) best = results[0];
   }
 
-  if (!best || !best.postId) {
-    console.log('[' + PROVIDER_NAME + '] No match found among ' + results.length + ' results');
-    return [];
-  }
+  if (!best || !best.postId) return [];
 
-  console.log('[' + PROVIDER_NAME + '] Matched: ' + best.title);
-
-  // Fetch post content
   const post = await fetchPostContent(best.permalink);
   if (!post || !post.content) return [];
 
@@ -632,19 +576,15 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     if (filtered) content = filtered;
   }
 
-  // Extract nexdrive links
   const nexLinks = extractNexdriveLinks(content);
   if (nexLinks.length === 0) return [];
 
   const mediaInfo = (isTv && targetSeason ? 'S' + targetSeason + (targetEpisode ? 'E' + targetEpisode : '') : media.year || '').trim();
   const allStreams = [];
 
-  // Process each quality's nexdrive link
   for (let li = 0; li < nexLinks.length; li++) {
       const link = nexLinks[li];
-      console.log('[' + PROVIDER_NAME + '] Resolving nexdrive ' + (li+1) + '/' + nexLinks.length + ': ' + link.url.substring(0, 60) + ' q=' + link.quality);
       const vcloudEntries = await resolveNexdrive(link.url, baseUrl + '/', link.quality);
-      console.log('[' + PROVIDER_NAME + '] -> ' + vcloudEntries.length + ' vcloud entries');
       let startIdx = 0;
       let endIdx = vcloudEntries.length;
       if (isTv && targetEpisode != null) {
@@ -653,10 +593,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       }
       for (let i = startIdx; i < endIdx && i < vcloudEntries.length; i++) {
         const entry = vcloudEntries[i];
-        if (entry.quality === '480p') { console.log('[' + PROVIDER_NAME + '] Skip 480p: ' + entry.url.substring(0, 60)); continue; }
-        console.log('[' + PROVIDER_NAME + '] Extracting vcloud: ' + entry.quality + ' ' + entry.url.substring(0, 60));
+        if (entry.quality === '480p') continue;
         const streams = await extractVcloud(entry.url, entry.url, entry.quality, post.title, mediaInfo);
-        console.log('[' + PROVIDER_NAME + '] Got ' + streams.length + ' streams from ' + entry.quality);
         streams.forEach(s => { if (s && s.url) allStreams.push(s); });
     }
   }

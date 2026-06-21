@@ -112,7 +112,6 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     langTag = "Multi-Audio 🌍";
   } else if (/\b(dual|dual-audio|dual\.audio|dubbed)\b/i.test(combinedScanText) || langCount === 2) {
     shortLangLabel = "Dual-Audio";
-    // Check which specific pair exists, fallback to Eng/Hin combo
     if (hasEng && hasHindi) langTag = "English 🇺🇸 • Hindi 🇮🇳";
     else if (hasHindi && hasTamil) langTag = "Hindi 🇮🇳 • Tamil 🇮🇳";
     else langTag = "English 🇺🇸 • Hindi 🇮🇳";
@@ -157,22 +156,29 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var qEmoji = (displayQuality === "2160p" || displayQuality.includes("4k")) ? "🌟" : "💎";
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
-  // --- LINE 3 ---
-  var dynamicHdr = "SDR";
+  // --- LINE 3 (Fixed: SDR is now completely optional and only shows if explicitly matched) ---
+  var dynamicHdr = "";
   if (/\bhdr10\+\b/i.test(combinedScanText)) dynamicHdr = "HDR10+";
   else if (/\bhdr10\b/i.test(combinedScanText)) dynamicHdr = "HDR10";
   else if (/\bhdr\b/i.test(combinedScanText)) dynamicHdr = "HDR";
+  else if (/\bsdr\b/i.test(combinedScanText)) dynamicHdr = "SDR"; // Only displays if explicitly found in string/URL
 
   var bitDepth = /\b10bit\b/i.test(combinedScanText) ? " • 🔆 10Bit" : "";
-  
-  var isBluRay = /\bbluray\b/i.test(combinedScanText);
-  var sourceDisc = isBluRay ? "📀 BluRay";
   var dv = /\b(dv|dolby\s*vision)\b/i.test(combinedScanText) ? " • 🕵️‍♀️ DV" : "";
   
+  var isBluRay = /\bbluray\b/i.test(combinedScanText);
+  var sourceDisc = isBluRay ? " | 📀 BluRay" : "";
+
   var codecTag = "x264";
   if (/\b(hevc|x265|265)\b/i.test(combinedScanText) || displayQuality === "2160p") codecTag = "HEVC x265";
 
-  var line3 = "⚡ " + dynamicHdr + bitDepth + " | " + sourceDisc + dv + " | 🎥 " + codecTag;
+  // Handle clean spacing depending on whether an HDR/SDR tag was populated or not
+  var line3Leader = (dynamicHdr + bitDepth).trim();
+  if (line3Leader.startsWith("•")) {
+    line3Leader = line3Leader.substring(1).trim(); // Clean leading bullets if dynamicHdr is empty but 10Bit matches
+  }
+  
+  var line3 = "⚡ " + (line3Leader || "Video") + sourceDisc + dv + " | 🎥 " + codecTag;
 
   // --- LINE 4 ---
   var formatTag = "🎞️ MKV";

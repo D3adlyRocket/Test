@@ -160,12 +160,13 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var qEmoji = (displayQuality === "2160p" || displayQuality.includes("4k")) ? "🌟" : "💎";
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
-  // --- LINE 3 (Fixed: ⚡ hiding completely if empty & added hdr10p check) ---
+  // --- LINE 3 (Fixed: ⚡ strictly tied ONLY to HDR/SDR profiles) ---
   var dynamicHdr = "";
-  if (/\b(hdr10\+|hdr10p)\b/i.test(combinedScanText)) dynamicHdr = "HDR10+";
-  else if (/\bhdr10\b/i.test(combinedScanText)) dynamicHdr = "HDR10";
-  else if (/\bhdr\b/i.test(combinedScanText)) dynamicHdr = "HDR";
-  else if (/\bsdr\b/i.test(combinedScanText)) dynamicHdr = "SDR";
+  var showLightning = false;
+  if (/\b(hdr10\+|hdr10p)\b/i.test(combinedScanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
+  else if (/\bhdr10\b/i.test(combinedScanText)) { dynamicHdr = "HDR10"; showLightning = true; }
+  else if (/\bhdr\b/i.test(combinedScanText)) { dynamicHdr = "HDR"; showLightning = true; }
+  else if (/\bsdr\b/i.test(combinedScanText)) { dynamicHdr = "SDR"; showLightning = true; }
 
   var bitDepth = /\b10bit\b/i.test(combinedScanText) ? "🔆 10Bit" : "";
   var dv = /\b(dv|dolby\s*vision)\b/i.test(combinedScanText) ? "🕵️‍♀️ DV" : "";
@@ -184,39 +185,56 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   if (dv) line3Part2Elements.push(dv);
   var line3Part2 = line3Part2Elements.join(" • ");
 
-  // Build the meta prefix block conditional on existing parameters
   var metaParts = [];
   if (line3Part1) metaParts.push(line3Part1);
   if (line3Part2) metaParts.push(line3Part2);
 
   var line3 = "";
   if (metaParts.length > 0) {
-    line3 = "⚡ " + metaParts.join(" | ") + " | 🎥 " + codecTag;
+    var prefix = showLightning ? "⚡ " : "";
+    line3 = prefix + metaParts.join(" | ") + " | 🎥 " + codecTag;
   } else {
-    line3 = "🎥 " + codecTag; // No ⚡ prefix or orphan trailing pipes if it's empty
+    line3 = "🎥 " + codecTag;
   }
 
-  // --- LINE 4 (Fixed: TrueHD overrides channels to 7.1) ---
+  // --- LINE 4 (Fixed: Smart Advanced Multi-Audio Array Layouts) ---
   var formatTag = "🎞️ MKV";
   if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
     formatTag = "🎞️ MP4";
   }
 
+  var has51 = /\b5\.1\b/.test(combinedScanText);
+  var has71 = /\b7\.1\b/.test(combinedScanText);
   var isTrueHD = /\btruehd\b/i.test(combinedScanText);
-  var audioChannelTag = "DDP 5.1"; 
-  var channels = isTrueHD ? "7.1" : "5.1"; // Dynamic swap rule for TrueHD setups
-  
-  if (/\b7\.1\b/.test(combinedScanText)) channels = "7.1";
-  else if (/\b2\.0\b/.test(combinedScanText) || /\bstereo\b/.test(combinedScanText)) channels = "2.0";
+  var isDDP = /\b(ddp|dd\+|eac3)\b/i.test(combinedScanText);
 
-  if (isTrueHD) {
-    audioChannelTag = "TrueHD " + channels;
-  } else if (/\b(ddp|dd\+|eac3)\b/i.test(combinedScanText)) {
-    audioChannelTag = "DDP " + channels;
-  } else if (/\b(dd|ac3)\b/i.test(combinedScanText)) {
-    audioChannelTag = "DD " + channels;
-  } else if (/\baac\b/i.test(combinedScanText)) {
-    audioChannelTag = "AAC " + channels;
+  var audioChannelTag = "DDP 5.1";
+
+  if (has51 && has71) {
+    if (isTrueHD) {
+      audioChannelTag = "DDP 5.1 + TrueHD 7.1";
+    } else {
+      audioChannelTag = "DDP 5.1 + DDP 7.1";
+    }
+  } else if (has71) {
+    if (isTrueHD) {
+      audioChannelTag = "TrueHD 7.1";
+    } else {
+      audioChannelTag = "DDP 7.1";
+    }
+  } else {
+    // Default fallback setups if 7.1 is absent
+    if (isTrueHD) {
+      audioChannelTag = "TrueHD 5.1";
+    } else if (isDDP) {
+      audioChannelTag = "DDP 5.1";
+    } else if (/\b(dd|ac3)\b/i.test(combinedScanText)) {
+      audioChannelTag = "DD 5.1";
+    } else if (/\baac\b/i.test(combinedScanText)) {
+      audioChannelTag = "AAC 5.1";
+    } else {
+      audioChannelTag = "DDP 5.1";
+    }
   }
 
   var atmosBlock = /\batmos\b/i.test(combinedScanText) ? " • 🔊 Atmos" : "";

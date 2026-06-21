@@ -85,111 +85,139 @@ function base64Decode(str) {
 
 function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var encodedUrl = url.replace(/ /g, "%20");
-  var text = String(name || "").replace(/\./g, " ");
+  
+  // Use both name and title contexts safely for scanning metadata
+  var cleanNameText = String(name || "").replace(/\./g, " ");
+  var cleanTitleText = String(title || "").replace(/\./g, " ");
+  var combinedScanText = (cleanNameText + " " + cleanTitleText + " " + encodedUrl).toLowerCase();
 
-  // 1. Language Parsing (Strict Multi-Audio vs Single Logic)
-  var lang = "Multi-Audio";
-  var hasHindi = /\bhindi\b/i.test(text);
-  var hasEng = /\benglish\b/i.test(text);
-  var hasTamil = /\btamil\b/i.test(text);
-  var hasTelugu = /\btelugu\b/i.test(text);
-  var hasDualMulti = /\b(dual|multi|hindi\s*eng|eng\s*hin)\b/i.test(text);
+  // 1. DYNAMIC LANGUAGE MATRIX ENGINE
+  var langTag = "English 🇺🇸"; 
+  var shortLangLabel = "Original Language";
 
-  if (!hasDualMulti) {
-    if (hasEng && !hasHindi && !hasTamil && !hasTelugu) lang = "English";
-    else if (hasHindi && !hasEng && !hasTamil && !hasTelugu) lang = "Hindi";
+  if (/\b(multi|multi-audio|multi\.audio)\b/i.test(combinedScanText)) {
+    shortLangLabel = "Multi-Audio";
+    langTag = "Multi-Audio 🌍";
+  } else if (/\b(dual|dual-audio|dual\.audio|dubbed)\b/i.test(combinedScanText) || (combinedScanText.includes("hindi") && combinedScanText.includes("eng"))) {
+    shortLangLabel = "Dual-Audio";
+    langTag = "English 🇺🇸 • Hindi 🇮🇳";
+  } else if (/\benglish\b/i.test(combinedScanText)) {
+    shortLangLabel = "English";
+    langTag = "English 🇺🇸";
+  } else if (/\bhindi\b/i.test(combinedScanText)) {
+    shortLangLabel = "Hindi";
+    langTag = "Hindi 🇮🇳";
+  } else if (/\btamil\b/i.test(combinedScanText)) {
+    shortLangLabel = "Tamil";
+    langTag = "Tamil 🇮🇳";
+  } else if (/\btelugu\b/i.test(combinedScanText)) {
+    shortLangLabel = "Telugu";
+    langTag = "Telugu 🇮🇳";
   }
 
-  // 2. Title & Year Cleaning
-  var cleanTitle = "4KHDHub Link";
-  var year = "";
-  var yearMatch = text.match(/\b(19|20)\d{2}\b/);
+  // 2. SERIES AND MOVIE TITLE CLEANING ENGINE
+  var cleanDisplayTitle = "4KHDHub Link";
+  var yearBlock = "";
+  var yearMatch = cleanNameText.match(/\b(19|20)\d{2}\b/);
+  
   if (yearMatch) {
-    year = yearMatch[0];
-    var titleEndIdx = text.indexOf(year);
+    yearBlock = yearMatch[0];
+    var titleEndIdx = cleanNameText.indexOf(yearBlock);
     if (titleEndIdx > 0) {
-      cleanTitle = text.substring(0, titleEndIdx).replace(/[-_()]/g, " ").replace(/\s+/g, " ").trim();
+      cleanDisplayTitle = cleanNameText.substring(0, titleEndIdx);
+    } else {
+      cleanDisplayTitle = cleanNameText;
     }
   } else {
-    var cleanMatch = text.match(/^([^(\[.]+)/);
-    if (cleanMatch) cleanTitle = cleanMatch[1].trim();
+    cleanDisplayTitle = cleanNameText.split(/[([\.精品]/)[0];
   }
-  cleanTitle = cleanTitle.replace(/\s+-\s*$/, "").trim();
-  cleanTitle = cleanTitle.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
 
-  // 3. Line 3 Properties (Fixed HDR10+ Priority and Dynamic BluRay Check)
-  var qEmoji = quality === "2160p" ? "🌟" : "💎";
+  // Clean out common noise from titles/episodes
+  cleanDisplayTitle = cleanDisplayTitle
+    .replace(/AMZN|WEB-DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit/gi, "")
+    .replace(/[-_()\[\]|]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  // Capitalize Title Words
+  cleanDisplayTitle = cleanDisplayTitle.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
+
+  // 3. VIDEO PROFILE AND COMPRESSION PARSING (Fixing SDR leaking into Line 3)
+  var qEmoji = (quality === "2160p" || quality.toLowerCase().includes("4k")) ? "🌟" : "💎";
   
-  var dynamicHdr = "SDR";
-  if (/\bhdr10\+\b/i.test(text)) dynamicHdr = "HDR10+";
-  else if (/\bhdr10\b/i.test(text)) dynamicHdr = "HDR10";
-  else if (/\bhdr\b/i.test(text)) dynamicHdr = "HDR";
+  var rangeTag = "";
+  if (/\bhdr10\+\b/i.test(combinedScanText)) rangeTag = "HDR10+";
+  else if (/\bhdr10\b/i.test(combinedScanText)) rangeTag = "HDR10";
+  else if (/\bhdr\b/i.test(combinedScanText)) rangeTag = "HDR";
 
-  var bitDepth = /\b10bit\b/i.test(text) ? "🔆 10Bit" : "";
+  var bitDepth = /\b10bit\b/i.test(combinedScanText) ? "🔆 10Bit" : "";
+  var dv = /\b(dv|dolby\s*vision)\b/i.test(combinedScanText) ? "🕵️‍♀️ Dolby Vision" : "";
   
-  var isBluRay = /\bbluray\b/i.test(text);
-  var discSource = isBluRay ? "📀 BluRay" : "☁️ WEB-DL"; 
+  var codecTag = "x264";
+  if (/\b(hevc|x265|265)\b/i.test(combinedScanText) || quality === "2160p") codecTag = "HEVC x265";
 
-  var dv = /\b(dv|dolby\s*vision)\b/i.test(text) ? "🕵️‍♀️DV" : "";
-  
-  var codec = "x264";
-  if (/\b(hevc|x265|265)\b/i.test(text)) codec = "HEVC x265";
-  else if (/\b(x264|264)\b/i.test(text)) codec = "x264";
+  // Build out a clean line 3 separating core properties dynamically
+  var videoProperties = [];
+  if (rangeTag) videoProperties.push(rangeTag);
+  if (bitDepth) videoProperties.push(bitDepth);
+  if (dv) videoProperties.push(dv);
+  videoProperties.push("🎥 " + codecTag);
+  var line3 = "⚡ " + videoProperties.join(" • ");
 
-  var sub3Left = [dynamicHdr, bitDepth].filter(Boolean).join(" • ");
-  var sub3Right = [discSource, dv].filter(Boolean).join(" • ");
-  var line3 = "⚡ " + sub3Left + " | " + sub3Right + " | 🎥 " + codec;
+  // 4. CONTAINER ENGINE
+  var formatTag = "🎞️ MKV";
+  if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
+    formatTag = "🎞️ MP4";
+  }
 
-  // 4. Container Format
-  var format = "🎞️ MKV";
-  if (/\bmp4\b/i.test(text) || url.toLowerCase().indexOf(".mp4") > -1) format = "🎞️ MP4";
-
-  // 5. Audio Parsing (Fixed DDP Priority Check over DD)
-  var audioLabel = "🎧 DD 5.1"; 
+  // 5. COMPREHENSIVE AUDIO RESOLUTION ENGINE (Fixes broken dynamic slicing truncation)
+  var audioChannelTag = "🎧 DD 5.1"; 
   var channels = "5.1";
-  if (/\b7\.1\b/.test(text)) channels = "7.1";
-  else if (/\b2\.0\b/.test(text)) channels = "2.0";
+  if (/\b7\.1\b/.test(combinedScanText)) channels = "7.1";
+  else if (/\b2\.0\b/.test(combinedScanText) || /\bstereo\b/.test(combinedScanText)) channels = "2.0";
 
-  if (/\btruehd\b/i.test(text)) {
-    audioLabel = "🎧 TrueHD " + (channels === "5.1" ? "7.1" : channels);
-  } else if (/\b(ddp|dd\+|eac3)\b/i.test(text)) {
-    audioLabel = "🎧 DDP " + channels;
-  } else if (/\b(dd|ac3)\b/i.test(text)) {
-    audioLabel = "🎧 DD " + channels;
-  } else if (/\baac\b/i.test(text)) {
-    audioLabel = "🎧 AAC " + channels;
+  if (/\btruehd\b/i.test(combinedScanText)) {
+    audioChannelTag = "🎧 TrueHD " + channels;
+  } else if (/\b(ddp|dd\+|eac3)\b/i.test(combinedScanText)) {
+    audioChannelTag = "🎧 DDP " + channels;
+  } else if (/\b(dd|ac3)\b/i.test(combinedScanText)) {
+    audioChannelTag = "🎧 DD " + channels;
+  } else if (/\baac\b/i.test(combinedScanText)) {
+    audioChannelTag = "🎧 AAC " + channels;
   }
 
-  var atmos = /\batmos\b/i.test(text) ? "• 🔊 Atmos" : "";
-  var line4 = format + " | " + audioLabel + (atmos ? " " + atmos : "");
+  var atmosBlock = /\batmos\b/i.test(combinedScanText) ? " • 🔊 Atmos" : "";
+  var line4 = formatTag + " | " + audioChannelTag + atmosBlock;
 
-  // 6. Line 5 Properties 
-  var sourceTag = isBluRay ? "BluRay" : "WEB-DL";
-  if (/\bwebrip\b/i.test(text)) sourceTag = "WEB-Rip";
+  // 6. STREAM INFRASTRUCTURE TAGS
+  var isBluRay = /\bbluray\b/i.test(combinedScanText);
+  var sourceOrigin = "WEB-DL";
+  if (isBluRay) sourceOrigin = "BluRay";
+  else if (/\b(webrip|hdrip)\b/i.test(combinedScanText)) sourceOrigin = "WEB-Rip";
 
-  var imax = /\bimax\b/i.test(text) ? " | 👁️ iMAX" : "";
-  var line5 = "🔗 " + (serverType || "Worker") + " | ☁️ " + sourceTag + imax;
+  var imaxBlock = /\bimax\b/i.test(combinedScanText) ? " | 👁️ iMAX" : "";
+  var line5 = "🔗 " + (serverType || "Worker") + " | ☁️ " + sourceOrigin + imaxBlock;
 
-  // Final Output Formatting
-  var qUpper = quality.toUpperCase();
-  var finalName = "4KHDHub | " + qUpper + " | " + lang;
+  // 7. STRATIFIED OUTPUT FORMATTING (Stripped quality duplication leak on Main Header line)
+  var displayQuality = quality ? quality.toLowerCase() : "1080p";
+  var finalName = "4KHDHub | " + displayQuality.toUpperCase() + " | " + shortLangLabel;
   
   var finalTitle = 
-    "🎬 " + cleanTitle + (year ? " - (" + year + ")" : "") + "\n" +
-    qEmoji + " " + qUpper + " | 🌍 " + lang + (fileSize ? " | 💾 " + fileSize : "") + "\n" +
+    "🎬 " + cleanDisplayTitle + (yearBlock ? " - (" + yearBlock + ")" : "") + "\n" +
+    qEmoji + " " + displayQuality.toUpperCase() + " | 🌍 " + langTag + (fileSize ? " | 💾 " + fileSize : "") + "\n" +
     line3 + "\n" +
-    line4 + " |\n" +
+    line4 + "\n" +
     line5;
 
   return {
     name: finalName,
     title: finalTitle,
-    size: finalTitle, // <-- Maps exactly to Mobile drop-down rendering elements
+    size: finalTitle, 
     url: encodedUrl,
-    quality: quality,
+    quality: displayQuality,
     behaviorHints: {
       notWebReady: true,
-      proxyHeaders: { request: { "Referer": referer || BASE_URL + "/" } }
+      proxyHeaders: { request: { "Referer": referer || "https://4khdhub.org/" } }
     }
   };
 }

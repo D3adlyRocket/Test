@@ -100,7 +100,6 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var hasTamil = /\btamil\b/i.test(combinedScanText);
   var hasTelugu = /\btelugu\b/i.test(combinedScanText);
   
-  // Count explicit distinct languages present
   var langCount = 0;
   if (hasHindi) langCount++;
   if (hasEng) langCount++;
@@ -122,24 +121,31 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     else { shortLangLabel = "English"; langTag = "English 🇺🇸"; }
   }
 
-  // 2. MOVIE & SERIES TITLE CLEANING ENGINE
-  var cleanDisplayTitle = "4KHDHub Link";
-  var yearBlock = "";
-  var yearMatch = cleanNameText.match(/\b(19|20)\d{2}\b/);
+  // 2. SERIES & MOVIE TITLE CLEANING ENGINE (Fixes "FROM" and messy season titles)
+  var cleanDisplayTitle = cleanNameText;
+  var seasonEpisodeBlock = "";
   
-  if (yearMatch) {
-    yearBlock = yearMatch[0];
-    var titleEndIdx = cleanNameText.indexOf(yearBlock);
-    if (titleEndIdx > 0) {
-      cleanDisplayTitle = cleanNameText.substring(0, titleEndIdx);
-    } else {
-      cleanDisplayTitle = cleanNameText;
+  // Match standard season patterns like S01E01 or S1 E1
+  var tvMatch = cleanNameText.match(/\b(S\d{1,2}\s*E\d{1,2})\b/i);
+  if (tvMatch) {
+    seasonEpisodeBlock = " | " + tvMatch[1].toUpperCase().replace(/\s+/g, "");
+    var tvIdx = cleanNameText.toLowerCase().indexOf(tvMatch[0].toLowerCase());
+    if (tvIdx > 0) {
+      cleanDisplayTitle = cleanNameText.substring(0, tvIdx);
     }
-  } else {
-    cleanDisplayTitle = cleanNameText.split(/[([\.精品]/)[0];
   }
 
-  // Strip out layout structural leaks
+  var yearBlock = "";
+  var yearMatch = cleanDisplayTitle.match(/\b(19|20)\d{2}\b/);
+  if (yearMatch) {
+    yearBlock = yearMatch[0];
+    var titleEndIdx = cleanDisplayTitle.indexOf(yearBlock);
+    if (titleEndIdx > 0) {
+      cleanDisplayTitle = cleanDisplayTitle.substring(0, titleEndIdx);
+    }
+  }
+
+  // Clean out common layout leak fragments
   cleanDisplayTitle = cleanDisplayTitle
     .replace(/AMZN|WEB-DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit/gi, "")
     .replace(/[-_()\[\]|]/g, " ")
@@ -156,29 +162,37 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var qEmoji = (displayQuality === "2160p" || displayQuality.includes("4k")) ? "🌟" : "💎";
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
-  // --- LINE 3 (Fixed: SDR is now completely optional and only shows if explicitly matched) ---
+  // --- LINE 3 (Fixed: Keeps dynamic space completely empty if no SDR/HDR match) ---
   var dynamicHdr = "";
   if (/\bhdr10\+\b/i.test(combinedScanText)) dynamicHdr = "HDR10+";
   else if (/\bhdr10\b/i.test(combinedScanText)) dynamicHdr = "HDR10";
   else if (/\bhdr\b/i.test(combinedScanText)) dynamicHdr = "HDR";
-  else if (/\bsdr\b/i.test(combinedScanText)) dynamicHdr = "SDR"; // Only displays if explicitly found in string/URL
+  else if (/\bsdr\b/i.test(combinedScanText)) dynamicHdr = "SDR";
 
-  var bitDepth = /\b10bit\b/i.test(combinedScanText) ? " • 🔆 10Bit" : "";
-  var dv = /\b(dv|dolby\s*vision)\b/i.test(combinedScanText) ? " • 🕵️‍♀️ DV" : "";
+  var bitDepth = /\b10bit\b/i.test(combinedScanText) ? "🔆 10Bit" : "";
+  var dv = /\b(dv|dolby\s*vision)\b/i.test(combinedScanText) ? "🕵️‍♀️ DV" : "";
   
   var isBluRay = /\bbluray\b/i.test(combinedScanText);
-  var sourceDisc = isBluRay ? " | 📀 BluRay" : "";
-
+  
   var codecTag = "x264";
   if (/\b(hevc|x265|265)\b/i.test(combinedScanText) || displayQuality === "2160p") codecTag = "HEVC x265";
 
-  // Handle clean spacing depending on whether an HDR/SDR tag was populated or not
-  var line3Leader = (dynamicHdr + bitDepth).trim();
-  if (line3Leader.startsWith("•")) {
-    line3Leader = line3Leader.substring(1).trim(); // Clean leading bullets if dynamicHdr is empty but 10Bit matches
-  }
+  // Build Line 3 segments dynamically based strictly on true findings
+  var line3Part1Elements = [];
+  if (dynamicHdr) line3Part1Elements.push(dynamicHdr);
+  if (bitDepth) line3Part1Elements.push(bitDepth);
+  var line3Part1 = line3Part1Elements.join(" • ");
+
+  var line3Part2Elements = [];
+  if (isBluRay) line3Part2Elements.push("📀 BluRay");
+  if (dv) line3Part2Elements.push(dv);
+  var line3Part2 = line3Part2Elements.join(" • ");
+
+  // Join the pieces together cleanly with absolute pipes layout
+  var line3 = "⚡ " + (line3Part1 ? line3Part1 + " | " : "") + (line3Part2 ? line3Part2 + " | " : "") + "🎥 " + codecTag;
   
-  var line3 = "⚡ " + (line3Leader || "Video") + sourceDisc + dv + " | 🎥 " + codecTag;
+  // Clean double spaces or structural mishaps from empty parameters
+  line3 = line3.replace(/\s*\|\s*\|/g, " |").trim();
 
   // --- LINE 4 ---
   var formatTag = "🎞️ MKV";
@@ -216,7 +230,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var finalName = "4KHDHub | " + qUpper + " | " + shortLangLabel;
   
   var finalTitle = 
-    "🎬 " + cleanDisplayTitle + (yearBlock ? " - (" + yearBlock + ")" : "") + "\n" +
+    "🎬 " + cleanDisplayTitle + (yearBlock ? " - (" + yearBlock + ")" : "") + seasonEpisodeBlock + "\n" +
     line2 + "\n" +
     line3 + "\n" +
     line4 + "\n" +
@@ -227,7 +241,8 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     title: finalTitle,
     size: finalTitle, 
     url: encodedUrl,
-    quality: displayQuality,
+    // Setting quality empty inside the return dictionary bypasses Stremio's auto-generated subtitle resolution badge
+    quality: "", 
     behaviorHints: {
       notWebReady: true,
       proxyHeaders: { request: { "Referer": referer || "https://4khdhub.org/" } }

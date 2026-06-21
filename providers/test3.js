@@ -84,11 +84,11 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     // 1. METADATA SCANNING
     let fileSizeOnly = "N/A";
-    const sizeMatch = cleanTitle.match(/(?:\[|\(|\s)(\d+(?:\.\d+)?\s*[MG]B)(?:\]|\)|\s|$)/i);
+    const sizeMatch = cleanTitle.match(/(?:\[|\(|\s|^)(\d+(?:\.\d+)?\s*[MG]B)(?:\]|\)|\s|$)/i);
     if (sizeMatch) {
         fileSizeOnly = sizeMatch[1].trim();
     } else if (url) {
-        // Ultimate Fallback: Scan raw URL context path
+        // Fallback: Scan stream path URL
         const urlSize = url.match(/(\d+(?:\.\d+)?\s*[mg]b)/i);
         if (urlSize) fileSizeOnly = urlSize[1].toUpperCase().trim();
     }
@@ -229,7 +229,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
 
     return formattedStream;
 }
-
+        
 // --- Deduplication & Helper Methods ---
 function dedupe(streams) {
   const seen = new Set();
@@ -444,24 +444,33 @@ async function extractVcloud(vcloudUrl, referer, quality, showTitle, mediaInfo) 
   // Start with a fallback text string
   let deepMetaString = showTitle || "";
 
-  // Target the exact file name container in vCloud's UI structure
-  const fileTextContainer = html.match(/<h\d[^>]*class="[^"]*text[^"]*"[^>]*>([\s\S]*?)<\/h\d>/i) || 
-                            html.match(/<div[^>]*id="filename"[^>]*>([\s\S]*?)<\/div>/i) ||
-                            html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) ||
-                            html.match(/<title>([\s\S]*?)<\/title>/i);
+  try {
+    // 1. Convert the entire HTML body into a clean, flat text string
+    const textDump = html
+      .replace(/<script[\s\S]*?<\/script>/gi, '') // Remove scripts
+      .replace(/<style[\s\S]*?<\/style>/gi, '')   // Remove styles
+      .replace(/<[^>]*>/g, ' ')                   // Strip all HTML tags
+      .replace(/Download/gi, '')                  // Remove common page boilerplate
+      .replace(/[\n\t\r]+/g, ' ')                 // Flatten spacing
+      .replace(/\s{2,}/g, ' ')
+      .trim();
 
-  if (fileTextContainer) {
-      // Strip HTML tags and remove common garbage text strings
-      const extractedText = fileTextContainer[1]
-        .replace(/<[^>]*>/g, '')
-        .replace(/Download/gi, '')
-        .replace(/[\n\t\r]+/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      if (extractedText && extractedText.length > 5) {
-          deepMetaString = extractedText;
-      }
+    // 2. Locate an exact file footprint anywhere in the text dump (e.g., "Movie Name 1080p Dual Audio 2.5GB")
+    // This finds any sentence chunk containing size metric flags
+    const footprintMatch = textDump.match(/[^.!?]*?\b\d+(?:\.\d+)?\s*(?:GB|MB)\b[^.!?]*/i);
+    
+    if (footprintMatch && footprintMatch[0].length > 10) {
+        deepMetaString = footprintMatch[0].trim();
+    } else {
+        // Fallback: Check if there's any text in a standard header container
+        const fileTextContainer = html.match(/<h\d[^>]*>([\s\S]*?)<\/h\d>/i) || html.match(/<title>([\s\S]*?)<\/title>/i);
+        if (fileTextContainer) {
+            const extractedText = fileTextContainer[1].replace(/<[^>]*>/g, '').replace(/Download/gi, '').replace(/[\n\t\r]+/g, ' ').trim();
+            if (extractedText.length > 5) deepMetaString = extractedText;
+        }
+    }
+  } catch (err) {
+      console.log("Meta extraction error, using fallback title: ", err);
   }
 
   let tokenUrl = '';

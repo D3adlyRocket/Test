@@ -201,13 +201,12 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     line3 = "🎥 " + codecTag;
   }
 
-  // --- LINE 4 (Fixed: Rigid logic handling repeated track strings & direct AAC mapping) ---
+  // --- LINE 4 (Fixed with Explicit Audio Rule Mappings) ---
   var formatTag = "🎞️ MKV";
   if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
     formatTag = "🎞️ MP4";
   }
 
-  // Audio token scanning configuration
   var scanDDP = /\b(ddp|dd\+|eac3)\b/i.test(combinedScanText) || /ddp/i.test(normalizedScan);
   var scanTrueHD = /\btruehd\b/i.test(combinedScanText);
   var scanAAC = /\baac\b/i.test(combinedScanText);
@@ -219,34 +218,33 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var audioChannelTag = "DDP 5.1";
   var displayAtmos = scanAtmos;
 
-  // STRICT RULE ASSIGNMENT ENGINE
-  // Rule 2: DDP 5.1 and TrueHD Atmos 7.1 both explicitly present
+  // Working Stacking Rule A: DDP 5.1 and TrueHD Atmos 7.1
   if (scanDDP && scanTrueHD && scan71) {
     audioChannelTag = "DDP 5.1 + TrueHD 7.1";
     displayAtmos = true;
   }
-  // Rule 1: DDP 5.1 and DDP 7.1 both explicitly present (Ensures a real 7.1 tag exists)
+  // Working Stacking Rule B: DDP 5.1 and DDP 7.1
   else if (scanDDP && scan51 && scan71 && !scanTrueHD) {
     audioChannelTag = "DDP 5.1 + DDP 7.1";
   }
-  // Rule 4: DDP 5.1 and AAC 5.1 both explicitly present
-  else if (scanDDP && scanAAC) {
-    audioChannelTag = "DDP 5.1 + AAC 5.1";
+  // NEW Rule 2: DDP 5.1 + AAC 7.1
+  else if (scanDDP && scanAAC && scan71) {
+    audioChannelTag = "DDP 5.1 + AAC 7.1";
   }
-  // Rule 6: Only TrueHD 7.1 (No DDP tracks around)
-  else if (scanTrueHD && scan71 && !scanDDP) {
+  // NEW Rule 1 & Rule 1.1: Double DDP5.1 streams (e.g. Spider-Noir multi-language layout loops)
+  else if (scanDDP && !scan71 && (combinedScanText.split("ddp").length > 2 || combinedScanText.split("dd").length > 2)) {
+    audioChannelTag = "DDP 5.1";
+    displayAtmos = scanAtmos; // Explicitly controlled via rule 1.1 requirements
+  }
+  // Standalone Lossless TrueHD Rule
+  else if (scanTrueHD && !scanDDP) {
     audioChannelTag = "TrueHD 7.1";
+    displayAtmos = true;
   }
-  // Rule: Pure Standalone AAC setup
-  else if (scanAAC && !scanDDP && !scanTrueHD) {
-    audioChannelTag = "AAC 5.1";
-  }
-  // Rule 3 & 5 Default Handling: Pure DDP/TrueHD single stream defaults
+  // General Fallback System
   else {
-    if (scanTrueHD) {
-      audioChannelTag = "TrueHD 7.1"; // Direct default channel configuration for pristine lossless
-    } else if (scanAAC) {
-      audioChannelTag = "AAC 5.1";
+    if (scanAAC) {
+      audioChannelTag = scan71 ? "AAC 7.1" : "AAC 5.1";
     } else {
       audioChannelTag = "DDP 5.1";
     }

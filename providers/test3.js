@@ -438,11 +438,21 @@ async function extractVcloud(vcloudUrl, referer, quality, showTitle, mediaInfo) 
   const html = await fetchHtml(vcloudUrl, { headers });
   if (!html) return streams;
 
-  // Grab the precise metadata string from the vCloud page title or main header element
+  // 1. Keep the original post title as a solid fallback
   let deepMetaString = showTitle || "";
-  const vcloudTitleMatch = html.match(/<title>([\s\S]*?)<\/title>/i) || html.match(/<h\d[^>]*>([\s\S]*?)<\/h\d>/i);
-  if (vcloudTitleMatch) {
-      deepMetaString = vcloudTitleMatch[1].replace(/Download/gi, '').replace(/[\n\t]+/g, ' ').trim();
+
+  // 2. Scan the page content for the ACTUAL file container heading (usually class="text-xl" or inside a card header)
+  // This extracts the real layout text (e.g., "[Vegamovies] Movie Name 1080p Dual Audio [3.1GB].mkv")
+  const fileHeaderMatch = html.match(/<h\d[^>]*class="[^"]*text[^"]*"[^>]*>([\s\S]*?)<\/h\d>/i) || 
+                          html.match(/<div[^>]*id="filename"[^>]*>([\s\S]*?)<\/div>/i) ||
+                          html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+
+  if (fileHeaderMatch) {
+      const cleanHeaderContent = fileHeaderMatch[1].replace(/<[^>]*>/g, '').replace(/Download/gi, '').replace(/[\n\t]+/g, ' ').trim();
+      // Only use it if it contains file metadata keywords to avoid blank title overrides
+      if (/GB|MB|p|Dual|Multi|Audio/i.test(cleanHeaderContent)) {
+          deepMetaString = cleanHeaderContent;
+      }
   }
 
   let tokenUrl = '';

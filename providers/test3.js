@@ -227,19 +227,6 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     return formattedStream;
 }
 
-    // Stremio layout interceptor to force remove the " - Unknown" badge tail completely
-    try {
-        Object.defineProperties(formattedStream, {
-            qualityTag: { get: () => "", enumerable: true, configurable: true },
-            quality: { get: () => "", enumerable: true, configurable: true },
-            language: { get: () => "", enumerable: true, configurable: true },
-            resolution: { get: () => "", enumerable: true, configurable: true }
-        });
-    } catch (e) {}
-
-    return formattedStream;
-}
-
 // --- Deduplication & Helper Methods ---
 function dedupe(streams) {
   const seen = new Set();

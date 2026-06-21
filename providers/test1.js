@@ -163,7 +163,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var qEmoji = (displayQuality === "2160p" || displayQuality.includes("4k")) ? "🌟" : "💎";
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
-  // --- LINE 3 (⚡ strictly tied ONLY to explicit HDR/SDR tokens) ---
+  // --- LINE 3 ---
   var dynamicHdr = "";
   var showLightning = false;
   
@@ -201,13 +201,13 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     line3 = "🎥 " + codecTag;
   }
 
-  // --- LINE 4 (Fixed: Rigid literal criteria stacking matching your requests) ---
+  // --- LINE 4 (Fixed: Rigid logic handling repeated track strings & direct AAC mapping) ---
   var formatTag = "🎞️ MKV";
   if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
     formatTag = "🎞️ MP4";
   }
 
-  // Robust parsing flags checking dots, spaces, and squished formats
+  // Audio token scanning configuration
   var scanDDP = /\b(ddp|dd\+|eac3)\b/i.test(combinedScanText) || /ddp/i.test(normalizedScan);
   var scanTrueHD = /\btruehd\b/i.test(combinedScanText);
   var scanAAC = /\baac\b/i.test(combinedScanText);
@@ -219,26 +219,37 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var audioChannelTag = "DDP 5.1";
   var displayAtmos = scanAtmos;
 
-  // Rule 2: DDP 5.1 and TrueHD Atmos 7.1
-  if (scanDDP && scanTrueHD && (scan71 || scanAtmos)) {
+  // STRICT RULE ASSIGNMENT ENGINE
+  // Rule 2: DDP 5.1 and TrueHD Atmos 7.1 both explicitly present
+  if (scanDDP && scanTrueHD && scan71) {
     audioChannelTag = "DDP 5.1 + TrueHD 7.1";
     displayAtmos = true;
   }
-  // Rule 1: DDP 5.1 and DDP 7.1
+  // Rule 1: DDP 5.1 and DDP 7.1 both explicitly present (Ensures a real 7.1 tag exists)
   else if (scanDDP && scan51 && scan71 && !scanTrueHD) {
     audioChannelTag = "DDP 5.1 + DDP 7.1";
   }
-  // Rule 4: DDP 5.1 and AAC 5.1
+  // Rule 4: DDP 5.1 and AAC 5.1 both explicitly present
   else if (scanDDP && scanAAC) {
     audioChannelTag = "DDP 5.1 + AAC 5.1";
   }
-  // Rule 6: Only TrueHD 7.1
-  else if (scanTrueHD && !scanDDP) {
+  // Rule 6: Only TrueHD 7.1 (No DDP tracks around)
+  else if (scanTrueHD && scan71 && !scanDDP) {
     audioChannelTag = "TrueHD 7.1";
   }
-  // Rule 3 & 5: Standalone DDP 5.1 / Fallbacks
+  // Rule: Pure Standalone AAC setup
+  else if (scanAAC && !scanDDP && !scanTrueHD) {
+    audioChannelTag = "AAC 5.1";
+  }
+  // Rule 3 & 5 Default Handling: Pure DDP/TrueHD single stream defaults
   else {
-    audioChannelTag = "DDP 5.1";
+    if (scanTrueHD) {
+      audioChannelTag = "TrueHD 7.1"; // Direct default channel configuration for pristine lossless
+    } else if (scanAAC) {
+      audioChannelTag = "AAC 5.1";
+    } else {
+      audioChannelTag = "DDP 5.1";
+    }
   }
 
   var atmosBlock = displayAtmos ? " • 🔊 Atmos" : "";
@@ -274,7 +285,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     }
   };
 }
-  
+
 async function getTMDBInfo(tmdbId, mediaType) {
   var type = (mediaType === "tv" || mediaType === "series") ? "tv" : "movie";
   try {

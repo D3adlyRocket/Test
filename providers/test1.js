@@ -127,7 +127,6 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
 
   var bitDepth = /\b10bit\b/i.test(text) ? "🔆 10Bit" : "";
   
-  // Only displays BluRay emoji/text if explicitly found in string properties
   var isBluRay = /\bbluray\b/i.test(text);
   var discSource = isBluRay ? "📀 BluRay" : "☁️ WEB-DL"; 
 
@@ -185,6 +184,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   return {
     name: finalName,
     title: finalTitle,
+    description: finalTitle, // Maps the full details block on mobile UI instances
     url: encodedUrl,
     quality: quality,
     headers: { "Referer": referer || BASE_URL + "/" }

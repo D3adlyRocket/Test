@@ -84,6 +84,10 @@ function base64Decode(str) {
 }
 
 function makeStream(name, title, url, quality, serverType, referer, fileSize) {
+  // FORCEFULLY CLEAR DUPED MOBILE TEXT FIELDS AT ENTRY
+  var internalQuality = quality ? quality.toLowerCase() : "1080p";
+  quality = ""; // Clear the reference so the app can't render it natively
+  
   var encodedUrl = url.replace(/ /g, "%20");
   
   // Clean source texts for universal tag scanning
@@ -156,9 +160,8 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   // 3. SUBHEADING LINE CONFIGURATIONS
   
   // --- LINE 2 ---
-  var displayQuality = quality ? quality.toLowerCase() : "1080p";
-  var qUpper = displayQuality.toUpperCase();
-  var qEmoji = (displayQuality === "2160p" || displayQuality.includes("4k")) ? "🌟" : "💎";
+  var qUpper = internalQuality.toUpperCase();
+  var qEmoji = (internalQuality === "2160p" || internalQuality.includes("4k")) ? "🌟" : "💎";
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
   // --- LINE 3 ---
@@ -175,7 +178,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var isBluRay = /\bbluray\b/i.test(combinedScanText);
   
   var codecTag = "x264";
-  if (/\b(hevc|x265|265)\b/i.test(combinedScanText) || displayQuality === "2160p") codecTag = "HEVC x265";
+  if (/\b(hevc|x265|265)\b/i.test(combinedScanText) || internalQuality === "2160p") codecTag = "HEVC x265";
 
   var line3Part1Elements = [];
   if (dynamicHdr) line3Part1Elements.push(dynamicHdr);
@@ -257,7 +260,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     title: finalTitle,
     size: finalTitle, 
     url: encodedUrl,
-    quality: "", 
+    quality: "", // Kept empty to clean container layout
     behaviorHints: {
       notWebReady: true,
       proxyHeaders: { request: { "Referer": referer || "https://4khdhub.org/" } }

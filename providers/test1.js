@@ -489,12 +489,37 @@ async function resolveHubCloud(hubUrl, fallbackSize) {
         ));
       }
     }
+
+    // --- STREAM REORDERING ENGINE (FORCES HIGHEST QUALITY TO TOP) ---
+    streams.sort(function(a, b) {
+      // Use the internal title card content to verify true resolution profiles
+      var scanA = (a.title || "").toLowerCase();
+      var scanB = (b.title || "").toLowerCase();
+      
+      var is4KA = scanA.indexOf("2160p") !== -1 || scanA.indexOf("4k") !== -1;
+      var is4KB = scanB.indexOf("2160p") !== -1 || scanB.indexOf("4k") !== -1;
+      
+      var is1080A = scanA.indexOf("1080p") !== -1;
+      var is1080B = scanB.indexOf("1080p") !== -1;
+
+      // Move 4K / 2160p upward
+      if (is4KA && !is4KB) return -1;
+      if (!is4KA && is4KB) return 1;
+      
+      // Move 1080p above 720p/SDR links
+      if (is1080A && !is1080B) return -1;
+      if (!is1080A && is1080B) return 1;
+      
+      return 0;
+    });
+
   } catch (e) {
     console.log("[" + PROVIDER_NAME + "] resolveHubCloud error: " + (e.message || e));
   }
 
   return streams;
 }
+
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   currentSessionUA = MOBILE_UAS[Math.floor(Math.random() * MOBILE_UAS.length)];

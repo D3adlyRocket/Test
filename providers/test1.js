@@ -91,6 +91,9 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var cleanTitleText = String(title || "").replace(/\./g, " ");
   var combinedScanText = (cleanNameText + " " + cleanTitleText + " " + encodedUrl).toLowerCase();
 
+  // Normalized text variant to catch squished tags like "ddp5 1" or "7 1"
+  var normalizedScan = combinedScanText.replace(/\s+/g, "");
+
   // 1. STRICT LANGUAGE MATRIX ENGINE
   var shortLangLabel = "English";
   var langTag = "English 🇺🇸";
@@ -160,7 +163,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var qEmoji = (displayQuality === "2160p" || displayQuality.includes("4k")) ? "🌟" : "💎";
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
-  // --- LINE 3 (Fixed: ⚡ strictly tied ONLY to explicit HDR/SDR tokens) ---
+  // --- LINE 3 (⚡ strictly tied ONLY to explicit HDR/SDR tokens) ---
   var dynamicHdr = "";
   var showLightning = false;
   
@@ -198,56 +201,44 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     line3 = "🎥 " + codecTag;
   }
 
-  // --- LINE 4 (Fixed: Literal strict mapping rules) ---
+  // --- LINE 4 (Fixed: Rigid literal criteria stacking matching your requests) ---
   var formatTag = "🎞️ MKV";
   if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
     formatTag = "🎞️ MP4";
   }
 
-  // Exact boolean flags from requirements
-  var hasDDP = /\b(ddp|dd\+|eac3)\b/i.test(combinedScanText);
-  var hasTrueHD = /\btruehd\b/i.test(combinedScanText);
-  var hasAAC = /\baac\b/i.test(combinedScanText);
-  var hasAtmos = /\batmos\b/i.test(combinedScanText);
+  // Robust parsing flags checking dots, spaces, and squished formats
+  var scanDDP = /\b(ddp|dd\+|eac3)\b/i.test(combinedScanText) || /ddp/i.test(normalizedScan);
+  var scanTrueHD = /\btruehd\b/i.test(combinedScanText);
+  var scanAAC = /\baac\b/i.test(combinedScanText);
+  var scanAtmos = /\batmos\b/i.test(combinedScanText);
   
-  var has51 = /\b5\.1\b/.test(combinedScanText);
-  var has71 = /\b7\.1\b/.test(combinedScanText);
+  var scan51 = /\b5\.1\b/.test(combinedScanText) || /51/.test(normalizedScan);
+  var scan71 = /\b7\.1\b/.test(combinedScanText) || /71/.test(normalizedScan);
 
   var audioChannelTag = "DDP 5.1";
-  var displayAtmos = hasAtmos; // Controls whether Atmos block appends
+  var displayAtmos = scanAtmos;
 
-  // Rule 1: DDP 5.1 and DDP 7.1
-  if (hasDDP && has51 && has71 && !hasTrueHD) {
-    audioChannelTag = "DDP 5.1 + DDP 7.1";
-  }
   // Rule 2: DDP 5.1 and TrueHD Atmos 7.1
-  else if (hasDDP && has51 && hasTrueHD && has71) {
+  if (scanDDP && scanTrueHD && (scan71 || scanAtmos)) {
     audioChannelTag = "DDP 5.1 + TrueHD 7.1";
     displayAtmos = true;
   }
+  // Rule 1: DDP 5.1 and DDP 7.1
+  else if (scanDDP && scan51 && scan71 && !scanTrueHD) {
+    audioChannelTag = "DDP 5.1 + DDP 7.1";
+  }
   // Rule 4: DDP 5.1 and AAC 5.1
-  else if (hasDDP && hasAAC && has51) {
+  else if (scanDDP && scanAAC) {
     audioChannelTag = "DDP 5.1 + AAC 5.1";
   }
   // Rule 6: Only TrueHD 7.1
-  else if (hasTrueHD && has71 && !has51 && !hasDDP) {
+  else if (scanTrueHD && !scanDDP) {
     audioChannelTag = "TrueHD 7.1";
   }
-  // Rule 5: Only DDP 5.1 (or simple fallbacks matching context)
-  else if (hasDDP && has51) {
-    audioChannelTag = "DDP 5.1";
-  }
-  // Base catch-all fallback matching your defaults
+  // Rule 3 & 5: Standalone DDP 5.1 / Fallbacks
   else {
-    if (hasTrueHD) {
-      audioChannelTag = has71 ? "TrueHD 7.1" : "TrueHD 5.1";
-    } else if (hasDDP) {
-      audioChannelTag = has71 ? "DDP 7.1" : "DDP 5.1";
-    } else if (hasAAC) {
-      audioChannelTag = has71 ? "AAC 7.1" : "AAC 5.1";
-    } else {
-      audioChannelTag = "DDP 5.1";
-    }
+    audioChannelTag = "DDP 5.1";
   }
 
   var atmosBlock = displayAtmos ? " • 🔊 Atmos" : "";

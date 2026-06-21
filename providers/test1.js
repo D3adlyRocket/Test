@@ -166,7 +166,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var bitDepth = /\b10bit\b/i.test(combinedScanText) ? " • 🔆 10Bit" : "";
   
   var isBluRay = /\bbluray\b/i.test(combinedScanText);
-  var sourceDisc = isBluRay ? "📀 BluRay" : "☁️ WEB-DL";
+  var sourceDisc = isBluRay ? "📀 BluRay";
   var dv = /\b(dv|dolby\s*vision)\b/i.test(combinedScanText) ? " • 🕵️‍♀️ DV" : "";
   
   var codecTag = "x264";

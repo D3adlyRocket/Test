@@ -90,9 +90,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var cleanNameText = String(name || "").replace(/\./g, " ");
   var cleanTitleText = String(title || "").replace(/\./g, " ");
   var combinedScanText = (cleanNameText + " " + cleanTitleText + " " + encodedUrl).toLowerCase();
-
-  // Normalized text variant to catch squished tags like "ddp5 1" or "7 1"
-  var normalizedScan = combinedScanText.replace(/\s+/g, "");
+  var audioScan = combinedScanText.replace(/[\s\.]+/g, "");
 
   // 1. STRICT LANGUAGE MATRIX ENGINE
   var shortLangLabel = "English";
@@ -201,50 +199,33 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     line3 = "🎥 " + codecTag;
   }
 
-  // --- LINE 4 (Fixed with Explicit Audio Rule Mappings) ---
+  // --- LINE 4 ---
   var formatTag = "🎞️ MKV";
   if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
     formatTag = "🎞️ MP4";
   }
 
-  var scanDDP = /\b(ddp|dd\+|eac3)\b/i.test(combinedScanText) || /ddp/i.test(normalizedScan);
-  var scanTrueHD = /\btruehd\b/i.test(combinedScanText);
-  var scanAAC = /\baac\b/i.test(combinedScanText);
-  var scanAtmos = /\batmos\b/i.test(combinedScanText);
-  
-  var scan51 = /\b5\.1\b/.test(combinedScanText) || /51/.test(normalizedScan);
-  var scan71 = /\b7\.1\b/.test(combinedScanText) || /71/.test(normalizedScan);
-
   var audioChannelTag = "DDP 5.1";
-  var displayAtmos = scanAtmos;
+  var displayAtmos = /\batmos\b/i.test(combinedScanText);
 
-  // Working Stacking Rule A: DDP 5.1 and TrueHD Atmos 7.1
-  if (scanDDP && scanTrueHD && scan71) {
+  if (audioScan.indexOf("ddp51") !== -1 && audioScan.indexOf("truehd") !== -1 && audioScan.indexOf("71") !== -1) {
     audioChannelTag = "DDP 5.1 + TrueHD 7.1";
     displayAtmos = true;
   }
-  // Working Stacking Rule B: DDP 5.1 and DDP 7.1
-  else if (scanDDP && scan51 && scan71 && !scanTrueHD) {
+  else if (audioScan.indexOf("ddp51") !== -1 && audioScan.indexOf("ddp71") !== -1) {
     audioChannelTag = "DDP 5.1 + DDP 7.1";
   }
-  // NEW Rule 2: DDP 5.1 + AAC 7.1
-  else if (scanDDP && scanAAC && scan71) {
+  else if (audioScan.indexOf("ddp51") !== -1 && audioScan.indexOf("aac71") !== -1) {
     audioChannelTag = "DDP 5.1 + AAC 7.1";
   }
-  // NEW Rule 1 & Rule 1.1: Double DDP5.1 streams (e.g. Spider-Noir multi-language layout loops)
-  else if (scanDDP && !scan71 && (combinedScanText.split("ddp").length > 2 || combinedScanText.split("dd").length > 2)) {
+  else if (audioScan.indexOf("ddp51") !== -1) {
     audioChannelTag = "DDP 5.1";
-    displayAtmos = scanAtmos; // Explicitly controlled via rule 1.1 requirements
   }
-  // Standalone Lossless TrueHD Rule
-  else if (scanTrueHD && !scanDDP) {
-    audioChannelTag = "TrueHD 7.1";
-    displayAtmos = true;
-  }
-  // General Fallback System
   else {
-    if (scanAAC) {
-      audioChannelTag = scan71 ? "AAC 7.1" : "AAC 5.1";
+    if (audioScan.indexOf("truehd") !== -1) {
+      audioChannelTag = "TrueHD 7.1";
+    } else if (audioScan.indexOf("aac") !== -1) {
+      audioChannelTag = (audioScan.indexOf("71") !== -1) ? "AAC 7.1" : "AAC 5.1";
     } else {
       audioChannelTag = "DDP 5.1";
     }

@@ -478,7 +478,9 @@ async function resolveHubCloud(hubUrl, fallbackSize) {
         }
         var sizeForDisplay = fallbackSize || "";
         var displayName = filename ? filename : (serverName || type);
-        streams.push(makeStream(
+        
+        // 1. Generate the stream object
+        var newStream = makeStream(
           displayName,
           serverName || type,
           finalUrl,
@@ -486,32 +488,41 @@ async function resolveHubCloud(hubUrl, fallbackSize) {
           type,
           gamerUrl || hubUrl,
           sizeForDisplay
-        ));
+        );
+        
+        // 2. Attach a hidden resolution helper property for sorting accuracy
+        newStream._resolutionSortTag = String(q || "").toLowerCase();
+        
+        streams.push(newStream);
       }
     }
 
-    // --- STREAM REORDERING ENGINE (FORCES HIGHEST QUALITY TO TOP) ---
+    // --- DIRECT VARIABLE SORT ENGINE ---
     streams.sort(function(a, b) {
-      // Use the internal title card content to verify true resolution profiles
-      var scanA = (a.title || "").toLowerCase();
-      var scanB = (b.title || "").toLowerCase();
+      var resA = a._resolutionSortTag || "";
+      var resB = b._resolutionSortTag || "";
       
-      var is4KA = scanA.indexOf("2160p") !== -1 || scanA.indexOf("4k") !== -1;
-      var is4KB = scanB.indexOf("2160p") !== -1 || scanB.indexOf("4k") !== -1;
+      var is4KA = resA.indexOf("2160p") !== -1 || resA.indexOf("4k") !== -1;
+      var is4KB = resB.indexOf("2160p") !== -1 || resB.indexOf("4k") !== -1;
       
-      var is1080A = scanA.indexOf("1080p") !== -1;
-      var is1080B = scanB.indexOf("1080p") !== -1;
+      var is1080A = resA.indexOf("1080p") !== -1;
+      var is1080B = resB.indexOf("1080p") !== -1;
 
-      // Move 4K / 2160p upward
+      // Prioritize 4K / 2160p strings completely
       if (is4KA && !is4KB) return -1;
       if (!is4KA && is4KB) return 1;
       
-      // Move 1080p above 720p/SDR links
+      // Prioritize 1080p over 720p/SDR links
       if (is1080A && !is1080B) return -1;
       if (!is1080A && is1080B) return 1;
       
       return 0;
     });
+
+    // 3. Clean up the temporary sort tags so we don't pass raw junk data to the app
+    for (var i = 0; i < streams.length; i++) {
+      delete streams[i]._resolutionSortTag;
+    }
 
   } catch (e) {
     console.log("[" + PROVIDER_NAME + "] resolveHubCloud error: " + (e.message || e));
@@ -519,7 +530,6 @@ async function resolveHubCloud(hubUrl, fallbackSize) {
 
   return streams;
 }
-
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   currentSessionUA = MOBILE_UAS[Math.floor(Math.random() * MOBILE_UAS.length)];

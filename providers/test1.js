@@ -100,7 +100,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     else if (hasHindi && !hasEng && !hasTamil && !hasTelugu) lang = "Hindi";
   }
 
-  // 2. Title & Year Cleaning (Fixes the " - (" bug)
+  // 2. Title & Year Cleaning
   var cleanTitle = "4KHDHub Link";
   var year = "";
   var yearMatch = text.match(/\b(19|20)\d{2}\b/);
@@ -114,11 +114,10 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     var cleanMatch = text.match(/^([^(\[.]+)/);
     if (cleanMatch) cleanTitle = cleanMatch[1].trim();
   }
-  // Trim trailing structural dashes or spaces before capitalization
   cleanTitle = cleanTitle.replace(/\s+-\s*$/, "").trim();
   cleanTitle = cleanTitle.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
 
-  // 3. Line 3 properties (No WEB-DL/WEB-Rip here)
+  // 3. Line 3 Properties (Fixed HDR10+ Priority and Dynamic BluRay Check)
   var qEmoji = quality === "2160p" ? "🌟" : "💎";
   
   var dynamicHdr = "SDR";
@@ -127,7 +126,10 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   else if (/\bhdr\b/i.test(text)) dynamicHdr = "HDR";
 
   var bitDepth = /\b10bit\b/i.test(text) ? "🔆 10Bit" : "";
-  var discSource = /\bbluray\b/i.test(text) ? "📀 BluRay" : "📀 BluRay"; // Enforces structural blueprint fallback
+  
+  // Only displays BluRay emoji/text if explicitly found in string properties
+  var isBluRay = /\bbluray\b/i.test(text);
+  var discSource = isBluRay ? "📀 BluRay" : "☁️ WEB-DL"; 
 
   var dv = /\b(dv|dolby\s*vision)\b/i.test(text) ? "🕵️‍♀️DV" : "";
   
@@ -143,7 +145,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var format = "🎞️ MKV";
   if (/\bmp4\b/i.test(text) || url.toLowerCase().indexOf(".mp4") > -1) format = "🎞️ MP4";
 
-  // 5. Audio Parsing (Explicitly targeting 🎧 DDP 5.1 / TrueHD 7.1 formats)
+  // 5. Audio Parsing (Fixed DDP Priority Check over DD)
   var audioLabel = "🎧 DD 5.1"; 
   var channels = "5.1";
   if (/\b7\.1\b/.test(text)) channels = "7.1";
@@ -162,10 +164,9 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var atmos = /\batmos\b/i.test(text) ? "• 🔊 Atmos" : "";
   var line4 = format + " | " + audioLabel + (atmos ? " " + atmos : "");
 
-  // 6. Line 5 properties (Web Source tagging + Missing Icons)
-  var sourceTag = "WEB-DL";
+  // 6. Line 5 Properties 
+  var sourceTag = isBluRay ? "BluRay" : "WEB-DL";
   if (/\bwebrip\b/i.test(text)) sourceTag = "WEB-Rip";
-  else if (/\bbluray\b/i.test(text)) sourceTag = "WEB-DL"; 
 
   var imax = /\bimax\b/i.test(text) ? " | 👁️ iMAX" : "";
   var line5 = "🔗 " + (serverType || "Worker") + " | ☁️ " + sourceTag + imax;

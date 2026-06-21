@@ -71,47 +71,52 @@ function parseQuality(text) {
   return 'HD';
 }
 
-function makeStream(name, title, url, quality, headers, fallbackTitle) {
+function makeStream(name, title, url, quality, headers, mediaInfo) {
     const cleanName = decodeEntities(name).replace(/[\n\t]+/g, '').trim();
-    // Use fallbackTitle if title contains raw HTML string context
-    const referenceText = title.includes("<html") || title.includes("<body") ? title : decodeEntities(title || "").replace(/[\n\t]+/g, ' ').trim();
-    const cleanDisplayTitle = fallbackTitle ? decodeEntities(fallbackTitle).replace(/[\n\t]+/g, ' ').trim() : referenceText;
+    let cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
     
+    let filename = "";
+    const fileMatch = cleanTitle.match(/\[\s*([^\]]+\.(?:mkv|mp4|avi|zip|rar|ts))\s*\]/i);
+    if (fileMatch) {
+        filename = fileMatch[1].trim();
+        cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
+    }
+
     // 1. METADATA SCANNING
     let fileSizeOnly = "N/A";
-    const sizeMatch = referenceText.match(/(?:\[|\(|\s)(\d+(?:\.\d+)?\s*[MG]B)(?:\]|\)|\s|$)/i);
+    const sizeMatch = cleanTitle.match(/(?:\[|\(|\s)(\d+(?:\.\d+)?\s*[MG]B)(?:\]|\)|\s|$)/i);
     if (sizeMatch) {
         fileSizeOnly = sizeMatch[1].trim();
     } else if (url) {
-        // Fallback: Scan the stream URL itself for sizes if hidden inside string fragments
-        const urlSizeMatch = url.match(/(\d+(?:\.\d+)?\s*[mg]b)/i);
-        if (urlSizeMatch) fileSizeOnly = urlSizeMatch[1].toUpperCase().trim();
+        // Ultimate Fallback: Scan raw URL context path
+        const urlSize = url.match(/(\d+(?:\.\d+)?\s*[mg]b)/i);
+        if (urlSize) fileSizeOnly = urlSize[1].toUpperCase().trim();
     }
 
     let fileFormat = "MKV";
     if (url && url.toLowerCase().includes(".mp4")) fileFormat = "MP4";
-    else if (referenceText.toLowerCase().includes(".mp4")) fileFormat = "MP4";
+    else if (cleanTitle.toLowerCase().includes(".mp4")) fileFormat = "MP4";
 
     let sourceTag = "WEB-DL";
-    if (/bluray|blu\-ray|bdrip/i.test(referenceText)) sourceTag = "BluRay";
-    else if (/hdrip|webrip/i.test(referenceText)) sourceTag = "WEBRip";
+    if (/bluray|blu\-ray|bdrip/i.test(cleanTitle)) sourceTag = "BluRay";
+    else if (/hdrip|webrip/i.test(cleanTitle)) sourceTag = "WEBRip";
 
     let imaxTag = "";
-    if (/imax/i.test(referenceText)) imaxTag = " | 👁️ iMAX";
+    if (/imax/i.test(cleanTitle)) imaxTag = " | 👁️ iMAX";
 
     // Dynamic Video Profiles Checking
     let videoRangeBlock = "";
     let rangeTag = "";
-    if (/dolby\s*vision|dovi|\bdv\b/i.test(referenceText) || /dolby\s*vision|dovi|\bdv\b/i.test(url)) rangeTag = "Dolby Vision";
-    else if (/hdr10/i.test(referenceText) || /hdr10/i.test(url)) rangeTag = "HDR10";
-    else if (/hdr/i.test(referenceText) || /hdr/i.test(url)) rangeTag = "HDR";
-    else if (/10bit|10\-bit/i.test(referenceText)) rangeTag = "10Bit";
-    else if (/sdr/i.test(referenceText)) rangeTag = "SDR";
+    if (/dolby\s*vision|dovi|\bdv\b/i.test(cleanTitle) || /dolby\s*vision|dovi|\bdv\b/i.test(url)) rangeTag = "Dolby Vision";
+    else if (/hdr10/i.test(cleanTitle) || /hdr10/i.test(url)) rangeTag = "HDR10";
+    else if (/hdr/i.test(cleanTitle) || /hdr/i.test(url)) rangeTag = "HDR";
+    else if (/10bit|10\-bit/i.test(cleanTitle)) rangeTag = "10Bit";
+    else if (/sdr/i.test(cleanTitle)) rangeTag = "SDR";
 
     let codecTag = "H.264";
-    if (/hevc|\bx265\b|\bh265\b/i.test(referenceText) || /hevc|\bx265\b|\bh265\b/i.test(url)) {
+    if (/hevc|\bx265\b|\bh265\b/i.test(cleanTitle) || /hevc|\bx265\b|\bh265\b/i.test(url)) {
         codecTag = "HEVC";
-    } else if (/x264|h264/i.test(referenceText)) {
+    } else if (/x264|h264/i.test(cleanTitle)) {
         codecTag = "H.264";
     }
 
@@ -123,48 +128,61 @@ function makeStream(name, title, url, quality, headers, fallbackTitle) {
 
     // Audio Layout Pipeline
     let audioChannelTag = "";
-    const audioMatch = referenceText.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i) || url.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
+    const audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i) || url.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
     if (audioMatch) {
         let matchedTag = audioMatch[1].toUpperCase().replace(/\s+/g, '');
         if (matchedTag === "5.1") matchedTag = "DDP5.1";
         if (matchedTag.includes("TRUEHD")) matchedTag = "TrueHD 7.1";
         audioChannelTag = matchedTag;
-    } else if (/dolby\s*digital|dd\d/i.test(referenceText) || /dd\d/i.test(url)) {
+    } else if (/dolby\s*digital|dd\d/i.test(cleanTitle) || /dd\d/i.test(url)) {
         audioChannelTag = 'Dolby Digital';
-    } else if (/dolby|dsnp/i.test(referenceText) || /dolby/i.test(url)) {
+    } else if (/dolby|dsnp/i.test(cleanTitle) || /dolby/i.test(url)) {
         audioChannelTag = 'Dolby';
     }
 
-    if (/atmos/i.test(referenceText) || /atmos/i.test(url)) {
+    if (/atmos/i.test(cleanTitle) || /atmos/i.test(url)) {
         audioChannelTag = audioChannelTag ? `${audioChannelTag} • 🔊 Atmos` : '🔊 Atmos';
     }
     if (!audioChannelTag) audioChannelTag = "Auto";
 
     // 2. LANGUAGE MATRIX ENGINE
     let langFlags = [];
-    const lowerText = referenceText.toLowerCase() + " " + url.toLowerCase();
-    const isDual = /dual|hindi\-eng|eng\-hin|multi/i.test(referenceText) || /dual|hindi\-eng|eng\-hin|multi/i.test(url);
+    const lowerTitle = cleanTitle.toLowerCase() + " " + url.toLowerCase();
+    const isDual = /dual|hindi\-eng|eng\-hin|multi/i.test(cleanTitle) || /dual|hindi\-eng|eng\-hin|multi/i.test(url);
     
     if (isDual) {
         langFlags.push("English 🇺🇸 • Hindi 🇮🇳");
     } else {
-        if (/hindi|hin/i.test(lowerText)) langFlags.push("Hindi 🇮🇳");
-        if (/english|eng/i.test(lowerText)) langFlags.push("English 🇺🇸");
+        if (/hindi|hin/i.test(lowerTitle)) langFlags.push("Hindi 🇮🇳");
+        if (/english|eng/i.test(lowerTitle)) langFlags.push("English 🇺🇸");
         if (langFlags.length === 0) langFlags.push("English 🇺🇸");
     }
     const displayLanguages = langFlags.join(' • ');
 
     // 3. TITLE RENDERING SYSTEM
     let cleanedMainTitle = "";
-    const yearMatch = cleanDisplayTitle.match(/\b(19\d{2}|20\d{2})\b/);
+    const yearMatch = cleanTitle.match(/\b(19\d{2}|20\d{2})\b/);
     const displayYear = yearMatch ? `(${yearMatch[1]})` : "";
+    const searchString = filename || cleanTitle;
+    const preciseSAndEMatch = searchString.match(/[sS](\d+)\s*[eE](\d+)/);
+
+    if (preciseSAndEMatch) {
+        let rawShowName = searchString.split(/[sS]\d+/i)[0]
+                            .replace(/[\.\-_]/g, ' ')
+                            .replace(/[\{\[\(].*$/g, '')
+                            .trim();
+        let sNum = parseInt(preciseSAndEMatch[1], 10);
+        let eNum = parseInt(preciseSAndEMatch[2], 10);
+        cleanedMainTitle = `${rawShowName} - S${sNum} E${eNum}`;
+    } else {
+        let movieName = cleanTitle.split(/[\.\-_]\d{3,4}p/i)[0]
+                                  .replace(/[\.\-_]/g, ' ')
+                                  .replace(/\d{3,4}p.*/i, '')
+                                  .replace(/[\{\[\(].*$/g, '')
+                                  .trim();
+        cleanedMainTitle = movieName + (displayYear ? ` - ${displayYear}` : "");
+    }
     
-    let movieName = cleanDisplayTitle.split(/[\.\-_]\d{3,4}p/i)[0]
-                              .replace(/[\.\-_]/g, ' ')
-                              .replace(/\d{3,4}p.*/i, '')
-                              .replace(/[\{\[\(].*$/g, '')
-                              .trim();
-    cleanedMainTitle = movieName + (displayYear ? ` - ${displayYear}` : "");
     cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ').replace(/\s+-\s+-\s+/g, ' - ').replace(/-\s*$/, '').trim();
 
     const displayQuality = quality || "1080p";
@@ -423,8 +441,28 @@ async function extractVcloud(vcloudUrl, referer, quality, showTitle, mediaInfo) 
   const html = await fetchHtml(vcloudUrl, { headers });
   if (!html) return streams;
 
-  // Pass the entire html body as the title parameter so makeStream can scan everything inside it directly
-  let deepMetaString = html; 
+  // Start with a fallback text string
+  let deepMetaString = showTitle || "";
+
+  // Target the exact file name container in vCloud's UI structure
+  const fileTextContainer = html.match(/<h\d[^>]*class="[^"]*text[^"]*"[^>]*>([\s\S]*?)<\/h\d>/i) || 
+                            html.match(/<div[^>]*id="filename"[^>]*>([\s\S]*?)<\/div>/i) ||
+                            html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i) ||
+                            html.match(/<title>([\s\S]*?)<\/title>/i);
+
+  if (fileTextContainer) {
+      // Strip HTML tags and remove common garbage text strings
+      const extractedText = fileTextContainer[1]
+        .replace(/<[^>]*>/g, '')
+        .replace(/Download/gi, '')
+        .replace(/[\n\t\r]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (extractedText && extractedText.length > 5) {
+          deepMetaString = extractedText;
+      }
+  }
 
   let tokenUrl = '';
   const db64Match = html.match(/var\s+url\s*=\s*atob\(atob\('([^']+)'\)\)/);
@@ -443,21 +481,21 @@ async function extractVcloud(vcloudUrl, referer, quality, showTitle, mediaInfo) 
   const s3 = tokenHtml.match(/<a[^>]*href="([^"]+)"[^>]*id="s3"[^>]*>/i);
   if (s3) {
     const name = showTitle + ' - ' + PROVIDER_NAME + ' | ' + quality + ' (FSLv2)';
-    streams.push(makeStream(name, deepMetaString, s3[1], quality, vcloudUrl, showTitle));
+    streams.push(makeStream(name, deepMetaString, s3[1], quality, vcloudUrl));
   }
 
   // FSL
   const fsl = tokenHtml.match(/<a[^>]*href="([^"]+)"[^>]*id="fsl"[^>]*>/i);
   if (fsl) {
     const name = showTitle + ' - ' + PROVIDER_NAME + ' | ' + quality + ' (FSL)';
-    streams.push(makeStream(name, deepMetaString, fsl[1], quality, vcloudUrl, showTitle));
+    streams.push(makeStream(name, deepMetaString, fsl[1], quality, vcloudUrl));
   }
 
   // Worker
   const worker = tokenHtml.match(/var\s+url\s*=\s*['"]([^'"]*workers\.dev[^'"]*)['"]/i);
   if (worker) {
     const name = showTitle + ' - ' + PROVIDER_NAME + ' | ' + quality + ' (Worker)';
-    streams.push(makeStream(name, deepMetaString, worker[1], quality, vcloudUrl, showTitle));
+    streams.push(makeStream(name, deepMetaString, worker[1], quality, vcloudUrl));
   }
 
   const btnRegex = /<a[^>]*href="([^"]+)"[^>]*class="btn[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
@@ -469,7 +507,7 @@ async function extractVcloud(vcloudUrl, referer, quality, showTitle, mediaInfo) 
     if (href.includes('.zip') || href.includes('pixeldrain') || href.includes('telegram')) continue;
     if (text.includes('worker') && !text.includes('fsl')) {
       const name = showTitle + ' - ' + PROVIDER_NAME + ' | ' + quality + ' (Worker)';
-      streams.push(makeStream(name, deepMetaString, href, quality, vcloudUrl, showTitle));
+      streams.push(makeStream(name, deepMetaString, href, quality, vcloudUrl));
     }
   }
 

@@ -172,12 +172,9 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
 
   // Final Output Formatting
   var qUpper = quality.toUpperCase();
+  var finalName = "4KHDHub | " + qUpper + " | " + lang;
   
-  // Header: 4KHDHub | Quality | Language 
-  var finalHeader = "4KHDHub | " + qUpper + " | " + lang;
-  
-  var finalDetailsBlock = 
-    finalHeader + "\n" +
+  var finalTitle = 
     "🎬 " + cleanTitle + (year ? " - (" + year + ")" : "") + "\n" +
     qEmoji + " " + qUpper + " | 🌍 " + lang + (fileSize ? " | 💾 " + fileSize : "") + "\n" +
     line3 + "\n" +
@@ -185,9 +182,9 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     line5;
 
   return {
-    name: finalDetailsBlock, // Overriding name targets multiline layout on mobile views directly
-    title: finalDetailsBlock,
-    description: finalDetailsBlock,
+    name: finalName, // Kept short to layout as the main bold TV header cleanly
+    title: finalTitle,
+    description: finalTitle,
     url: encodedUrl,
     quality: quality,
     headers: { "Referer": referer || BASE_URL + "/" }

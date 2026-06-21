@@ -160,7 +160,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var qEmoji = (displayQuality === "2160p" || displayQuality.includes("4k")) ? "🌟" : "💎";
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
-  // --- LINE 3 (Fixed: Lightning Bolt ONLY displays if exact dynamicHdr matches) ---
+  // --- LINE 3 (Fixed: ⚡ strictly tied ONLY to explicit HDR/SDR tokens) ---
   var dynamicHdr = "";
   var showLightning = false;
   
@@ -198,57 +198,59 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     line3 = "🎥 " + codecTag;
   }
 
-  // --- LINE 4 (Fixed: Absolute Audio Mapping & Stacking Rules) ---
+  // --- LINE 4 (Fixed: Literal strict mapping rules) ---
   var formatTag = "🎞️ MKV";
   if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
     formatTag = "🎞️ MP4";
   }
 
+  // Exact boolean flags from requirements
+  var hasDDP = /\b(ddp|dd\+|eac3)\b/i.test(combinedScanText);
+  var hasTrueHD = /\btruehd\b/i.test(combinedScanText);
+  var hasAAC = /\baac\b/i.test(combinedScanText);
+  var hasAtmos = /\batmos\b/i.test(combinedScanText);
+  
   var has51 = /\b5\.1\b/.test(combinedScanText);
   var has71 = /\b7\.1\b/.test(combinedScanText);
-  var isTrueHD = /\btruehd\b/i.test(combinedScanText);
 
   var audioChannelTag = "DDP 5.1";
+  var displayAtmos = hasAtmos; // Controls whether Atmos block appends
 
-  // Double match scenario checking
-  if (has51 && has71) {
-    if (isTrueHD) {
-      audioChannelTag = "DDP 5.1 + TrueHD 7.1";
-    } else {
-      audioChannelTag = "DDP 5.1 + DDP 7.1";
-    }
-  } 
-  // Standalone channel scenario checking
-  else if (has71) {
-    if (isTrueHD) {
-      audioChannelTag = "TrueHD 7.1";
-    } else {
-      audioChannelTag = "DDP 7.1";
-    }
-  } 
-  else if (has51) {
-    if (isTrueHD) {
-      audioChannelTag = "TrueHD 5.1";
-    } else if (/\b(ddp|dd\+|eac3)\b/i.test(combinedScanText)) {
-      audioChannelTag = "DDP 5.1";
-    } else if (/\b(dd|ac3)\b/i.test(combinedScanText)) {
-      audioChannelTag = "DD 5.1";
-    } else if (/\baac\b/i.test(combinedScanText)) {
-      audioChannelTag = "AAC 5.1";
-    } else {
-      audioChannelTag = "DDP 5.1";
-    }
-  } 
-  // Fallbacks if no specific channel tags are found in the string
+  // Rule 1: DDP 5.1 and DDP 7.1
+  if (hasDDP && has51 && has71 && !hasTrueHD) {
+    audioChannelTag = "DDP 5.1 + DDP 7.1";
+  }
+  // Rule 2: DDP 5.1 and TrueHD Atmos 7.1
+  else if (hasDDP && has51 && hasTrueHD && has71) {
+    audioChannelTag = "DDP 5.1 + TrueHD 7.1";
+    displayAtmos = true;
+  }
+  // Rule 4: DDP 5.1 and AAC 5.1
+  else if (hasDDP && hasAAC && has51) {
+    audioChannelTag = "DDP 5.1 + AAC 5.1";
+  }
+  // Rule 6: Only TrueHD 7.1
+  else if (hasTrueHD && has71 && !has51 && !hasDDP) {
+    audioChannelTag = "TrueHD 7.1";
+  }
+  // Rule 5: Only DDP 5.1 (or simple fallbacks matching context)
+  else if (hasDDP && has51) {
+    audioChannelTag = "DDP 5.1";
+  }
+  // Base catch-all fallback matching your defaults
   else {
-    if (isTrueHD) {
-      audioChannelTag = "TrueHD 7.1";
+    if (hasTrueHD) {
+      audioChannelTag = has71 ? "TrueHD 7.1" : "TrueHD 5.1";
+    } else if (hasDDP) {
+      audioChannelTag = has71 ? "DDP 7.1" : "DDP 5.1";
+    } else if (hasAAC) {
+      audioChannelTag = has71 ? "AAC 7.1" : "AAC 5.1";
     } else {
       audioChannelTag = "DDP 5.1";
     }
   }
 
-  var atmosBlock = /\batmos\b/i.test(combinedScanText) ? " • 🔊 Atmos" : "";
+  var atmosBlock = displayAtmos ? " • 🔊 Atmos" : "";
   var line4 = formatTag + " | 🎧 " + audioChannelTag + atmosBlock + " |";
 
   // --- LINE 5 ---

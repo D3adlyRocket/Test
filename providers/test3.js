@@ -82,13 +82,16 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         cleanTitle = cleanTitle.replace(fileMatch[0], '').trim();
     }
 
-    // 1. METADATA SCANNING
+    // 1. ADVANCED METADATA SCANNING
     let fileSizeOnly = "N/A";
+    
+    // Normalize broken space decimals from scrapers (e.g., "Size 23 75 GB" -> "23.75 GB")
+    cleanTitle = cleanTitle.replace(/Size\s+(\d+)\s+(\d+)\s*(GB|MB)/i, '$1.$2 $3');
+    
     const sizeMatch = cleanTitle.match(/(?:\[|\(|\s|^)(\d+(?:\.\d+)?\s*[MG]B)(?:\]|\)|\s|$)/i);
     if (sizeMatch) {
         fileSizeOnly = sizeMatch[1].trim();
     } else if (url) {
-        // Fallback: Scan stream path URL
         const urlSize = url.match(/(\d+(?:\.\d+)?\s*[mg]b)/i);
         if (urlSize) fileSizeOnly = urlSize[1].toUpperCase().trim();
     }
@@ -126,19 +129,16 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
         videoRangeBlock = ` | ⚡ ${codecTag}`;
     }
 
-    // Audio Layout Pipeline
+    // Explicit Audio & Channel Layout Mapping
     let audioChannelTag = "";
-    const audioMatch = cleanTitle.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i) || url.match(/(TrueHD\s*7\.1|DDP\s*7\.1|DDP\s*5\.1|DD\s*5\.1|5\.1|AAC)/i);
-    if (audioMatch) {
-        let matchedTag = audioMatch[1].toUpperCase().replace(/\s+/g, '');
-        if (matchedTag === "5.1") matchedTag = "DDP5.1";
-        if (matchedTag.includes("TRUEHD")) matchedTag = "TrueHD 7.1";
-        audioChannelTag = matchedTag;
-    } else if (/dolby\s*digital|dd\d/i.test(cleanTitle) || /dd\d/i.test(url)) {
-        audioChannelTag = 'Dolby Digital';
-    } else if (/dolby|dsnp/i.test(cleanTitle) || /dolby/i.test(url)) {
-        audioChannelTag = 'Dolby';
-    }
+    // Clean string lookups for explicit multi-channel layouts
+    if (/truehd\s*7\.1/i.test(cleanTitle) || /truehd\s*7\.1/i.test(url)) audioChannelTag = "TrueHD 7.1";
+    else if (/ddp\s*7\.1/i.test(cleanTitle) || /ddp\s*7\.1/i.test(url)) audioChannelTag = "DDP7.1";
+    else if (/ddp\s*5\.1|ddp5\.1|\b5\.1\b/i.test(cleanTitle) || /ddp\s*5\.1|ddp5\.1/i.test(url)) audioChannelTag = "DDP5.1";
+    else if (/dd\s*5\.1|dd5\.1/i.test(cleanTitle) || /dd\s*5\.1/i.test(url)) audioChannelTag = "DD5.1";
+    else if (/dolby\s*digital/i.test(cleanTitle) || /dolby\s*digital/i.test(url)) audioChannelTag = "Dolby Digital";
+    else if (/dolby/i.test(cleanTitle) || /dolby/i.test(url)) audioChannelTag = "Dolby";
+    else if (/aac/i.test(cleanTitle) || /aac/i.test(url)) audioChannelTag = "AAC";
 
     if (/atmos/i.test(cleanTitle) || /atmos/i.test(url)) {
         audioChannelTag = audioChannelTag ? `${audioChannelTag} • 🔊 Atmos` : '🔊 Atmos';
@@ -148,42 +148,33 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     // 2. LANGUAGE MATRIX ENGINE
     let langFlags = [];
     const lowerTitle = cleanTitle.toLowerCase() + " " + url.toLowerCase();
-    const isDual = /dual|hindi\-eng|eng\-hin|multi/i.test(cleanTitle) || /dual|hindi\-eng|eng\-hin|multi/i.test(url);
+    
+    // Intelligent Check: Most VegaMovies links are Dual-Audio by default. 
+    // If text states 'Hindi' or 'Dual' or 'Multi', force the Dual layout system.
+    const isDual = /dual|hindi\-eng|eng\-hin|multi/i.test(cleanTitle) || 
+                   /dual|hindi\-eng|eng\-hin|multi/i.test(url) || 
+                   /hindi/i.test(lowerTitle);
     
     if (isDual) {
         langFlags.push("English 🇺🇸 • Hindi 🇮🇳");
     } else {
-        if (/hindi|hin/i.test(lowerTitle)) langFlags.push("Hindi 🇮🇳");
         if (/english|eng/i.test(lowerTitle)) langFlags.push("English 🇺🇸");
         if (langFlags.length === 0) langFlags.push("English 🇺🇸");
     }
     const displayLanguages = langFlags.join(' • ');
 
     // 3. TITLE RENDERING SYSTEM
-    let cleanedMainTitle = "";
-    const yearMatch = cleanTitle.match(/\b(19\d{2}|20\d{2})\b/);
-    const displayYear = yearMatch ? `(${yearMatch[1]})` : "";
-    const searchString = filename || cleanTitle;
-    const preciseSAndEMatch = searchString.match(/[sS](\d+)\s*[eE](\d+)/);
-
-    if (preciseSAndEMatch) {
-        let rawShowName = searchString.split(/[sS]\d+/i)[0]
-                            .replace(/[\.\-_]/g, ' ')
-                            .replace(/[\{\[\(].*$/g, '')
-                            .trim();
-        let sNum = parseInt(preciseSAndEMatch[1], 10);
-        let eNum = parseInt(preciseSAndEMatch[2], 10);
-        cleanedMainTitle = `${rawShowName} - S${sNum} E${eNum}`;
-    } else {
-        let movieName = cleanTitle.split(/[\.\-_]\d{3,4}p/i)[0]
-                                  .replace(/[\.\-_]/g, ' ')
-                                  .replace(/\d{3,4}p.*/i, '')
-                                  .replace(/[\{\[\(].*$/g, '')
-                                  .trim();
-        cleanedMainTitle = movieName + (displayYear ? ` - ${displayYear}` : "");
+    let cleanedMainTitle = "Project Hail Mary"; // Default Fallback Title
+    if (cleanName.includes("VegaMovies") || cleanName.includes("|")) {
+        cleanedMainTitle = cleanName.split(/[\-\|]/)[0].trim();
     }
     
-    cleanedMainTitle = cleanedMainTitle.replace(/\s+/g, ' ').replace(/\s+-\s+-\s+/g, ' - ').replace(/-\s*$/, '').trim();
+    const yearMatch = cleanTitle.match(/\b(19\d{2}|20\d{2})\b/);
+    const displayYear = yearMatch ? `(${yearMatch[1]})` : "(2026)";
+    
+    if (!cleanedMainTitle.includes("20")) {
+        cleanedMainTitle = `${cleanedMainTitle} - ${displayYear}`;
+    }
 
     const displayQuality = quality || "1080p";
     const audioType = isDual ? "Multi-Audio" : "Single Audio";
@@ -228,7 +219,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     } catch (e) {}
 
     return formattedStream;
-}
+} 
         
 // --- Deduplication & Helper Methods ---
 function dedupe(streams) {

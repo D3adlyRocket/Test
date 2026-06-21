@@ -160,7 +160,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   // 3. SUBHEADING LINE CONFIGURATIONS
   
   // --- LINE 2 ---
-  var qUpper = internalQuality.toUpperCase();
+  var qUpper = internalQuality.toLowerCase();
   var qEmoji = (internalQuality === "2160p" || internalQuality.includes("4k")) ? "🌟" : "💎";
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 

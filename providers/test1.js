@@ -86,36 +86,44 @@ function base64Decode(str) {
 function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var encodedUrl = url.replace(/ /g, "%20");
   
-  // Use both name and title contexts safely for scanning metadata
+  // Clean source texts for universal tag scanning
   var cleanNameText = String(name || "").replace(/\./g, " ");
   var cleanTitleText = String(title || "").replace(/\./g, " ");
   var combinedScanText = (cleanNameText + " " + cleanTitleText + " " + encodedUrl).toLowerCase();
 
-  // 1. DYNAMIC LANGUAGE MATRIX ENGINE
-  var langTag = "English 🇺🇸"; 
-  var shortLangLabel = "Original Language";
+  // 1. STRICT LANGUAGE MATRIX ENGINE
+  var shortLangLabel = "English";
+  var langTag = "English 🇺🇸";
 
-  if (/\b(multi|multi-audio|multi\.audio)\b/i.test(combinedScanText)) {
+  var hasHindi = /\bhindi\b/i.test(combinedScanText);
+  var hasEng = /\b(english|eng)\b/i.test(combinedScanText);
+  var hasTamil = /\btamil\b/i.test(combinedScanText);
+  var hasTelugu = /\btelugu\b/i.test(combinedScanText);
+  
+  // Count explicit distinct languages present
+  var langCount = 0;
+  if (hasHindi) langCount++;
+  if (hasEng) langCount++;
+  if (hasTamil) langCount++;
+  if (hasTelugu) langCount++;
+
+  if (/\b(multi|multi-audio|multi\.audio)\b/i.test(combinedScanText) || langCount >= 3) {
     shortLangLabel = "Multi-Audio";
     langTag = "Multi-Audio 🌍";
-  } else if (/\b(dual|dual-audio|dual\.audio|dubbed)\b/i.test(combinedScanText) || (combinedScanText.includes("hindi") && combinedScanText.includes("eng"))) {
+  } else if (/\b(dual|dual-audio|dual\.audio|dubbed)\b/i.test(combinedScanText) || langCount === 2) {
     shortLangLabel = "Dual-Audio";
-    langTag = "English 🇺🇸 • Hindi 🇮🇳";
-  } else if (/\benglish\b/i.test(combinedScanText)) {
-    shortLangLabel = "English";
-    langTag = "English 🇺🇸";
-  } else if (/\bhindi\b/i.test(combinedScanText)) {
-    shortLangLabel = "Hindi";
-    langTag = "Hindi 🇮🇳";
-  } else if (/\btamil\b/i.test(combinedScanText)) {
-    shortLangLabel = "Tamil";
-    langTag = "Tamil 🇮🇳";
-  } else if (/\btelugu\b/i.test(combinedScanText)) {
-    shortLangLabel = "Telugu";
-    langTag = "Telugu 🇮🇳";
+    // Check which specific pair exists, fallback to Eng/Hin combo
+    if (hasEng && hasHindi) langTag = "English 🇺🇸 • Hindi 🇮🇳";
+    else if (hasHindi && hasTamil) langTag = "Hindi 🇮🇳 • Tamil 🇮🇳";
+    else langTag = "English 🇺🇸 • Hindi 🇮🇳";
+  } else {
+    if (hasHindi) { shortLangLabel = "Hindi"; langTag = "Hindi 🇮🇳"; }
+    else if (hasTamil) { shortLangLabel = "Tamil"; langTag = "Tamil 🇮🇳"; }
+    else if (hasTelugu) { shortLangLabel = "Telugu"; langTag = "Telugu 🇮🇳"; }
+    else { shortLangLabel = "English"; langTag = "English 🇺🇸"; }
   }
 
-  // 2. SERIES AND MOVIE TITLE CLEANING ENGINE
+  // 2. MOVIE & SERIES TITLE CLEANING ENGINE
   var cleanDisplayTitle = "4KHDHub Link";
   var yearBlock = "";
   var yearMatch = cleanNameText.match(/\b(19|20)\d{2}\b/);
@@ -132,65 +140,65 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     cleanDisplayTitle = cleanNameText.split(/[([\.精品]/)[0];
   }
 
-  // Clean out common noise from titles/episodes
+  // Strip out layout structural leaks
   cleanDisplayTitle = cleanDisplayTitle
     .replace(/AMZN|WEB-DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit/gi, "")
     .replace(/[-_()\[\]|]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
-  // Capitalize Title Words
   cleanDisplayTitle = cleanDisplayTitle.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
 
-  // 3. VIDEO PROFILE AND COMPRESSION PARSING (Fixing SDR leaking into Line 3)
-  var qEmoji = (quality === "2160p" || quality.toLowerCase().includes("4k")) ? "🌟" : "💎";
+  // 3. SUBHEADING LINE CONFIGURATIONS
   
-  var rangeTag = "";
-  if (/\bhdr10\+\b/i.test(combinedScanText)) rangeTag = "HDR10+";
-  else if (/\bhdr10\b/i.test(combinedScanText)) rangeTag = "HDR10";
-  else if (/\bhdr\b/i.test(combinedScanText)) rangeTag = "HDR";
+  // --- LINE 2 ---
+  var displayQuality = quality ? quality.toLowerCase() : "1080p";
+  var qUpper = displayQuality.toUpperCase();
+  var qEmoji = (displayQuality === "2160p" || displayQuality.includes("4k")) ? "🌟" : "💎";
+  var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
-  var bitDepth = /\b10bit\b/i.test(combinedScanText) ? "🔆 10Bit" : "";
-  var dv = /\b(dv|dolby\s*vision)\b/i.test(combinedScanText) ? "🕵️‍♀️ Dolby Vision" : "";
+  // --- LINE 3 ---
+  var dynamicHdr = "SDR";
+  if (/\bhdr10\+\b/i.test(combinedScanText)) dynamicHdr = "HDR10+";
+  else if (/\bhdr10\b/i.test(combinedScanText)) dynamicHdr = "HDR10";
+  else if (/\bhdr\b/i.test(combinedScanText)) dynamicHdr = "HDR";
+
+  var bitDepth = /\b10bit\b/i.test(combinedScanText) ? " • 🔆 10Bit" : "";
+  
+  var isBluRay = /\bbluray\b/i.test(combinedScanText);
+  var sourceDisc = isBluRay ? "📀 BluRay" : "☁️ WEB-DL";
+  var dv = /\b(dv|dolby\s*vision)\b/i.test(combinedScanText) ? " • 🕵️‍♀️ DV" : "";
   
   var codecTag = "x264";
-  if (/\b(hevc|x265|265)\b/i.test(combinedScanText) || quality === "2160p") codecTag = "HEVC x265";
+  if (/\b(hevc|x265|265)\b/i.test(combinedScanText) || displayQuality === "2160p") codecTag = "HEVC x265";
 
-  // Build out a clean line 3 separating core properties dynamically
-  var videoProperties = [];
-  if (rangeTag) videoProperties.push(rangeTag);
-  if (bitDepth) videoProperties.push(bitDepth);
-  if (dv) videoProperties.push(dv);
-  videoProperties.push("🎥 " + codecTag);
-  var line3 = "⚡ " + videoProperties.join(" • ");
+  var line3 = "⚡ " + dynamicHdr + bitDepth + " | " + sourceDisc + dv + " | 🎥 " + codecTag;
 
-  // 4. CONTAINER ENGINE
+  // --- LINE 4 ---
   var formatTag = "🎞️ MKV";
   if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
     formatTag = "🎞️ MP4";
   }
 
-  // 5. COMPREHENSIVE AUDIO RESOLUTION ENGINE (Fixes broken dynamic slicing truncation)
-  var audioChannelTag = "🎧 DD 5.1"; 
+  var audioChannelTag = "DDP 5.1"; 
   var channels = "5.1";
   if (/\b7\.1\b/.test(combinedScanText)) channels = "7.1";
   else if (/\b2\.0\b/.test(combinedScanText) || /\bstereo\b/.test(combinedScanText)) channels = "2.0";
 
   if (/\btruehd\b/i.test(combinedScanText)) {
-    audioChannelTag = "🎧 TrueHD " + channels;
+    audioChannelTag = "TrueHD " + channels;
   } else if (/\b(ddp|dd\+|eac3)\b/i.test(combinedScanText)) {
-    audioChannelTag = "🎧 DDP " + channels;
+    audioChannelTag = "DDP " + channels;
   } else if (/\b(dd|ac3)\b/i.test(combinedScanText)) {
-    audioChannelTag = "🎧 DD " + channels;
+    audioChannelTag = "DD " + channels;
   } else if (/\baac\b/i.test(combinedScanText)) {
-    audioChannelTag = "🎧 AAC " + channels;
+    audioChannelTag = "AAC " + channels;
   }
 
   var atmosBlock = /\batmos\b/i.test(combinedScanText) ? " • 🔊 Atmos" : "";
-  var line4 = formatTag + " | " + audioChannelTag + atmosBlock;
+  var line4 = formatTag + " | 🎧 " + audioChannelTag + atmosBlock + " |";
 
-  // 6. STREAM INFRASTRUCTURE TAGS
-  var isBluRay = /\bbluray\b/i.test(combinedScanText);
+  // --- LINE 5 ---
   var sourceOrigin = "WEB-DL";
   if (isBluRay) sourceOrigin = "BluRay";
   else if (/\b(webrip|hdrip)\b/i.test(combinedScanText)) sourceOrigin = "WEB-Rip";
@@ -198,13 +206,12 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var imaxBlock = /\bimax\b/i.test(combinedScanText) ? " | 👁️ iMAX" : "";
   var line5 = "🔗 " + (serverType || "Worker") + " | ☁️ " + sourceOrigin + imaxBlock;
 
-  // 7. STRATIFIED OUTPUT FORMATTING (Stripped quality duplication leak on Main Header line)
-  var displayQuality = quality ? quality.toLowerCase() : "1080p";
-  var finalName = "4KHDHub | " + displayQuality.toUpperCase() + " | " + shortLangLabel;
+  // 4. STRATIFIED LAYOUT GENERATION
+  var finalName = "4KHDHub | " + qUpper + " | " + shortLangLabel;
   
   var finalTitle = 
     "🎬 " + cleanDisplayTitle + (yearBlock ? " - (" + yearBlock + ")" : "") + "\n" +
-    qEmoji + " " + displayQuality.toUpperCase() + " | 🌍 " + langTag + (fileSize ? " | 💾 " + fileSize : "") + "\n" +
+    line2 + "\n" +
     line3 + "\n" +
     line4 + "\n" +
     line5;

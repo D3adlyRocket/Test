@@ -245,8 +245,10 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var imaxBlock = /\bimax\b/i.test(combinedScanText) ? " | 👁️ iMAX" : "";
   var line5 = "🔗 " + (serverType || "Worker") + " | ☁️ " + sourceOrigin + imaxBlock;
 
-  // 4. STRATIFIED LAYOUT GENERATION
-  var finalName = "4KHDHub | " + qUpper + " | " + shortLangLabel;
+ // 4. STRATIFIED LAYOUT GENERATION
+  // Force a blank invisible character sequence into the internal name template tracking block
+  var blankQualityMask = "     "; 
+  var finalName = "4KHDHub | " + blankQualityMask + " | " + shortLangLabel;
   
   var finalTitle = 
     "🎬 " + cleanDisplayTitle + (yearBlock ? " - (" + yearBlock + ")" : "") + seasonEpisodeBlock + "\n" +
@@ -260,7 +262,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     title: finalTitle,
     size: finalTitle, 
     url: encodedUrl,
-    quality: "", // Kept empty to clean container layout
+    quality: " ", // Use space string mask to completely break original parsing filters
     behaviorHints: {
       notWebReady: true,
       proxyHeaders: { request: { "Referer": referer || "https://4khdhub.org/" } }

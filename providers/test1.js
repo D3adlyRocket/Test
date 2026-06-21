@@ -184,9 +184,10 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   return {
     name: finalName,
     title: finalTitle,
+    size: finalTitle, // <-- Maps exactly to Mobile drop-down rendering elements
     url: encodedUrl,
     quality: quality,
-    behaviorHints: { 
+    behaviorHints: {
       notWebReady: true,
       proxyHeaders: { request: { "Referer": referer || BASE_URL + "/" } }
     }

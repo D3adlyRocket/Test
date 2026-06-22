@@ -257,12 +257,13 @@ async function processFile(id, label, quality, isTv, season, episode) {
   var cleanTitle = cleanHubTitle(rawTitle);
   var displayName = cleanTitle || label;
 
-    var gamer = hcHtml.match(/href="(https:\/\/gamerxyt\.com[^"]+)"/i);
+  var gamer = hcHtml.match(/href="(https:\/\/gamerxyt\.com[^"]+)"/i);
   if (gamer) {
     var gHtml = await fetchText(gamer[1].replace(/&amp;/g, "&"), { headers: hdrs() });
     if (gHtml) {
       var fm = gHtml.match(/href="([^"]+)"[^>]*id="fsl"/);
       if (fm) {
+        // Correct parameter mapping for layout engine
         streams.push(makeStream(displayName, "FSL", fm[1], q, "FSL", gamer[1], ""));
       }
     }
@@ -270,11 +271,9 @@ async function processFile(id, label, quality, isTv, season, episode) {
 
   var workerUrl = await serverHandler(id, "worker");
   if (workerUrl) {
+    // Correct parameter mapping for layout engine
     streams.push(makeStream(displayName, "Worker", workerUrl, q, "Worker", BASE_URL, ""));
   }
-
-  var workerUrl = await serverHandler(id, "worker");
-  if (workerUrl) streams.push(makeStream(displayName, q, "Worker", workerUrl));
 
   return streams;
 }
@@ -339,11 +338,10 @@ async function getGemmaStreams(imdbId, isTv, season, episode, title) {
         method: "POST",
         headers: { "X-CSRF-TOKEN": token, "Content-Type": "application/x-www-form-urlencoded", "Origin": "https://gemma416okl.com", "Referer": playerUrl }
       });
-            if (m3u8 && m3u8.indexOf(".m3u8") > -1) {
+      if (m3u8 && m3u8.indexOf(".m3u8") > -1) {
         var langLabel = langs[i].title ? " | " + langs[i].title : "";
         var embedStream = makeStream(title + langLabel, "Embed", m3u8.trim(), "1080P", "Embed", playerUrl, "");
         
-        // Retain specific stream configurations for internal keys
         embedStream.behaviorHints.proxyHeaders = {
           request: {
             "origin": "https://i-arch-400.keymi417exx.com",
@@ -356,7 +354,6 @@ async function getGemmaStreams(imdbId, isTv, season, episode, title) {
   } catch (e) {}
   return streams;
 }
-
 
 // ─── ZinkCloud (HubCloud/Worker/FSL) ─────────────────────────────────
 
@@ -378,15 +375,12 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
     if (!postHtml) return streams;
 
     if (isTv) {
-
-      // Find linkstore URLs
       var lsUrls = [];
       var lsRx = /href="(https:\/\/linkstore\.zinkcloud\.net\/\d+\/)"/ig;
       while ((m = lsRx.exec(postHtml)) !== null) {
         if (lsUrls.indexOf(m[1]) === -1) lsUrls.push(m[1]);
       }
 
-      // Collect matching episodes from all linkstores
       var targets = [];
       await Promise.all(lsUrls.map(async (lsUrl) => {
         var lsHtml = await fetchText(lsUrl);
@@ -435,7 +429,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   var streams = [];
   var gemmaTitle = "";
 
-  // 1. ZinkCloud (HubCloud/Worker/FSL)
   try {
     var tmdbData = await fetchJson("https://api.themoviedb.org/3/" + (isTv ? "tv" : "movie") + "/" + tmdbId + "?api_key=" + TMDB_API_KEY);
     if (tmdbData) {
@@ -447,7 +440,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
   } catch (e) {}
 
-  // 2. Gemma Embedded Player
   try {
     var extData = await fetchJson("https://api.themoviedb.org/3/" + (isTv ? "tv" : "movie") + "/" + tmdbId + "/external_ids?api_key=" + TMDB_API_KEY);
     if (extData && extData.imdb_id) {
@@ -456,7 +448,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
   } catch (e) {}
 
-    // --- DIRECT ATTRIBUTE SORT ENGINE ---
+  // --- DIRECT ATTRIBUTE SORT ENGINE ---
   streams.forEach(function(s) {
     var scan = (s.title || "").toLowerCase();
     if (scan.indexOf("2160p") !== -1 || scan.indexOf("4k") !== -1) s._resWeight = 4;

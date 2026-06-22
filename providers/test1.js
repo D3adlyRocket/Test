@@ -44,7 +44,6 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = TIMEOUT) {
     const merged = { ...options };
     if (!merged.headers) merged.headers = getHeaders();
     
-    // QuickJS AbortSignal bypass wrapper
     return Promise.race([
         fetch(url, merged),
         new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), timeoutMs))
@@ -110,13 +109,11 @@ async function getTMDBInfo(tmdbId, mediaType) {
 }
 
 async function searchSite(title, year, imdbId, isTv) {
-    // 1. WP-JSON Fast Path (Bypasses fuzzy search and HTML parsing completely)
     if (imdbId) {
         try {
             const wpUrl = `${baseUrl}/wp-json/wp/v2/posts?search=${imdbId}`;
             const wpData = await fetchJson(wpUrl);
             if (wpData && wpData.length > 0) {
-                console.log(`[${PROVIDER_NAME}] WP-JSON Exact Match: ${imdbId}`);
                 return {
                     url: wpData[0].link,
                     title: wpData[0].title?.rendered || title,
@@ -126,7 +123,6 @@ async function searchSite(title, year, imdbId, isTv) {
         } catch (e) {}
     }
 
-    // 2. HTML Fallback Search
     const searchUrl = `${baseUrl}/?s=${encodeURIComponent(title)}`;
     const html = await fetchText(searchUrl);
     if (!html) return null;
@@ -155,8 +151,15 @@ async function searchSite(title, year, imdbId, isTv) {
         const slugNorm = cleanSlug.toLowerCase().replace(/[^a-z0-9]/g, "");
 
         if (slugNorm.includes(searchNorm) || searchNorm.includes(slugNorm)) {
-            bestMatch = { url: baseUrl + path, title: title };
-            if (year && path.includes(year)) break;
+            const contextBlock = resultsBlock.substring(match.index, match.index + 300);
+            const contextYear = contextBlock.match(/\b(19\d{2}|20\d{2})\b/);
+            const foundYear = contextYear ? contextYear[1] : null;
+            const yearMatch = year && foundYear === year;
+
+            if (!bestMatch || yearMatch) {
+                bestMatch = { url: baseUrl + path, title: title };
+                if (yearMatch) break;
+            }
         }
     }
 
@@ -168,7 +171,6 @@ function extractHubcloudLinks(html, targetSeason, targetEpisode, isTv) {
     let searchBlock = html;
 
     if (isTv) {
-        // Isolate to Single Episodes block to prevent Zip pack cross-contamination
         const epTabStart = html.indexOf('id="episodes"') > -1 ? html.indexOf('id="episodes"') : 
                            (html.indexOf('data-tab="episodes"') > -1 ? html.indexOf('data-tab="episodes"') : -1);
                            
@@ -179,7 +181,6 @@ function extractHubcloudLinks(html, targetSeason, targetEpisode, isTv) {
         }
     }
 
-    // Dynamic domain matcher (handles .one, .link, .pw, etc. instead of foo|bar|to)
     const hubRegex = /https?:\/\/hubcloud\.[a-z0-9]+\/drive\/[a-z0-9]+/ig;
     let match;
     
@@ -215,117 +216,13 @@ function extractHubcloudLinks(html, targetSeason, targetEpisode, isTv) {
 
         if (quality === "480P") continue;
 
-        const sizeMatch = beforeBlock.match(/([\d.]+)\s*(GB|MB)/i);
+        const sizeMatch = beforeBlock.match(/(?:^|[\s>])(\d+\.?\d*)\s*(GB|MB)\b/i);
         const size = sizeMatch ? `${sizeMatch[1]} ${sizeMatch[2]}` : "";
 
         links.push({ url: hubUrl, quality, size });
     }
 
     return links;
-}
-
-async function resolveHubCloud(hubLinkObj, mediaTitle) {
-  var streams = [];
-  var hubUrl = hubLinkObj.url;
-  var q = hubLinkObj.quality;
-  var fallbackSize = hubLinkObj.size;
-  
-  try {
-    var hcHtml = await fetchText(hubUrl, { headers: getHeaders({ "Referer": baseUrl + "/" }) });
-    if (!hcHtml) return streams;
-
-    var gamerUrl = null;
-    var gamerMatch = hcHtml.match(/href="([^"]+gamerxyt\.com[^"]+)"/i);
-    if (gamerMatch) gamerUrl = gamerMatch[1].replace(/&amp;/g, "&");
-    
-    if (!gamerUrl) {
-      var xHrefMatch = hcHtml.match(/x-href="([^"]+)"/i);
-      if (xHrefMatch) {
-        try {
-          var decoded = base64Decode(xHrefMatch[1]);
-          if (decoded.includes("gamerxyt.com")) gamerUrl = decoded;
-        } catch (e) {}
-      }
-    }
-
-    var targetHtml = hcHtml;
-    if (gamerUrl) {
-      var gamerHtml = await fetchText(gamerUrl, { headers: getHeaders({ "Referer": hubUrl }) });
-      if (gamerHtml) targetHtml = gamerHtml;
-    }
-
-    var headerMatch = targetHtml.match(/<div[^>]*class=['"][^'"]*card-header[^'"]*['"][^>]*>([^<]+)</i);
-    var filename = headerMatch ? headerMatch[1].trim() : mediaTitle;
-
-    var fslRegex = /href="([^"]+)"[^>]*id="([^"]+)"/gi;
-    var fMatch;
-    while ((fMatch = fslRegex.exec(targetHtml)) !== null) {
-      var finalUrl = fMatch[1];
-      var btnId = fMatch[2].toLowerCase();
-
-      if (finalUrl.includes(".zip") || finalUrl.includes(".rar") || finalUrl.startsWith("#")) continue;
-
-      var type = "";
-      if (btnId === "fsl" || finalUrl.includes("fsl")) type = "FSL";
-      else if (btnId === "s3" || finalUrl.includes("fslv2")) type = "FSLv2";
-      else if (finalUrl.includes(".workers.dev")) type = "Worker";
-
-      if (type) {
-        if (type === "FSL" && !finalUrl.includes("?s=")) {
-          finalUrl += (finalUrl.includes("?") ? "&" : "?") + "s=" + (1 + new Date().getMinutes());
-        }
-
-        var sizeForDisplay = fallbackSize || "";
-        var displayName = filename ? filename : (type);
-        
-        // 1. Generate stream object via makeStream layout engine
-        var newStream = makeStream(
-          displayName,
-          type,
-          finalUrl,
-          q,
-          type,
-          gamerUrl || hubUrl,
-          sizeForDisplay
-        );
-        
-        // 2. Attach clean resolution property to object for absolute mobile sorting
-        newStream._resolutionSortTag = String(q || "").toLowerCase();
-        
-        streams.push(newStream);
-      }
-    }
-
-    // --- STREAM REORDERING ENGINE (FORCES HIGHEST QUALITY TO TOP) ---
-    streams.sort(function(a, b) {
-      var resA = a._resolutionSortTag || "";
-      var resB = b._resolutionSortTag || "";
-      
-      var is4KA = resA.indexOf("2160p") !== -1 || resA.indexOf("4k") !== -1;
-      var is4KB = resB.indexOf("2160p") !== -1 || resB.indexOf("4k") !== -1;
-      
-      var is1080A = resA.indexOf("1080p") !== -1;
-      var is1080B = resB.indexOf("1080p") !== -1;
-
-      if (is4KA && !is4KB) return -1;
-      if (!is4KA && is4KB) return 1;
-      
-      if (is1080A && !is1080B) return -1;
-      if (!is1080A && is1080B) return 1;
-      
-      return 0;
-    });
-
-    // 3. Clean sorting tags so we don't pollute the final output objects
-    for (var i = 0; i < streams.length; i++) {
-      delete streams[i]._resolutionSortTag;
-    }
-
-  } catch (e) {
-    console.log("[" + PROVIDER_NAME + "] resolveHubCloud error: " + (e.message || e));
-  }
-
-  return streams;
 }
 
 // ==================== FLAWLESS STRATIFIED LAYOUT ENGINE ====================
@@ -338,8 +235,8 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var combinedScanText = (cleanNameText + " " + cleanTitleText + " " + encodedUrl).toLowerCase();
   var audioScan = combinedScanText.replace(/[\s\.]+/g, "");
 
-  // 1. STRICT LANGUAGE MATRIX ENGINE
-  var shortLangLabel = "English";
+  // 1. STRICT LANGUAGE MATRIX ENGINE (Defaults to Dual-Audio for complete coverage)
+  var shortLangLabel = "Dual-Audio"; 
   var hasHindi = /\bhindi\b/i.test(combinedScanText);
   var hasEng = /\b(english|eng)\b/i.test(combinedScanText);
   var hasTamil = /\btamil\b/i.test(combinedScanText);
@@ -355,11 +252,11 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     shortLangLabel = "Multi-Audio";
   } else if (/\b(dual|dual-audio|dual\.audio|dubbed)\b/i.test(combinedScanText) || langCount === 2) {
     shortLangLabel = "Dual-Audio";
-  } else {
+  } else if (langCount === 1) {
     if (hasHindi) shortLangLabel = "Hindi";
     else if (hasTamil) shortLangLabel = "Tamil";
     else if (hasTelugu) shortLangLabel = "Telugu";
-    else shortLangLabel = "English";
+    else if (hasEng) shortLangLabel = "English";
   }
 
   // 2. SERIES & MOVIE TITLE CLEANING ENGINE
@@ -472,7 +369,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var line5 = "🔗 " + (serverType || "Worker") + " | ☁️ " + sourceOrigin + imaxBlock;
 
   // 4. STRATIFIED LAYOUT GENERATION
-  var finalName = "4KHDHub | " + qUpper + " | " + shortLangLabel;
+  var finalName = PROVIDER_NAME + " | " + qUpper + " | " + shortLangLabel;
   var finalTitle = 
     "🎬 " + cleanDisplayTitle + (yearBlock ? " - (" + yearBlock + ")" : "") + seasonEpisodeBlock + "\n" +
     line2 + "\n" +
@@ -487,7 +384,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     url: encodedUrl,
     behaviorHints: {
       notWebReady: true,
-      proxyHeaders: { request: { "Referer": referer || "https://4khdhub.org/" } }
+      proxyHeaders: { request: { "Referer": referer || "https://4khdhub.one/" } }
     }
   };
 
@@ -500,6 +397,80 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   } catch (e) {}
 
   return baseStream;
+}
+
+async function resolveHubCloud(hubLinkObj, mediaTitle) {
+    const streams = [];
+    const { url: hubUrl, quality, size } = hubLinkObj;
+    
+    try {
+        const hcHtml = await fetchText(hubUrl, { headers: getHeaders({ "Referer": baseUrl + "/" }) });
+        if (!hcHtml) return streams;
+
+        let gamerUrl = null;
+        const gamerMatch = hcHtml.match(/href="([^"]+gamerxyt\.com[^"]+)"/i);
+        if (gamerMatch) gamerUrl = gamerMatch[1].replace(/&amp;/g, "&");
+        
+        if (!gamerUrl) {
+            const xHrefMatch = hcHtml.match(/x-href="([^"]+)"/i);
+            if (xHrefMatch) {
+                try {
+                    const decoded = base64Decode(xHrefMatch[1]);
+                    if (decoded.includes("gamerxyt.com")) gamerUrl = decoded;
+                } catch (e) {}
+            }
+        }
+
+        let targetHtml = hcHtml;
+        if (gamerUrl) {
+            const gamerHtml = await fetchText(gamerUrl, { headers: getHeaders({ "Referer": hubUrl }) });
+            if (gamerHtml) targetHtml = gamerHtml;
+        }
+
+        const headerMatch = targetHtml.match(/<div[^>]*class=['"][^'"]*card-header[^'"]*['"][^>]*>([^<]+)</i);
+        let filename = headerMatch ? headerMatch[1].trim() : mediaTitle;
+        filename = filename.replace(/\.(mkv|mp4|avi|rar|zip)$/i, "");
+
+        // Extracted dynamic size checker fallback
+        var detectedSize = size || "";
+        var sizeMatch = targetHtml.match(/<td[^>]*>\s*File\s*Size\s*:\s*<\/td>\s*<td[^>]*>\s*([\d\.]+\s*[MGBtbi]+)\s*<\/td>/i);
+        if (!sizeMatch) sizeMatch = targetHtml.match(/Size\s*:\s*<\/strong>\s*([\d\.]+\s*[MGBtbi]+)/i);
+        if (sizeMatch) detectedSize = sizeMatch[1].trim();
+
+        const fslRegex = /href="([^"]+)"[^>]*id="([^"]+)"/gi;
+        let fMatch;
+        while ((fMatch = fslRegex.exec(targetHtml)) !== null) {
+            let finalUrl = fMatch[1];
+            const btnId = fMatch[2].toLowerCase();
+
+            if (finalUrl.includes(".zip") || finalUrl.includes(".rar") || finalUrl.startsWith("#")) continue;
+
+            let source = "";
+            if (btnId === "fsl" || finalUrl.includes("fsl")) source = "FSL";
+            else if (btnId === "s3" || finalUrl.includes("fslv2")) source = "FSLv2";
+            else if (finalUrl.includes(".workers.dev")) source = "Worker";
+
+            if (source) {
+                if (source === "FSL" && !finalUrl.includes("?s=")) {
+                    finalUrl += (finalUrl.includes("?") ? "&" : "?") + "s=" + (1 + new Date().getMinutes());
+                }
+                streams.push(makeStream(filename, source, finalUrl, quality, source, gamerUrl || hubUrl, detectedSize));
+            }
+        }
+
+        const workerFallbackRegex = /href="(https?:\/\/[^"']*?\.workers\.[a-z]+\/[^"']*)"/gi;
+        let wMatch;
+        while ((wMatch = workerFallbackRegex.exec(targetHtml)) !== null) {
+            let finalUrl = wMatch[1].replace(/&amp;/g, "&");
+            if (finalUrl.includes(".zip") || finalUrl.includes(".rar") || finalUrl.startsWith("#")) continue;
+            if (finalUrl.includes("pixel.hubcloud")) continue;
+            if (streams.some(s => s.url === finalUrl)) continue;
+
+            streams.push(makeStream(filename, "Worker", finalUrl, quality, "Worker", gamerUrl || hubUrl, detectedSize));
+        }
+    } catch (e) {}
+
+    return streams;
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -527,15 +498,28 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         const resolvedStreamsArrays = await Promise.all(hubLinks.map(linkObj => resolveHubCloud(linkObj, mediaTitle)));
         allStreams = resolvedStreamsArrays.flat();
 
-        // Secondary fallback container sorter
-        allStreams.sort((a, b) => {
-            var scanA = (a.title || "").toLowerCase();
-            var scanB = (b.title || "").toLowerCase();
-            var is4KA = scanA.indexOf("2160p") !== -1 || scanA.indexOf("4k") !== -1;
-            var is4KB = scanB.indexOf("2160p") !== -1 || scanB.indexOf("4k") !== -1;
-            if (is4KA && !is4KB) return -1;
-            if (!is4KA && is4KB) return 1;
-            return 0;
+        // --- DIRECT ATTRIBUTE SORT ENGINE ---
+        allStreams.forEach(function(s) {
+            var scan = (s.title || "").toLowerCase();
+            if (scan.indexOf("2160p") !== -1 || scan.indexOf("4k") !== -1) s._resWeight = 4;
+            else if (scan.indexOf("1080p") !== -1) s._resWeight = 3;
+            else if (scan.indexOf("720p") !== -1) s._resWeight = 2;
+            else s._resWeight = 1;
+
+            var nameScan = (s.name || "").toLowerCase();
+            if (nameScan.indexOf("fsl") !== -1) s._srcWeight = 3;
+            else if (nameScan.indexOf("worker") !== -1) s._srcWeight = 2;
+            else s._srcWeight = 1;
+        });
+
+        allStreams.sort(function(a, b) {
+            if (b._resWeight !== a._resWeight) return b._resWeight - a._resWeight;
+            return b._srcWeight - a._srcWeight;
+        });
+
+        allStreams.forEach(function(s) {
+            delete s._resWeight;
+            delete s._srcWeight;
         });
 
     } catch (e) {

@@ -116,17 +116,15 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize, na
 
   var dynamicHdr = "";
   var showLightning = false;
-  // Controlled Context Scanning to prevent layout-tag leaks
-  if (/\b(hdr10\+|hdr10p)\b/i.test(nativeContext || cleanNameText)) { dynamicHdr = "HDR10+"; showLightning = true; }
-  else if (/\bhdr10\b/i.test(nativeContext || cleanNameText)) { dynamicHdr = "HDR10"; showLightning = true; }
-  else if (/\bhdr\b/i.test(nativeContext || cleanNameText)) { dynamicHdr = "HDR"; showLightning = true; }
-  else if (/\bsdr\b/i.test(nativeContext || cleanNameText)) { dynamicHdr = "SDR"; showLightning = true; }
+  if (/\b(hdr10\+|hdr10p)\b/i.test(combinedScanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
+  else if (/\bhdr10\b/i.test(combinedScanText)) { dynamicHdr = "HDR10"; showLightning = true; }
+  else if (/\bhdr\b/i.test(combinedScanText)) { dynamicHdr = "HDR"; showLightning = true; }
+  else if (/\bsdr\b/i.test(combinedScanText)) { dynamicHdr = "SDR"; showLightning = true; }
 
   var bitDepth = /\b10bit\b/i.test(combinedScanText) ? "🔆 10Bit" : "";
-  var dv = /\b(dv|dolby\s*vision|dolbyvision)\b/i.test(nativeContext || cleanNameText) ? "🕵️‍♀️ DV" : "";
+  var dv = /\b(dv|dolby\s*vision|dolbyvision)\b/i.test(combinedScanText) ? "🕵️‍♀️ DV" : "";
   var isBluRay = /\bbluray\b/i.test(combinedScanText);
   
-  // Clean Codec Identifier Engine
   var codecTag = "x264";
   if (/\b(hevc|x265|265)\b/i.test(combinedScanText) || internalQuality === "2160p") codecTag = "HEVC x265";
 
@@ -157,7 +155,6 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize, na
     formatTag = "🎞️ MP4";
   }
 
-  // Audio configuration parser targeting clean strings
   var audioChannelTag = "DDP 5.1";
   var displayAtmos = /\batmos\b/i.test(combinedScanText);
 
@@ -198,7 +195,6 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize, na
   var imaxBlock = /\bimax\b/i.test(combinedScanText) ? " | 👁️ iMAX" : "";
   var line5 = "🔗 " + (serverType || "Worker") + " | ☁️ " + sourceOrigin + imaxBlock;
 
-  // 4. STRATIFIED LAYOUT GENERATION
   var finalName = "ZinkMovies | " + qUpper + " | " + shortLangLabel;
   var finalTitle = 
     "🎬 " + cleanDisplayTitle + (yearBlock ? " - (" + yearBlock + ")" : "") + seasonEpisodeBlock + "\n" +
@@ -242,55 +238,35 @@ async function serverHandler(id, server) {
   return null;
 }
 
-async function processFile(id, label, quality) {
+async function processFile(id, label, quality, passedSize, nativeContext) {
+  var q = quality || parseQuality(label);
   var streams = [];
-  var pageUrl = "https://new3.zinkcloud.net/file/" + id;
-  
-  // ─── CRITICAL NATIVE METADATA BOX EXTRACTION ENGINE ───
-  var landHtml = await fetchText(pageUrl, { headers: hdrs() });
-  var extractedSize = "";
-  var exactFileTitle = label;
-
-  if (landHtml) {
-    // 1. Capture absolute exact file size directly from structural row cells
-    var sizeMatch = landHtml.match(/SIZE\s*:\s*<\/td>\s*<td[^>]*>\s*([\d\.]+\s*[MGBtbi]+)/i) ||
-                    landHtml.match(/Size\s*:\s*<\/strong>\s*([\d\.]+\s*[MGBtbi]+)/i);
-    if (sizeMatch) {
-      extractedSize = sizeMatch[1].trim();
-    }
-    
-    // 2. Capture accurate file name context straight out of the main heading element
-    var headingMatch = landHtml.match(/<h1[^>]*class=["']text-center[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i) ||
-                       landHtml.match(/<div[^>]*class=["']card-header[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
-    if (headingMatch) {
-      exactFileTitle = headingMatch[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-    }
-  }
-
-  var q = quality || parseQuality(exactFileTitle);
   if (q === "480P") return streams;
 
   var hcUrl = await serverHandler(id, "hubcloud");
-  if (hcUrl) {
-    var hcHtml = await fetchText(hcUrl, { headers: hdrs() });
-    if (hcHtml) {
-      var gamer = hcHtml.match(/href="(https:\/\/gamerxyt\.com[^"]+)"/i);
-      if (gamer) {
-        var gUrl = gamer[1].replace(/&amp;/g, "&");
-        var gHtml = await fetchText(gUrl, { headers: hdrs() });
-        if (gHtml) {
-          var fm = gHtml.match(/href="([^"]+)"[^>]*id="fsl"/);
-          if (fm) {
-            streams.push(makeStream(exactFileTitle, "FSL", fm[1], q, "FSL", gUrl, extractedSize, exactFileTitle));
-          }
-        }
+  if (!hcUrl) return streams;
+
+  var hcHtml = await fetchText(hcUrl, { headers: hdrs() });
+  if (!hcHtml) return streams;
+
+  var rawTitle = (hcHtml.match(/<title>(.*?)<\/title>/i) || [])[1] || "";
+  var cleanTitle = cleanHubTitle(rawTitle);
+  var displayName = cleanTitle || label;
+
+  var gamer = hcHtml.match(/href="(https:\/\/gamerxyt\.com[^"]+)"/i);
+  if (gamer) {
+    var gHtml = await fetchText(gamer[1].replace(/&amp;/g, "&"), { headers: hdrs() });
+    if (gHtml) {
+      var fm = gHtml.match(/href="([^"]+)"[^>]*id="fsl"/);
+      if (fm) {
+        streams.push(makeStream(displayName, "FSL", fm[1], q, "FSL", gamer[1], passedSize, nativeContext));
       }
     }
   }
 
   var workerUrl = await serverHandler(id, "worker");
   if (workerUrl) {
-    streams.push(makeStream(exactFileTitle, "Worker", workerUrl, q, "Worker", BASE_URL, extractedSize, exactFileTitle));
+    streams.push(makeStream(displayName, "Worker", workerUrl, q, "Worker", BASE_URL, passedSize, nativeContext));
   }
 
   return streams;
@@ -416,24 +392,45 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
           
           var epNum = label.match(/(?:EPISODE|EP|E)\s*[-_]?\s*0?(\d+)/i);
           if (epNum && parseInt(epNum[1]) == episode) {
-            targets.push({ id: m[1], label: label, quality: q });
+            var extractedSize = "";
+            var contextSegment = lsHtml.substring(Math.max(0, m.index - 800), m.index + 800);
+            var sizeBlockMatch = label.match(/\[\s*([\d\.]+\s*[MGB]+)\s*\]/i) || 
+                                 label.match(/\b([\d\.]+\s*(GB|MB))\b/i) ||
+                                 contextSegment.match(/Size\s*:\s*<\/strong>\s*([\d\.]+\s*[MGBtbi]+)/i);
+            if (sizeBlockMatch) extractedSize = sizeBlockMatch[1];
+            
+            targets.push({ id: m[1], label: label, quality: q, size: extractedSize, context: contextSegment });
           }
         }
       }));
 
       for (var i = 0; i < targets.length; i++) {
-        var epStreams = await processFile(targets[i].id, targets[i].label, targets[i].quality);
+        var epStreams = await processFile(targets[i].id, targets[i].label, targets[i].quality, targets[i].size, targets[i].context);
         for (var j = 0; j < epStreams.length; j++) streams.push(epStreams[j]);
       }
     } else {
-      var fileRx = /href="https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)"/ig;
+      // Correct text regex loop parsing the original DOM elements on the movie link block safely
+      var fileRx = /href="https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)"[^>]*>([\s\S]*?)<\/a>/ig;
       var files = [];
       while ((m = fileRx.exec(postHtml)) !== null) {
-        if (files.indexOf(m[1]) === -1) files.push(m[1]);
+        var labelText = m[2].replace(/<[^>]+>/g, "").trim();
+        var extractedSize = "";
+        
+        // Scan text blocks surrounding the unique button elements on zinkmovies
+        var contextSegment = postHtml.substring(Math.max(0, m.index - 900), m.index + 900);
+        
+        var sizeMatch = contextSegment.match(/Size\s*:\s*(?:<strong>)?\s*([\d\.]+\s*[MGBtbi]+)/i) ||
+                        contextSegment.match(/<span[^>]*class=["']size["'][^>]*>([\d\.]+\s*[MGBtbi]+)<\/span>/i) ||
+                        contextSegment.match(/<strong>\s*([\d\.]+\s*(?:GB|MB))\s*<\/strong>/i) ||
+                        labelText.match(/\b([\d\.]+\s*(GB|MB))\b/i);
+                        
+        if (sizeMatch) extractedSize = sizeMatch[1].trim();
+        
+        files.push({ id: m[1], label: labelText, size: extractedSize, context: contextSegment });
       }
       
       for (var i = 0; i < files.length; i++) {
-        var fileStreams = await processFile(files[i], "ZinkCloud Link File", null);
+        var fileStreams = await processFile(files[i].id, files[i].label, null, files[i].size, files[i].context);
         for (var j = 0; j < fileStreams.length; j++) streams.push(fileStreams[j]);
       }
     }

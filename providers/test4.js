@@ -8,7 +8,6 @@ function hdrs(extra) {
     "User-Agent": currentUA, 
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-US,en;q=0.5",
-    "Alt-Used": "zinkmovies.wtf",
     "Upgrade-Insecure-Requests": "1"
   };
   if (extra) { for (var k in extra) h[k] = extra[k]; }
@@ -31,7 +30,7 @@ async function fetchJson(url, opts) {
   return null;
 }
 
-// ==================== CORRECTED SOURCE-OF-TRUTH FILTER ENGINE ====================
+// ==================== SOURCE-OF-TRUTH FILTER ENGINE ====================
 function makeStream(rawFilename, serverType, url, referer, parsedSize) {
   var decodedScan = "";
   try {
@@ -269,27 +268,28 @@ async function processFile(id) {
 async function scrapeZinkCloud(title, year, isTv, season, episode) {
   var streams = [];
   try {
-    // 1. Initial Handshake query request with precise headers to pass verification filters
     var searchUrl = BASE_URL + "/?s=" + encodeURIComponent(title);
     var searchHtml = await fetchText(searchUrl, { headers: hdrs({ "Referer": BASE_URL + "/" }) });
     if (!searchHtml) return streams;
 
-    // 2. Extract specific path slug safely
     var path = isTv ? "tvshows" : "movies";
-    var rx = new RegExp('href="(https?:\\/\\/[^\\/]+\\/' + path + '\\/[^"]+)"', "ig");
+    // Modified pattern to cleanly pull all domain posts without relying on static boundaries
+    var rx = new RegExp('href=["\'](https?:\\/\\/[^\\/\\s"\']+\\/' + path + '\\/[^"\']+)["\']', "ig");
     var m, postUrl;
+    var cleanTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    
     while ((m = rx.exec(searchHtml)) !== null) {
       var slug = m[1].toLowerCase();
-      var cleanTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-      if (slug.indexOf(cleanTitle) > -1 || slug.indexOf(encodeURIComponent(cleanTitle)) > -1) {
+      if (slug.indexOf(cleanTitle) > -1) {
         postUrl = m[1];
         break;
       }
     }
+    
     if (!postUrl) {
-      rx.lastIndex = 0; // Reset index path pointer 
-      var fallbackMatch = rx.exec(searchHtml);
-      if (fallbackMatch) postUrl = fallbackMatch[1];
+      rx.lastIndex = 0;
+      var secondTry = rx.exec(searchHtml);
+      if (secondTry) postUrl = secondTry[1];
     }
     if (!postUrl) return streams;
 
@@ -298,7 +298,7 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
 
     if (isTv) {
       var lsUrls = [];
-      var lsRx = /href="(https:\/\/linkstore\.zinkcloud\.net\/\d+\/)"/ig;
+      var lsRx = /href=["\'](https:\/\/linkstore\.zinkcloud\.net\/\d+\/)["\']/ig;
       while ((m = lsRx.exec(postHtml)) !== null) {
         if (lsUrls.indexOf(m[1]) === -1) lsUrls.push(m[1]);
       }
@@ -308,7 +308,7 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
         var lsHtml = await fetchText(lsUrls[i], { headers: hdrs({ "Referer": postUrl }) });
         if (!lsHtml) continue;
         
-        var epRx = /href="https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)"/ig;
+        var epRx = /href=["\']https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)["\']/ig;
         while ((m = epRx.exec(lsHtml)) !== null) {
           if (targets.indexOf(m[1]) === -1) targets.push(m[1]);
         }
@@ -319,7 +319,7 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
         for (var j = 0; j < epStreams.length; j++) streams.push(epStreams[j]);
       }
     } else {
-      var fileRx = /href="https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)"/ig;
+      var fileRx = /href=["\']https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)["\']/ig;
       var files = [];
       while ((m = fileRx.exec(postHtml)) !== null) {
         if (files.indexOf(m[1]) === -1) files.push(m[1]);

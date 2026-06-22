@@ -47,6 +47,7 @@ function makeStream(rawFilename, serverType, url, referer, parsedSize) {
   } catch(e) {
     decodedScan = url + " " + rawFilename;
   }
+  
   // Standardize delimiters so strings match seamlessly
   var scanText = decodedScan.toLowerCase().replace(/[\s\.\-\+\[\]_]+/g, " ");
   var audioScan = decodedScan.toLowerCase().replace(/[\s\.\-\+\[\]_]+/g, "");
@@ -236,9 +237,18 @@ async function processFile(id) {
   var parsedSize = "";
   var sizeMatch = landHtml.match(/SIZE\s*:\s*<\/td>\s*<td[^>]*>\s*([\d\.]+\s*(?:GB|MB|KB))/i) ||
                   landHtml.match(/Size\s*:\s*(?:<strong>)?\s*([\d\.]+\s*(?:GB|MB|KB))/i) ||
-                  landHtml.match(/<td>\s*([\d\.]+\s*(?:GB|MB|KB))\s*<\/td>/i);
-  if (sizeMatch) {
-    parsedSize = sizeMatch[1].trim();
+                  landHtml.match(/<td[^>]*>([\s\S]*?)<\/td>/gi);
+                  
+  if (sizeMatch && sizeMatch.length > 1) {
+    if (sizeMatch[0].toUpperCase().indexOf("SIZE") > -1 || sizeMatch.join(" ").toUpperCase().indexOf("GB") > -1) {
+      for (var x=0; x<sizeMatch.length; x++) {
+        var cleanCell = sizeMatch[x].replace(/<[^>]+>/g, "").trim();
+        if (/[\d\.]+\s*(?:GB|MB|KB)/i.test(cleanCell)) {
+          parsedSize = cleanCell.match(/([\d\.]+\s*(?:GB|MB|KB))/i)[1];
+          break;
+        }
+      }
+    }
   }
 
   var hcUrl = await serverHandler(id, "hubcloud");

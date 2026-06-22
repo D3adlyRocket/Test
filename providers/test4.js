@@ -48,7 +48,6 @@ function makeStream(rawFilename, serverType, url, referer, parsedSize) {
     decodedScan = url + " " + rawFilename;
   }
   
-  // Standardize delimiters so strings match seamlessly
   var scanText = decodedScan.toLowerCase().replace(/[\s\.\-\+\[\]_]+/g, " ");
   var audioScan = decodedScan.toLowerCase().replace(/[\s\.\-\+\[\]_]+/g, "");
 
@@ -113,7 +112,7 @@ function makeStream(rawFilename, serverType, url, referer, parsedSize) {
   var qEmoji = (quality === "2160P") ? "🌟" : "💎";
   var line2 = qEmoji + " " + quality + " | 🌍 " + shortLangLabel + " | 💾 " + (parsedSize || "N/A");
 
-  // Strict Validation Boundaries
+  // Strict Mapping Logic
   var dynamicHdr = "";
   var showLightning = false;
   if (/\b(hdr10\+|hdr10p)\b/.test(scanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
@@ -124,7 +123,7 @@ function makeStream(rawFilename, serverType, url, referer, parsedSize) {
   var dv = /\b(dv|dolby\s*vision|dolbyvision)\b/.test(scanText) ? "🕵️‍♀️ DV" : "";
   var isBluRay = /\bbluray\b/.test(scanText);
   
-  // Clean Codec Normalization Rule
+  // Clean Codec Selection
   var codecTag = "x264";
   if (/\b(hevc|x265|265|h265)\b/.test(scanText)) {
     codecTag = "HEVC x265";
@@ -169,7 +168,7 @@ function makeStream(rawFilename, serverType, url, referer, parsedSize) {
   var atmosBlock = displayAtmos ? " • 🔊 Atmos" : "";
   var line4 = formatTag + " | 🎧 " + audioChannelTag + atmosBlock + " |";
 
-  // Accurate Origin Parsing
+  // Accurate Origin Configuration
   var sourceOrigin = "WEB-DL";
   if (isBluRay) {
     sourceOrigin = "BluRay";
@@ -215,7 +214,7 @@ async function serverHandler(id, server) {
   return null;
 }
 
-// ─── SAFE INTERMEDIARY EXTRACTION PIPELINE ───
+// ─── INTERMEDIARY EXTRACTOR ───
 async function processFile(id) {
   var streams = [];
   var targetLandingUrl = "https://new3.zinkcloud.net/file/" + id;
@@ -235,18 +234,13 @@ async function processFile(id) {
   if (!parsedFilename) return streams;
 
   var parsedSize = "";
-  var sizeMatch = landHtml.match(/SIZE\s*:\s*<\/td>\s*<td[^>]*>\s*([\d\.]+\s*(?:GB|MB|KB))/i) ||
-                  landHtml.match(/Size\s*:\s*(?:<strong>)?\s*([\d\.]+\s*(?:GB|MB|KB))/i) ||
-                  landHtml.match(/<td[^>]*>([\s\S]*?)<\/td>/gi);
-                  
-  if (sizeMatch && sizeMatch.length > 1) {
-    if (sizeMatch[0].toUpperCase().indexOf("SIZE") > -1 || sizeMatch.join(" ").toUpperCase().indexOf("GB") > -1) {
-      for (var x=0; x<sizeMatch.length; x++) {
-        var cleanCell = sizeMatch[x].replace(/<[^>]+>/g, "").trim();
-        if (/[\d\.]+\s*(?:GB|MB|KB)/i.test(cleanCell)) {
-          parsedSize = cleanCell.match(/([\d\.]+\s*(?:GB|MB|KB))/i)[1];
-          break;
-        }
+  var sizeCells = landHtml.match(/<td[^>]*>([\s\S]*?)<\/td>/gi);
+  if (sizeCells) {
+    for (var x = 0; x < sizeCells.length; x++) {
+      var cleanText = sizeCells[x].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+      if (/([\d\.]+\s*(?:GB|MB|KB))/i.test(cleanText)) {
+        parsedSize = cleanText.match(/([\d\.]+\s*(?:GB|MB|KB))/i)[1];
+        break;
       }
     }
   }
@@ -366,7 +360,8 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
     var rx = new RegExp('href="(https?:\\/\\/[^\\/]+\\/' + path + '\\/[^"]+)"', "ig");
     var m, postUrl;
     while ((m = rx.exec(searchHtml)) !== null) {
-      if (!year || m[1].indexOf(year) > -1) { postUrl = m[1]; break; }
+      postUrl = m[1]; // Removed aggressive year verification roadblock
+      break;
     }
     if (!postUrl) return streams;
 

@@ -4,12 +4,7 @@ const BASE_URL = "https://zinkmovies.wtf";
 var currentUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
 function hdrs(extra) {
-  var h = { 
-    "User-Agent": currentUA, 
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Upgrade-Insecure-Requests": "1"
-  };
+  var h = { "User-Agent": currentUA, "Accept-Language": "en-US,en;q=0.9" };
   if (extra) { for (var k in extra) h[k] = extra[k]; }
   return h;
 }
@@ -30,7 +25,7 @@ async function fetchJson(url, opts) {
   return null;
 }
 
-// ==================== METADATA & STREAM FORMATTING ENGINE ====================
+// ==================== ORIGINAL FORMATTING ENGINE ====================
 function makeStream(rawFilename, serverType, url, referer, parsedSize) {
   var decodedScan = "";
   try {
@@ -192,12 +187,7 @@ async function serverHandler(id, server) {
   try {
     var r = await fetch("https://new3.zinkcloud.net/server-handler.php", {
       method: "POST",
-      headers: { 
-        "Content-Type": "application/json", 
-        "X-Requested-With": "XMLHttpRequest", 
-        "User-Agent": currentUA,
-        "Referer": "https://new3.zinkcloud.net/file/" + id
-      },
+      headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", "User-Agent": currentUA },
       body: JSON.stringify({ server: server, random_id: id })
     });
     var d = await r.json();
@@ -206,12 +196,12 @@ async function serverHandler(id, server) {
   return null;
 }
 
-// ─── INTERMEDIARY EXTRACTOR ───
+// ─── INTERMEDIARY EXTRACTION PIPELINE ───
 async function processFile(id) {
   var streams = [];
   var targetLandingUrl = "https://new3.zinkcloud.net/file/" + id;
   
-  var landHtml = await fetchText(targetLandingUrl, { headers: hdrs({ "Referer": BASE_URL + "/" }) });
+  var landHtml = await fetchText(targetLandingUrl, { headers: hdrs() });
   if (!landHtml) return streams;
 
   var parsedFilename = "";
@@ -239,12 +229,12 @@ async function processFile(id) {
 
   var hcUrl = await serverHandler(id, "hubcloud");
   if (hcUrl) {
-    var hcHtml = await fetchText(hcUrl, { headers: hdrs({ "Referer": targetLandingUrl }) });
+    var hcHtml = await fetchText(hcUrl, { headers: hdrs() });
     if (hcHtml) {
       var gamer = hcHtml.match(/href="(https:\/\/gamerxyt\.com[^"]+)"/i);
       if (gamer) {
         var gUrl = gamer[1].replace(/&amp;/g, "&");
-        var gHtml = await fetchText(gUrl, { headers: hdrs({ "Referer": hcUrl }) });
+        var gHtml = await fetchText(gUrl, { headers: hdrs() });
         if (gHtml) {
           var fm = gHtml.match(/href="([^"]+)"[^>]*id="fsl"/);
           if (fm) {
@@ -257,7 +247,7 @@ async function processFile(id) {
 
   var workerUrl = await serverHandler(id, "worker");
   if (workerUrl) {
-    streams.push(makeStream(parsedFilename, "Worker", workerUrl, targetLandingUrl, parsedSize));
+    streams.push(makeStream(parsedFilename, "Worker", workerUrl, BASE_URL, parsedSize));
   }
 
   return streams;
@@ -269,45 +259,39 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
   var streams = [];
   try {
     var searchUrl = BASE_URL + "/?s=" + encodeURIComponent(title);
-    var searchHtml = await fetchText(searchUrl, { headers: hdrs({ "Referer": BASE_URL + "/" }) });
+    var searchHtml = await fetchText(searchUrl, { headers: hdrs() });
     if (!searchHtml) return streams;
 
-    var path = isTv ? "tvshows" : "movies";
-    var rx = new RegExp('href=["\'](https?:\\/\\/[^\\/\\s"\']+\\/' + path + '\\/[^"\']+)["\']', "ig");
+    // Fluid matching: targets any link layout containing the matching alphanumeric string
+    var rx = /href=["'](https?:\/\/[^"'\s<>]+)["']/ig;
     var m, postUrl;
     var cleanTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     
     while ((m = rx.exec(searchHtml)) !== null) {
       var slug = m[1].toLowerCase();
-      if (slug.indexOf(cleanTitle) > -1) {
+      if (slug.indexOf(cleanTitle) > -1 && slug.indexOf("zinkmovies.wtf") > -1 && slug.indexOf("?s=") === -1) {
         postUrl = m[1];
         break;
       }
     }
-    
-    if (!postUrl) {
-      rx.lastIndex = 0;
-      var secondTry = rx.exec(searchHtml);
-      if (secondTry) postUrl = secondTry[1];
-    }
     if (!postUrl) return streams;
 
-    var postHtml = await fetchText(postUrl, { headers: hdrs({ "Referer": searchUrl }) });
+    var postHtml = await fetchText(postUrl, { headers: hdrs() });
     if (!postHtml) return streams;
 
     if (isTv) {
       var lsUrls = [];
-      var lsRx = /href=["\'](https:\/\/linkstore\.zinkcloud\.net\/\d+\/)["\']/ig;
+      var lsRx = /href=["'](https:\/\/linkstore\.zinkcloud\.net\/\d+\/)["']/ig;
       while ((m = lsRx.exec(postHtml)) !== null) {
         if (lsUrls.indexOf(m[1]) === -1) lsUrls.push(m[1]);
       }
 
       var targets = [];
       for (var i = 0; i < lsUrls.length; i++) {
-        var lsHtml = await fetchText(lsUrls[i], { headers: hdrs({ "Referer": postUrl }) });
+        var lsHtml = await fetchText(lsUrls[i], { headers: hdrs() });
         if (!lsHtml) continue;
         
-        var epRx = /href=["\']https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)["\']/ig;
+        var epRx = /href=["']https:\/\/new3\.zinkcloud\.net\/file\/([^"'\s>]+)["']/ig;
         while ((m = epRx.exec(lsHtml)) !== null) {
           if (targets.indexOf(m[1]) === -1) targets.push(m[1]);
         }
@@ -318,7 +302,7 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
         for (var j = 0; j < epStreams.length; j++) streams.push(epStreams[j]);
       }
     } else {
-      var fileRx = /href=["\']https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)["\']/ig;
+      var fileRx = /href=["']https:\/\/new3\.zinkcloud\.net\/file\/([^"'\s>]+)["']/ig;
       var files = [];
       while ((m = fileRx.exec(postHtml)) !== null) {
         if (files.indexOf(m[1]) === -1) files.push(m[1]);

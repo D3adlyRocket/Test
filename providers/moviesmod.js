@@ -4,7 +4,8 @@
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";  
 const FALLBACK_URL = "https://new1.movies4u.finance";  
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";  
-const HUB_CLOUD_API = "https://hc-zf3c.vercel.app";
+const PRIMARY_HUB_API = "https://hc-api.vercel.app";
+const BACKUP_HUB_API = "https://hc-zf3c.vercel.app";
 
 const HEADERS = {  
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",  
@@ -96,18 +97,28 @@ function cleanServerName(serverText) {
  * Uses the external Vercel Extractor API to get direct FSL/CDN download links
  */
 async function resolveAllHubCloudLinks(hubCloudUrl) {
-  try {
-    const apiURL = `${HUB_CLOUD_API}/api/extract?url=${encodeURIComponent(hubCloudUrl)}`;
-    const resp = await fetch(apiURL, {
-      headers: { "Accept": "application/json" },
-      skipSizeCheck: true
-    });
-    const data = await resp.json();
-    if (data && data.links && data.links.length > 0) {
-      return data.links;
+  const apis = [PRIMARY_HUB_API, BACKUP_HUB_API];
+
+  for (const apiBase of apis) {
+    try {
+      const apiURL = `${apiBase}/api/extract?url=${encodeURIComponent(hubCloudUrl)}`;
+      
+      const resp = await fetch(apiURL, {
+        headers: { "Accept": "application/json" },
+        skipSizeCheck: true,
+        timeout: 5000 
+      });
+
+      if (!resp.ok) continue; 
+
+      const data = await resp.json();
+      
+      if (data && data.links && data.links.length > 0) {
+        return data.links;
+      }
+    } catch (err) {
+      // Switches automatically to the backup link if the first fails
     }
-  } catch (err) {
-    console.error("[Movies4u] HubCloud resolution failed:", err);
   }
   return [];
 }

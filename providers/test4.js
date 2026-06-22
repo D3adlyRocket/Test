@@ -242,7 +242,7 @@ async function serverHandler(id, server) {
   return null;
 }
 
-async function processFile(id, label, quality, isTv, season, episode) {
+async function processFile(id, label, quality, passedSize) {
   var q = quality || parseQuality(label);
   var streams = [];
   if (q === "480P") return streams;
@@ -257,30 +257,20 @@ async function processFile(id, label, quality, isTv, season, episode) {
   var cleanTitle = cleanHubTitle(rawTitle);
   var displayName = cleanTitle || label;
 
-  // --- Dynamic Size Extraction ---
-  var detectedSize = "";
-  var sizeMatch = hcHtml.match(/<td[^>]*>\s*File\s*Size\s*:\s*<\/td>\s*<td[^>]*>\s*([\d\.]+\s*[MGBtbi]+)\s*<\/td>/i);
-  if (!sizeMatch) {
-    sizeMatch = hcHtml.match(/Size\s*:\s*<\/strong>\s*([\d\.]+\s*[MGBtbi]+)/i);
-  }
-  if (sizeMatch) {
-    detectedSize = sizeMatch[1].trim();
-  }
-
   var gamer = hcHtml.match(/href="(https:\/\/gamerxyt\.com[^"]+)"/i);
   if (gamer) {
     var gHtml = await fetchText(gamer[1].replace(/&amp;/g, "&"), { headers: hdrs() });
     if (gHtml) {
       var fm = gHtml.match(/href="([^"]+)"[^>]*id="fsl"/);
       if (fm) {
-        streams.push(makeStream(displayName, "FSL", fm[1], q, "FSL", gamer[1], detectedSize));
+        streams.push(makeStream(displayName, "FSL", fm[1], q, "FSL", gamer[1], passedSize));
       }
     }
   }
 
   var workerUrl = await serverHandler(id, "worker");
   if (workerUrl) {
-    streams.push(makeStream(displayName, "Worker", workerUrl, q, "Worker", BASE_URL, detectedSize));
+    streams.push(makeStream(displayName, "Worker", workerUrl, q, "Worker", BASE_URL, passedSize));
   }
 
   return streams;
@@ -399,31 +389,50 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
         var q = parseQuality(lsTitle);
         if (q === "480P") return;
 
-        var epRx = /href="(https:\/\/new3\.zinkcloud\.net\/file\/([^"]+))"[^>]*>\s*<span[^>]*>(.*?)<\/span>/ig;
+        // Extract native page size if available right in the list item block
+        var epRx = /href="(https:\/\/new3\.zinkcloud\.net\/file\/([^"]+))"[^>]*>\s*<span[^>]*>([\s\S]*?)<\/span>/ig;
         while ((m = epRx.exec(lsHtml)) !== null) {
           var label = m[3].replace(/<[^>]+>/g, "").trim();
           if (label.toLowerCase().indexOf("all episodes") > -1) continue;
+          
           var epNum = label.match(/(?:EPISODE|EP|E)\s*[-_]?\s*0?(\d+)/i);
           if (epNum && parseInt(epNum[1]) == episode) {
-            targets.push({ id: m[2], label: label, quality: q });
+            var extractedSize = "";
+            var sizeBlockMatch = label.match(/\[\s*([\d\.]+\s*[MGB]+)\s*\]/i) || label.match(/\b([\d\.]+\s*(GB|MB))\b/i);
+            if (sizeBlockMatch) extractedSize = sizeBlockMatch[1];
+            
+            targets.push({ id: m[2], label: label, quality: q, size: extractedSize });
           }
         }
       }));
 
       for (var i = 0; i < targets.length; i++) {
-        var epStreams = await processFile(targets[i].id, targets[i].label, targets[i].quality, true, season, episode);
+        var epStreams = await processFile(targets[i].id, targets[i].label, targets[i].quality, targets[i].size);
         for (var j = 0; j < epStreams.length; j++) streams.push(epStreams[j]);
       }
     } else {
+      // Look for the size values located immediately around file paths inside movie nodes
       var fileRx = /href="(https:\/\/new3\.zinkcloud\.net\/file\/([^"]+))"[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>/ig;
       var files = [];
       while ((m = fileRx.exec(postHtml)) !== null) {
-        files.push({ id: m[2], label: m[3].replace(/<[^>]+>/g, "").trim() });
+        var labelText = m[3].replace(/<[^>]+>/g, "").trim();
+        var extractedSize = "";
+        
+        // Scan the container segment context for explicit file size entries (e.g. 1.4 GB / 2.5 GB)
+        var contextSegment = postHtml.substring(Math.max(0, m.index - 400), m.index + 400);
+        var sizeMatch = contextSegment.match(/Size\s*:\s*<\/strong>\s*([\d\.]+\s*[MGBtbi]+)/i) || 
+                        contextSegment.match(/<span[^>]*class=["']size["'][^>]*>([\d\.]+\s*[MGBtbi]+)<\/span>/i) ||
+                        labelText.match(/\[\s*([\d\.]+\s*[MGB]+)\s*\]/i) ||
+                        labelText.match(/\b([\d\.]+\s*(GB|MB))\b/i);
+                        
+        if (sizeMatch) extractedSize = sizeMatch[1].trim();
+        files.push({ id: m[2], label: labelText, size: extractedSize });
       }
-      await Promise.all(files.map(async (f) => {
-        var fileStreams = await processFile(f.id, f.label, null, false, 0, 0);
-        for (var i = 0; i < fileStreams.length; i++) streams.push(fileStreams[i]);
-      }));
+      
+      for (var i = 0; i < files.length; i++) {
+        var fileStreams = await processFile(files[i].id, files[i].label, null, files[i].size);
+        for (var j = 0; j < fileStreams.length; j++) streams.push(fileStreams[j]);
+      }
     }
   } catch (e) {}
   return streams;

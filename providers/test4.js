@@ -30,7 +30,7 @@ async function fetchJson(url, opts) {
   return null;
 }
 
-// ==================== SOURCE-OF-TRUTH FILTER ENGINE ====================
+// ==================== METADATA & STREAM FORMATTING ENGINE ====================
 function makeStream(rawFilename, serverType, url, referer, parsedSize) {
   var decodedScan = "";
   try {
@@ -263,7 +263,7 @@ async function processFile(id) {
   return streams;
 }
 
-// ─── ZinkCloud Link Processing ──────────────────────────────────────
+// ─── LINK SCRAPER MODULE ──────────────────────────────────────────
 
 async function scrapeZinkCloud(title, year, isTv, season, episode) {
   var streams = [];
@@ -273,7 +273,6 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
     if (!searchHtml) return streams;
 
     var path = isTv ? "tvshows" : "movies";
-    // Modified pattern to cleanly pull all domain posts without relying on static boundaries
     var rx = new RegExp('href=["\'](https?:\\/\\/[^\\/\\s"\']+\\/' + path + '\\/[^"\']+)["\']', "ig");
     var m, postUrl;
     var cleanTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
@@ -334,7 +333,7 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
   return streams;
 }
 
-// ─── Entry Point ────────────────────────────────────────────────────
+// ─── MAIN ENTRY POINT ───────────────────────────────────────────────
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   var isTv = (mediaType === "series" || mediaType === "tv");

@@ -39,13 +39,6 @@ function parseQuality(label) {
   return "HD";
 }
 
-function siteTitle(html) {
-  var tm = html.match(/<title>(.*?)<\/title>/i);
-  if (!tm) return "";
-  var clean = tm[1].match(/Download\s+(.+?)\s+In HD Free/i);
-  return clean ? clean[1].trim() : tm[1].trim();
-}
-
 function cleanHubTitle(raw) {
   var t = raw.replace(/\.(mkv|mp4|avi)$/i, "").trim();
   t = t.replace(/\s*[-–—]\s*ZINKMOVIES.*/i, "").trim();
@@ -56,13 +49,13 @@ function cleanHubTitle(raw) {
 }
 
 // ==================== FLAWLESS STRATIFIED LAYOUT ENGINE ====================
-function makeStream(name, title, url, quality, serverType, referer, fileSize) {
+function makeStream(name, title, url, quality, serverType, referer, fileSize, nativeContext) {
   var internalQuality = quality ? quality.toLowerCase() : "1080p";
   var encodedUrl = url.replace(/ /g, "%20");
   
   var cleanNameText = String(name || "").replace(/\./g, " ");
   var cleanTitleText = String(title || "").replace(/\./g, " ");
-  var combinedScanText = (cleanNameText + " " + cleanTitleText + " " + encodedUrl).toLowerCase();
+  var combinedScanText = (cleanNameText + " " + cleanTitleText + " " + encodedUrl + " " + (nativeContext || "")).toLowerCase();
   var audioScan = combinedScanText.replace(/[\s\.]+/g, "");
 
   // 1. STRICT LANGUAGE MATRIX ENGINE (Defaulted to Dual-Audio for ZinkMovies)
@@ -129,7 +122,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   else if (/\bsdr\b/i.test(combinedScanText)) { dynamicHdr = "SDR"; showLightning = true; }
 
   var bitDepth = /\b10bit\b/i.test(combinedScanText) ? "🔆 10Bit" : "";
-  var dv = /\b(dv|dolby\s*vision)\b/i.test(combinedScanText) ? "🕵️‍♀️ DV" : "";
+  var dv = /\b(dv|dolby\s*vision|dolbyvision)\b/i.test(combinedScanText) ? "🕵️‍♀️ DV" : "";
   var isBluRay = /\bbluray\b/i.test(combinedScanText);
   
   var codecTag = "x264";
@@ -242,7 +235,7 @@ async function serverHandler(id, server) {
   return null;
 }
 
-async function processFile(id, label, quality, passedSize) {
+async function processFile(id, label, quality, passedSize, nativeContext) {
   var q = quality || parseQuality(label);
   var streams = [];
   if (q === "480P") return streams;
@@ -263,14 +256,14 @@ async function processFile(id, label, quality, passedSize) {
     if (gHtml) {
       var fm = gHtml.match(/href="([^"]+)"[^>]*id="fsl"/);
       if (fm) {
-        streams.push(makeStream(displayName, "FSL", fm[1], q, "FSL", gamer[1], passedSize));
+        streams.push(makeStream(displayName, "FSL", fm[1], q, "FSL", gamer[1], passedSize, nativeContext));
       }
     }
   }
 
   var workerUrl = await serverHandler(id, "worker");
   if (workerUrl) {
-    streams.push(makeStream(displayName, "Worker", workerUrl, q, "Worker", BASE_URL, passedSize));
+    streams.push(makeStream(displayName, "Worker", workerUrl, q, "Worker", BASE_URL, passedSize, nativeContext));
   }
 
   return streams;
@@ -338,7 +331,7 @@ async function getGemmaStreams(imdbId, isTv, season, episode, title) {
       });
       if (m3u8 && m3u8.indexOf(".m3u8") > -1) {
         var langLabel = langs[i].title ? " | " + langs[i].title : "";
-        var embedStream = makeStream(title + langLabel, "Embed", m3u8.trim(), "1080P", "Embed", playerUrl, "");
+        var embedStream = makeStream(title + langLabel, "Embed", m3u8.trim(), "1080P", "Embed", playerUrl, "", "");
         
         embedStream.behaviorHints.proxyHeaders = {
           request: {
@@ -389,7 +382,6 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
         var q = parseQuality(lsTitle);
         if (q === "480P") return;
 
-        // Extract native page size if available right in the list item block
         var epRx = /href="(https:\/\/new3\.zinkcloud\.net\/file\/([^"]+))"[^>]*>\s*<span[^>]*>([\s\S]*?)<\/span>/ig;
         while ((m = epRx.exec(lsHtml)) !== null) {
           var label = m[3].replace(/<[^>]+>/g, "").trim();
@@ -398,39 +390,45 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
           var epNum = label.match(/(?:EPISODE|EP|E)\s*[-_]?\s*0?(\d+)/i);
           if (epNum && parseInt(epNum[1]) == episode) {
             var extractedSize = "";
-            var sizeBlockMatch = label.match(/\[\s*([\d\.]+\s*[MGB]+)\s*\]/i) || label.match(/\b([\d\.]+\s*(GB|MB))\b/i);
+            var contextSegment = lsHtml.substring(Math.max(0, m.index - 800), m.index + 800);
+            
+            var sizeBlockMatch = label.match(/\[\s*([\d\.]+\s*[MGB]+)\s*\]/i) || 
+                                 label.match(/\b([\d\.]+\s*(GB|MB))\b/i) ||
+                                 contextSegment.match(/Size\s*:\s*<\/strong>\s*([\d\.]+\s*[MGBtbi]+)/i) ||
+                                 contextSegment.match(/(?:^|[\s>])([\d\.]+\s*(GB|MB))\b/i);
             if (sizeBlockMatch) extractedSize = sizeBlockMatch[1];
             
-            targets.push({ id: m[2], label: label, quality: q, size: extractedSize });
+            targets.push({ id: m[2], label: label, quality: q, size: extractedSize, context: contextSegment });
           }
         }
       }));
 
       for (var i = 0; i < targets.length; i++) {
-        var epStreams = await processFile(targets[i].id, targets[i].label, targets[i].quality, targets[i].size);
+        var epStreams = await processFile(targets[i].id, targets[i].label, targets[i].quality, targets[i].size, targets[i].context);
         for (var j = 0; j < epStreams.length; j++) streams.push(epStreams[j]);
       }
     } else {
-      // Look for the size values located immediately around file paths inside movie nodes
       var fileRx = /href="(https:\/\/new3\.zinkcloud\.net\/file\/([^"]+))"[^>]*>[\s\S]*?<span>([\s\S]*?)<\/span>/ig;
       var files = [];
       while ((m = fileRx.exec(postHtml)) !== null) {
         var labelText = m[3].replace(/<[^>]+>/g, "").trim();
         var extractedSize = "";
         
-        // Scan the container segment context for explicit file size entries (e.g. 1.4 GB / 2.5 GB)
-        var contextSegment = postHtml.substring(Math.max(0, m.index - 400), m.index + 400);
-        var sizeMatch = contextSegment.match(/Size\s*:\s*<\/strong>\s*([\d\.]+\s*[MGBtbi]+)/i) || 
+        // Scan a highly structured window of the HTML surrounding this link block
+        var contextSegment = postHtml.substring(Math.max(0, m.index - 900), m.index + 900);
+        
+        var sizeMatch = contextSegment.match(/Size\s*:\s*(?:<strong>)?\s*([\d\.]+\s*[MGBtbi]+)/i) ||
                         contextSegment.match(/<span[^>]*class=["']size["'][^>]*>([\d\.]+\s*[MGBtbi]+)<\/span>/i) ||
+                        contextSegment.match(/<strong>\s*([\d\.]+\s*(?:GB|MB))\s*<\/strong>/i) ||
                         labelText.match(/\[\s*([\d\.]+\s*[MGB]+)\s*\]/i) ||
                         labelText.match(/\b([\d\.]+\s*(GB|MB))\b/i);
                         
         if (sizeMatch) extractedSize = sizeMatch[1].trim();
-        files.push({ id: m[2], label: labelText, size: extractedSize });
+        files.push({ id: m[2], label: labelText, size: extractedSize, context: contextSegment });
       }
       
       for (var i = 0; i < files.length; i++) {
-        var fileStreams = await processFile(files[i].id, files[i].label, null, files[i].size);
+        var fileStreams = await processFile(files[i].id, files[i].label, null, files[i].size, files[i].context);
         for (var j = 0; j < fileStreams.length; j++) streams.push(fileStreams[j]);
       }
     }

@@ -39,38 +39,30 @@ function parseQuality(label) {
   return "HD";
 }
 
-function cleanHubTitle(raw) {
-  var t = raw.replace(/\.(mkv|mp4|avi)$/i, "").trim();
-  t = t.replace(/\s*[-–—]\s*ZINKMOVIES.*/i, "").trim();
-  t = t.replace(/\s*[-–—]\s*JiTU.*/i, "").trim();
-  t = t.replace(/\s+(IMAX\s+)?(2160|1080|720|480)\s*[pP].*/i, "").trim();
-  t = t.replace(/\s+4K\s+.*/i, "").trim();
-  return t.trim() || raw;
-}
-
-// ==================== FLAWLESS STRATIFIED LAYOUT ENGINE ====================
-function makeStream(name, title, url, quality, serverType, referer, fileSize) {
-  // Decode the URL completely to evaluate exact text parameters safely
-  var decodedUrl = "";
+// ==================== CORRECTED SOURCE-OF-TRUTH FILTER ENGINE ====================
+function makeStream(rawFilename, serverType, url, referer, parsedSize) {
+  var decodedScan = "";
   try {
-    decodedUrl = decodeURIComponent(url);
+    decodedScan = decodeURIComponent(url) + " " + rawFilename;
   } catch(e) {
-    decodedUrl = url;
+    decodedScan = url + " " + rawFilename;
   }
-  
-  var internalQuality = quality ? quality.toLowerCase() : "1080p";
-  var encodedUrl = url.replace(/ /g, "%20");
-  
-  // Use the clean decoded URL text block as the ultimate source of truth
-  var scanText = decodedUrl.toLowerCase();
-  var audioScan = scanText.replace(/[\s\.\-\+\[\]_]+/g, "");
+  // Standardize delimiters so strings match seamlessly
+  var scanText = decodedScan.toLowerCase().replace(/[\s\.\-\+\[\]_]+/g, " ");
+  var audioScan = decodedScan.toLowerCase().replace(/[\s\.\-\+\[\]_]+/g, "");
 
-  // 1. STRICT LANGUAGE MATRIX ENGINE
+  // 1. QUALITY PARSING
+  var quality = "1080P";
+  var qMatch = rawFilename.match(/(2160|1080|720|480)\s*P/i);
+  if (qMatch) quality = qMatch[1].toUpperCase() + "P";
+  else if (/\b(4k|uhd)\b/.test(scanText)) quality = "2160P";
+
+  // 2. LANGUAGE MATCH MATRIX
   var shortLangLabel = "Dual-Audio"; 
-  var hasHindi = /\bhindi\b/i.test(scanText);
-  var hasEng = /\b(english|eng)\b/i.test(scanText);
-  var hasTamil = /\btamil\b/i.test(scanText);
-  var hasTelugu = /\btelugu\b/i.test(scanText);
+  var hasHindi = /\bhindi\b/.test(scanText);
+  var hasEng = /\b(english|eng)\b/.test(scanText);
+  var hasTamil = /\btamil\b/.test(scanText);
+  var hasTelugu = /\btelugu\b/.test(scanText);
   
   var langCount = 0;
   if (hasHindi) langCount++;
@@ -78,9 +70,9 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   if (hasTamil) langCount++;
   if (hasTelugu) langCount++;
 
-  if (/\b(multi|multi-audio|multi\.audio)\b/i.test(scanText) || langCount >= 3) {
+  if (/\b(multi|multiaudio)\b/.test(scanText) || langCount >= 3) {
     shortLangLabel = "Multi-Audio";
-  } else if (/\b(dual|dual-audio|dual\.audio|dubbed)\b/i.test(scanText) || langCount === 2) {
+  } else if (/\b(dual|dualaudio|dubbed)\b/.test(scanText) || langCount === 2) {
     shortLangLabel = "Dual-Audio";
   } else if (langCount === 1) {
     if (hasHindi) shortLangLabel = "Hindi";
@@ -89,8 +81,8 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     else if (hasEng) shortLangLabel = "English";
   }
 
-  // 2. SERIES & MOVIE TITLE CLEANING ENGINE
-  var cleanDisplayTitle = String(name || "").replace(/\./g, " ");
+  // 3. TITLE CLEANER
+  var cleanDisplayTitle = rawFilename.replace(/\.(mkv|mp4|avi)$/i, "").replace(/\./g, " ");
   var seasonEpisodeBlock = "";
   
   var tvMatch = cleanDisplayTitle.match(/\b(S\d{1,2}\s*E\d{1,2})\b/i);
@@ -109,115 +101,87 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   }
 
   cleanDisplayTitle = cleanDisplayTitle
-    .replace(/AMZN|WEB-DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit/gi, "")
+    .replace(/AMZN|WEB-DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit|iTunes/gi, "")
     .replace(/[-_()\[\]|]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
   cleanDisplayTitle = cleanDisplayTitle.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
 
-  // 3. SUBHEADING LINE CONFIGURATIONS
-  var qUpper = internalQuality.toUpperCase();
-  var qEmoji = (internalQuality === "2160p" || internalQuality.includes("4k")) ? "🌟" : "💎";
-  var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
+  // 4. METADATA PROFILE LINES
+  var qEmoji = (quality === "2160P") ? "🌟" : "💎";
+  var line2 = qEmoji + " " + quality + " | 🌍 " + shortLangLabel + " | 💾 " + (parsedSize || "N/A");
 
-  // Color Mapping Engine evaluated STRICTLY from URL text parameters
+  // Strict Validation Boundaries
   var dynamicHdr = "";
   var showLightning = false;
-  if (/\b(hdr10\+|hdr10p)\b/i.test(scanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
-  else if (/\bhdr10\b/i.test(scanText)) { dynamicHdr = "HDR10"; showLightning = true; }
-  else if (/\bhdr\b/i.test(scanText)) { dynamicHdr = "HDR"; showLightning = true; }
-  else if (/\bsdr\b/i.test(scanText)) { dynamicHdr = "SDR"; showLightning = true; }
+  if (/\b(hdr10\+|hdr10p)\b/.test(scanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
+  else if (/\bhdr10\b/.test(scanText)) { dynamicHdr = "HDR10"; showLightning = true; }
+  else if (/\bhdr\b/.test(scanText)) { dynamicHdr = "HDR"; showLightning = true; }
 
-  var bitDepth = /\b10bit\b/i.test(scanText) ? "🔆 10Bit" : "";
-  var dv = /\b(dv|dolby\s*vision|dolbyvision)\b/i.test(scanText) ? "🕵️‍♀️ DV" : "";
-  var isBluRay = /\bbluray\b/i.test(scanText);
+  var bitDepth = /\b10bit\b/.test(scanText) ? "🔆 10Bit" : "";
+  var dv = /\b(dv|dolby\s*vision|dolbyvision)\b/.test(scanText) ? "🕵️‍♀️ DV" : "";
+  var isBluRay = /\bbluray\b/.test(scanText);
   
-  // Codec Selector evaluated STRICTLY from clean stream URL parameters
+  // Clean Codec Normalization Rule
   var codecTag = "x264";
-  if (/\b(hevc|x265|265|h265)\b/i.test(scanText) || internalQuality === "2160p") {
+  if (/\b(hevc|x265|265|h265)\b/.test(scanText)) {
     codecTag = "HEVC x265";
-  } else if (/\b(x264|264|h264)\b/i.test(scanText)) {
+  } else if (/\b(x264|264|h264)\b/.test(scanText)) {
     codecTag = "x264";
+  } else if (quality === "2160P") {
+    codecTag = "HEVC x265";
   }
 
-  var line3Part1Elements = [];
-  if (dynamicHdr) line3Part1Elements.push(dynamicHdr);
-  if (bitDepth) line3Part1Elements.push(bitDepth);
-  var line3Part1 = line3Part1Elements.join(" • ");
-
-  var line3Part2Elements = [];
-  if (isBluRay) line3Part2Elements.push("📀 BluRay");
-  if (dv) line3Part2Elements.push(dv);
-  var line3Part2 = line3Part2Elements.join(" • ");
-
-  var metaParts = [];
-  if (line3Part1) metaParts.push(line3Part1);
-  if (line3Part2) metaParts.push(line3Part2);
+  var line3Parts = [];
+  if (dynamicHdr) line3Parts.push(dynamicHdr);
+  if (bitDepth) line3Parts.push(bitDepth);
+  if (isBluRay) line3Parts.push("📀 BluRay");
+  if (dv) line3Parts.push(dv);
 
   var line3 = "";
-  if (metaParts.length > 0) {
+  if (line3Parts.length > 0) {
     var prefix = showLightning ? "⚡ " : "";
-    line3 = prefix + metaParts.join(" | ") + " | 🎥 " + codecTag;
+    line3 = prefix + line3Parts.join(" • ") + " | 🎥 " + codecTag;
   } else {
     line3 = "🎥 " + codecTag;
   }
 
   var formatTag = "🎞️ MKV";
-  if (/\bmp4\b/i.test(scanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
-    formatTag = "🎞️ MP4";
-  }
+  if (/\bmp4\b/.test(scanText)) formatTag = "🎞️ MP4";
 
-  // Audio Channel Parser targeting decoded stream string layout parameters
+  // Audio Channels Parsing
   var audioChannelTag = "DDP 5.1";
-  var displayAtmos = /\batmos\b/i.test(scanText);
+  var displayAtmos = /\batmos\b/.test(scanText);
 
-  if (audioScan.indexOf("ddp51ddpatmos51") !== -1 || (audioScan.indexOf("ddp51") !== -1 && audioScan.indexOf("atmos") !== -1)) {
+  if (audioScan.indexOf("ddp51atmos") !== -1 || audioScan.indexOf("atmos51") !== -1 || audioScan.indexOf("ddpatmos51") !== -1) {
     audioChannelTag = "DDP 5.1";
     displayAtmos = true;
-  }
-  else if (audioScan.indexOf("ddp51truehd71") !== -1 || (audioScan.indexOf("ddp51") !== -1 && audioScan.indexOf("truehd") !== -1)) {
-    audioChannelTag = "DDP 5.1 + TrueHD 7.1";
-    displayAtmos = true;
-  }
-  else if (audioScan.indexOf("ddp51ddp71") !== -1) {
-    audioChannelTag = "DDP 5.1 + DDP 7.1";
-  }
-  else if (audioScan.indexOf("ddp51aac71") !== -1) {
-    audioChannelTag = "DDP 5.1 + AAC 7.1";
-  }
-  else if (audioScan.indexOf("ddp51") !== -1) {
-    audioChannelTag = "DDP 5.1";
-  }
-  else {
-    if (audioScan.indexOf("truehd") !== -1) {
-      audioChannelTag = "TrueHD 7.1";
-    } else if (audioScan.indexOf("aac") !== -1) {
-      audioChannelTag = (audioScan.indexOf("71") !== -1) ? "AAC 7.1" : "AAC 5.1";
-    } else {
-      audioChannelTag = "DDP 5.1";
-    }
+  } else if (audioScan.indexOf("truehd71") !== -1) {
+    audioChannelTag = "TrueHD 7.1";
+  } else if (audioScan.indexOf("aac71") !== -1) {
+    audioChannelTag = "AAC 7.1";
+  } else if (audioScan.indexOf("aac") !== -1) {
+    audioChannelTag = "AAC 5.1";
   }
 
   var atmosBlock = displayAtmos ? " • 🔊 Atmos" : "";
   var line4 = formatTag + " | 🎧 " + audioChannelTag + atmosBlock + " |";
 
-  // Distribution Origin mapping evaluated STRICTLY out of stream URL paths
+  // Accurate Origin Parsing
   var sourceOrigin = "WEB-DL";
   if (isBluRay) {
     sourceOrigin = "BluRay";
-  } else if (/\bwebrip\b/i.test(scanText)) {
+  } else if (/\bwebrip\b/.test(scanText) || /\bhdrip\b/.test(scanText)) {
     sourceOrigin = "WEB-Rip";
-  } else if (/\b(webdl|web\-dl|itunes|amzn)\b/i.test(scanText)) {
+  } else if (/\b(webdl|web\-dl|itunes|amzn)\b/.test(scanText)) {
     sourceOrigin = "WEB-DL";
-  } else if (/\bhdrip\b/i.test(scanText)) {
-    sourceOrigin = "WEB-Rip";
   }
 
-  var imaxBlock = /\bimax\b/i.test(scanText) ? " | 👁️ iMAX" : "";
+  var imaxBlock = /\bimax\b/.test(scanText) ? " | 👁️ iMAX" : "";
   var line5 = "🔗 " + (serverType || "Worker") + " | ☁️ " + sourceOrigin + imaxBlock;
 
-  var finalName = "ZinkMovies | " + qUpper + " | " + shortLangLabel;
+  var finalName = "ZinkMovies | " + quality + " | " + shortLangLabel;
   var finalTitle = 
     "🎬 " + cleanDisplayTitle + (yearBlock ? " - (" + yearBlock + ")" : "") + seasonEpisodeBlock + "\n" +
     line2 + "\n" +
@@ -225,26 +189,16 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     line4 + "\n" +
     line5;
 
-  var baseStream = {
+  return {
     name: finalName,
     title: finalTitle,
     size: finalTitle, 
-    url: encodedUrl,
+    url: url.replace(/ /g, "%20"),
     behaviorHints: {
       notWebReady: true,
       proxyHeaders: { request: { "Referer": referer || "https://zinkmovies.wtf/" } }
     }
   };
-
-  try {
-    Object.defineProperties(baseStream, {
-      qualityTag: { get: function() { return ""; }, enumerable: true, configurable: true },
-      quality: { get: function() { return "\x08"; }, enumerable: true, configurable: true },
-      language: { get: function() { return ""; }, enumerable: true, configurable: true }
-    });
-  } catch (e) {}
-
-  return baseStream;
 }
 
 async function serverHandler(id, server) {
@@ -260,33 +214,32 @@ async function serverHandler(id, server) {
   return null;
 }
 
-async function processFile(id, label, quality) {
+// ─── SAFE INTERMEDIARY EXTRACTION PIPELINE ───
+async function processFile(id) {
   var streams = [];
-  var fileLandingUrl = "https://new3.zinkcloud.net/file/" + id;
+  var targetLandingUrl = "https://new3.zinkcloud.net/file/" + id;
   
-  // ─── STABLE LANDING METADATA ACCUMULATOR ───
-  var landHtml = await fetchText(fileLandingUrl, { headers: hdrs() });
-  var extractedSize = "";
-  var accurateFileTitle = label;
+  var landHtml = await fetchText(targetLandingUrl, { headers: hdrs() });
+  if (!landHtml) return streams;
 
-  if (landHtml) {
-    // Exact parsing of structural data cells matching layout parameters exactly
-    var sizeMatch = landHtml.match(/SIZE\s*:\s*<\/td>\s*<td[^>]*>\s*([\d\.]+\s*(?:GB|MB|KB))/i) ||
-                    landHtml.match(/Size\s*:\s*(?:<strong>)?\s*([\d\.]+\s*(?:GB|MB|KB))/i) ||
-                    landHtml.match(/<td>\s*([\d\.]+\s*(?:GB|MB))\s*<\/td>/i);
-    if (sizeMatch) {
-      extractedSize = sizeMatch[1].trim();
-    }
-    
-    var headMatch = landHtml.match(/<h1[^>]*class=["']text-center[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i) ||
-                    landHtml.match(/<div[^>]*class=["']card-header[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
-    if (headMatch) {
-      accurateFileTitle = headMatch[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
-    }
+  var parsedFilename = "";
+  var headMatch = landHtml.match(/<h1[^>]*class=["']text-center[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i) ||
+                  landHtml.match(/<div[^>]*class=["']card-header[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+  if (headMatch) {
+    parsedFilename = headMatch[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+  } else {
+    var titleFallback = landHtml.match(/<title>Download\s+([^<]+)<\/title>/i);
+    if (titleFallback) parsedFilename = titleFallback[1].trim();
   }
+  if (!parsedFilename) return streams;
 
-  var q = quality || parseQuality(accurateFileTitle);
-  if (q === "480P") return streams;
+  var parsedSize = "";
+  var sizeMatch = landHtml.match(/SIZE\s*:\s*<\/td>\s*<td[^>]*>\s*([\d\.]+\s*(?:GB|MB|KB))/i) ||
+                  landHtml.match(/Size\s*:\s*(?:<strong>)?\s*([\d\.]+\s*(?:GB|MB|KB))/i) ||
+                  landHtml.match(/<td>\s*([\d\.]+\s*(?:GB|MB|KB))\s*<\/td>/i);
+  if (sizeMatch) {
+    parsedSize = sizeMatch[1].trim();
+  }
 
   var hcUrl = await serverHandler(id, "hubcloud");
   if (hcUrl) {
@@ -299,7 +252,7 @@ async function processFile(id, label, quality) {
         if (gHtml) {
           var fm = gHtml.match(/href="([^"]+)"[^>]*id="fsl"/);
           if (fm) {
-            streams.push(makeStream(accurateFileTitle, "FSL", fm[1], q, "FSL", gUrl, extractedSize));
+            streams.push(makeStream(parsedFilename, "FSL", fm[1], gUrl, parsedSize));
           }
         }
       }
@@ -308,7 +261,7 @@ async function processFile(id, label, quality) {
 
   var workerUrl = await serverHandler(id, "worker");
   if (workerUrl) {
-    streams.push(makeStream(accurateFileTitle, "Worker", workerUrl, q, "Worker", BASE_URL, extractedSize));
+    streams.push(makeStream(parsedFilename, "Worker", workerUrl, BASE_URL, parsedSize));
   }
 
   return streams;
@@ -376,7 +329,7 @@ async function getGemmaStreams(imdbId, isTv, season, episode, title) {
       });
       if (m3u8 && m3u8.indexOf(".m3u8") > -1) {
         var langLabel = langs[i].title ? " | " + langs[i].title : "";
-        var embedStream = makeStream(title + langLabel, "Embed", m3u8.trim(), "1080P", "Embed", playerUrl, "");
+        var embedStream = makeStream(title + langLabel, "Embed", m3u8.trim(), playerUrl, "");
         
         embedStream.behaviorHints.proxyHeaders = {
           request: {
@@ -424,17 +377,15 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
         var lsTitle = (lsHtml.match(/<title>(.*?)<\/title>/i) || [])[1] || "";
         var sMatch = lsTitle.match(/Season\s*0?(\d+)/i);
         if (sMatch && parseInt(sMatch[1]) != season) return;
-        var q = parseQuality(lsTitle);
-        if (q === "480P") return;
 
         var epRx = /href="https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)"/ig;
         while ((m = epRx.exec(lsHtml)) !== null) {
-          targets.push({ id: m[1], label: "Episode File", quality: q });
+          if (targets.indexOf(m[1]) === -1) targets.push(m[1]);
         }
       }));
 
       for (var i = 0; i < targets.length; i++) {
-        var epStreams = await processFile(targets[i].id, targets[i].label, targets[i].quality);
+        var epStreams = await processFile(targets[i]);
         for (var j = 0; j < epStreams.length; j++) streams.push(epStreams[j]);
       }
     } else {
@@ -445,7 +396,7 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
       }
       
       for (var i = 0; i < files.length; i++) {
-        var fileStreams = await processFile(files[i], "Movie File", null);
+        var fileStreams = await processFile(files[i]);
         for (var j = 0; j < fileStreams.length; j++) streams.push(fileStreams[j]);
       }
     }
@@ -480,7 +431,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
   } catch (e) {}
 
-  // --- DIRECT ATTRIBUTE SORT ENGINE ---
+  // --- SORT ENGINE ---
   streams.forEach(function(s) {
     var scan = (s.title || "").toLowerCase();
     if (scan.indexOf("2160p") !== -1 || scan.indexOf("4k") !== -1) s._resWeight = 4;

@@ -49,21 +49,28 @@ function cleanHubTitle(raw) {
 }
 
 // ==================== FLAWLESS STRATIFIED LAYOUT ENGINE ====================
-function makeStream(name, title, url, quality, serverType, referer, fileSize, nativeContext) {
+function makeStream(name, title, url, quality, serverType, referer, fileSize) {
+  // Decode the URL completely to evaluate exact text parameters safely
+  var decodedUrl = "";
+  try {
+    decodedUrl = decodeURIComponent(url);
+  } catch(e) {
+    decodedUrl = url;
+  }
+  
   var internalQuality = quality ? quality.toLowerCase() : "1080p";
   var encodedUrl = url.replace(/ /g, "%20");
   
-  var cleanNameText = String(name || "").replace(/\./g, " ");
-  var cleanTitleText = String(title || "").replace(/\./g, " ");
-  var combinedScanText = (cleanNameText + " " + cleanTitleText + " " + encodedUrl + " " + (nativeContext || "")).toLowerCase();
-  var audioScan = combinedScanText.replace(/[\s\.\-\+\[\]_]+/g, "");
+  // Use the clean decoded URL text block as the ultimate source of truth
+  var scanText = decodedUrl.toLowerCase();
+  var audioScan = scanText.replace(/[\s\.\-\+\[\]_]+/g, "");
 
   // 1. STRICT LANGUAGE MATRIX ENGINE
   var shortLangLabel = "Dual-Audio"; 
-  var hasHindi = /\bhindi\b/i.test(combinedScanText);
-  var hasEng = /\b(english|eng)\b/i.test(combinedScanText);
-  var hasTamil = /\btamil\b/i.test(combinedScanText);
-  var hasTelugu = /\btelugu\b/i.test(combinedScanText);
+  var hasHindi = /\bhindi\b/i.test(scanText);
+  var hasEng = /\b(english|eng)\b/i.test(scanText);
+  var hasTamil = /\btamil\b/i.test(scanText);
+  var hasTelugu = /\btelugu\b/i.test(scanText);
   
   var langCount = 0;
   if (hasHindi) langCount++;
@@ -71,9 +78,9 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize, na
   if (hasTamil) langCount++;
   if (hasTelugu) langCount++;
 
-  if (/\b(multi|multi-audio|multi\.audio)\b/i.test(combinedScanText) || langCount >= 3) {
+  if (/\b(multi|multi-audio|multi\.audio)\b/i.test(scanText) || langCount >= 3) {
     shortLangLabel = "Multi-Audio";
-  } else if (/\b(dual|dual-audio|dual\.audio|dubbed)\b/i.test(combinedScanText) || langCount === 2) {
+  } else if (/\b(dual|dual-audio|dual\.audio|dubbed)\b/i.test(scanText) || langCount === 2) {
     shortLangLabel = "Dual-Audio";
   } else if (langCount === 1) {
     if (hasHindi) shortLangLabel = "Hindi";
@@ -83,14 +90,14 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize, na
   }
 
   // 2. SERIES & MOVIE TITLE CLEANING ENGINE
-  var cleanDisplayTitle = cleanNameText;
+  var cleanDisplayTitle = String(name || "").replace(/\./g, " ");
   var seasonEpisodeBlock = "";
   
-  var tvMatch = cleanNameText.match(/\b(S\d{1,2}\s*E\d{1,2})\b/i);
+  var tvMatch = cleanDisplayTitle.match(/\b(S\d{1,2}\s*E\d{1,2})\b/i);
   if (tvMatch) {
     seasonEpisodeBlock = " | " + tvMatch[1].toUpperCase().replace(/\s+/g, "");
-    var tvIdx = cleanNameText.toLowerCase().indexOf(tvMatch[0].toLowerCase());
-    if (tvIdx > 0) cleanDisplayTitle = cleanNameText.substring(0, tvIdx);
+    var tvIdx = cleanDisplayTitle.toLowerCase().indexOf(tvMatch[0].toLowerCase());
+    if (tvIdx > 0) cleanDisplayTitle = cleanDisplayTitle.substring(0, tvIdx);
   }
 
   var yearBlock = "";
@@ -114,19 +121,25 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize, na
   var qEmoji = (internalQuality === "2160p" || internalQuality.includes("4k")) ? "🌟" : "💎";
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
+  // Color Mapping Engine evaluated STRICTLY from URL text parameters
   var dynamicHdr = "";
   var showLightning = false;
-  if (/\b(hdr10\+|hdr10p)\b/i.test(combinedScanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
-  else if (/\bhdr10\b/i.test(combinedScanText)) { dynamicHdr = "HDR10"; showLightning = true; }
-  else if (/\bhdr\b/i.test(combinedScanText)) { dynamicHdr = "HDR"; showLightning = true; }
-  else if (/\bsdr\b/i.test(combinedScanText)) { dynamicHdr = "SDR"; showLightning = true; }
+  if (/\b(hdr10\+|hdr10p)\b/i.test(scanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
+  else if (/\bhdr10\b/i.test(scanText)) { dynamicHdr = "HDR10"; showLightning = true; }
+  else if (/\bhdr\b/i.test(scanText)) { dynamicHdr = "HDR"; showLightning = true; }
+  else if (/\bsdr\b/i.test(scanText)) { dynamicHdr = "SDR"; showLightning = true; }
 
-  var bitDepth = /\b10bit\b/i.test(combinedScanText) ? "🔆 10Bit" : "";
-  var dv = /\b(dv|dolby\s*vision|dolbyvision)\b/i.test(combinedScanText) ? "🕵️‍♀️ DV" : "";
-  var isBluRay = /\bbluray\b/i.test(combinedScanText);
+  var bitDepth = /\b10bit\b/i.test(scanText) ? "🔆 10Bit" : "";
+  var dv = /\b(dv|dolby\s*vision|dolbyvision)\b/i.test(scanText) ? "🕵️‍♀️ DV" : "";
+  var isBluRay = /\bbluray\b/i.test(scanText);
   
+  // Codec Selector evaluated STRICTLY from clean stream URL parameters
   var codecTag = "x264";
-  if (/\b(hevc|x265|265)\b/i.test(combinedScanText) || internalQuality === "2160p") codecTag = "HEVC x265";
+  if (/\b(hevc|x265|265|h265)\b/i.test(scanText) || internalQuality === "2160p") {
+    codecTag = "HEVC x265";
+  } else if (/\b(x264|264|h264)\b/i.test(scanText)) {
+    codecTag = "x264";
+  }
 
   var line3Part1Elements = [];
   if (dynamicHdr) line3Part1Elements.push(dynamicHdr);
@@ -151,12 +164,13 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize, na
   }
 
   var formatTag = "🎞️ MKV";
-  if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
+  if (/\bmp4\b/i.test(scanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
     formatTag = "🎞️ MP4";
   }
 
+  // Audio Channel Parser targeting decoded stream string layout parameters
   var audioChannelTag = "DDP 5.1";
-  var displayAtmos = /\batmos\b/i.test(combinedScanText);
+  var displayAtmos = /\batmos\b/i.test(scanText);
 
   if (audioScan.indexOf("ddp51ddpatmos51") !== -1 || (audioScan.indexOf("ddp51") !== -1 && audioScan.indexOf("atmos") !== -1)) {
     audioChannelTag = "DDP 5.1";
@@ -188,11 +202,19 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize, na
   var atmosBlock = displayAtmos ? " • 🔊 Atmos" : "";
   var line4 = formatTag + " | 🎧 " + audioChannelTag + atmosBlock + " |";
 
+  // Distribution Origin mapping evaluated STRICTLY out of stream URL paths
   var sourceOrigin = "WEB-DL";
-  if (isBluRay) sourceOrigin = "BluRay";
-  else if (/\b(webrip|hdrip)\b/i.test(combinedScanText)) sourceOrigin = "WEB-Rip";
+  if (isBluRay) {
+    sourceOrigin = "BluRay";
+  } else if (/\bwebrip\b/i.test(scanText)) {
+    sourceOrigin = "WEB-Rip";
+  } else if (/\b(webdl|web\-dl|itunes|amzn)\b/i.test(scanText)) {
+    sourceOrigin = "WEB-DL";
+  } else if (/\bhdrip\b/i.test(scanText)) {
+    sourceOrigin = "WEB-Rip";
+  }
 
-  var imaxBlock = /\bimax\b/i.test(combinedScanText) ? " | 👁️ iMAX" : "";
+  var imaxBlock = /\bimax\b/i.test(scanText) ? " | 👁️ iMAX" : "";
   var line5 = "🔗 " + (serverType || "Worker") + " | ☁️ " + sourceOrigin + imaxBlock;
 
   var finalName = "ZinkMovies | " + qUpper + " | " + shortLangLabel;
@@ -238,35 +260,55 @@ async function serverHandler(id, server) {
   return null;
 }
 
-async function processFile(id, label, quality, passedSize, nativeContext) {
-  var q = quality || parseQuality(label);
+async function processFile(id, label, quality) {
   var streams = [];
+  var fileLandingUrl = "https://new3.zinkcloud.net/file/" + id;
+  
+  // ─── STABLE LANDING METADATA ACCUMULATOR ───
+  var landHtml = await fetchText(fileLandingUrl, { headers: hdrs() });
+  var extractedSize = "";
+  var accurateFileTitle = label;
+
+  if (landHtml) {
+    // Exact parsing of structural data cells matching layout parameters exactly
+    var sizeMatch = landHtml.match(/SIZE\s*:\s*<\/td>\s*<td[^>]*>\s*([\d\.]+\s*(?:GB|MB|KB))/i) ||
+                    landHtml.match(/Size\s*:\s*(?:<strong>)?\s*([\d\.]+\s*(?:GB|MB|KB))/i) ||
+                    landHtml.match(/<td>\s*([\d\.]+\s*(?:GB|MB))\s*<\/td>/i);
+    if (sizeMatch) {
+      extractedSize = sizeMatch[1].trim();
+    }
+    
+    var headMatch = landHtml.match(/<h1[^>]*class=["']text-center[^"']*["'][^>]*>([\s\S]*?)<\/h1>/i) ||
+                    landHtml.match(/<div[^>]*class=["']card-header[^"']*["'][^>]*>([\s\S]*?)<\/div>/i);
+    if (headMatch) {
+      accurateFileTitle = headMatch[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+    }
+  }
+
+  var q = quality || parseQuality(accurateFileTitle);
   if (q === "480P") return streams;
 
   var hcUrl = await serverHandler(id, "hubcloud");
-  if (!hcUrl) return streams;
-
-  var hcHtml = await fetchText(hcUrl, { headers: hdrs() });
-  if (!hcHtml) return streams;
-
-  var rawTitle = (hcHtml.match(/<title>(.*?)<\/title>/i) || [])[1] || "";
-  var cleanTitle = cleanHubTitle(rawTitle);
-  var displayName = cleanTitle || label;
-
-  var gamer = hcHtml.match(/href="(https:\/\/gamerxyt\.com[^"]+)"/i);
-  if (gamer) {
-    var gHtml = await fetchText(gamer[1].replace(/&amp;/g, "&"), { headers: hdrs() });
-    if (gHtml) {
-      var fm = gHtml.match(/href="([^"]+)"[^>]*id="fsl"/);
-      if (fm) {
-        streams.push(makeStream(displayName, "FSL", fm[1], q, "FSL", gamer[1], passedSize, nativeContext));
+  if (hcUrl) {
+    var hcHtml = await fetchText(hcUrl, { headers: hdrs() });
+    if (hcHtml) {
+      var gamer = hcHtml.match(/href="(https:\/\/gamerxyt\.com[^"]+)"/i);
+      if (gamer) {
+        var gUrl = gamer[1].replace(/&amp;/g, "&");
+        var gHtml = await fetchText(gUrl, { headers: hdrs() });
+        if (gHtml) {
+          var fm = gHtml.match(/href="([^"]+)"[^>]*id="fsl"/);
+          if (fm) {
+            streams.push(makeStream(accurateFileTitle, "FSL", fm[1], q, "FSL", gUrl, extractedSize));
+          }
+        }
       }
     }
   }
 
   var workerUrl = await serverHandler(id, "worker");
   if (workerUrl) {
-    streams.push(makeStream(displayName, "Worker", workerUrl, q, "Worker", BASE_URL, passedSize, nativeContext));
+    streams.push(makeStream(accurateFileTitle, "Worker", workerUrl, q, "Worker", BASE_URL, extractedSize));
   }
 
   return streams;
@@ -334,7 +376,7 @@ async function getGemmaStreams(imdbId, isTv, season, episode, title) {
       });
       if (m3u8 && m3u8.indexOf(".m3u8") > -1) {
         var langLabel = langs[i].title ? " | " + langs[i].title : "";
-        var embedStream = makeStream(title + langLabel, "Embed", m3u8.trim(), "1080P", "Embed", playerUrl, "", "");
+        var embedStream = makeStream(title + langLabel, "Embed", m3u8.trim(), "1080P", "Embed", playerUrl, "");
         
         embedStream.behaviorHints.proxyHeaders = {
           request: {
@@ -385,52 +427,25 @@ async function scrapeZinkCloud(title, year, isTv, season, episode) {
         var q = parseQuality(lsTitle);
         if (q === "480P") return;
 
-        var epRx = /href="https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)"[^>]*>\s*<span[^>]*>([\s\S]*?)<\/span>/ig;
+        var epRx = /href="https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)"/ig;
         while ((m = epRx.exec(lsHtml)) !== null) {
-          var label = m[2].replace(/<[^>]+>/g, "").trim();
-          if (label.toLowerCase().indexOf("all episodes") > -1) continue;
-          
-          var epNum = label.match(/(?:EPISODE|EP|E)\s*[-_]?\s*0?(\d+)/i);
-          if (epNum && parseInt(epNum[1]) == episode) {
-            var extractedSize = "";
-            var contextSegment = lsHtml.substring(Math.max(0, m.index - 800), m.index + 800);
-            var sizeBlockMatch = label.match(/\[\s*([\d\.]+\s*[MGB]+)\s*\]/i) || 
-                                 label.match(/\b([\d\.]+\s*(GB|MB))\b/i) ||
-                                 contextSegment.match(/Size\s*:\s*<\/strong>\s*([\d\.]+\s*[MGBtbi]+)/i);
-            if (sizeBlockMatch) extractedSize = sizeBlockMatch[1];
-            
-            targets.push({ id: m[1], label: label, quality: q, size: extractedSize, context: contextSegment });
-          }
+          targets.push({ id: m[1], label: "Episode File", quality: q });
         }
       }));
 
       for (var i = 0; i < targets.length; i++) {
-        var epStreams = await processFile(targets[i].id, targets[i].label, targets[i].quality, targets[i].size, targets[i].context);
+        var epStreams = await processFile(targets[i].id, targets[i].label, targets[i].quality);
         for (var j = 0; j < epStreams.length; j++) streams.push(epStreams[j]);
       }
     } else {
-      // Correct text regex loop parsing the original DOM elements on the movie link block safely
-      var fileRx = /href="https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)"[^>]*>([\s\S]*?)<\/a>/ig;
+      var fileRx = /href="https:\/\/new3\.zinkcloud\.net\/file\/([^"\s>]+)"/ig;
       var files = [];
       while ((m = fileRx.exec(postHtml)) !== null) {
-        var labelText = m[2].replace(/<[^>]+>/g, "").trim();
-        var extractedSize = "";
-        
-        // Scan text blocks surrounding the unique button elements on zinkmovies
-        var contextSegment = postHtml.substring(Math.max(0, m.index - 900), m.index + 900);
-        
-        var sizeMatch = contextSegment.match(/Size\s*:\s*(?:<strong>)?\s*([\d\.]+\s*[MGBtbi]+)/i) ||
-                        contextSegment.match(/<span[^>]*class=["']size["'][^>]*>([\d\.]+\s*[MGBtbi]+)<\/span>/i) ||
-                        contextSegment.match(/<strong>\s*([\d\.]+\s*(?:GB|MB))\s*<\/strong>/i) ||
-                        labelText.match(/\b([\d\.]+\s*(GB|MB))\b/i);
-                        
-        if (sizeMatch) extractedSize = sizeMatch[1].trim();
-        
-        files.push({ id: m[1], label: labelText, size: extractedSize, context: contextSegment });
+        if (files.indexOf(m[1]) === -1) files.push(m[1]);
       }
       
       for (var i = 0; i < files.length; i++) {
-        var fileStreams = await processFile(files[i].id, files[i].label, null, files[i].size, files[i].context);
+        var fileStreams = await processFile(files[i], "Movie File", null);
         for (var j = 0; j < fileStreams.length; j++) streams.push(fileStreams[j]);
       }
     }

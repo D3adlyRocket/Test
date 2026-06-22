@@ -65,8 +65,8 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var combinedScanText = (cleanNameText + " " + cleanTitleText + " " + encodedUrl).toLowerCase();
   var audioScan = combinedScanText.replace(/[\s\.]+/g, "");
 
-  // 1. STRICT LANGUAGE MATRIX ENGINE
-  var shortLangLabel = "English";
+  // 1. STRICT LANGUAGE MATRIX ENGINE (Defaulted to Dual-Audio for ZinkMovies)
+  var shortLangLabel = "Dual-Audio"; 
   var hasHindi = /\bhindi\b/i.test(combinedScanText);
   var hasEng = /\b(english|eng)\b/i.test(combinedScanText);
   var hasTamil = /\btamil\b/i.test(combinedScanText);
@@ -82,11 +82,11 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     shortLangLabel = "Multi-Audio";
   } else if (/\b(dual|dual-audio|dual\.audio|dubbed)\b/i.test(combinedScanText) || langCount === 2) {
     shortLangLabel = "Dual-Audio";
-  } else {
+  } else if (langCount === 1) {
     if (hasHindi) shortLangLabel = "Hindi";
     else if (hasTamil) shortLangLabel = "Tamil";
     else if (hasTelugu) shortLangLabel = "Telugu";
-    else shortLangLabel = "English";
+    else if (hasEng) shortLangLabel = "English";
   }
 
   // 2. SERIES & MOVIE TITLE CLEANING ENGINE
@@ -257,22 +257,30 @@ async function processFile(id, label, quality, isTv, season, episode) {
   var cleanTitle = cleanHubTitle(rawTitle);
   var displayName = cleanTitle || label;
 
+  // --- Dynamic Size Extraction ---
+  var detectedSize = "";
+  var sizeMatch = hcHtml.match(/<td[^>]*>\s*File\s*Size\s*:\s*<\/td>\s*<td[^>]*>\s*([\d\.]+\s*[MGBtbi]+)\s*<\/td>/i);
+  if (!sizeMatch) {
+    sizeMatch = hcHtml.match(/Size\s*:\s*<\/strong>\s*([\d\.]+\s*[MGBtbi]+)/i);
+  }
+  if (sizeMatch) {
+    detectedSize = sizeMatch[1].trim();
+  }
+
   var gamer = hcHtml.match(/href="(https:\/\/gamerxyt\.com[^"]+)"/i);
   if (gamer) {
     var gHtml = await fetchText(gamer[1].replace(/&amp;/g, "&"), { headers: hdrs() });
     if (gHtml) {
       var fm = gHtml.match(/href="([^"]+)"[^>]*id="fsl"/);
       if (fm) {
-        // Correct parameter mapping for layout engine
-        streams.push(makeStream(displayName, "FSL", fm[1], q, "FSL", gamer[1], ""));
+        streams.push(makeStream(displayName, "FSL", fm[1], q, "FSL", gamer[1], detectedSize));
       }
     }
   }
 
   var workerUrl = await serverHandler(id, "worker");
   if (workerUrl) {
-    // Correct parameter mapping for layout engine
-    streams.push(makeStream(displayName, "Worker", workerUrl, q, "Worker", BASE_URL, ""));
+    streams.push(makeStream(displayName, "Worker", workerUrl, q, "Worker", BASE_URL, detectedSize));
   }
 
   return streams;

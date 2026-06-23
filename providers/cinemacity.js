@@ -494,9 +494,11 @@ function getStreams(id, type, season, episode, providerContext = null) {
         if (atobResult) { links.push({ url: atobResult.url, text: "" }); hasEnglish = atobResult.hasItalian; /* mapping fallback */ } 
       } 
           
-            // Reads the key directly from the custom settings layout array
-      const userLangSetting = (providerContext && providerContext.settings && providerContext.settings.preferredLanguage) || "English";
-      const isTargetingEnglish = userLangSetting === "English";
+                  // Reads the toggle status directly (defaults to true/English if undefined)
+      let isTargetingEnglish = true;
+      if (providerContext && providerContext.settings && providerContext.settings.useEnglish !== undefined) {
+        isTargetingEnglish = providerContext.settings.useEnglish;
+      }
 
       let selectedUrl = null; 
       if (links.length === 0) { return []; } 
@@ -547,15 +549,14 @@ function getStreams(id, type, season, episode, providerContext = null) {
   }); 
 } 
 
-async function onSettings() {
+function onSettings() {
     return [
         { type: "header", label: "Language Preferences" },
         { 
-            type: "select", 
-            key: "preferredLanguage", 
-            label: "Primary Audio Language", 
-            options: ["English", "Italian"], 
-            defaultValue: "English" 
+            type: "toggle", 
+            key: "useEnglish", 
+            label: "Prioritize English Track", 
+            defaultValue: true 
         }
     ];
 }

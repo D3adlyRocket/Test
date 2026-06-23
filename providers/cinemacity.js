@@ -131,13 +131,12 @@ var require_formatter = __commonJS({
         headers: finalHeaders 
       }); 
 
-      // Intercept quality parameters cleanly while preserving the English language state
+     // Intercept layout properties cleanly and wipe the hardcoded track value text
       try {
-        const savedLanguage = stream.language || (stream.hasEnglish ? "English" : "");
         Object.defineProperties(formattedStream, { 
           qualityTag: { get: () => "", enumerable: true, configurable: true }, 
           quality: { get: () => "\x08", enumerable: true, configurable: true }, 
-          language: { get: () => savedLanguage, enumerable: true, configurable: true } 
+          language: { get: () => "", enumerable: true, configurable: true } 
         });
       } catch (e) {}
 

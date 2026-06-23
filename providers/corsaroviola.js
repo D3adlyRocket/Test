@@ -493,10 +493,39 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const useSeason = providerType === "tv" ? season : null; const useEpisode = providerType === "tv" ? episode : null; const atobResult = extractStreamFromAtob(html, movieTitle, useSeason, useEpisode); 
         if (atobResult) { links.push({ url: atobResult.url, text: "" }); hasEnglish = atobResult.hasItalian; /* mapping fallback */ } 
       } 
-      let selectedUrl = null; if (links.length === 0) { return []; } 
-      for (const link of links) { const text = link.text; if (text.includes("eng") || text.includes("english")) { selectedUrl = link.url; hasEnglish = true; break; } } 
-      if (!selectedUrl) { for (const link of links) { if (link.text.includes("ita") || link.text.includes("sub")) continue; selectedUrl = link.url; break; } } 
-      if (!selectedUrl) selectedUrl = links[0].url; const streamUrl = resolveUrl(movieUrl, selectedUrl); 
+            // Get user's preferred language from settings (defaulting to English if not set)
+      const userLangSetting = (providerContext && providerContext.userConfig && providerContext.userConfig.preferredLanguage) || "English";
+      const isTargetingEnglish = userLangSetting === "English";
+
+      let selectedUrl = null; 
+      if (links.length === 0) { return []; } 
+      
+      // 1. First priority: Try to match the user's explicit choice (English vs Italian)
+      for (const link of links) { 
+        const text = link.text; 
+        if (isTargetingEnglish && (text.includes("eng") || text.includes("english"))) { 
+          selectedUrl = link.url; 
+          hasEnglish = true; 
+          break; 
+        } else if (!isTargetingEnglish && (text.includes("ita") || text.includes("italian"))) {
+          selectedUrl = link.url;
+          hasEnglish = false; 
+          break;
+        }
+      } 
+      
+      // 2. Second priority: Fallback if preferred track isn't found
+      if (!selectedUrl) { 
+        for (const link of links) { 
+          if (isTargetingEnglish && link.text.includes("sub")) continue; 
+          selectedUrl = link.url; 
+          break; 
+        } 
+      } 
+      
+      if (!selectedUrl) selectedUrl = links[0].url; 
+      const streamUrl = resolveUrl(movieUrl, selectedUrl); 
+
       
       const result = { 
         name: "CinemaCity", 
@@ -518,4 +547,22 @@ function getStreams(id, type, season, episode, providerContext = null) {
   }); 
 } 
 
-module.exports = { getStreams };
+// Define the user configuration settings layout
+var userConfigSchema = {
+  properties: {
+    preferredLanguage: {
+      type: "string",
+      title: "Primary Audio Language",
+      description: "Select which language track the plugin should search for first.",
+      default: "English",
+      enum: ["English", "Italian"]
+    }
+  }
+};
+
+
+module.exports = { 
+  getStreams,
+  configSchema: userConfigSchema // Exposes the configuration layout to the plugin settings engine
+};
+

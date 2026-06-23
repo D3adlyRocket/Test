@@ -494,33 +494,40 @@ function getStreams(id, type, season, episode, providerContext = null) {
         if (atobResult) { links.push({ url: atobResult.url, text: "" }); hasEnglish = atobResult.hasItalian; /* mapping fallback */ } 
       } 
           
-                  // Reads the toggle status directly (defaults to true/English if undefined)
-      let isTargetingEnglish = true;
-      if (providerContext && providerContext.settings && providerContext.settings.useEnglish !== undefined) {
-        isTargetingEnglish = providerContext.settings.useEnglish;
-      }
+                        // 1. Read the dropdown language choice (Defaults to "English" if nothing is saved yet)
+      const targetLanguage = (providerContext && providerContext.settings && providerContext.settings.preferredLanguage) || "English";
 
       let selectedUrl = null; 
       if (links.length === 0) { return []; } 
       
-      // 1. First priority: Try to match the user's explicit choice (English vs Italian)
+      // 2. First priority: Try to match the exact string from the dropdown settings selection
       for (const link of links) { 
         const text = link.text; 
-        if (isTargetingEnglish && (text.includes("eng") || text.includes("english"))) { 
+        
+        if (targetLanguage === "English" && (text.includes("eng") || text.includes("english"))) { 
           selectedUrl = link.url; 
           hasEnglish = true; 
           break; 
-        } else if (!isTargetingEnglish && (text.includes("ita") || text.includes("italian"))) {
+        } else if (targetLanguage === "Italian" && (text.includes("ita") || text.includes("italian") || text.includes("italiano"))) {
+          selectedUrl = link.url;
+          hasEnglish = false; 
+          break;
+        } else if (targetLanguage === "Spanish" && (text.includes("esp") || text.includes("spanish") || text.includes("castellano") || text.includes("latino"))) {
+          selectedUrl = link.url;
+          hasEnglish = false; 
+          break;
+        } else if (targetLanguage === "Portuguese" && (text.includes("por") || text.includes("portugues") || text.includes("português"))) {
           selectedUrl = link.url;
           hasEnglish = false; 
           break;
         }
       } 
       
-      // 2. Second priority: Fallback if preferred track isn't found
+      // 3. Second priority: Fallback if the user's preferred language isn't present on this movie page
       if (!selectedUrl) { 
         for (const link of links) { 
-          if (isTargetingEnglish && link.text.includes("sub")) continue; 
+          // If they wanted English, skip subtitle-only links during the fallback phase
+          if (targetLanguage === "English" && link.text.includes("sub")) continue; 
           selectedUrl = link.url; 
           break; 
         } 
@@ -551,13 +558,10 @@ function getStreams(id, type, season, episode, providerContext = null) {
 
 function onSettings() {
     return [
-        { type: "header", label: "Language Preferences" },
-        { 
-            type: "toggle", 
-            key: "useEnglish", 
-            label: "Prioritize English Track", 
-            defaultValue: true 
-        }
+        { type: "header", label: "Global Language Track Selection" },
+        { type: "toggle", key: "lang_en", label: "English Track (Default)", defaultValue: true },
+        { type: "toggle", key: "lang_it", label: "Italian Track", defaultValue: false },
+        { type: "toggle", key: "lang_es", label: "Spanish Track", defaultValue: false }
     ];
 }
 

@@ -494,10 +494,9 @@ function getStreams(id, type, season, episode, providerContext = null) {
         if (atobResult) { links.push({ url: atobResult.url, text: "" }); hasEnglish = atobResult.hasItalian; /* mapping fallback */ } 
       } 
           
-      // Safe fallback line reading the nested config structure
-      const userLangSetting = (providerContext && providerContext.userConfig && (providerContext.userConfig.preferredLanguage || (providerContext.userConfig.schema && providerContext.userConfig.schema.preferredLanguage))) || "English";
+            // Reads the key directly from the custom settings layout array
+      const userLangSetting = (providerContext && providerContext.settings && providerContext.settings.preferredLanguage) || "English";
       const isTargetingEnglish = userLangSetting === "English";
-
 
       let selectedUrl = null; 
       if (links.length === 0) { return []; } 
@@ -527,7 +526,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
       
       if (!selectedUrl) selectedUrl = links[0].url; 
       const streamUrl = resolveUrl(movieUrl, selectedUrl); 
-
       
       const result = { 
         name: "CinemaCity", 
@@ -549,24 +547,20 @@ function getStreams(id, type, season, episode, providerContext = null) {
   }); 
 } 
 
-// Updated layout configuration schema to guarantee compatibility with the UI renderer
-var userConfigSchema = {
-  schema: {
-    type: "object",
-    properties: {
-      preferredLanguage: {
-        type: "string",
-        title: "Primary Audio Language",
-        description: "Select your preferred stream track audio.",
-        default: "English",
-        enum: ["English", "Italian"]
-      }
-    }
-  }
-};
+async function onSettings() {
+    return [
+        { type: "header", label: "Language Preferences" },
+        { 
+            type: "select", 
+            key: "preferredLanguage", 
+            label: "Primary Audio Language", 
+            options: ["English", "Italian"], 
+            defaultValue: "English" 
+        }
+    ];
+}
 
 module.exports = { 
   getStreams,
-  configSchema: userConfigSchema,
-  userConfigSchema: userConfigSchema // Exporting both naming variants to catch whichever keyword the engine uses
+  onSettings
 };

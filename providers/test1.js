@@ -85,7 +85,7 @@ function getTMDBDetails(tmdbId, mediaType) {
 }
 
 // src/lordflix/index.js
-var SERVERS = ["Berlin", "Orion", "Phoenix", "Aqua", "Moscow", "Tokyo", "Bogota", "Oslo", "Luna", "LordFlix", "Sakura", "Rio", "Ativa"];
+var SERVERS = ["Berlin", "Orion", "Frankfurt", "Phoenix", "Aqua", "Moscow", "Draco", "Comet", "Oslo", "Luna", "LordFlix", "Sakura", "Rio", "Ativa"];
 function encodeQuote(str) {
   return encodeURIComponent(str).replace(/%20/g, "+").replace(/\+/g, "%20");
 }
@@ -145,4 +145,26 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
     return streams;
   });
 }
-module.exports = { getStreams };
+function onSettings() {
+  return __async(this, null, function* () {
+    return [
+      { type: "header", label: "LordFlix Configuration" },
+      {
+        type: "text",
+        isPassword: true,
+        key: "uiToken",
+        label: "FebBox UI Token (Cookie)",
+        placeholder: "ui=...",
+        description: "Go to febbox.com, login, and copy your 'ui' cookie value from your browser."
+      },
+      {
+        type: "text",
+        key: "ossGroup",
+        label: "FebBox OSS Group (Optional)",
+        placeholder: "",
+        description: "Optional OSS group parameter."
+      }
+    ];
+  });
+}
+module.exports = { getStreams, onSettings };

@@ -275,7 +275,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
                             if (validFiles.length === 0) return [];
 
                             // AMENDMENT: Extracted up to 100 links to sync parsing limit with GramCinema
-                            var topFiles = validFiles.slice(0, 100);
+                            var topFiles = validFiles.slice(0, 6);
                             var streamPromises = topFiles.map(function(file) {
                                 return fetchJson("https://tga-hd.api.hashhackers.com/genLink?type=mix_media&id=" + file.id, { headers: HASH_HEADERS })
                                     .then(function(linkData) {

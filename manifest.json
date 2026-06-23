@@ -50,6 +50,7 @@
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/corsaroviola.js",
       "enabled": true,
+      "hasSettings": true,
       "resources": ["stream"],
       "formats": ["mkv", "m3u8"],
       "logo": "https://i.postimg.cc/KzjPtYWY/imdb.png",

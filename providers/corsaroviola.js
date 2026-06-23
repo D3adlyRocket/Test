@@ -34,17 +34,17 @@ var require_formatter = __commonJS({
     } 
 
     function formatStream2(stream, providerName) { 
-  let quality = stream.quality || "1080p";
+  let quality = stream.quality || "1080p"; 
   if (quality.toLowerCase() === "1080p") quality = "1080P";
   if (quality.toLowerCase() === "2160p" || quality.toLowerCase() === "4k") quality = "2160P";
 
-  let audioTag = "Single-Audio";
-  if (stream.language === "Italian" || (stream.name && stream.name.includes("ITA")) || stream.hasItalian) {
-    audioTag = "Multi-Audio";
-  }
+  let audioTag = "Single-Audio"; 
+  if (stream.language === "Italian" || (stream.name && stream.name.includes("ITA")) || stream.hasItalian) { 
+    audioTag = "Multi-Audio"; 
+  } 
 
-  // Kept single-line to allow the subtitle block to render below it (See 1000143796.jpg)
-  const finalName = `⚪ CinemaCity | ${quality} | ${audioTag}`;
+  // Single-line tracking block that mirrors VixSrc's native layout handler
+  const finalName = `⚪ CinemaCity | ${quality} | ${audioTag}`; 
 
   let rawTitle = stream.displayTitle || stream.title || "Stream";
   rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '');
@@ -109,11 +109,9 @@ var require_formatter = __commonJS({
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]); 
 
       const baseStream = __spreadValues({}, stream);
-      delete baseStream.language;
-      delete baseStream.languages;
-      delete baseStream.audioTag;
-
-      return __spreadProps(baseStream, { 
+      
+      // Explicit structural override to inject the layout strings cleanly into Nuvio Mobile
+      const formattedStream = __spreadProps(baseStream, { 
         name: finalName, 
         title: finalSubtitlesBlock, 
         providerName: "CinemaCity", 
@@ -127,6 +125,17 @@ var require_formatter = __commonJS({
         userAgent: playbackUserAgent, 
         headers: finalHeaders 
       }); 
+
+      // Intercept quality parameters with a string control code to drop trailing hyphens/Unknown text
+      try {
+        Object.defineProperties(formattedStream, { 
+          qualityTag: { get: () => "", enumerable: true, configurable: true }, 
+          quality: { get: () => "\x08", enumerable: true, configurable: true }, // Backspace control to drop the leading hyphen
+          language: { get: () => "", enumerable: true, configurable: true } 
+        });
+      } catch (e) {}
+
+      return formattedStream;
     } 
     module2.exports = { formatStream: formatStream2 }; 
   } 

@@ -33,49 +33,48 @@ var require_formatter = __commonJS({
       return normalized || void 0; 
     } 
 
-    function formatStream2(stream, providerName) { 
-  let quality = stream.quality || "1080p"; 
-  if (quality.toLowerCase() === "1080p") quality = "1080P";
-  if (quality.toLowerCase() === "2160p" || quality.toLowerCase() === "4k") quality = "2160P";
+        function formatStream2(stream, providerName) { 
+      let quality = stream.quality || "1080p"; 
+      if (quality.toLowerCase() === "1080p") quality = "1080P";
+      if (quality.toLowerCase() === "2160p" || quality.toLowerCase() === "4k") quality = "2160P";
 
-  let audioTag = "Single-Audio"; 
-  if (stream.language === "Italian" || (stream.name && stream.name.includes("ITA")) || stream.hasItalian) { 
-    audioTag = "Multi-Audio"; 
-  } 
+      let audioTag = "Single-Audio"; 
+      if (stream.language === "Italian" || (stream.name && stream.name.includes("ITA")) || stream.hasItalian) { 
+        audioTag = "Multi-Audio"; 
+      } 
 
-  // Single-line tracking block that mirrors VixSrc's native layout handler
-  const finalName = `⚪ CinemaCity | ${quality} | ${audioTag}`; 
+      const finalName = `⚪ CinemaCity | ${quality} | ${audioTag}`; 
 
-  let rawTitle = stream.displayTitle || stream.title || "Stream";
-  rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '');
+      let rawTitle = stream.displayTitle || stream.title || "Stream";
+      rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '');
 
-  // Format Parser Engine 
-  var lowerScan = String(stream.url || '').toLowerCase();
-  var format = "M3U8 / HLS";
-  if (lowerScan.includes(".mp4")) format = "MP4";
-  if (lowerScan.includes(".mkv")) format = "MKV";
+      // Format Parser Engine 
+      var lowerScan = String(stream.url || '').toLowerCase();
+      var format = "M3U8 / HLS";
+      if (lowerScan.includes(".mp4")) format = "MP4";
+      if (lowerScan.includes(".mkv")) format = "MKV";
 
-  var sourceParts = [];
-  if (lowerScan.includes("10bit")) sourceParts.push("10bit");
-  if (lowerScan.includes("x265") || lowerScan.includes("hevc")) {
-    sourceParts.push("x265");
-  } else {
-    sourceParts.push("x264");
-  }
-  sourceParts.push("WEB-DL");
-  var dynamicSourceTag = "📌 " + sourceParts.join(" • ");
-  var qIcon = quality.includes("4K") || quality.includes("2160") ? "🌟" : "💎";
+      var sourceParts = [];
+      if (lowerScan.includes("10bit")) sourceParts.push("10bit");
+      if (lowerScan.includes("x265") || lowerScan.includes("hevc")) {
+        sourceParts.push("x265");
+      } else {
+        sourceParts.push("x264");
+      }
+      sourceParts.push("WEB-DL");
+      var dynamicSourceTag = "📌 " + sourceParts.join(" • ");
+      var qIcon = quality.includes("4K") || quality.includes("2160") ? "🌟" : "💎";
 
-  let durationStr = "N/A";
-  if (stream.runtime && Number.isInteger(stream.runtime) && stream.runtime > 0) {
-    durationStr = `${stream.runtime} min`;
-  }
+      let durationStr = "N/A";
+      if (stream.runtime && Number.isInteger(stream.runtime) && stream.runtime > 0) {
+        durationStr = `${stream.runtime} min`;
+      }
 
-  // Your exact target presentation pattern mapped directly into rows
-  var line1 = "🎬 " + rawTitle;
-  var line2 = qIcon + " " + quality + " | 🔊 " + audioTag + " | 🗃️ Server 1";
-  var line3 = "🎞️ " + format + " | ⏱️ " + durationStr + " | " + dynamicSourceTag;
-  var finalSubtitlesBlock = line1 + "\n" + line2 + "\n" + line3;
+      // Exact layout mapping directly matching VixSrc configuration style
+      var line1 = "🎬 " + rawTitle;
+      var line2 = qIcon + " " + quality + " | 🔊 " + audioTag + " | 🗃️ Server 1";
+      var line3 = "🎞️ " + format + " | ⏱️ " + durationStr + " | " + dynamicSourceTag;
+      var finalSubtitlesBlock = line1 + "\n" + line2 + "\n" + line3;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {}; 
       let finalHeaders = stream.headers; 
@@ -109,11 +108,12 @@ var require_formatter = __commonJS({
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]); 
 
       const baseStream = __spreadValues({}, stream);
-      
-      // Explicit structural override to inject the layout strings cleanly into Nuvio Mobile
+
+      // Force-assign subtitle values across every native visual mapping field
       const formattedStream = __spreadProps(baseStream, { 
         name: finalName, 
         title: finalSubtitlesBlock, 
+        size: finalSubtitlesBlock,
         providerName: "CinemaCity", 
         qualityTag: quality, 
         description: finalSubtitlesBlock, 
@@ -126,17 +126,17 @@ var require_formatter = __commonJS({
         headers: finalHeaders 
       }); 
 
-      // Intercept quality parameters with a string control code to drop trailing hyphens/Unknown text
+      // Native intercept layout method used in VixSrc to clear conflicting parameters
       try {
         Object.defineProperties(formattedStream, { 
           qualityTag: { get: () => "", enumerable: true, configurable: true }, 
-          quality: { get: () => "\x08", enumerable: true, configurable: true }, // Backspace control to drop the leading hyphen
+          quality: { get: () => "\x08", enumerable: true, configurable: true }, 
           language: { get: () => "", enumerable: true, configurable: true } 
         });
       } catch (e) {}
 
       return formattedStream;
-    } 
+    }
     module2.exports = { formatStream: formatStream2 }; 
   } 
 }); 
@@ -492,8 +492,22 @@ function getStreams(id, type, season, episode, providerContext = null) {
       if (!selectedUrl) { for (const link of links) { if (link.text.includes("eng") || link.text.includes("sub")) continue; selectedUrl = link.url; break; } } 
       if (!selectedUrl) selectedUrl = links[0].url; const streamUrl = resolveUrl(movieUrl, selectedUrl); 
       
-      const result = { name: "CinemaCity", displayTitle: title, url: streamUrl, quality: "1080p", runtime: searchResult.runtime, type: "hls", language: hasItalian ? "Italian" : "", hasItalian, behaviorHints: { notWebReady: true }, headers: { "Referer": "https://cinemacity.cc/", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" } }; 
-      return [formatStream(result, "CinemaCity")]; 
+            const result = { 
+        name: "CinemaCity", 
+        displayTitle: title, 
+        url: streamUrl, 
+        quality: "1080P", 
+        runtime: searchResult.runtime, 
+        type: "hls", 
+        language: hasItalian ? "Italian" : "", 
+        hasItalian, 
+        behaviorHints: { notWebReady: true }, 
+        headers: { 
+          "Referer": "https://cinemacity.cc/", 
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36" 
+        } 
+      }; 
+      return [formatStream(result, "CinemaCity")].filter((s) => s !== null);
     } catch (e) { return []; } 
   }); 
 } 

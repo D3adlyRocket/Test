@@ -43,8 +43,8 @@ var require_formatter = __commonJS({
     audioTag = "Multi-Audio";
   }
 
-  // Pure vertical portrait stack format for Nuvio Mobile UI elements
-  const finalName = `⚪ CinemaCity\n${quality}\n${audioTag}`;
+  // Kept single-line to allow the subtitle block to render below it (See 1000143796.jpg)
+  const finalName = `⚪ CinemaCity | ${quality} | ${audioTag}`;
 
   let rawTitle = stream.displayTitle || stream.title || "Stream";
   rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '');

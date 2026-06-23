@@ -451,11 +451,12 @@ function extractStreamFromAtob(html, movieTitle, season, episode) {
 function extractDownloadLinks(html) { 
   const links = []; const anchorRegex = /<a\s[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi; let match; 
   while ((match = anchorRegex.exec(html)) !== null) { 
-    const href = match[1].trim(); const innerText = match[2].replace(/<[^>]+>/g, "").trim(); if (!/\.(mp4|m3u8|mkv|avi|mov|webm)([?#].*)?$/i.test(href)) continue; if (href.length < 10) continue; 
+    const href = match[1].trim(); const innerText = match[2].replace(/<[^>]+>/g, "").trim(); 
+    if (href.length < 5) continue; 
     links.push({ url: href, text: innerText.toLowerCase() }); 
   } 
   return links; 
-} 
+}
 
 function resolveUrl(base, relative) { try { return new URL(relative, base).toString(); } catch (e) { return relative; } } 
 
@@ -494,47 +495,77 @@ function getStreams(id, type, season, episode, providerContext = null) {
         if (atobResult) { links.push({ url: atobResult.url, text: "" }); hasEnglish = atobResult.hasItalian; /* mapping fallback */ } 
       } 
           
-                        // 1. Read the dropdown language choice (Defaults to "English" if nothing is saved yet)
-      const targetLanguage = (providerContext && providerContext.settings && providerContext.settings.preferredLanguage) || "English";
+                              // Resolve global language priority flags based on saved toggles from UI settings modal
+      let isTargetingEnglish = true;
+      let isTargetingItalian = false;
+      let isTargetingSpanish = false;
+
+      if (providerContext && providerContext.settings) {
+        if (providerContext.settings.lang_it === true) {
+          isTargetingItalian = true;
+          isTargetingEnglish = false;
+        } else if (providerContext.settings.lang_es === true) {
+          isTargetingSpanish = true;
+          isTargetingEnglish = false;
+        }
+      }
 
       let selectedUrl = null; 
       if (links.length === 0) { return []; } 
       
-      // 2. First priority: Try to match the exact string from the dropdown settings selection
+      // 1. Primary priority match loop: Look for explicit language landing anchors
       for (const link of links) { 
         const text = link.text; 
-        
-        if (targetLanguage === "English" && (text.includes("eng") || text.includes("english"))) { 
+        if (isTargetingEnglish && (text.includes("eng") || text.includes("english"))) { 
           selectedUrl = link.url; 
           hasEnglish = true; 
           break; 
-        } else if (targetLanguage === "Italian" && (text.includes("ita") || text.includes("italian") || text.includes("italiano"))) {
+        } else if (isTargetingItalian && (text.includes("ita") || text.includes("italian") || text.includes("italiano"))) {
           selectedUrl = link.url;
           hasEnglish = false; 
           break;
-        } else if (targetLanguage === "Spanish" && (text.includes("esp") || text.includes("spanish") || text.includes("castellano") || text.includes("latino"))) {
-          selectedUrl = link.url;
-          hasEnglish = false; 
-          break;
-        } else if (targetLanguage === "Portuguese" && (text.includes("por") || text.includes("portugues") || text.includes("português"))) {
+        } else if (isTargetingSpanish && (text.includes("esp") || text.includes("spanish") || text.includes("castellano") || text.includes("latino"))) {
           selectedUrl = link.url;
           hasEnglish = false; 
           break;
         }
       } 
       
-      // 3. Second priority: Fallback if the user's preferred language isn't present on this movie page
+      // 2. Second priority: Fallback to any active download links if preferred lang track isn't listed
       if (!selectedUrl) { 
         for (const link of links) { 
-          // If they wanted English, skip subtitle-only links during the fallback phase
-          if (targetLanguage === "English" && link.text.includes("sub")) continue; 
-          selectedUrl = link.url; 
-          break; 
+          if (/\.(mp4|m3u8|mkv|avi)/i.test(link.url)) {
+            if (isTargetingEnglish && link.text.includes("sub")) continue; 
+            selectedUrl = link.url; 
+            break; 
+          }
         } 
       } 
       
       if (!selectedUrl) selectedUrl = links[0].url; 
-      const streamUrl = resolveUrl(movieUrl, selectedUrl); 
+      let streamUrl = resolveUrl(movieUrl, selectedUrl); 
+
+      // 3. Sub-page resolution layer: If the chosen URL isn't a direct stream, follow it to extract the embedded media asset
+      if (!/\.(mp4|m3u8|mkv|avi|mov|webm)([?#].*)?$/i.test(streamUrl)) {
+        try {
+          const subPageHtml = yield fetchViaWorker(streamUrl);
+          const subLinks = [];
+          const anchorRegex = /<a\s[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi; let subMatch;
+          while ((subMatch = anchorRegex.exec(subPageHtml)) !== null) {
+            const subHref = subMatch[1].trim();
+            if (/\.(mp4|m3u8|mkv|avi)/i.test(subHref)) {
+              subLinks.push(subHref);
+            }
+          }
+          if (subLinks.length > 0) {
+            streamUrl = resolveUrl(streamUrl, subLinks[0]);
+          } else {
+            const atobResult = extractStreamFromAtob(subPageHtml, movieTitle, providerType === "tv" ? season : null, providerType === "tv" ? episode : null);
+            if (atobResult) streamUrl = atobResult.url;
+          }
+        } catch(e) {}
+      }
+
       
       const result = { 
         name: "CinemaCity", 

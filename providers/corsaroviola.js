@@ -47,7 +47,7 @@ var require_formatter = __commonJS({
     (stream.url && (stream.url.toLowerCase().includes("eng") || stream.url.toLowerCase().includes("english")))
   ) { 
     audioTag = "Multi-Audio"; 
-
+  }
       const finalName = `⚪ CinemaCity | ${quality} | ${audioTag}`; 
 
       let rawTitle = stream.displayTitle || stream.title || "Stream";

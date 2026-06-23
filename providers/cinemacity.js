@@ -493,9 +493,11 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const useSeason = providerType === "tv" ? season : null; const useEpisode = providerType === "tv" ? episode : null; const atobResult = extractStreamFromAtob(html, movieTitle, useSeason, useEpisode); 
         if (atobResult) { links.push({ url: atobResult.url, text: "" }); hasEnglish = atobResult.hasItalian; /* mapping fallback */ } 
       } 
-            // Get user's preferred language from settings (defaulting to English if not set)
-      const userLangSetting = (providerContext && providerContext.userConfig && providerContext.userConfig.preferredLanguage) || "English";
+          
+      // Safe fallback line reading the nested config structure
+      const userLangSetting = (providerContext && providerContext.userConfig && (providerContext.userConfig.preferredLanguage || (providerContext.userConfig.schema && providerContext.userConfig.schema.preferredLanguage))) || "English";
       const isTargetingEnglish = userLangSetting === "English";
+
 
       let selectedUrl = null; 
       if (links.length === 0) { return []; } 
@@ -547,22 +549,24 @@ function getStreams(id, type, season, episode, providerContext = null) {
   }); 
 } 
 
-// Define the user configuration settings layout
+// Updated layout configuration schema to guarantee compatibility with the UI renderer
 var userConfigSchema = {
-  properties: {
-    preferredLanguage: {
-      type: "string",
-      title: "Primary Audio Language",
-      description: "Select which language track the plugin should search for first.",
-      default: "English",
-      enum: ["English", "Italian"]
+  schema: {
+    type: "object",
+    properties: {
+      preferredLanguage: {
+        type: "string",
+        title: "Primary Audio Language",
+        description: "Select your preferred stream track audio.",
+        default: "English",
+        enum: ["English", "Italian"]
+      }
     }
   }
 };
 
-
 module.exports = { 
   getStreams,
-  configSchema: userConfigSchema // Exposes the configuration layout to the plugin settings engine
+  configSchema: userConfigSchema,
+  userConfigSchema: userConfigSchema // Exporting both naming variants to catch whichever keyword the engine uses
 };
-

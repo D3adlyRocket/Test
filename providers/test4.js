@@ -56,20 +56,22 @@ function makeStream(rawFilename, url, referer, parsedSize) {
         decodedScan = url + " " + rawFilename;
     }
     var scanText = decodedScan.toLowerCase();
-    var audioScan = scanText.replace(/[\s\.\-\+\[\]_]+/g, "");
+    var cleanPattern = /[\s\.\-\+\[\]_\(\)\|]+/g;
+    var audioScan = scanText.replace(cleanPattern, "");
 
     // 1. QUALITY PARSING
     var quality = "1080P";
-    var qMatch = rawFilename.match(/(2160|1080|720|480)\s*P/i);
-    if (qMatch) quality = qMatch[1].toUpperCase() + "P";
-    else if (/4k|uhd/i.test(scanText)) quality = "2160P";
+    if (/2160p|4k|uhd/i.test(scanText)) quality = "2160P";
+    else if (/1080p/i.test(scanText)) quality = "1080P";
+    else if (/720p/i.test(scanText)) quality = "720P";
+    else if (/480p/i.test(scanText)) quality = "480P";
 
     // 2. LANGUAGE MATCH MATRIX
     var shortLangLabel = "Dual-Audio"; 
-    var hasHindi = /\bhindi\b/i.test(scanText);
-    var hasEng = /\b(english|eng)\b/i.test(scanText);
-    var hasTamil = /\btamil\b/i.test(scanText);
-    var hasTelugu = /\btelugu\b/i.test(scanText);
+    var hasHindi = /hindi/i.test(scanText);
+    var hasEng = /(english|eng)/i.test(scanText);
+    var hasTamil = /tamil/i.test(scanText);
+    var hasTelugu = /telugu/i.test(scanText);
     
     var langCount = 0;
     if (hasHindi) langCount++;
@@ -77,9 +79,9 @@ function makeStream(rawFilename, url, referer, parsedSize) {
     if (hasTamil) langCount++;
     if (hasTelugu) langCount++;
 
-    if (/\b(multi|multi-audio|multi\.audio)\b/i.test(scanText) || langCount >= 3) {
+    if (/(multi|multi\-audio|multi\.audio)/i.test(scanText) || langCount >= 3) {
         shortLangLabel = "Multi-Audio";
-    } else if (/\b(dual|dual-audio|dual\.audio|dubbed)\b/i.test(scanText) || langCount === 2) {
+    } else if (/(dual|dual\-audio|dual\.audio|dubbed)/i.test(scanText) || langCount === 2) {
         shortLangLabel = "Dual-Audio";
     } else if (langCount === 1) {
         if (hasHindi) shortLangLabel = "Hindi";
@@ -108,7 +110,7 @@ function makeStream(rawFilename, url, referer, parsedSize) {
     }
 
     cleanDisplayTitle = cleanDisplayTitle
-        .replace(/AMZN|WEB-DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit|iTunes/gi, "")
+        .replace(/AMZN|WEB\-DL|WEB|DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit|iTunes/gi, "")
         .replace(/[-_()\[\]|]/g, " ")
         .replace(/\s+/g, " ")
         .trim();
@@ -121,18 +123,18 @@ function makeStream(rawFilename, url, referer, parsedSize) {
 
     var dynamicHdr = "";
     var showLightning = false;
-    if (/\b(hdr10\+|hdr10p)\b/i.test(scanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
-    else if (/\bhdr10\b/i.test(scanText)) { dynamicHdr = "HDR10"; showLightning = true; }
-    else if (/\bhdr\b/i.test(scanText)) { dynamicHdr = "HDR"; showLightning = true; }
+    if (/hdr10\+|hdr10p/i.test(scanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
+    else if (/hdr10/i.test(scanText)) { dynamicHdr = "HDR10"; showLightning = true; }
+    else if (/hdr/i.test(scanText)) { dynamicHdr = "HDR"; showLightning = true; }
 
-    var bitDepth = /\b10bit\b/i.test(scanText) ? "🔆 10Bit" : "";
-    var dv = /\b(dv|dolby\s*vision|dolbyvision)\b/i.test(scanText) ? "🕵️‍♀️ DV" : "";
-    var isBluRay = /\bbluray\b/i.test(scanText);
+    var bitDepth = /10bit/i.test(scanText) ? "🔆 10Bit" : "";
+    var dv = /(dv|dolby\s*vision|dolbyvision)/i.test(scanText) ? "🕵️‍♀️ DV" : "";
+    var isBluRay = /bluray/i.test(scanText);
     
     var codecTag = "x264";
-    if (/\b(hevc|x265|265|h265)\b/i.test(scanText)) {
+    if (/(hevc|x265|265|h265)/i.test(scanText)) {
         codecTag = "HEVC x265";
-    } else if (/\b(x264|264|h264)\b/i.test(scanText)) {
+    } else if (/(x264|264|h264)/i.test(scanText)) {
         codecTag = "x264";
     } else if (quality === "2160P") {
         codecTag = "HEVC x265";
@@ -155,18 +157,22 @@ function makeStream(rawFilename, url, referer, parsedSize) {
     var formatTag = "🎞️ MKV";
     if (/\bmp4\b/i.test(scanText)) formatTag = "🎞️ MP4";
 
-    var audioChannelTag = "DDP 5.1";
-    var displayAtmos = /\batmos\b/i.test(scanText);
+    // AUDIO PARSING REPAIR
+    var audioChannelTag = "AAC 5.1";
+    var displayAtmos = /atmos/i.test(scanText);
 
-    if (audioScan.indexOf("ddp51atmos") !== -1 || audioScan.indexOf("atmos51") !== -1) {
+    if (audioScan.indexOf("ddp51") !== -1 || audioScan.indexOf("eac351") !== -1 || audioScan.indexOf("dd51") !== -1) {
         audioChannelTag = "DDP 5.1";
-        displayAtmos = true;
     } else if (audioScan.indexOf("truehd71") !== -1) {
         audioChannelTag = "TrueHD 7.1";
     } else if (audioScan.indexOf("aac71") !== -1) {
         audioChannelTag = "AAC 7.1";
-    } else if (audioScan.indexOf("aac") !== -1) {
-        audioChannelTag = "AAC 5.1";
+    } else if (audioScan.indexOf("aac20") !== -1 || audioScan.indexOf("aac") !== -1) {
+        audioChannelTag = /aac\s*5\.1/i.test(scanText) ? "AAC 5.1" : "AAC 2.0";
+    }
+
+    if (/ddp\s*5\s*1/i.test(scanText) || /ddp5\.1/i.test(scanText)) {
+        audioChannelTag = "DDP 5.1";
     }
 
     var atmosBlock = displayAtmos ? " • 🔊 Atmos" : "";
@@ -175,13 +181,13 @@ function makeStream(rawFilename, url, referer, parsedSize) {
     var sourceOrigin = "WEB-DL";
     if (isBluRay) {
         sourceOrigin = "BluRay";
-    } else if (/\bwebrip\b/i.test(scanText) || /\bhdrip\b/i.test(scanText)) {
+    } else if (/webrip/i.test(scanText) || /hdrip/i.test(scanText)) {
         sourceOrigin = "WEB-Rip";
-    } else if (/\b(webdl|web\-dl|itunes|amzn)\b/i.test(scanText)) {
+    } else if(/(webdl|web\-dl|itunes|amzn)/i.test(scanText)) {
         sourceOrigin = "WEB-DL";
     }
 
-    var imaxBlock = /\bimax\b/i.test(scanText) ? " | 👁️ iMAX" : "";
+    var imaxBlock = /imax/i.test(scanText) ? " | 👁️ iMAX" : "";
     var line5 = "🔗 HashHackers | ☁️ " + sourceOrigin + imaxBlock;
 
     var finalName = "HashHackers | " + quality + " | " + shortLangLabel;
@@ -268,7 +274,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
                             if (validFiles.length === 0) return [];
 
-                            var topFiles = validFiles.slice(0, 6);
+                            // AMENDMENT: Extracted up to 100 links to sync parsing limit with GramCinema
+                            var topFiles = validFiles.slice(0, 100);
                             var streamPromises = topFiles.map(function(file) {
                                 return fetchJson("https://tga-hd.api.hashhackers.com/genLink?type=mix_media&id=" + file.id, { headers: HASH_HEADERS })
                                     .then(function(linkData) {

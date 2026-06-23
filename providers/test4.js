@@ -195,6 +195,7 @@ function makeStream(rawFilename, url, referer, parsedSize) {
     return {
         name: finalName,
         title: finalTitle,
+        size: finalTitle
         url: url.replace(/ /g, "%20"),
         behaviorHints: {
             notWebReady: true,

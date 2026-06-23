@@ -39,9 +39,14 @@ var require_formatter = __commonJS({
       if (quality.toLowerCase() === "2160p" || quality.toLowerCase() === "4k") quality = "2160P";
 
       let audioTag = "Single-Audio"; 
-      if (stream.language === "Italian" || (stream.name && stream.name.includes("ITA")) || stream.hasItalian) { 
-        audioTag = "Multi-Audio"; 
-      } 
+  if (
+    stream.language === "English" || 
+    (stream.name && (stream.name.includes("ENG") || stream.name.includes("English"))) || 
+    stream.hasEnglish === true ||
+    stream.hasEnglish === "true" ||
+    (stream.url && (stream.url.toLowerCase().includes("eng") || stream.url.toLowerCase().includes("english")))
+  ) { 
+    audioTag = "Multi-Audio"; 
 
       const finalName = `⚪ CinemaCity | ${quality} | ${audioTag}`; 
 
@@ -126,12 +131,13 @@ var require_formatter = __commonJS({
         headers: finalHeaders 
       }); 
 
-      // Native intercept layout method used in VixSrc to clear conflicting parameters
+      // Intercept quality parameters cleanly while preserving the English language state
       try {
+        const savedLanguage = stream.language || (stream.hasEnglish ? "English" : "");
         Object.defineProperties(formattedStream, { 
           qualityTag: { get: () => "", enumerable: true, configurable: true }, 
           quality: { get: () => "\x08", enumerable: true, configurable: true }, 
-          language: { get: () => "", enumerable: true, configurable: true } 
+          language: { get: () => savedLanguage, enumerable: true, configurable: true } 
         });
       } catch (e) {}
 
@@ -482,25 +488,25 @@ function getStreams(id, type, season, episode, providerContext = null) {
       const title = type === "tv" || type === "series" ? `${movieTitle} - S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}${releaseYear}` : `${movieTitle}${releaseYear}`; 
       let html; try { html = yield fetchViaWorker(movieUrl); } catch (e) { return []; } 
       if (html.length < 500 || html.includes("Just a moment") || html.includes("admin") && html.includes("Unlimited")) { return []; } 
-      const links = extractDownloadLinks(html); let hasItalian = false; 
+      const links = extractDownloadLinks(html); let hasEnglish = false; 
       if (links.length === 0) { 
         const useSeason = providerType === "tv" ? season : null; const useEpisode = providerType === "tv" ? episode : null; const atobResult = extractStreamFromAtob(html, movieTitle, useSeason, useEpisode); 
-        if (atobResult) { links.push({ url: atobResult.url, text: "" }); hasItalian = atobResult.hasItalian; } 
+        if (atobResult) { links.push({ url: atobResult.url, text: "" }); hasEnglish = atobResult.hasItalian; /* mapping fallback */ } 
       } 
       let selectedUrl = null; if (links.length === 0) { return []; } 
-      for (const link of links) { const text = link.text; if (text.includes("ita") || text.includes("italian") || text.includes("italiano")) { selectedUrl = link.url; hasItalian = true; break; } } 
-      if (!selectedUrl) { for (const link of links) { if (link.text.includes("eng") || link.text.includes("sub")) continue; selectedUrl = link.url; break; } } 
+      for (const link of links) { const text = link.text; if (text.includes("eng") || text.includes("english")) { selectedUrl = link.url; hasEnglish = true; break; } } 
+      if (!selectedUrl) { for (const link of links) { if (link.text.includes("ita") || link.text.includes("sub")) continue; selectedUrl = link.url; break; } } 
       if (!selectedUrl) selectedUrl = links[0].url; const streamUrl = resolveUrl(movieUrl, selectedUrl); 
       
-            const result = { 
+      const result = { 
         name: "CinemaCity", 
         displayTitle: title, 
         url: streamUrl, 
         quality: "1080P", 
         runtime: searchResult.runtime, 
         type: "hls", 
-        language: hasItalian ? "Italian" : "", 
-        hasItalian, 
+        language: hasEnglish ? "English" : "", 
+        hasEnglish, 
         behaviorHints: { notWebReady: true }, 
         headers: { 
           "Referer": "https://cinemacity.cc/", 

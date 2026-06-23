@@ -451,12 +451,11 @@ function extractStreamFromAtob(html, movieTitle, season, episode) {
 function extractDownloadLinks(html) { 
   const links = []; const anchorRegex = /<a\s[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi; let match; 
   while ((match = anchorRegex.exec(html)) !== null) { 
-    const href = match[1].trim(); const innerText = match[2].replace(/<[^>]+>/g, "").trim(); 
-    if (href.length < 5) continue; 
+    const href = match[1].trim(); const innerText = match[2].replace(/<[^>]+>/g, "").trim(); if (!/\.(mp4|m3u8|mkv|avi|mov|webm)([?#].*)?$/i.test(href)) continue; if (href.length < 10) continue; 
     links.push({ url: href, text: innerText.toLowerCase() }); 
   } 
   return links; 
-}
+} 
 
 function resolveUrl(base, relative) { try { return new URL(relative, base).toString(); } catch (e) { return relative; } } 
 
@@ -494,78 +493,10 @@ function getStreams(id, type, season, episode, providerContext = null) {
         const useSeason = providerType === "tv" ? season : null; const useEpisode = providerType === "tv" ? episode : null; const atobResult = extractStreamFromAtob(html, movieTitle, useSeason, useEpisode); 
         if (atobResult) { links.push({ url: atobResult.url, text: "" }); hasEnglish = atobResult.hasItalian; /* mapping fallback */ } 
       } 
-          
-                              // Resolve global language priority flags based on saved toggles from UI settings modal
-      let isTargetingEnglish = true;
-      let isTargetingItalian = false;
-      let isTargetingSpanish = false;
-
-      if (providerContext && providerContext.settings) {
-        if (providerContext.settings.lang_it === true) {
-          isTargetingItalian = true;
-          isTargetingEnglish = false;
-        } else if (providerContext.settings.lang_es === true) {
-          isTargetingSpanish = true;
-          isTargetingEnglish = false;
-        }
-      }
-
-      let selectedUrl = null; 
-      if (links.length === 0) { return []; } 
-      
-      // 1. Primary priority match loop: Look for explicit language landing anchors
-      for (const link of links) { 
-        const text = link.text; 
-        if (isTargetingEnglish && (text.includes("eng") || text.includes("english"))) { 
-          selectedUrl = link.url; 
-          hasEnglish = true; 
-          break; 
-        } else if (isTargetingItalian && (text.includes("ita") || text.includes("italian") || text.includes("italiano"))) {
-          selectedUrl = link.url;
-          hasEnglish = false; 
-          break;
-        } else if (isTargetingSpanish && (text.includes("esp") || text.includes("spanish") || text.includes("castellano") || text.includes("latino"))) {
-          selectedUrl = link.url;
-          hasEnglish = false; 
-          break;
-        }
-      } 
-      
-      // 2. Second priority: Fallback to any active download links if preferred lang track isn't listed
-      if (!selectedUrl) { 
-        for (const link of links) { 
-          if (/\.(mp4|m3u8|mkv|avi)/i.test(link.url)) {
-            if (isTargetingEnglish && link.text.includes("sub")) continue; 
-            selectedUrl = link.url; 
-            break; 
-          }
-        } 
-      } 
-      
-      if (!selectedUrl) selectedUrl = links[0].url; 
-      let streamUrl = resolveUrl(movieUrl, selectedUrl); 
-
-      // 3. Sub-page resolution layer: If the chosen URL isn't a direct stream, follow it to extract the embedded media asset
-      if (!/\.(mp4|m3u8|mkv|avi|mov|webm)([?#].*)?$/i.test(streamUrl)) {
-        try {
-          const subPageHtml = yield fetchViaWorker(streamUrl);
-          const subLinks = [];
-          const anchorRegex = /<a\s[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi; let subMatch;
-          while ((subMatch = anchorRegex.exec(subPageHtml)) !== null) {
-            const subHref = subMatch[1].trim();
-            if (/\.(mp4|m3u8|mkv|avi)/i.test(subHref)) {
-              subLinks.push(subHref);
-            }
-          }
-          if (subLinks.length > 0) {
-            streamUrl = resolveUrl(streamUrl, subLinks[0]);
-          } else {
-            const atobResult = extractStreamFromAtob(subPageHtml, movieTitle, providerType === "tv" ? season : null, providerType === "tv" ? episode : null);
-            if (atobResult) streamUrl = atobResult.url;
-          }
-        } catch(e) {}
-      }
-
+      let selectedUrl = null; if (links.length === 0) { return []; } 
+      for (const link of links) { const text = link.text; if (text.includes("eng") || text.includes("english")) { selectedUrl = link.url; hasEnglish = true; break; } } 
+      if (!selectedUrl) { for (const link of links) { if (link.text.includes("ita") || link.text.includes("sub")) continue; selectedUrl = link.url; break; } } 
+      if (!selectedUrl) selectedUrl = links[0].url; const streamUrl = resolveUrl(movieUrl, selectedUrl); 
       
       const result = { 
         name: "CinemaCity", 
@@ -587,16 +518,4 @@ function getStreams(id, type, season, episode, providerContext = null) {
   }); 
 } 
 
-function onSettings() {
-    return [
-        { type: "header", label: "Global Language Track Selection" },
-        { type: "toggle", key: "lang_en", label: "English Track (Default)", defaultValue: true },
-        { type: "toggle", key: "lang_it", label: "Italian Track", defaultValue: false },
-        { type: "toggle", key: "lang_es", label: "Spanish Track", defaultValue: false }
-    ];
-}
-
-module.exports = { 
-  getStreams,
-  onSettings
-};
+module.exports = { getStreams };

@@ -47,26 +47,7 @@ function fetchJson(url, options) {
     });
 }
 
-
-        sourceOrigin = "BluRay";
-    } else if (/hdrip/i.test(scanText)) {
-        sourceOrigin = "HDRip";
-    } else if (/webrip/i.test(scanText)) {
-        sourceOrigin = "WEB-Rip";
-    } else if(/(webdl|web\-dl|itunes|amzn)/i.test(scanText)) {
-        sourceOrigin = "WEB-DL";
-    }
-
-    // Dynamic CDN detection mapping logic via URL string checks
-    var cdnLabel = "CDN1";
-    var cdnMatch = url.match(/cdn(\d+)/i);
-    if (cdnMatch) {
-        cdnLabel = "CDN" + cdnMatch[1];
-    } else if (url.indexOf("tga-hd") !== -1) {
-        cdnLabel = "TGA-CDN";
-    }
-
-    // ==================== RESTRUCTURED FILTER ENGINE ====================
+// ==================== RESTRUCTURED FILTER ENGINE ====================
 function makeStream(rawFilename, url, referer, parsedSize) {
     var decodedScan = "";
     try {
@@ -243,7 +224,6 @@ function makeStream(rawFilename, url, referer, parsedSize) {
         }
     };
 }
-
 
 // ─── MAIN getStreams ───────────────────────────────────────────────────────────
 function getStreams(tmdbId, mediaType, season, episode) {

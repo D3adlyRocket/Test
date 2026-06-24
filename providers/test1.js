@@ -169,7 +169,7 @@ function extractFebBoxShare(lordflixId, mediaType, seasonNum, episodeNum, uiToke
         const rawTitle = file.file_name || "FebBox Stream";
         const quality = "1080P";
         const audioTag = "Multi-Audio";
-        const finalName = `⚪ Lordflix | ${quality} | ${audioTag}`; 
+        const finalName = `🟣 Lordflix | ${quality} | ${audioTag}`; 
 
         const format = rawTitle.toLowerCase().includes(".mp4") ? "MP4" : rawTitle.toLowerCase().includes(".mkv") ? "MKV" : "M3U8 / HLS";
         const codecTag = rawTitle.toLowerCase().includes("x265") || rawTitle.toLowerCase().includes("hevc") ? "x265" : "x264";
@@ -314,9 +314,9 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
         // Line 3: Format, Codec
         // Line 4: Server gets its own line completely standalone
         const line1 = "🎬 " + m.title;
-        const line2 = "💎 " + m.quality + " | 🔊 " + m.audio + " | ⏱️ " + durationStr;
+        const line2 = "💎 " + m.quality + " | 🔊 " + m.audio + " | ⏳ " + durationStr;
         const line3 = "🎞️ " + m.format + " | 📌 " + m.codec + " • WEB-DL";
-        const line4 = "🗃️ " + m.server;
+        const line4 = "⛓️‍💥 " + m.server;
         
         const unifiedLayoutBlock = line1 + "\n" + line2 + "\n" + line3 + "\n" + line4;
 

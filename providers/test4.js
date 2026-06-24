@@ -1,3 +1,4 @@
+
 /**
  * Hashhackers - Pure Promise Version (TV Support, Quality, Size, Strict Filter)
  * Author: Xyr0nX/Antonio Ante
@@ -90,7 +91,7 @@ function makeStream(rawFilename, url, referer, parsedSize) {
         else if (hasEng) shortLangLabel = "English";
     }
 
-    // 3. TITLE CLEANER (Strict Filter Adjustment)
+    // 3. TITLE CLEANER
     var cleanDisplayTitle = rawFilename.replace(/\.(mkv|mp4|avi)$/i, "").replace(/\./g, " ");
     var seasonEpisodeBlock = "";
     
@@ -109,9 +110,8 @@ function makeStream(rawFilename, url, referer, parsedSize) {
         if (titleEndIdx > 0) cleanDisplayTitle = cleanDisplayTitle.substring(0, titleEndIdx);
     }
 
-    // Scrub trailing metadata elements visible in 1000143926.jpg
     cleanDisplayTitle = cleanDisplayTitle
-        .replace(/AMZN|WEB\-DL|WEB|DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit|iTunes|HQ|HDRip|BluRay|6CH|Dual|Audio|Hindi|English|Tamil|Telugu|720p|1080p|2160p|4k/gi, "")
+        .replace(/AMZN|WEB\-DL|WEB|DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit|iTunes/gi, "")
         .replace(/[-_()\[\]|]/g, " ")
         .replace(/\s+/g, " ")
         .trim();
@@ -122,12 +122,11 @@ function makeStream(rawFilename, url, referer, parsedSize) {
     var qEmoji = (quality === "2160P") ? "🌟" : "💎";
     var line2 = qEmoji + " " + quality + " | 🌍 " + shortLangLabel + " | 💾 " + (parsedSize || "N/A");
 
-    // Dynamic HDR fix (Safe non-lookahead fallback logic)
     var dynamicHdr = "";
     var showLightning = false;
     if (/hdr10\+|hdr10p/i.test(scanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
     else if (/hdr10/i.test(scanText)) { dynamicHdr = "HDR10"; showLightning = true; }
-    else if (/hdr/i.test(scanText) && !/hdrip/i.test(scanText)) { dynamicHdr = "HDR"; showLightning = true; }
+    else if (/hdr/i.test(scanText)) { dynamicHdr = "HDR"; showLightning = true; }
 
     var bitDepth = /10bit/i.test(scanText) ? "🔆 10Bit" : "";
     var dv = /(dv|dolby\s*vision|dolbyvision)/i.test(scanText) ? "🕵️‍♀️ DV" : "";
@@ -180,32 +179,19 @@ function makeStream(rawFilename, url, referer, parsedSize) {
     var atmosBlock = displayAtmos ? " • 🔊 Atmos" : "";
     var line4 = formatTag + " | 🎧 " + audioChannelTag + atmosBlock + " |";
 
-    // Source mapping fixes including accurate HDRip detection
     var sourceOrigin = "WEB-DL";
     if (isBluRay) {
         sourceOrigin = "BluRay";
-    } else if (/hdrip/i.test(scanText)) {
-        sourceOrigin = "HDRip";
-    } else if (/webrip/i.test(scanText)) {
+    } else if (/webrip/i.test(scanText) || /hdrip/i.test(scanText)) {
         sourceOrigin = "WEB-Rip";
     } else if(/(webdl|web\-dl|itunes|amzn)/i.test(scanText)) {
         sourceOrigin = "WEB-DL";
     }
 
-    // Dynamic CDN detection mapping logic via URL string checks
-    var cdnLabel = "CDN1";
-    var cdnMatch = url.match(/cdn(\d+)/i);
-    if (cdnMatch) {
-        cdnLabel = "CDN" + cdnMatch[1];
-    } else if (url.indexOf("tga-hd") !== -1) {
-        cdnLabel = "TGA-CDN";
-    }
-
     var imaxBlock = /imax/i.test(scanText) ? " | 👁️ iMAX" : "";
-    var line5 = "🔗 GramCinema • " + cdnLabel + " | ☁️ " + sourceOrigin + imaxBlock;
+    var line5 = "🔗 HashHackers | ☁️ " + sourceOrigin + imaxBlock;
 
-    // Updated Provider Identity label to GramCinema
-    var finalName = "GramCinema | " + quality + " | " + shortLangLabel;
+    var finalName = "HashHackers | " + quality + " | " + shortLangLabel;
     var finalTitle = 
         "🎬 " + cleanDisplayTitle + (yearBlock ? " - (" + yearBlock + ")" : "") + seasonEpisodeBlock + "\n" +
         line2 + "\n" +

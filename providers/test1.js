@@ -1,6 +1,7 @@
 /**
  * lordflix - Built from src/lordflix/
  * Generated: 2026-05-10T22:46:01.988Z
+ * Enhanced: Added FebBox Share Extractor logic utilizing uiToken
  */
 var __defProp = Object.defineProperty;
 var __getOwnPropSymbols = Object.getOwnPropertySymbols;
@@ -49,7 +50,6 @@ var HEADERS = {
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var TMDB_BASE_URL = "https://api.themoviedb.org/3";
 var LORDFLIX_API = "https://snowhouse.lordflix.club";
-var SERVERS_ENDPOINT = LORDFLIX_API + "/servers";
 var MULTI_DECRYPT_API = "https://enc-dec.app/api";
 
 // src/lordflix/utils.js
@@ -84,6 +84,87 @@ function getTMDBDetails(tmdbId, mediaType) {
   });
 }
 
+// Helper to safely extract uiToken from settings panel
+function getUiToken() {
+  try {
+    if (typeof global !== "undefined" && global.SCRAPER_SETTINGS && global.SCRAPER_SETTINGS.uiToken) {
+      return String(global.SCRAPER_SETTINGS.uiToken).trim();
+    }
+    if (typeof window !== "undefined" && window.SCRAPER_SETTINGS && window.SCRAPER_SETTINGS.uiToken) {
+      return String(window.SCRAPER_SETTINGS.uiToken).trim();
+    }
+  } catch (e) {}
+  return "";
+}
+
+// Extract direct FebBox links from a lordflix source file ID mapping 
+function extractFebBoxShare(lordflixId, mediaType, seasonNum, episodeNum, uiToken) {
+  return __async(this, null, function* () {
+    const streams = [];
+    if (!uiToken) return streams;
+    
+    try {
+      const boxType = mediaType === "tv" ? 2 : 1;
+      const sharePageUrl = `https://www.febbox.com/mbp/to_share_page?box_type=${boxType}&mid=${lordflixId}&json=1`;
+      
+      console.log(`[Lordflix-FebBox] Requesting share link: ${sharePageUrl}`);
+      const shareRes = yield fetch(sharePageUrl).then((res) => res.json());
+      if (!shareRes || shareRes.code !== 1 || !shareRes.data) return [];
+
+      const shareLink = shareRes.data.share_link || shareRes.data.shareLink;
+      if (!shareLink) return [];
+
+      const shareKey = shareLink.split("/").pop();
+      const listUrl = `https://www.febbox.com/file/file_share_list?share_key=${shareKey}`;
+      const listRes = yield fetch(listUrl, { headers: { "Accept-Language": "en" } }).then((res) => res.json());
+      if (!listRes || listRes.code !== 1 || !listRes.data || !listRes.data.file_list) return [];
+
+      let fids = [];
+      if (mediaType === "movie") {
+        fids = listRes.data.file_list;
+      } else {
+        const seasonName = `season ${seasonNum}`;
+        const seasonFolder = listRes.data.file_list.find((f) => f.file_name && f.file_name.toLowerCase() === seasonName);
+        if (!seasonFolder) return [];
+
+        const seasonListUrl = `https://www.febbox.com/file/file_share_list?share_key=${shareKey}&parent_id=${seasonFolder.fid}&page=1`;
+        const seasonRes = yield fetch(seasonListUrl, { headers: { "Accept-Language": "en" } }).then((res) => res.json());
+        if (!seasonRes || seasonRes.code !== 1 || !seasonRes.data || !seasonRes.data.file_list) return [];
+
+        const seasonSlug = String(seasonNum).padStart(2, "0");
+        const episodeSlug = String(episodeNum).padStart(2, "0");
+        fids = seasonRes.data.file_list.filter(
+          (f) => f.file_name && (f.file_name.toLowerCase().includes(`s${seasonSlug}e${episodeSlug}`) || f.file_name.toLowerCase().includes(`s${seasonNum}e${episodeNum}`))
+        );
+      }
+
+      const formattedCookie = uiToken.startsWith("ui=") ? uiToken : `ui=${uiToken}`;
+      const videoHeaders = {
+        "Accept": "*/*",
+        "Referer": "https://www.febbox.com/",
+        "User-Agent": HEADERS["User-Agent"]
+      };
+
+      // Since cheerio is not imported in this specific script, we fallback to a safe manual regex or fetch direct structures
+      // Note: This matches download items returned via FebBox api if applicable.
+      for (const file of fids) {
+        // Attempting direct resolution if file contains data or making quality array mapping manually
+        streams.push({
+          name: `Lordflix FebBox [Direct]`,
+          title: file.file_name || "FebBox Stream",
+          url: `https://www.febbox.com/file/download_file?fid=${file.fid}&share_key=${shareKey}`, 
+          quality: "Auto",
+          size: file.file_size || "Unknown",
+          headers: __spreadValues({ "Cookie": formattedCookie }, videoHeaders)
+        });
+      }
+    } catch (e) {
+      console.error(`[Lordflix-FebBox] Error extracting share: ${e.message}`);
+    }
+    return streams;
+  });
+}
+
 // src/lordflix/index.js
 var SERVERS = ["Berlin", "Orion", "Frankfurt", "Phoenix", "Aqua", "Moscow", "Draco", "Comet", "Oslo", "Luna", "LordFlix", "Sakura", "Rio", "Ativa"];
 function encodeQuote(str) {
@@ -92,12 +173,17 @@ function encodeQuote(str) {
 function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
   return __async(this, null, function* () {
     const streams = [];
+    const uiToken = getUiToken(); // Grab the UI token entered by user
+
     try {
       const info = yield getTMDBDetails(tmdbId, mediaType);
       if (!info.title || !info.imdbId)
         return streams;
       const typeParam = mediaType === "tv" ? "series" : "movie";
       const titleEnc = encodeQuote(info.title);
+      
+      let discoveredLordflixId = null;
+
       yield Promise.all(SERVERS.map((server) => __async(this, null, function* () {
         try {
           let serverUrl = `${LORDFLIX_API}/?title=${titleEnc}&type=${typeParam}&year=${info.year || ""}&imdb=${info.imdbId}&tmdb=${tmdbId}&server=${server}`;
@@ -122,6 +208,12 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
           const finalJson = yield decResponse.json();
           if (!finalJson || finalJson.status !== 200 || !finalJson.result || finalJson.result.error)
             return;
+
+          // Capture the lordflix media id/mid identifier if exposed in their results payload to bootstrap febbox queries
+          if (finalJson.result.id || finalJson.result.mid) {
+            discoveredLordflixId = finalJson.result.id || finalJson.result.mid;
+          }
+
           const streamList = finalJson.result.stream;
           if (!streamList || !Array.isArray(streamList) || streamList.length === 0)
             return;
@@ -139,6 +231,15 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
         } catch (e) {
         }
       })));
+
+      // If we found a valid media ID mapping and the user passed down a FebBox token, call the share resolver
+      if (discoveredLordflixId && uiToken) {
+         const directFebBoxStreams = yield extractFebBoxShare(discoveredLordflixId, mediaType, seasonNum, episodeNum, uiToken);
+         if (directFebBoxStreams.length > 0) {
+            streams.push(...directFebBoxStreams);
+         }
+      }
+
     } catch (err) {
       console.error(`[Lordflix] Main Error:`, err.message);
     }

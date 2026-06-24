@@ -258,7 +258,7 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
           if (topStream.type === "hls" && topStream.playlist) {
             const quality = "1080P";
             const audioTag = "Multi-Audio";
-            const finalName = `⚪ Lordflix | ${quality} | ${audioTag}`;
+            const finalName = `🟣 Lordflix | ${quality} | ${audioTag}`;
 
             const displayTitle = mediaType === "tv" 
               ? `${info.title} - S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}${info.year ? ` (${info.year})` : ""}` 

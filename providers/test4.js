@@ -47,7 +47,26 @@ function fetchJson(url, options) {
     });
 }
 
-// ==================== RESTRUCTURED FILTER ENGINE ====================
+
+        sourceOrigin = "BluRay";
+    } else if (/hdrip/i.test(scanText)) {
+        sourceOrigin = "HDRip";
+    } else if (/webrip/i.test(scanText)) {
+        sourceOrigin = "WEB-Rip";
+    } else if(/(webdl|web\-dl|itunes|amzn)/i.test(scanText)) {
+        sourceOrigin = "WEB-DL";
+    }
+
+    // Dynamic CDN detection mapping logic via URL string checks
+    var cdnLabel = "CDN1";
+    var cdnMatch = url.match(/cdn(\d+)/i);
+    if (cdnMatch) {
+        cdnLabel = "CDN" + cdnMatch[1];
+    } else if (url.indexOf("tga-hd") !== -1) {
+        cdnLabel = "TGA-CDN";
+    }
+
+    // ==================== RESTRUCTURED FILTER ENGINE ====================
 function makeStream(rawFilename, url, referer, parsedSize) {
     var decodedScan = "";
     try {
@@ -109,7 +128,7 @@ function makeStream(rawFilename, url, referer, parsedSize) {
         if (titleEndIdx > 0) cleanDisplayTitle = cleanDisplayTitle.substring(0, titleEndIdx);
     }
 
-    // Aggressive post-year leftover tag scrubbing
+    // Scrub trailing metadata elements visible in 1000143926.jpg
     cleanDisplayTitle = cleanDisplayTitle
         .replace(/AMZN|WEB\-DL|WEB|DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit|iTunes|HQ|HDRip|BluRay|6CH|Dual|Audio|Hindi|English|Tamil|Telugu|720p|1080p|2160p|4k/gi, "")
         .replace(/[-_()\[\]|]/g, " ")
@@ -122,12 +141,12 @@ function makeStream(rawFilename, url, referer, parsedSize) {
     var qEmoji = (quality === "2160P") ? "🌟" : "💎";
     var line2 = qEmoji + " " + quality + " | 🌍 " + shortLangLabel + " | 💾 " + (parsedSize || "N/A");
 
-    // Dynamic HDR fix: Exclude words ending in 'rip' to ignore HDRip false positives
+    // Dynamic HDR fix (Safe non-lookahead fallback logic)
     var dynamicHdr = "";
     var showLightning = false;
     if (/hdr10\+|hdr10p/i.test(scanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
     else if (/hdr10/i.test(scanText)) { dynamicHdr = "HDR10"; showLightning = true; }
-    else if (/hdr(?!ip)/i.test(scanText)) { dynamicHdr = "HDR"; showLightning = true; }
+    else if (/hdr/i.test(scanText) && !/hdrip/i.test(scanText)) { dynamicHdr = "HDR"; showLightning = true; }
 
     var bitDepth = /10bit/i.test(scanText) ? "🔆 10Bit" : "";
     var dv = /(dv|dolby\s*vision|dolbyvision)/i.test(scanText) ? "🕵️‍♀️ DV" : "";
@@ -224,6 +243,7 @@ function makeStream(rawFilename, url, referer, parsedSize) {
         }
     };
 }
+
 
 // ─── MAIN getStreams ───────────────────────────────────────────────────────────
 function getStreams(tmdbId, mediaType, season, episode) {

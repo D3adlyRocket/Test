@@ -67,20 +67,39 @@ function fetchJson(_0) {
     return JSON.parse(raw);
   });
 }
-function getTMDBDetails(tmdbId, mediaType) {
+function getTMDBDetails(tmdbId, mediaType, seasonNum = 1, episodeNum = 1) {
   return __async(this, null, function* () {
     var _a, _b;
-    const endpoint = mediaType === "tv" ? "tv" : "movie";
-    const url = `${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
-    const response = yield fetch(url, { headers: { "Accept": "application/json" } });
-    if (!response.ok)
-      throw new Error(`TMDB API error`);
-    const data = yield response.json();
-    return {
-      title: mediaType === "tv" ? data.name : data.title,
-      year: ((_a = mediaType === "tv" ? data.first_air_date : data.release_date) == null ? void 0 : _a.split("-")[0]) || null,
-      imdbId: ((_b = data.external_ids) == null ? void 0 : _b.imdb_id) || null
-    };
+    try {
+      const endpoint = mediaType === "tv" ? "tv" : "movie";
+      const url = `${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+      const response = yield fetch(url, { headers: { "Accept": "application/json" } });
+      if (!response.ok) throw new Error(`TMDB API error`);
+      const data = yield response.json();
+      
+      let runtime = data.runtime || 0;
+      
+      // Fixed: Directly fetches the specific TV episode details to extract true dynamic runtime (CinemaCity Logic)
+      if (mediaType === "tv" && tmdbId) {
+        try {
+          const epUrl = `${TMDB_BASE_URL}/tv/${tmdbId}/season/${seasonNum}/episode/${episodeNum}?api_key=${TMDB_API_KEY}`;
+          const epResponse = yield fetch(epUrl, { headers: { "Accept": "application/json" } });
+          if (epResponse.ok) {
+            const epData = yield epResponse.json();
+            if (epData.runtime) runtime = epData.runtime;
+          }
+        } catch(e) {}
+      }
+
+      return {
+        title: mediaType === "tv" ? data.name : data.title,
+        year: ((_a = mediaType === "tv" ? data.first_air_date : data.release_date) == null ? void 0 : _a.split("-")[0]) || null,
+        imdbId: ((_b = data.external_ids) == null ? void 0 : _b.imdb_id) || null,
+        runtime: runtime
+      };
+    } catch(err) {
+      return { title: null, year: null, imdbId: null, runtime: 0 };
+    }
   });
 }
 
@@ -168,7 +187,8 @@ function extractFebBoxShare(lordflixId, mediaType, seasonNum, episodeNum, uiToke
             audio: audioTag,
             server: "Server 1",
             format: format,
-            codec: codecTag
+            codec: codecTag,
+            runtime: info.runtime
           }
         });
       }
@@ -190,10 +210,12 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
     const streams = [];
     const uiToken = getUiToken(); // Grab the UI token entered by user
 
-    try {
-      const info = yield getTMDBDetails(tmdbId, mediaType);
+        try {
+      // Pass season and episode information downstream to populate details correctly
+      const info = yield getTMDBDetails(tmdbId, mediaType, seasonNum, episodeNum);
       if (!info.title || !info.imdbId)
         return streams;
+
       const typeParam = mediaType === "tv" ? "series" : "movie";
       const titleEnc = encodeQuote(info.title);
       
@@ -242,7 +264,7 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
               ? `${info.title} - S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}${info.year ? ` (${info.year})` : ""}` 
               : `${info.title}${info.year ? ` (${info.year})` : ""}`;
 
-            streams.push({
+              streams.push({
               name: finalName,
               title: displayTitle,
               url: topStream.playlist,
@@ -256,7 +278,8 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
                 audio: audioTag,
                 server: `[Server: ${server}]`,
                 format: "M3U8 / HLS",
-                codec: "x264"
+                codec: "x264",
+                runtime: info.runtime // Maps the extracted duration value directly
               }
             });
           }
@@ -277,13 +300,14 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
       console.error(`[Lordflix] Main Error:`, err.message);
     }
 
-    // Unified TV and Mobile Multi-Line Layout Interceptor
+        // Unified TV and Mobile Multi-Line Layout Interceptor
     return streams.map(stream => {
       if (!stream._meta) return stream;
       try {
         const m = stream._meta;
-        // Map dynamic or static duration values smoothly
-        const durationStr = stream.duration ? stream.duration : "N/A";
+        // Calculate dynamic runtimes precisely
+        const minutes = m.runtime || stream.runtime || 0;
+        const durationStr = minutes > 0 ? `${minutes} min` : "N/A";
 
         // Rearranged per requested specification:
         // Line 2: Quality, Audio, Duration (shifted up to replace server)

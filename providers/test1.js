@@ -148,29 +148,31 @@ function extractFebBoxShare(lordflixId, mediaType, seasonNum, episodeNum, uiToke
             // Enhanced Multi-Line Formatting Engine (CinemaCity Layout Style)
       for (const file of fids) {
         const rawTitle = file.file_name || "FebBox Stream";
-        const quality = "1080P"; // FebBox default fallback tag
+        const quality = "1080P";
         const audioTag = "Multi-Audio";
         const finalName = `⚪ Lordflix | ${quality} | ${audioTag}`; 
 
         const format = rawTitle.toLowerCase().includes(".mp4") ? "MP4" : rawTitle.toLowerCase().includes(".mkv") ? "MKV" : "M3U8 / HLS";
         const codecTag = rawTitle.toLowerCase().includes("x265") || rawTitle.toLowerCase().includes("hevc") ? "x265" : "x264";
-        const dynamicSourceTag = `📌 ${codecTag} • WEB-DL`;
-
-        const line1 = "🎬 " + rawTitle;
-        const line2 = "💎 " + quality + " | 🔊 " + audioTag + " | 🗃️ Server 1";
-        const line3 = "🎞️ " + format + " | ⏱️ N/A | " + dynamicSourceTag;
-        const finalSubtitlesBlock = line1 + "\n" + line2 + "\n" + line3;
-
+        
         streams.push({
           name: finalName,
-          title: finalSubtitlesBlock,
-          description: finalSubtitlesBlock,
-          size: finalSubtitlesBlock,
+          title: rawTitle,
           url: `https://www.febbox.com/file/download_file?fid=${file.fid}&share_key=${shareKey}`, 
           quality: quality,
-          headers: __spreadValues({ "Cookie": formattedCookie }, videoHeaders)
+          headers: __spreadValues({ "Cookie": formattedCookie }, videoHeaders),
+          _meta: {
+            isCustom: true,
+            title: rawTitle,
+            quality: quality,
+            audio: audioTag,
+            server: "Server 1",
+            format: format,
+            codec: codecTag
+          }
         });
       }
+
     } catch (e) {
       console.error(`[Lordflix-FebBox] Error extracting share: ${e.message}`);
     }
@@ -230,9 +232,8 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
           const streamList = finalJson.result.stream;
           if (!streamList || !Array.isArray(streamList) || streamList.length === 0)
             return;
-          const topStream = streamList[0];
+            const topStream = streamList[0];
           if (topStream.type === "hls" && topStream.playlist) {
-            // Enhanced Multi-Line Formatting Engine (CinemaCity Layout Style)
             const quality = "1080P";
             const audioTag = "Multi-Audio";
             const finalName = `⚪ Lordflix | ${quality} | ${audioTag}`;
@@ -241,20 +242,22 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
               ? `${info.title} - S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}${info.year ? ` (${info.year})` : ""}` 
               : `${info.title}${info.year ? ` (${info.year})` : ""}`;
 
-            const line1 = "🎬 " + displayTitle;
-            const line2 = "💎 " + quality + " | 🔊 " + audioTag + " | 🗃️ [Server: " + server + "]";
-            const line3 = "🎞️ M3U8 / HLS | ⏱️ N/A | 📌 x264 • WEB-DL";
-            const finalSubtitlesBlock = line1 + "\n" + line2 + "\n" + line3;
-
             streams.push({
               name: finalName,
-              title: finalSubtitlesBlock,
-              description: finalSubtitlesBlock,
-              size: finalSubtitlesBlock,
+              title: displayTitle,
               url: topStream.playlist,
               quality: quality,
               type: "m3u8",
-              headers: HEADERS
+              headers: HEADERS,
+              _meta: {
+                isCustom: true,
+                title: displayTitle,
+                quality: quality,
+                audio: audioTag,
+                server: `[Server: ${server}]`,
+                format: "M3U8 / HLS",
+                codec: "x264"
+              }
             });
           }
 
@@ -270,17 +273,36 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
          }
       }
 
-        } catch (err) {
+            } catch (err) {
       console.error(`[Lordflix] Main Error:`, err.message);
     }
 
-    // Intercept native visual formatting layers cleanly to hide the app's default trailing language text
+    // Unified TV and Mobile Multi-Line Layout Interceptor
     return streams.map(stream => {
+      if (!stream._meta) return stream;
       try {
-        Object.defineProperties(stream, { 
+        const m = stream._meta;
+        // Map dynamic or static duration values smoothly
+        const durationStr = stream.duration ? stream.duration : "N/A";
+
+        // Rearranged per requested specification:
+        // Line 2: Quality, Audio, Duration (shifted up to replace server)
+        // Line 3: Format, Codec
+        // Line 4: Server gets its own line completely standalone
+        const line1 = "🎬 " + m.title;
+        const line2 = "💎 " + m.quality + " | 🔊 " + m.audio + " | ⏱️ " + durationStr;
+        const line3 = "🎞️ " + m.format + " | 📌 " + m.codec + " • WEB-DL";
+        const line4 = "🗃️ " + m.server;
+        
+        const unifiedLayoutBlock = line1 + "\n" + line2 + "\n" + line3 + "\n" + line4;
+
+        Object.defineProperties(stream, {
+          title: { get: () => unifiedLayoutBlock, enumerable: true, configurable: true },
+          description: { get: () => unifiedLayoutBlock, enumerable: true, configurable: true },
+          size: { get: () => unifiedLayoutBlock, enumerable: true, configurable: true },
           qualityTag: { get: () => "", enumerable: true, configurable: true }, 
           quality: { get: () => "\x08", enumerable: true, configurable: true }, 
-          language: { get: () => "", enumerable: true, configurable: true } 
+          language: { get: () => "", enumerable: true, configurable: true }
         });
       } catch (e) {}
       return stream;

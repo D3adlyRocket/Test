@@ -14,7 +14,7 @@ const __async = (__this, __arguments, generator) => {
 };
 
 // 1. FIXED: Changed PYNVIX_API into an array containing all your providers
-const PYNVIX_PROVIDERS = [
+const CINESCRAPE_PROVIDERS = [
   "https://cinescrape-srkf.onrender.com/providers=fmftp",
   "https://cinescrape-srkf.onrender.com/providers=moviebox",
   "https://cinescrape-srkf.onrender.com/providers=nowhdtime",

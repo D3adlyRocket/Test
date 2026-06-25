@@ -33,9 +33,20 @@ const HEADERS = {
 const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
 const cleanText = (str) => String(str ?? "").replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "").trim();
 
-const extractQuality = (titleText) => {
-  const match = String(titleText ?? "").match(/(\d{3,4}p)/i);
+// 3. FIXED: Scans both Title text AND the stream URL itself to accurately determine 720p/1080p/4k
+const extractQuality = (titleText, urlText) => {
+  const combined = (String(titleText ?? "") + " " + String(urlText ?? "")).toLowerCase();
+  if (combined.includes("2160p") || combined.includes("4k")) return "2160p";
+  if (combined.includes("720p")) return "720p";
+  if (combined.includes("480p")) return "480p";
+  const match = combined.match(/(\d{3,4}p)/i);
   return match?.[0] ?? "1080p";
+};
+
+// 4. FIXED: Automatically searches for file size (GB/MB) hidden inside the provider response
+const extractSize = (text) => {
+  const match = String(text ?? "").match(/(\d+(?:\.\d+)?\s*(?:GB|MB|gb|mb))\b/);
+  return match ? match[1].toUpperCase() : "N/A";
 };
 
 const isProxyUrl = (url) =>
@@ -83,7 +94,7 @@ function resolveProxyUrl(url) {
   });
 }
 
-// ==================== FLAWLESS STRATIFIED LAYOUT ENGINE ====================
+// ==================== RECONFIGURED LAYOUT ENGINE ====================
 function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var internalQuality = quality ? quality.toLowerCase() : "1080p";
   var encodedUrl = url.replace(/ /g, "%20");
@@ -93,7 +104,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   var combinedScanText = (cleanNameText + " " + cleanTitleText + " " + encodedUrl).toLowerCase();
   var audioScan = combinedScanText.replace(/[\s\.]+/g, "");
 
-  // 1. STRICT LANGUAGE MATRIX ENGINE
+  // 1. LANGUAGE DETECTION
   var shortLangLabel = "Dual-Audio"; 
   var hasHindi = /\bhindi\b/i.test(combinedScanText);
   var hasEng = /\b(english|eng)\b/i.test(combinedScanText);
@@ -117,19 +128,19 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     else if (hasEng) shortLangLabel = "English";
   }
 
-  // 2. SERIES & MOVIE TITLE CLEANING ENGINE
+  // 2. FIXED: CLEAN TITLE FORMATTING STRATIFIED ENGINE (🎬 Movie or Series - (Year))
   var cleanDisplayTitle = cleanNameText;
   var seasonEpisodeBlock = "";
   
-  var tvMatch = cleanNameText.match(/\b(S\d{1,2}\s*E\d{1,2})\b/i);
+  var tvMatch = combinedScanText.match(/\b(s\d{1,2}\s*e\d{1,2})\b/i);
   if (tvMatch) {
     seasonEpisodeBlock = " | " + tvMatch[1].toUpperCase().replace(/\s+/g, "");
-    var tvIdx = cleanNameText.toLowerCase().indexOf(tvMatch[0].toLowerCase());
-    if (tvIdx > 0) cleanDisplayTitle = cleanNameText.substring(0, tvIdx);
+    var tvIdx = cleanDisplayTitle.toLowerCase().indexOf(tvMatch[0].toLowerCase());
+    if (tvIdx > 0) cleanDisplayTitle = cleanDisplayTitle.substring(0, tvIdx);
   }
 
   var yearBlock = "";
-  var yearMatch = cleanDisplayTitle.match(/\b(19|20)\d{2}\b/);
+  var yearMatch = combinedScanText.match(/\b(19|20)\d{2}\b/);
   if (yearMatch) {
     yearBlock = yearMatch[0];
     var titleEndIdx = cleanDisplayTitle.indexOf(yearBlock);
@@ -137,76 +148,43 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
   }
 
   cleanDisplayTitle = cleanDisplayTitle
-    .replace(/AMZN|WEB-DL|AVC|x264|x265|HEVC|STAN|WEBRip|SDR|10bit/gi, "")
+    .replace(/amzn|web-dl|avc|x264|x265|hevc|stan|webrip|sdr|10bit|nf|dp/gi, "")
     .replace(/[-_()\[\]|]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
   cleanDisplayTitle = cleanDisplayTitle.replace(/\b\w/g, function (c) { return c.toUpperCase(); });
 
-  // 3. SUBHEADING LINE CONFIGURATIONS
   var qUpper = internalQuality.toUpperCase();
   var qEmoji = (internalQuality === "2160p" || internalQuality.includes("4k")) ? "🌟" : "💎";
+  
+  // SUBHEADING LINE 2 DESIGN
   var line2 = qEmoji + " " + qUpper + " | 🌍 " + shortLangLabel + " | 💾 " + (fileSize || "N/A");
 
-  var dynamicHdr = "";
-  var showLightning = false;
-  if (/\b(hdr10\+|hdr10p)\b/i.test(combinedScanText)) { dynamicHdr = "HDR10+"; showLightning = true; }
-  else if (/\bhdr10\b/i.test(combinedScanText)) { dynamicHdr = "HDR10"; showLightning = true; }
-  else if (/\bhdr\b/i.test(combinedScanText)) { dynamicHdr = "HDR"; showLightning = true; }
-  else if (/\bsdr\b/i.test(combinedScanText)) { dynamicHdr = "SDR"; showLightning = true; }
-
-  var bitDepth = /\b10bit\b/i.test(combinedScanText) ? "🔆 10Bit" : "";
-  var dv = /\b(dv|dolby\s*vision)\b/i.test(combinedScanText) ? "🕵️‍♀️ DV" : "";
-  var isBluRay = /\bbluray\b/i.test(combinedScanText);
-  
+  // CODEC DETERMINATION
   var codecTag = "x264";
   if (/\b(hevc|x265|265)\b/i.test(combinedScanText) || internalQuality === "2160p") codecTag = "HEVC x265";
 
-  var line3Part1Elements = [];
-  if (dynamicHdr) line3Part1Elements.push(dynamicHdr);
-  if (bitDepth) line3Part1Elements.push(bitDepth);
-  var line3Part1 = line3Part1Elements.join(" • ");
-
-  var line3Part2Elements = [];
-  if (isBluRay) line3Part2Elements.push("📀 BluRay");
-  if (dv) line3Part2Elements.push(dv);
-  var line3Part2 = line3Part2Elements.join(" • ");
-
-  var metaParts = [];
-  if (line3Part1) metaParts.push(line3Part1);
-  if (line3Part2) metaParts.push(line3Part2);
-
-  var line3 = "";
-  if (metaParts.length > 0) {
-    var prefix = showLightning ? "⚡ " : "";
-    line3 = prefix + metaParts.join(" | ") + " | 🎥 " + codecTag;
-  } else {
-    line3 = "🎥 " + codecTag;
-  }
-
+  // FORMAT DESIGNATION
   var formatTag = "🎞️ MKV";
   if (/\bmp4\b/i.test(combinedScanText) || encodedUrl.toLowerCase().split('?')[0].endsWith(".mp4")) {
     formatTag = "🎞️ MP4";
   }
 
+  // AUDIO CHANNELS DESIGNATION
   var audioChannelTag = "DDP 5.1";
   var displayAtmos = /\batmos\b/i.test(combinedScanText);
 
   if (audioScan.indexOf("ddp51") !== -1 && audioScan.indexOf("truehd") !== -1 && audioScan.indexOf("71") !== -1) {
     audioChannelTag = "DDP 5.1 + TrueHD 7.1";
     displayAtmos = true;
-  }
-  else if (audioScan.indexOf("ddp51") !== -1 && audioScan.indexOf("ddp71") !== -1) {
+  } else if (audioScan.indexOf("ddp51") !== -1 && audioScan.indexOf("ddp71") !== -1) {
     audioChannelTag = "DDP 5.1 + DDP 7.1";
-  }
-  else if (audioScan.indexOf("ddp51") !== -1 && audioScan.indexOf("aac71") !== -1) {
+  } else if (audioScan.indexOf("ddp51") !== -1 && audioScan.indexOf("aac71") !== -1) {
     audioChannelTag = "DDP 5.1 + AAC 7.1";
-  }
-  else if (audioScan.indexOf("ddp51") !== -1) {
+  } else if (audioScan.indexOf("ddp51") !== -1) {
     audioChannelTag = "DDP 5.1";
-  }
-  else {
+  } else {
     if (audioScan.indexOf("truehd") !== -1) {
       audioChannelTag = "TrueHD 7.1";
     } else if (audioScan.indexOf("aac") !== -1) {
@@ -215,25 +193,25 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
       audioChannelTag = "DDP 5.1";
     }
   }
-
   var atmosBlock = displayAtmos ? " • 🔊 Atmos" : "";
-  var line4 = formatTag + " | 🎧 " + audioChannelTag + atmosBlock + " |";
+
+  // 2. FIXED: Reorganized custom requested layout line
+  var line3 = formatTag + " | 🎧 " + audioChannelTag + atmosBlock + " | 🎥 " + codecTag;
 
   var sourceOrigin = "WEB-DL";
-  if (isBluRay) sourceOrigin = "BluRay";
+  if (/\bbluray\b/i.test(combinedScanText)) sourceOrigin = "BluRay";
   else if (/\b(webrip|hdrip)\b/i.test(combinedScanText)) sourceOrigin = "WEB-Rip";
 
   var imaxBlock = /\bimax\b/i.test(combinedScanText) ? " | 👁️ iMAX" : "";
-  var line5 = "🔗 " + (serverType || "Direct") + " | ☁️ " + sourceOrigin + imaxBlock;
+  var line4 = "🔗 " + (serverType || "Direct") + " | ☁️ " + sourceOrigin + imaxBlock;
 
-  // 4. STRATIFIED LAYOUT GENERATION
+  // LAYOUT COMPILE
   var finalName = PROVIDER_NAME + " | " + qUpper + " | " + shortLangLabel;
   var finalTitle = 
     "🎬 " + cleanDisplayTitle + (yearBlock ? " - (" + yearBlock + ")" : "") + seasonEpisodeBlock + "\n" +
     line2 + "\n" +
     line3 + "\n" +
-    line4 + "\n" +
-    line5;
+    line4;
 
   var baseStream = {
     name: finalName,
@@ -242,7 +220,7 @@ function makeStream(name, title, url, quality, serverType, referer, fileSize) {
     url: encodedUrl,
     behaviorHints: {
       notWebReady: true,
-      proxyHeaders: { request: { ...Object.keys(baseStream?.behaviorHints?.proxyHeaders?.request || {}).length > 0 ? baseStream.behaviorHints.proxyHeaders.request : { "Referer": "https://4khdhub.one/" } } }
+      proxyHeaders: { request: { "Referer": referer || "https://cinescrape-srkf.onrender.com/" } }
     }
   };
 
@@ -268,9 +246,12 @@ function buildStream(item, providerUrl) {
 
     if (!streamUrl) return null;
 
-    // Detect file details from source item details
-    const cleanedTitle = cleanText(item.title || item.name || "");
-    const quality = extractQuality(cleanedTitle);
+    const rawTitleText = item.title || item.name || "";
+    const cleanedTitle = cleanText(rawTitleText);
+    
+    // Dynamically checks everything for accuracy
+    const quality = extractQuality(rawTitleText, streamUrl);
+    const size = extractSize(rawTitleText);
     
     let serverName = "Direct";
     if (providerUrl.includes("fmftp")) serverName = "FMFTP";
@@ -278,8 +259,7 @@ function buildStream(item, providerUrl) {
     else if (providerUrl.includes("netmirror")) serverName = "NetMirror";
     else if (providerUrl.includes("miruro")) serverName = "Miruro";
 
-    // Feed directly into the stratified visual formatting engine automatically
-    return makeStream(cleanedTitle, item.title || "", streamUrl, quality, serverName, providerUrl, "N/A");
+    return makeStream(cleanedTitle, rawTitleText, streamUrl, quality, serverName, providerUrl, size);
   });
 }
 
@@ -345,7 +325,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
         }
       }
 
-      // --- ENGINE WEIGHT SORTING ---
       allStreams.forEach(function(s) {
           var scan = (s.title || "").toLowerCase();
           if (scan.indexOf("2160p") !== -1 || scan.indexOf("4k") !== -1) s._resWeight = 4;

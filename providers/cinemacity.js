@@ -13,14 +13,18 @@ const __async = (__this, __arguments, generator) => {
   });
 };
 
-const PYNVIX_API = "https://cinescrape-srkf.onrender.com/providers=fmftp";
-const PYNVIX_API = "https://cinescrape-srkf.onrender.com/providers=moviebox";
-const PYNVIX_API = "https://cinescrape-srkf.onrender.com/providers=nowhdtime";
-const PYNVIX_API = "https://cinescrape-srkf.onrender.com/providers=infomedia";
-const PYNVIX_API = "https://cinescrape-srkf.onrender.com/providers=royalflix";
-const PYNVIX_API = "https://cinescrape-srkf.onrender.com/providers=miruro";
-const PYNVIX_API = "https://cinescrape-srkf.onrender.com/providers=dudefilms";
-const PYNVIX_API = "https://cinescrape-srkf.onrender.com/providers=netmirror";
+// 1. FIXED: Changed PYNVIX_API into an array containing all your providers
+const PYNVIX_PROVIDERS = [
+  "https://cinescrape-srkf.onrender.com/providers=fmftp",
+  "https://cinescrape-srkf.onrender.com/providers=moviebox",
+  "https://cinescrape-srkf.onrender.com/providers=nowhdtime",
+  "https://cinescrape-srkf.onrender.com/providers=infomedia",
+  "https://cinescrape-srkf.onrender.com/providers=royalflix",
+  "https://cinescrape-srkf.onrender.com/providers=miruro",
+  "https://cinescrape-srkf.onrender.com/providers=dudefilms",
+  "https://cinescrape-srkf.onrender.com/providers=netmirror"
+];
+
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 const HEADERS = {
@@ -175,6 +179,7 @@ function fetchFirstValid(urls) {
   });
 }
 
+// 2. FIXED: Rewrote getStreams to loop over all providers and compile the results
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     const isSeries = mediaType === "tv" || season != null || episode != null;
@@ -185,14 +190,23 @@ function getStreams(tmdbId, mediaType, season, episode) {
       const imdbId = yield getImdbId(tmdbId, isSeries ? "tv" : "movie");
       if (!imdbId) return [];
 
-      if (!isSeries) {
-        return yield fetchStreams(`${PYNVIX_API}/stream/movie/${imdbId}.json`);
+      let allStreams = [];
+
+      // Loop through each provider in the array
+      for (const provider of PYNVIX_PROVIDERS) {
+        if (!isSeries) {
+          const streams = yield fetchStreams(`${provider}/stream/movie/${imdbId}.json`);
+          if (streams.length > 0) allStreams = allStreams.concat(streams);
+        } else {
+          const streams = yield fetchFirstValid([
+            `${provider}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
+            `${provider}/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,
+          ]);
+          if (streams.length > 0) allStreams = allStreams.concat(streams);
+        }
       }
 
-      return yield fetchFirstValid([
-        `${PYNVIX_API}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
-        `${PYNVIX_API}/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,
-      ]);
+      return allStreams;
     } catch {
       return [];
     }

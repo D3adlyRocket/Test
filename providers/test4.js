@@ -13,7 +13,6 @@ const __async = (__this, __arguments, generator) => {
   });
 };
 
-// Extracted base endpoint omitting "/configure"
 const TENIES_API = "https://nuvio-addon.tenies.site/abckdhfik-34585674";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
@@ -30,7 +29,7 @@ const cleanText = (str) =>
 
 const extractQuality = (titleText) => {
   const match = String(titleText ?? "").match(/(\d{3,4}p)/i);
-  return match?.[0] ?? "Unknown";
+  return match?.[0] ?? "1080p"; // Fallback to 1080p if none parsed
 };
 
 const extractLanguage = (cleanedTitle) => {
@@ -87,14 +86,8 @@ function resolveProxyUrl(url) {
   });
 }
 
-const detectStreamType = (url) => {
-  if (!url)
-    return "video";
-  const lower = String(url).toLowerCase().split("?")[0];
-  return lower.includes(".m3u8") ? "m3u8" : "video";
-};
-
-function buildStream(item) {
+// Renamed from buildStream to makeStream to match modern Nuvio spec mappings
+function makeStream(item) {
   return __async(this, null, function* () {
     if (!item?.url || item.externalUrl) return null;
     if (String(item.url).includes("github.com")) return null;
@@ -114,17 +107,27 @@ function buildStream(item) {
 
     if (!streamUrl) return null;
 
-    // Adjusted presentation identifiers for Tenies/Nuvio
-    const nameParts = ["Tenies."];
-    if (language !== "Default") nameParts.push(language);
+    // 1. Build Header Group (Primary Name field)
+    const nameParts = ["Nuvio TV"];
+    if (language !== "Default") nameParts.push(`[${language}]`);
+
+    // 2. Build Subheading Group (Title field with \n lines)
+    // You can safely expand this list with more dynamic metadata if the API yields it
+    const subheadings = [
+      `🎬 Quality: ${quality}`,
+      `⚡ Source: Direct Stream`,
+      `ℹ️ Provider: Tenies Addon`
+    ];
 
     return {
       name: nameParts.join(" • "),
-      title: quality,
+      title: subheadings.join("\n"), // Separates details clean onto new lines for TV & Mobile
       url: streamUrl,
-      quality: "1080p",
+      behaviorHints: {
+        notWebReady: false,
+        bingeGroup: `nuvio-tenies-${quality}`
+      },
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
-      provider: "Tenies.",
     };
   });
 }
@@ -142,7 +145,8 @@ function parseStreams(data) {
       return !innerMatch || innerMatch[1].startsWith("https");
     });
 
-    const streams = yield Promise.all(validItems.map(buildStream));
+    // Pointed to use the modified makeStream handler
+    const streams = yield Promise.all(validItems.map(makeStream));
     return streams.filter(Boolean);
   });
 }

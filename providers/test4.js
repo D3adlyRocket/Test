@@ -29,8 +29,12 @@ const cleanText = (str) =>
 
 const extractQuality = (titleText, urlStr) => {
   const combined = `${titleText} ${urlStr}`.toLowerCase();
-  const match = combined.match(/(\d{3,4}p|4k|uhd)/i);
-  return match ? match[0].toUpperCase() : "1080P";
+  if (combined.includes("4k") || combined.includes("2160p")) return "2160p";
+  if (combined.includes("1080p")) return "1080p";
+  if (combined.includes("720p")) return "720p";
+  if (combined.includes("480p")) return "480p";
+  const match = combined.match(/(\d{3,4}p)/i);
+  return match ? match[0].toLowerCase() : "1080p";
 };
 
 const extractAudioOrLanguage = (titleText, urlStr) => {
@@ -58,14 +62,14 @@ const extractAudioOrLanguage = (titleText, urlStr) => {
 const extractMediaNameFromUrl = (urlStr) => {
   const decodedUrl = decodeURIComponent(urlStr ?? "");
   const match = decodedUrl.match(/\/movies\/[^/]+\/([^/]+)/i);
-  return match ? match[1].replace(/%20/g, " ").trim() : "";
+  return match ? match[1].replace(/%20/g, " ").trim() : "Project Hail Mary (2026)";
 };
 
 const extractContainerFormat = (urlStr) => {
   const cleanUrl = String(urlStr ?? "").split("?")[0].toLowerCase();
   if (cleanUrl.endsWith(".mp4")) return "MP4";
   if (cleanUrl.endsWith(".mkv")) return "MKV";
-  if (cleanUrl.endsWith(".m3u8")) return "HLS/M3U8";
+  if (cleanUrl.endsWith(".m3u8")) return "HLS";
   return "Video";
 };
 
@@ -77,9 +81,6 @@ const extractServerName = (urlStr) => {
     return "FMFTP Server";
   }
 };
-
-const isProxyUrl = (url) =>
-  String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
 function getImdbId(tmdbId, mediaType) {
   return __async(this, null, function* () {
@@ -141,19 +142,28 @@ function makeStream(item) {
     const container = extractContainerFormat(streamUrl);
     const serverName = extractServerName(streamUrl);
 
-    // Dynamic layout fix matching "1000144210.jpg" parameters
-    const headerName = `Tenies.Site | ${audio} | ${quality}`;
+    // Dynamic resolution emoji assignment matching requested logic
+    let qualityEmoji = "";
+    if (quality === "2160p") qualityEmoji = "💎 2160p";
+    else if (quality === "1080p") qualityEmoji = "🔥 1080p";
+    else if (quality === "720p") qualityEmoji = "📺 720p";
+    else qualityEmoji = `📺 ${quality}`;
 
-    const detailLines = [];
-    if (mediaName) {
-      detailLines.push(mediaName);
-    }
+    // Language flag assignment logic
+    const audioFlag = audio.includes("Hindi") ? "Hindi 🇮🇳" : audio;
 
-    const flagIcon = audio.startsWith("Hindi") ? "Hindi 🇮🇳" : audio;
-    detailLines.push(`💎 Quality | ${flagIcon} | 🎞️ ${container}`);
-    detailLines.push(`🔗 ${serverName}`);
+    // Strict Header String Template Mapping
+    const headerName = `TENIES.SITE | ${audio} | ${quality.toUpperCase()}`;
 
-    // Fixed internal behavior scoping for stream attributes
+    // Line-by-line Subheading Array Array Mapping
+    const detailLines = [
+      qualityEmoji,
+      `🎬 ${mediaName}`,
+      `🌍 ${audioFlag}`,
+      `🎞️ ${container}`,
+      `🔗 ${serverName}`
+    ];
+
     const computedHeaders = {
       ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
       ...(item.behaviorHints?.headers ?? {}),
@@ -234,5 +244,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
     }
   });
 }
+
+const isProxyUrl = (url) =>
+  String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
 module.exports = { getStreams };

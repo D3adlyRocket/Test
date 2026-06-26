@@ -13,8 +13,8 @@ const __async = (__this, __arguments, generator) => {
   });
 };
 
-// Updated to the new API base URL
-const YASTREAM_API = "https://yastream-dev.tamthai.de";
+// Extracted base endpoint omitting "/configure"
+const TENIES_API = "https://nuvio-addon.tenies.site/abckdhfik-34585674";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 const HEADERS = {
@@ -114,8 +114,8 @@ function buildStream(item) {
 
     if (!streamUrl) return null;
 
-    // Updated naming identifier to YaStream
-    const nameParts = ["YaStream."];
+    // Adjusted presentation identifiers for Tenies/Nuvio
+    const nameParts = ["Tenies."];
     if (language !== "Default") nameParts.push(language);
 
     return {
@@ -124,7 +124,7 @@ function buildStream(item) {
       url: streamUrl,
       quality: "1080p",
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
-      provider: "YaStream.",
+      provider: "Tenies.",
     };
   });
 }
@@ -181,12 +181,12 @@ function getStreams(tmdbId, mediaType, season, episode) {
       if (!imdbId) return [];
 
       if (!isSeries) {
-        return yield fetchStreams(`${YASTREAM_API}/stream/movie/${imdbId}.json`);
+        return yield fetchStreams(`${TENIES_API}/stream/movie/${imdbId}.json`);
       }
 
       return yield fetchFirstValid([
-        `${YASTREAM_API}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
-        `${YASTREAM_API}/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,
+        `${TENIES_API}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
+        `${TENIES_API}/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,
       ]);
     } catch {
       return [];

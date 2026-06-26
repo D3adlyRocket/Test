@@ -27,34 +27,63 @@ const cleanText = (str) =>
     .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "")
     .trim();
 
-// Enhanced extractor to hunt for resolutions anywhere in the provider title
-const extractQuality = (titleText) => {
-  const match = String(titleText ?? "").match(/(\d{3,4}p|4k|uhd)/i);
+// 1. Quality Extractor (Checks Title first, then URL path, then maps default)
+const extractQuality = (titleText, urlStr) => {
+  const combined = `${titleText} ${urlStr}`.toLowerCase();
+  const match = combined.match(/(\d{3,4}p|4k|uhd)/i);
   return match ? match[0].toUpperCase() : "1080P";
 };
 
-// Enhanced extractor to pull languages, audio formats, or tags inside parentheses/brackets
-const extractAudioOrLanguage = (titleText) => {
-  const cleanTitle = cleanText(titleText);
-  
-  // Try to grab content inside brackets or parentheses first (e.g., "[ENG/SPA]" or "(Dual-Audio)")
-  const bracketMatch = cleanTitle.match(/[([]([^)\]]+)[)\]]/);
-  if (bracketMatch) {
-    const extracted = bracketMatch[1].trim();
-    if (extracted.toLowerCase() !== "hd stream") return extracted;
+// 2. Audio Extractor (Looks for folder segments like 'hindidub', 'telugudub', language tags)
+const extractAudioOrLanguage = (titleText, urlStr) => {
+  const decodedUrl = decodeURIComponent(urlStr ?? "").toLowerCase();
+  const titleLower = String(titleText ?? "").toLowerCase();
+
+  // Explicit URL Path Routing Checks
+  if (decodedUrl.includes("/hindidub/") || titleLower.includes("hindi dub")) return "Hindi-Dub";
+  if (decodedUrl.includes("/telugudub/") || titleLower.includes("telugu dub")) return "Telugu-Dub";
+  if (decodedUrl.includes("/tamildub/") || titleLower.includes("tamil dub")) return "Tamil-Dub";
+  if (decodedUrl.includes("/engdub/") || titleLower.includes("eng dub")) return "English-Dub";
+
+  // Bracket fallbacks from source title
+  const bracketMatch = titleLower.match(/[([]([^)\]]+)[)\]]/);
+  if (bracketMatch && bracketMatch[1].trim() !== "hd stream") {
+    const rawLang = bracketMatch[1].trim();
+    return rawLang.charAt(0).toUpperCase() + rawLang.slice(1);
   }
 
-  // Look for common audio keywords if no brackets exist
-  if (/multi|dual/i.test(cleanTitle)) return "Multi-Audio";
-  if (/eng/i.test(cleanTitle)) return "English";
-  
+  if (/multi|dual/i.test(titleLower + decodedUrl)) return "Multi-Audio";
+  if (/hindi/i.test(titleLower + decodedUrl)) return "Hindi";
+  if (/eng/i.test(titleLower + decodedUrl)) return "English";
+
   return "Default Audio";
 };
 
-// Extractor to find file sizes (e.g., "1.4 GB", "850 MB") if provided in the source title
-const extractSize = (titleText) => {
-  const match = String(titleText ?? "").match(/(\d+(?:\.\d+)?\s*(?:GB|MB))/i);
-  return match ? match[0] : "";
+// 3. Media Folder Title Extractor (e.g., Pulls "Project Hail Mary (2026)" right from your example link)
+const extractMediaNameFromUrl = (urlStr) => {
+  const decodedUrl = decodeURIComponent(urlStr ?? "");
+  // Matches the segment right after /movies/something/NAME_HERE/
+  const match = decodedUrl.match(/\/movies\/[^/]+\/([^/]+)/i);
+  return match ? match[1].replace(/%20/g, " ").trim() : "";
+};
+
+// 4. File Container Extractor (e.g., MP4, MKV)
+const extractContainerFormat = (urlStr) => {
+  const cleanUrl = String(urlStr ?? "").split("?")[0].toLowerCase();
+  if (cleanUrl.endsWith(".mp4")) return "MP4";
+  if (cleanUrl.endsWith(".mkv")) return "MKV";
+  if (cleanUrl.endsWith(".m3u8")) return "HLS/M3U8";
+  return "Video";
+};
+
+// 5. Host server parser
+const extractServerName = (urlStr) => {
+  try {
+    const hostname = new URL(urlStr).hostname.toUpperCase();
+    return hostname.replace("WWW.", "") + " Server";
+  } catch {
+    return "FMFTP Server";
+  }
 };
 
 const isProxyUrl = (url) =>
@@ -107,31 +136,35 @@ function makeStream(item) {
     if (!item?.url || item.externalUrl) return null;
     if (String(item.url).includes("github.com")) return null;
 
-    // We preserve and pass the raw upstream item.title to our smart extractors
-    const rawTitle = item.title ?? "";
-    const quality = extractQuality(rawTitle);
-    const audio = extractAudioOrLanguage(rawTitle);
-    const size = extractSize(rawTitle);
-
-    const headers = {
-      ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
-      ...(item.behaviorHints?.headers ?? {}),
-    };
-
     const streamUrl = isProxyUrl(item.url)
       ? yield resolveProxyUrl(item.url)
       : item.url;
 
     if (!streamUrl) return null;
 
-    // Layout configuration matched to display unique attributes per link slot:
-    // Format: "Tenies.Site | Audio | Quality"
+    // Advanced dynamic context extraction
+    const rawTitle = item.title ?? "";
+    const quality = extractQuality(rawTitle, streamUrl);
+    const audio = extractAudioOrLanguage(rawTitle, streamUrl);
+    const mediaName = extractMediaNameFromUrl(streamUrl);
+    const container = extractContainerFormat(streamUrl);
+    const serverName = extractServerName(streamUrl);
+
+    // Primary List Label: "Tenies.Site | Audio | Quality"
     const headerName = `Tenies.Site | ${audio} | ${quality}`;
 
-    // The subtitle secondary block (visible when selecting/expanding streams)
-    const detailLines = [`⚡ Source: Direct Link`];
-    if (size) detailLines.push(`💾 Size: ${size}`);
-    if (item.title) detailLines.push(`📝 Info: ${cleanText(item.title)}`);
+    // Subheading formatting adjustments
+    const detailLines = [];
+    
+    // Add Movie Name & Year line if parsed cleanly from directory path
+    if (mediaName) {
+      detailLines.push(mediaName);
+    }
+
+    // Flag logic injection for specific dialects like Hindi
+    const flagIcon = audio.startsWith("Hindi") ? "Hindi 🇮🇳" : audio;
+    detailLines.push(`💎 Quality | ${flagIcon} | 🎞️ ${container}`);
+    detailLines.push(`🔗 ${serverName}`);
 
     return {
       name: headerName,

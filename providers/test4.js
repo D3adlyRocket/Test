@@ -27,18 +27,34 @@ const cleanText = (str) =>
     .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "")
     .trim();
 
+// Enhanced extractor to hunt for resolutions anywhere in the provider title
 const extractQuality = (titleText) => {
-  const match = String(titleText ?? "").match(/(\d{3,4}p)/i);
-  return match?.[0] ?? "1080p"; // Fallback to 1080p if none parsed
+  const match = String(titleText ?? "").match(/(\d{3,4}p|4k|uhd)/i);
+  return match ? match[0].toUpperCase() : "1080P";
 };
 
-const extractLanguage = (cleanedTitle) => {
-  const langMatch = String(cleanedTitle ?? "").match(/\(([^)]+)\)/);
-  if (!langMatch) return "Default";
-  const raw = langMatch[1].trim();
-  return raw.toLowerCase() === "hd stream"
-    ? "Default"
-    : raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+// Enhanced extractor to pull languages, audio formats, or tags inside parentheses/brackets
+const extractAudioOrLanguage = (titleText) => {
+  const cleanTitle = cleanText(titleText);
+  
+  // Try to grab content inside brackets or parentheses first (e.g., "[ENG/SPA]" or "(Dual-Audio)")
+  const bracketMatch = cleanTitle.match(/[([]([^)\]]+)[)\]]/);
+  if (bracketMatch) {
+    const extracted = bracketMatch[1].trim();
+    if (extracted.toLowerCase() !== "hd stream") return extracted;
+  }
+
+  // Look for common audio keywords if no brackets exist
+  if (/multi|dual/i.test(cleanTitle)) return "Multi-Audio";
+  if (/eng/i.test(cleanTitle)) return "English";
+  
+  return "Default Audio";
+};
+
+// Extractor to find file sizes (e.g., "1.4 GB", "850 MB") if provided in the source title
+const extractSize = (titleText) => {
+  const match = String(titleText ?? "").match(/(\d+(?:\.\d+)?\s*(?:GB|MB))/i);
+  return match ? match[0] : "";
 };
 
 const isProxyUrl = (url) =>
@@ -86,15 +102,16 @@ function resolveProxyUrl(url) {
   });
 }
 
-// Renamed from buildStream to makeStream to match modern Nuvio spec mappings
 function makeStream(item) {
   return __async(this, null, function* () {
     if (!item?.url || item.externalUrl) return null;
     if (String(item.url).includes("github.com")) return null;
 
-    const cleanedTitle = cleanText(item.title);
-    const quality = extractQuality(cleanedTitle);
-    const language = extractLanguage(cleanedTitle);
+    // We preserve and pass the raw upstream item.title to our smart extractors
+    const rawTitle = item.title ?? "";
+    const quality = extractQuality(rawTitle);
+    const audio = extractAudioOrLanguage(rawTitle);
+    const size = extractSize(rawTitle);
 
     const headers = {
       ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
@@ -107,25 +124,22 @@ function makeStream(item) {
 
     if (!streamUrl) return null;
 
-    // 1. Build Header Group (Primary Name field)
-    const nameParts = ["Nuvio TV"];
-    if (language !== "Default") nameParts.push(`[${language}]`);
+    // Layout configuration matched to display unique attributes per link slot:
+    // Format: "Tenies.Site | Audio | Quality"
+    const headerName = `Tenies.Site | ${audio} | ${quality}`;
 
-    // 2. Build Subheading Group (Title field with \n lines)
-    // You can safely expand this list with more dynamic metadata if the API yields it
-    const subheadings = [
-      `🎬 Quality: ${quality}`,
-      `⚡ Source: Direct Stream`,
-      `ℹ️ Provider: Tenies Addon`
-    ];
+    // The subtitle secondary block (visible when selecting/expanding streams)
+    const detailLines = [`⚡ Source: Direct Link`];
+    if (size) detailLines.push(`💾 Size: ${size}`);
+    if (item.title) detailLines.push(`📝 Info: ${cleanText(item.title)}`);
 
     return {
-      name: nameParts.join(" • "),
-      title: subheadings.join("\n"), // Separates details clean onto new lines for TV & Mobile
+      name: headerName,
+      title: detailLines.join("\n"),
       url: streamUrl,
       behaviorHints: {
         notWebReady: false,
-        bingeGroup: `nuvio-tenies-${quality}`
+        bingeGroup: `tenies-${quality}-${audio}`
       },
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
     };
@@ -137,15 +151,12 @@ function parseStreams(data) {
     if (!Array.isArray(data?.streams) || data.streams.length === 0) return [];
 
     const validItems = data.streams.filter((item) => {
-      const cleanedTitle = cleanText(item?.title);
-      if (!cleanedTitle.toLowerCase().includes("")) return false;
       if (typeof item?.url !== "string" || !item.url.startsWith("https")) return false;
 
       const innerMatch = item.url.match(/[?&]url=(https?:\/\/[^&]+)/);
       return !innerMatch || innerMatch[1].startsWith("https");
     });
 
-    // Pointed to use the modified makeStream handler
     const streams = yield Promise.all(validItems.map(makeStream));
     return streams.filter(Boolean);
   });

@@ -142,36 +142,35 @@ function makeStream(item) {
     const container = extractContainerFormat(streamUrl);
     const serverName = extractServerName(streamUrl);
 
-    // Dynamic resolution emoji assignment matching requested logic
+    // Dynamic resolution emoji assignment logic
     let qualityEmoji = "";
     if (quality === "2160p") qualityEmoji = "💎 2160p";
     else if (quality === "1080p") qualityEmoji = "🔥 1080p";
     else if (quality === "720p") qualityEmoji = "📺 720p";
     else qualityEmoji = `📺 ${quality}`;
 
-    // Language flag assignment logic
     const audioFlag = audio.includes("Hindi") ? "Hindi 🇮🇳" : audio;
 
-    // Strict Header String Template Mapping
+    // Header structure: TENIES.SITE | Audio | Quality
     const headerName = `TENIES.SITE | ${audio} | ${quality.toUpperCase()}`;
 
-    // Line-by-line Subheading Array Array Mapping
-    const detailLines = [
+    // Line-by-line subtitle mapping matching your specifications
+    const lines = [
       qualityEmoji,
       `🎬 ${mediaName}`,
       `🌍 ${audioFlag}`,
       `🎞️ ${container}`,
       `🔗 ${serverName}`
     ];
+    const unifiedLayoutBlock = lines.join("\n");
 
     const computedHeaders = {
       ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
       ...(item.behaviorHints?.headers ?? {}),
     };
 
-    return {
+    const streamObject = {
       name: headerName,
-      title: detailLines.join("\n"),
       url: streamUrl,
       behaviorHints: {
         notWebReady: false,
@@ -179,6 +178,21 @@ function makeStream(item) {
       },
       ...(Object.keys(computedHeaders).length > 0 ? { headers: computedHeaders } : {}),
     };
+
+    // NATIVE PROPERTY INTERCEPTOR ENGINE
+    // Forces Nuvio to read the custom formatted lines on both TV and Mobile layouts
+    try {
+      Object.defineProperties(streamObject, {
+        title: { get: function() { return unifiedLayoutBlock; }, enumerable: true, configurable: true },
+        description: { get: function() { return unifiedLayoutBlock; }, enumerable: true, configurable: true },
+        size: { get: function() { return unifiedLayoutBlock; }, enumerable: true, configurable: true },
+        qualityTag: { get: function() { return ""; }, enumerable: true, configurable: true },
+        quality: { get: function() { return "\x08"; }, enumerable: true, configurable: true },
+        language: { get: function() { return ""; }, enumerable: true, configurable: true }
+      });
+    } catch (e) {}
+
+    return streamObject;
   });
 }
 

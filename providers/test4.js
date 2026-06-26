@@ -27,25 +27,21 @@ const cleanText = (str) =>
     .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "")
     .trim();
 
-// 1. Quality Extractor (Checks Title first, then URL path, then maps default)
 const extractQuality = (titleText, urlStr) => {
   const combined = `${titleText} ${urlStr}`.toLowerCase();
   const match = combined.match(/(\d{3,4}p|4k|uhd)/i);
   return match ? match[0].toUpperCase() : "1080P";
 };
 
-// 2. Audio Extractor (Looks for folder segments like 'hindidub', 'telugudub', language tags)
 const extractAudioOrLanguage = (titleText, urlStr) => {
   const decodedUrl = decodeURIComponent(urlStr ?? "").toLowerCase();
   const titleLower = String(titleText ?? "").toLowerCase();
 
-  // Explicit URL Path Routing Checks
   if (decodedUrl.includes("/hindidub/") || titleLower.includes("hindi dub")) return "Hindi-Dub";
   if (decodedUrl.includes("/telugudub/") || titleLower.includes("telugu dub")) return "Telugu-Dub";
   if (decodedUrl.includes("/tamildub/") || titleLower.includes("tamil dub")) return "Tamil-Dub";
   if (decodedUrl.includes("/engdub/") || titleLower.includes("eng dub")) return "English-Dub";
 
-  // Bracket fallbacks from source title
   const bracketMatch = titleLower.match(/[([]([^)\]]+)[)\]]/);
   if (bracketMatch && bracketMatch[1].trim() !== "hd stream") {
     const rawLang = bracketMatch[1].trim();
@@ -59,15 +55,12 @@ const extractAudioOrLanguage = (titleText, urlStr) => {
   return "Default Audio";
 };
 
-// 3. Media Folder Title Extractor (e.g., Pulls "Project Hail Mary (2026)" right from your example link)
 const extractMediaNameFromUrl = (urlStr) => {
   const decodedUrl = decodeURIComponent(urlStr ?? "");
-  // Matches the segment right after /movies/something/NAME_HERE/
   const match = decodedUrl.match(/\/movies\/[^/]+\/([^/]+)/i);
   return match ? match[1].replace(/%20/g, " ").trim() : "";
 };
 
-// 4. File Container Extractor (e.g., MP4, MKV)
 const extractContainerFormat = (urlStr) => {
   const cleanUrl = String(urlStr ?? "").split("?")[0].toLowerCase();
   if (cleanUrl.endsWith(".mp4")) return "MP4";
@@ -76,7 +69,6 @@ const extractContainerFormat = (urlStr) => {
   return "Video";
 };
 
-// 5. Host server parser
 const extractServerName = (urlStr) => {
   try {
     const hostname = new URL(urlStr).hostname.toUpperCase();
@@ -94,7 +86,7 @@ function getImdbId(tmdbId, mediaType) {
     const type = mediaType === "tv" ? "tv" : "movie";
     const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
     try {
-      const response = yield fetch(url);
+      const response = yield fetch(url, { headers: HEADERS });
       if (!response.ok) return null;
       const data = yield response.json();
       return data?.external_ids?.imdb_id ?? null;
@@ -142,7 +134,6 @@ function makeStream(item) {
 
     if (!streamUrl) return null;
 
-    // Advanced dynamic context extraction
     const rawTitle = item.title ?? "";
     const quality = extractQuality(rawTitle, streamUrl);
     const audio = extractAudioOrLanguage(rawTitle, streamUrl);
@@ -150,21 +141,23 @@ function makeStream(item) {
     const container = extractContainerFormat(streamUrl);
     const serverName = extractServerName(streamUrl);
 
-    // Primary List Label: "Tenies.Site | Audio | Quality"
+    // Dynamic layout fix matching "1000144210.jpg" parameters
     const headerName = `Tenies.Site | ${audio} | ${quality}`;
 
-    // Subheading formatting adjustments
     const detailLines = [];
-    
-    // Add Movie Name & Year line if parsed cleanly from directory path
     if (mediaName) {
       detailLines.push(mediaName);
     }
 
-    // Flag logic injection for specific dialects like Hindi
     const flagIcon = audio.startsWith("Hindi") ? "Hindi 🇮🇳" : audio;
     detailLines.push(`💎 Quality | ${flagIcon} | 🎞️ ${container}`);
     detailLines.push(`🔗 ${serverName}`);
+
+    // Fixed internal behavior scoping for stream attributes
+    const computedHeaders = {
+      ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
+      ...(item.behaviorHints?.headers ?? {}),
+    };
 
     return {
       name: headerName,
@@ -174,14 +167,14 @@ function makeStream(item) {
         notWebReady: false,
         bingeGroup: `tenies-${quality}-${audio}`
       },
-      ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      ...(Object.keys(computedHeaders).length > 0 ? { headers: computedHeaders } : {}),
     };
   });
 }
 
 function parseStreams(data) {
   return __async(this, null, function* () {
-    if (!Array.isArray(data?.streams) || data.streams.length === 0) return [];
+    if (!data || !Array.isArray(data.streams) || data.streams.length === 0) return [];
 
     const validItems = data.streams.filter((item) => {
       if (typeof item?.url !== "string" || !item.url.startsWith("https")) return false;
@@ -198,7 +191,7 @@ function parseStreams(data) {
 function fetchStreams(url) {
   return __async(this, null, function* () {
     try {
-      const response = yield fetch(url);
+      const response = yield fetch(url, { headers: HEADERS });
       if (!response.ok) return [];
       const data = yield response.json();
       return yield parseStreams(data);

@@ -38,22 +38,29 @@ const getDeepUrl = (urlStr) => {
   }
 };
 
+// Ultra-fast HEAD request with an 800ms abort timeout to prevent UI freezing
 function fetchFileSize(urlStr) {
-  return __async(this, null, function* () {
-    try {
-      const response = yield fetch(urlStr, { method: "HEAD", headers: HEADERS });
-      const bytes = Number.parseInt(response.headers.get("content-length") ?? "0", 10);
-      if (!bytes || Number.isNaN(bytes)) return "";
-      
-      const gb = bytes / (1024 * 1024 * 1024);
-      if (gb >= 1) return gb.toFixed(1) + " GB";
-      
-      const mb = bytes / (1024 * 1024);
-      return mb.toFixed(0) + " MB";
-    } catch {
-      return "";
-    }
-  });
+  return Promise.race([
+    // Fallback if the server takes longer than 800ms
+    new Promise((resolve) => setTimeout(() => resolve("unknown"), 800)),
+    
+    // The actual HEAD request
+    __async(this, null, function* () {
+      try {
+        const response = yield fetch(urlStr, { method: "HEAD", headers: HEADERS });
+        const bytes = Number.parseInt(response.headers.get("content-length") ?? "0", 10);
+        if (!bytes || Number.isNaN(bytes)) return "unknown";
+        
+        const gb = bytes / (1024 * 1024 * 1024);
+        if (gb >= 1) return gb.toFixed(1) + " GB";
+        
+        const mb = bytes / (1024 * 1024);
+        return mb.toFixed(0) + " MB";
+      } catch {
+        return "unknown";
+      }
+    })
+  ]);
 }
 
 const extractQuality = (titleText, urlStr) => {

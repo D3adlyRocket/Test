@@ -118,7 +118,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
     const isSeries = mediaType === "tv" || season != null || episode != null;
     const s = season ?? 1;
     const e = episode ?? 1;
-    const languages = ["hi", "en", "orig"]; // Languages to fetch
+    const languages = ["hi", "en", "all"]; // Languages to fetch
     let allStreams = [];
 
     try {

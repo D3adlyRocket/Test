@@ -90,10 +90,12 @@ const extractMediaNameFromUrl = (urlStr) => {
 };
 
 const extractContainerFormat = (urlStr) => {
-  const cleanUrl = getDeepUrl(urlStr).split("?")[0].toLowerCase();
-  if (cleanUrl.endsWith(".mp4")) return "MP4";
+  const cleanUrl = getDeepUrl(urlStr).toLowerCase();
   if (cleanUrl.endsWith(".mkv")) return "MKV";
+  if (cleanUrl.endsWith(".mp4")) return "MP4";
   if (cleanUrl.endsWith(".m3u8")) return "HLS";
+  if (cleanUrl.includes("mkv")) return "MKV";
+  if (cleanUrl.includes("mp4")) return "MP4";
   return "Video";
 };
 
@@ -159,10 +161,7 @@ function makeStream(item) {
     if (!item?.url || item.externalUrl) return null;
     if (String(item.url).includes("github.com")) return null;
 
-    const streamUrl = isProxyUrl(item.url)
-      ? yield resolveProxyUrl(item.url)
-      : item.url;
-
+    const streamUrl = isProxyUrl(item.url) ? yield resolveProxyUrl(item.url) : item.url;
     if (!streamUrl) return null;
 
     const rawTitle = item.title ?? "";
@@ -172,11 +171,14 @@ function makeStream(item) {
     const container = extractContainerFormat(streamUrl);
     const serverName = extractServerName(streamUrl);
     
-    // We fetch size, but we do not block the UI for it
+    // Fetch size asynchronously
     const realSize = yield fetchFileSize(streamUrl);
 
+    // 1. The Header: Short, clean label for the main list
+    const headerName = `TENIES.SITE | ${audio} | ${quality.toUpperCase()}`;
+
+    // 2. The Body: Detailed info for the expanded view
     let qualityEmoji = quality === "2160p" ? "💎 2160p" : quality === "1080p" ? "🔥 1080p" : "📺 " + quality;
-    
     const lines = [
       qualityEmoji,
       `🎬 ${mediaName}`,
@@ -185,20 +187,23 @@ function makeStream(item) {
       `🔗 ${serverName}`
     ];
     
-    // Omit 0MB, empty strings, and "unknown" from the UI
-    if (realSize && realSize !== "0 MB" && realSize !== "unknown") {
+    // Only push Size line if it's a valid, non-zero value
+    if (realSize && realSize !== "0 MB" && realSize !== "unknown" && realSize !== "") {
       lines.push(`💾 Size: ${realSize}`);
     }
     
-    const unifiedLayoutBlock = lines.join("\n");
+    const bodyLayout = lines.join("\n");
 
     const computedHeaders = {
       ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
       ...(item.behaviorHints?.headers ?? {}),
     };
 
+    // Construct the stream object with distinct fields
     const streamObject = {
-      name: unifiedLayoutBlock, // Set name to unified for mobile visibility
+      name: headerName,        // This is the clean, single-line button
+      title: bodyLayout,       // This is the multi-line detail
+      description: bodyLayout, // This ensures it displays when clicked/expanded
       url: streamUrl,
       behaviorHints: {
         notWebReady: false,
@@ -211,13 +216,6 @@ function makeStream(item) {
       },
       ...(Object.keys(computedHeaders).length > 0 ? { headers: computedHeaders } : {}),
     };
-
-    try {
-      Object.defineProperties(streamObject, {
-        title: { get: function() { return unifiedLayoutBlock; }, enumerable: true, configurable: true },
-        description: { get: function() { return unifiedLayoutBlock; }, enumerable: true, configurable: true }
-      });
-    } catch (e) {}
 
     return streamObject;
   });

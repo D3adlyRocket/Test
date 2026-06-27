@@ -1,11 +1,24 @@
 "use strict";
 
-const PROVIDER_NAME = "MovieBox";
-const MOVIEBOX_BASE = "https://moviebox-cfa7.onrender.com";
-const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
+const __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    const fulfilled = (value) => { try { step(generator.next(value)); } catch (e) { reject(e); } };
+    const rejected = (value) => { try { step(generator.throw(value)); } catch (e) { reject(e); } };
+    const step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
 
+const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
+const MOVIEBOX_BASE = "https://moviebox-cfa7.onrender.com";
+const PROVIDER_NAME = "MovieBox";
+
+const HEADERS = { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36" };
+
+const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
 const decodeEntities = (str) => String(str || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"');
 
+// YOUR WORKING MAKE STREAM FUNCTION
 function makeStream(name, title, url, quality, headers, mediaInfo, lang) {
     var cleanName = decodeEntities(name || '').replace(/[\n\t]+/g, '').trim();
     var isHindi = lang === "Hindi";
@@ -23,20 +36,30 @@ function makeStream(name, title, url, quality, headers, mediaInfo, lang) {
     };
 }
 
-function fetchStreams(baseUrl, lang, meta, isSeries, imdbId, s, e) {
+function getImdbId(tmdbId, mediaType) {
     return __async(this, null, function* () {
-        // Construct URL exactly as the API expects
+        const type = mediaType === "tv" ? "tv" : "movie";
+        const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+        try {
+            const response = yield fetch(url);
+            const data = yield response.json();
+            return { imdb: data?.external_ids?.imdb_id, title: data?.title || data?.name };
+        } catch { return null; }
+    });
+}
+
+function fetchStreams(baseUrl, imdbId, isSeries, s, e, lang, title) {
+    return __async(this, null, function* () {
         const url = isSeries 
-            ? `${baseUrl}/stream/series/${imdbId}:${(s || 1).toString().padStart(2, '0')}:${(e || 1).toString().padStart(2, '0')}.json`
+            ? `${baseUrl}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`
             : `${baseUrl}/stream/movie/${imdbId}.json`;
-            
         try {
             const response = yield fetch(url);
             const data = yield response.json();
             if (!data?.streams) return [];
             return data.streams.map(s => {
                 const q = (s.title || "").match(/(\d{3,4}p)/i)?.[0] || "1080p";
-                return makeStream(meta.title, s.title, s.url, q, null, meta.info, lang);
+                return makeStream(title, s.title, s.url, q, null, isSeries ? `S${s}E${e}` : "", lang);
             });
         } catch { return []; }
     });
@@ -45,24 +68,18 @@ function fetchStreams(baseUrl, lang, meta, isSeries, imdbId, s, e) {
 function getStreams(tmdbId, mediaType, season, episode) {
     return __async(this, null, function* () {
         const isSeries = mediaType === "tv" || season != null || episode != null;
-        
-        // Fetch TMDB metadata
-        const tmdbRes = yield fetch(`https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`).then(r => r.json());
-        const imdbId = tmdbRes?.external_ids?.imdb_id;
-        if (!imdbId) return [];
+        const meta = yield getImdbId(tmdbId, isSeries ? "tv" : "movie");
+        if (!meta?.imdb) return [];
 
-        const meta = { title: tmdbRes.title || tmdbRes.name, info: isSeries ? `S${season}E${episode}` : "" };
-
-        // Use the specific API segments defined in your request
         const apiEn = `${MOVIEBOX_BASE}/source=v3|lang=en|res=all`;
         const apiHi = `${MOVIEBOX_BASE}/source=v3|lang=hi|res=all`;
 
-        const [enStreams, hiStreams] = yield Promise.all([
-            fetchStreams(apiEn, "English", meta, isSeries, imdbId, season, episode),
-            fetchStreams(apiHi, "Hindi", meta, isSeries, imdbId, season, episode)
+        const [en, hi] = yield Promise.all([
+            fetchStreams(apiEn, meta.imdb, isSeries, season, episode, "English", meta.title),
+            fetchStreams(apiHi, meta.imdb, isSeries, season, episode, "Hindi", meta.title)
         ]);
 
-        return [...enStreams, ...hiStreams];
+        return [...en, ...hi];
     });
 }
 

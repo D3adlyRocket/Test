@@ -27,6 +27,37 @@ const cleanText = (str) =>
     .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "")
     .trim();
 
+// Decodes proxy chains safely to extract hidden destination links
+const getDeepUrl = (urlStr) => {
+  if (!urlStr) return "";
+  try {
+    const decoded = decodeURIComponent(urlStr);
+    const match = decoded.match(/https?:\/\/[^?]+/g);
+    return match && match.length > 1 ? match[match.length - 1] : decoded;
+  } catch {
+    return urlStr;
+  }
+};
+
+// Fast non-downloading HEAD request to grab accurate file size metrics 
+function fetchFileSize(urlStr) {
+  return __async(this, null, function* () {
+    try {
+      const response = yield fetch(urlStr, { method: "HEAD", headers: HEADERS });
+      const bytes = Number.parseInt(response.headers.get("content-length") ?? "0", 10);
+      if (!bytes || Number.isNaN(bytes)) return "";
+      
+      const gb = bytes / (1024 * 1024 * 1024);
+      if (gb >= 1) return gb.toFixed(1) + " GB";
+      
+      const mb = bytes / (1024 * 1024);
+      return mb.toFixed(0) + " MB";
+    } catch {
+      return "";
+    }
+  });
+}
+
 const extractQuality = (titleText, urlStr) => {
   const combined = `${titleText} ${urlStr}`.toLowerCase();
   if (combined.includes("4k") || combined.includes("2160p")) return "2160p";
@@ -75,7 +106,13 @@ const extractContainerFormat = (urlStr) => {
 
 const extractServerName = (urlStr) => {
   try {
-    const hostname = new URL(urlStr).hostname.toUpperCase();
+    const targetUrl = getDeepUrl(urlStr);
+    const hostname = new URL(targetUrl).hostname.toUpperCase();
+    
+    if (hostname.includes("HUBCLOUD")) return "HubCloud Server";
+    if (hostname.includes("WHISTLE")) return "HubWhistle Server";
+    if (urlStr.includes("sooti.info")) return "Sooti Proxy [" + hostname.replace("WWW.", "") + "]";
+    
     return hostname.replace("WWW.", "") + " Server";
   } catch {
     return "FMFTP Server";
@@ -141,8 +178,10 @@ function makeStream(item) {
     const mediaName = extractMediaNameFromUrl(streamUrl);
     const container = extractContainerFormat(streamUrl);
     const serverName = extractServerName(streamUrl);
+    
+    // Asynchronously retrieve content size directly via file headers
+    const realSize = yield fetchFileSize(streamUrl);
 
-    // Dynamic resolution emoji assignment logic
     let qualityEmoji = "";
     if (quality === "2160p") qualityEmoji = "💎 2160p";
     else if (quality === "1080p") qualityEmoji = "🔥 1080p";
@@ -150,11 +189,10 @@ function makeStream(item) {
     else qualityEmoji = `📺 ${quality}`;
 
     const audioFlag = audio.includes("Hindi") ? "Hindi 🇮🇳" : audio;
-
-    // Header structure: TENIES.SITE | Audio | Quality
+    
+    // Explicit format tracking requested layout parameters
     const headerName = `TENIES.SITE | ${audio} | ${quality.toUpperCase()}`;
 
-    // Line-by-line subtitle mapping matching your specifications
     const lines = [
       qualityEmoji,
       `🎬 ${mediaName}`,
@@ -162,6 +200,12 @@ function makeStream(item) {
       `🎞️ ${container}`,
       `🔗 ${serverName}`
     ];
+    
+    // Append size data directly into lines without risking structural bullet generation
+    if (realSize) {
+      lines.push(`💾 Size: ${realSize}`);
+    }
+    
     const unifiedLayoutBlock = lines.join("\n");
 
     const computedHeaders = {
@@ -179,16 +223,12 @@ function makeStream(item) {
       ...(Object.keys(computedHeaders).length > 0 ? { headers: computedHeaders } : {}),
     };
 
-    // NATIVE PROPERTY INTERCEPTOR ENGINE
-    // Forces Nuvio to read the custom formatted lines on both TV and Mobile layouts
+    // Native Property Engine Interceptor Block
+    // Fixed: Stripped layout key assignments that were causing annoying native bullet flags to re-render
     try {
       Object.defineProperties(streamObject, {
         title: { get: function() { return unifiedLayoutBlock; }, enumerable: true, configurable: true },
-        description: { get: function() { return unifiedLayoutBlock; }, enumerable: true, configurable: true },
-        size: { get: function() { return unifiedLayoutBlock; }, enumerable: true, configurable: true },
-        qualityTag: { get: function() { return ""; }, enumerable: true, configurable: true },
-        quality: { get: function() { return "\x08"; }, enumerable: true, configurable: true },
-        language: { get: function() { return ""; }, enumerable: true, configurable: true }
+        description: { get: function() { return unifiedLayoutBlock; }, enumerable: true, configurable: true }
       });
     } catch (e) {}
 
@@ -208,7 +248,21 @@ function parseStreams(data) {
     });
 
     const streams = yield Promise.all(validItems.map(makeStream));
-    return streams.filter(Boolean);
+    const processed = streams.filter(Boolean);
+
+    // DEDUPLICATION ENGINE: Eliminates identical mirrored destination tracks
+    const uniqueStreams = [];
+    const seenUrls = new Set();
+
+    for (const stream of processed) {
+      const normalizedUrl = getDeepUrl(stream.url);
+      if (!seenUrls.has(normalizedUrl)) {
+        seenUrls.add(normalizedUrl);
+        uniqueStreams.push(stream);
+      }
+    }
+
+    return uniqueStreams;
   });
 }
 

@@ -38,11 +38,22 @@ const getDeepUrl = (urlStr) => {
   }
 };
 
-// Clean internal fetcher using your working __async syntax
-function _executeSizeFetch(urlStr) {
+// Optimised file size fetcher using native AbortController timeouts
+function fetchFileSize(urlStr) {
   return __async(this, null, function* () {
+    // 2500ms gives video hosters enough time to complete the TLS handshake
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2500);
+
     try {
-      const response = yield fetch(urlStr, { method: "HEAD", headers: HEADERS });
+      const response = yield fetch(urlStr, { 
+        method: "HEAD", 
+        headers: HEADERS,
+        signal: controller.signal 
+      });
+      
+      clearTimeout(timeoutId);
+
       const bytes = Number.parseInt(response.headers.get("content-length") ?? "0", 10);
       if (!bytes || Number.isNaN(bytes)) return "";
       
@@ -52,17 +63,10 @@ function _executeSizeFetch(urlStr) {
       const mb = bytes / (1024 * 1024);
       return mb.toFixed(0) + " MB";
     } catch {
+      clearTimeout(timeoutId);
       return "";
     }
   });
-}
-
-// Public wrapper that adds your 800ms abort timeout safely
-function fetchFileSize(urlStr) {
-  return Promise.race([
-    new Promise((resolve) => setTimeout(() => resolve(""), 800)),
-    _executeSizeFetch(urlStr)
-  ]);
 }
 
 const extractQuality = (titleText, urlStr) => {
@@ -202,7 +206,7 @@ function makeStream(item) {
     
     const headerName = `TENIES.SITE | ${audio} | ${quality.toUpperCase()}`;
 
-        const lines = [
+    const lines = [
       qualityEmoji,
       `🎬 ${mediaName}`,
       `🌍 ${audioFlag}`,
@@ -210,7 +214,6 @@ function makeStream(item) {
       `🔗 ${serverName}`
     ];
     
-    // FIX: Ensure we don't print "unknown" to the UI
     if (realSize && realSize !== "unknown") {
       lines.push(`💾 Size: ${realSize}`);
     }
@@ -229,7 +232,6 @@ function makeStream(item) {
         notWebReady: false,
         bingeGroup: `tenies-${quality}-${audio}`
       },
-      // Pass raw properties downstairs so the deduplicator layout engine can parse them
       _dedupeMeta: {
         size: realSize || "unknown",
         quality: quality,
@@ -269,11 +271,8 @@ function parseStreams(data) {
     for (const stream of processed) {
       const meta = stream._dedupeMeta;
       
-      // If we got size info, compile a strict layout fingerprint string
-      // Example: "29.8 GB-2160p-HubWhistle Server"
       const fingerprint = `${meta.size}-${meta.quality}-${meta.server}`.toLowerCase();
       
-      // If size is unknown, drop back to safe URL checking so we don't accidentally drop valid items
       if (meta.size === "unknown") {
         const fallbackUrl = getDeepUrl(stream.url);
         if (!seenFingerprints.has(fallbackUrl)) {
@@ -281,7 +280,6 @@ function parseStreams(data) {
           uniqueStreams.push(stream);
         }
       } else {
-        // Strict deduplication matching based on file payload size and endpoint provider values
         if (!seenFingerprints.has(fingerprint)) {
           seenFingerprints.add(fingerprint);
           uniqueStreams.push(stream);

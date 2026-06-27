@@ -38,22 +38,11 @@ const getDeepUrl = (urlStr) => {
   }
 };
 
-// Optimised file size fetcher using native AbortController timeouts
+// REVERTED: Restored your exact working context structure
 function fetchFileSize(urlStr) {
   return __async(this, null, function* () {
-    // 2500ms gives video hosters enough time to complete the TLS handshake
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2500);
-
     try {
-      const response = yield fetch(urlStr, { 
-        method: "HEAD", 
-        headers: HEADERS,
-        signal: controller.signal 
-      });
-      
-      clearTimeout(timeoutId);
-
+      const response = yield fetch(urlStr, { method: "HEAD", headers: HEADERS });
       const bytes = Number.parseInt(response.headers.get("content-length") ?? "0", 10);
       if (!bytes || Number.isNaN(bytes)) return "";
       
@@ -63,7 +52,6 @@ function fetchFileSize(urlStr) {
       const mb = bytes / (1024 * 1024);
       return mb.toFixed(0) + " MB";
     } catch {
-      clearTimeout(timeoutId);
       return "";
     }
   });
@@ -214,7 +202,7 @@ function makeStream(item) {
       `🔗 ${serverName}`
     ];
     
-    if (realSize && realSize !== "unknown") {
+    if (realSize) {
       lines.push(`💾 Size: ${realSize}`);
     }
     

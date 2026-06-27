@@ -70,14 +70,25 @@ function resolveProxyUrl(url) {
 
 function buildStream(item) {
   return __async(this, null, function* () {
-    if (!item?.url || item.externalUrl || String(item.url).includes("github.com")) return null;
+    // 1. Filter out the unwanted link
+    const unwantedUrl = "https://bcdnxw.hakunaymatata.com/resource/320b187e54ef8eba8a5e5512bc13d47e.mp4";
+    if (!item?.url || item.url.includes(unwantedUrl) || item.externalUrl || String(item.url).includes("github.com")) return null;
+
     const cleanedTitle = cleanText(item.title);
     const quality = extractQuality(cleanedTitle);
-    const language = extractLanguage(cleanedTitle);
+    let language = extractLanguage(cleanedTitle);
+
+    // 2. Force "Default" to "Hindi" to match your requirement for the first entry
+    if (language === "Default") {
+      language = "Hindi";
+    }
+
     const streamUrl = isProxyUrl(item.url) ? yield resolveProxyUrl(item.url) : item.url;
     if (!streamUrl) return null;
+
     const nameParts = ["Pynvix."];
-    if (language !== "Default") nameParts.push(language);
+    if (language) nameParts.push(language);
+
     return {
       name: nameParts.join(" • "),
       title: quality,

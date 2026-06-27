@@ -71,26 +71,16 @@ const extractQuality = (titleText, urlStr) => {
 };
 
 const extractAudioOrLanguage = (titleText, urlStr) => {
-  const decodedUrl = getDeepUrl(urlStr).toLowerCase();
-  const titleLower = String(titleText ?? "").toLowerCase();
-  const combined = `${titleLower} ${decodedUrl}`;
-
-  if (decodedUrl.includes("/hindidub/") || combined.includes("hindi-dub") || combined.includes("hindi dub")) return "Hindi-Dub";
-  if (decodedUrl.includes("/telugudub/") || combined.includes("telugu-dub") || combined.includes("telugu dub")) return "Telugu-Dub";
-  if (decodedUrl.includes("/tamildub/") || combined.includes("tamil-dub") || combined.includes("tamil dub")) return "Tamil-Dub";
-  if (decodedUrl.includes("/engdub/") || combined.includes("english-dub") || combined.includes("eng dub")) return "English-Dub";
-
-  const bracketMatch = combined.match(/[([]([^)\]]+)[)\]]/);
-  if (bracketMatch && bracketMatch[1].trim() !== "hd stream") {
-    const rawLang = bracketMatch[1].trim();
-    return rawLang.charAt(0).toUpperCase() + rawLang.slice(1);
-  }
-
+  const combined = `${titleText} ${urlStr}`.toLowerCase();
+  
+  // Prioritize Multi/Dual first
   if (/multi|dual/i.test(combined)) return "Multi-Audio";
-  if (/hindi/i.test(combined)) return "Hindi";
-  if (/eng/i.test(combined)) return "English";
-
-  return "Default Audio";
+  
+  if (combined.includes("/hindidub/") || combined.includes("hindi-dub")) return "Hindi-Dub";
+  if (combined.includes("hindi")) return "Hindi";
+  if (combined.includes("eng")) return "English";
+  
+  return "Dual-Audio";
 };
 
 const extractMediaNameFromUrl = (urlStr) => {
@@ -182,27 +172,21 @@ function makeStream(item) {
     const container = extractContainerFormat(streamUrl);
     const serverName = extractServerName(streamUrl);
     
+    // We fetch size, but we do not block the UI for it
     const realSize = yield fetchFileSize(streamUrl);
 
-    let qualityEmoji = "";
-    if (quality === "2160p") qualityEmoji = "💎 2160p";
-    else if (quality === "1080p") qualityEmoji = "🔥 1080p";
-    else if (quality === "720p") qualityEmoji = "📺 720p";
-    else qualityEmoji = `📺 ${quality}`;
-
-    const audioFlag = audio.includes("Hindi") ? "Hindi 🇮🇳" : audio;
+    let qualityEmoji = quality === "2160p" ? "💎 2160p" : quality === "1080p" ? "🔥 1080p" : "📺 " + quality;
     
-    const headerName = `TENIES.SITE | ${audio} | ${quality.toUpperCase()}`;
-
     const lines = [
       qualityEmoji,
       `🎬 ${mediaName}`,
-      `🌍 ${audioFlag}`,
+      `🌍 ${audio}`,
       `🎞️ ${container}`,
       `🔗 ${serverName}`
     ];
     
-    if (realSize) {
+    // Omit 0MB, empty strings, and "unknown" from the UI
+    if (realSize && realSize !== "0 MB" && realSize !== "unknown") {
       lines.push(`💾 Size: ${realSize}`);
     }
     
@@ -214,7 +198,7 @@ function makeStream(item) {
     };
 
     const streamObject = {
-      name: headerName,
+      name: unifiedLayoutBlock, // Set name to unified for mobile visibility
       url: streamUrl,
       behaviorHints: {
         notWebReady: false,
@@ -245,23 +229,25 @@ function parseStreams(data) {
 
     const validItems = data.streams.filter((item) => {
       if (typeof item?.url !== "string" || !item.url.startsWith("https")) return false;
-
       const innerMatch = item.url.match(/[?&]url=(https?:\/\/[^&]+)/);
       return !innerMatch || innerMatch[1].startsWith("https");
     });
 
-    const streams = yield Promise.all(validItems.map(makeStream));
-    const processed = streams.filter(Boolean);
+    // Process streams one by one to prevent UI freeze and load faster
+    const processed = [];
+    for (const item of validItems) {
+      const stream = yield makeStream(item);
+      if (stream) processed.push(stream);
+    }
 
     const uniqueStreams = [];
     const seenFingerprints = new Set();
 
     for (const stream of processed) {
       const meta = stream._dedupeMeta;
-      
       const fingerprint = `${meta.size}-${meta.quality}-${meta.server}`.toLowerCase();
       
-      if (meta.size === "unknown") {
+      if (meta.size === "unknown" || meta.size === "0 MB") {
         const fallbackUrl = getDeepUrl(stream.url);
         if (!seenFingerprints.has(fallbackUrl)) {
           seenFingerprints.add(fallbackUrl);
@@ -274,7 +260,6 @@ function parseStreams(data) {
         }
       }
     }
-
     return uniqueStreams;
   });
 }

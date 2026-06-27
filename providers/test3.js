@@ -4,12 +4,12 @@
 const PROVIDER_NAME = "MovieBox";
 const MOVIEBOX_BASE = "https://moviebox-cfa7.onrender.com";
 const MOVIEBOX_API_EN ="https://moviebox-cfa7.onrender.com/source=all%7Clang=en%7Cres=all";
-const MOVIEBOX_API_HI ="https://moviebox-cfa7.onrender.com/source=all%7Clang=hi%7Cres=all"
+const MOVIEBOX_API_HI ="https://moviebox-cfa7.onrender.com/source=all%7Clang=hi%7Cres=all";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 async function getStreams(tmdbId, mediaType, season, episode) {
 const isSeries = mediaType === 'tv' || mediaType === 'series';
-const tmdbUrl = https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids;
+const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
 try {  
     const meta = await fetch(tmdbUrl).then(r => r.json());  

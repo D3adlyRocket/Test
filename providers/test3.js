@@ -13,7 +13,7 @@ const __async = (__this, __arguments, generator) => {
   });
 };
 
-const PYNVIX_API = "https://moviebox-cfa7.onrender.com/source=all%7Clang=hi%7Cres=1080p";
+const PYNVIX_BASE = "https://moviebox-cfa7.onrender.com";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 const HEADERS = {
@@ -23,9 +23,7 @@ const HEADERS = {
 const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
 
 const cleanText = (str) =>
-  String(str ?? "")
-    .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "")
-    .trim();
+  String(str ?? "").replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "").trim();
 
 const extractQuality = (titleText) => {
   const match = String(titleText ?? "").match(/(\d{3,4}p)/i);
@@ -36,13 +34,10 @@ const extractLanguage = (cleanedTitle) => {
   const parts = String(cleanedTitle ?? "").split("|");
   if (parts.length < 2) return "Default";
   const raw = parts[parts.length - 1].trim();
-  return raw === ""
-    ? "Default"
-    : raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+  return raw === "" ? "Default" : raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
 };
 
-const isProxyUrl = (url) =>
-  String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
+const isProxyUrl = (url) => String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
 function getImdbId(tmdbId, mediaType) {
   return __async(this, null, function* () {
@@ -53,92 +48,43 @@ function getImdbId(tmdbId, mediaType) {
       if (!response.ok) return null;
       const data = yield response.json();
       return data?.external_ids?.imdb_id ?? null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   });
 }
 
 function resolveProxyUrl(url) {
   return __async(this, null, function* () {
     try {
-      const response = yield fetch(url, {
-        redirect: "follow",
-        headers: { ...HEADERS, "Referer": url },
-      });
+      const response = yield fetch(url, { redirect: "follow", headers: { ...HEADERS, "Referer": url } });
       const finalUrl = response.url;
-      if ([".m3u8", ".mp4", ".mkv"].some((ext) => finalUrl.includes(ext))) {
-        return finalUrl;
-      }
+      if ([".m3u8", ".mp4", ".mkv"].some((ext) => finalUrl.includes(ext))) return finalUrl;
       const contentType = response.headers.get("content-type") ?? "";
-      if (contentType.includes("text/plain")) {
-        const text = yield response.text();
-        return text.trim() || null;
-      }
       if (contentType.includes("application/json")) {
         const data = yield response.json();
         return data?.url ?? data?.stream ?? data?.src ?? null;
       }
       return finalUrl || null;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   });
 }
 
-const detectStreamType = (url) => {
-  if (!url)
-    return "video";
-  const lower = String(url).toLowerCase().split("?")[0];
-  return lower.includes(".m3u8") ? "m3u8" : "video";
-};
-
 function buildStream(item) {
   return __async(this, null, function* () {
-    if (!item?.url || item.externalUrl) return null;
-    if (String(item.url).includes("github.com")) return null;
-
+    if (!item?.url || item.externalUrl || String(item.url).includes("github.com")) return null;
     const cleanedTitle = cleanText(item.title);
     const quality = extractQuality(cleanedTitle);
     const language = extractLanguage(cleanedTitle);
-
-    const headers = {
-      ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
-      ...(item.behaviorHints?.headers ?? {}),
-    };
-
-    const streamUrl = isProxyUrl(item.url)
-      ? yield resolveProxyUrl(item.url)
-      : item.url;
-
+    const streamUrl = isProxyUrl(item.url) ? yield resolveProxyUrl(item.url) : item.url;
     if (!streamUrl) return null;
-
     const nameParts = ["Pynvix."];
     if (language !== "Default") nameParts.push(language);
-
     return {
       name: nameParts.join(" • "),
       title: quality,
       url: streamUrl,
       quality,
-      ...(Object.keys(headers).length > 0 ? { headers } : {}),
       provider: "Pynvix.",
     };
-  });
-}
-
-function parseStreams(data) {
-  return __async(this, null, function* () {
-    if (!Array.isArray(data?.streams) || data.streams.length === 0) return [];
-
-    const validItems = data.streams.filter((item) => {
-      if (typeof item?.url !== "string" || !item.url.startsWith("https")) return false;
-      const innerMatch = item.url.match(/[?&]url=(https?:\/\/[^&]+)/);
-      return !innerMatch || innerMatch[1].startsWith("https");
-    });
-
-    const streams = yield Promise.all(validItems.map(buildStream));
-    return streams.filter(Boolean);
   });
 }
 
@@ -148,20 +94,11 @@ function fetchStreams(url) {
       const response = yield fetch(url);
       if (!response.ok) return [];
       const data = yield response.json();
-      return yield parseStreams(data);
-    } catch {
-      return [];
-    }
-  });
-}
-
-function fetchFirstValid(urls) {
-  return __async(this, null, function* () {
-    for (const url of urls) {
-      const streams = yield fetchStreams(url);
-      if (streams.length > 0) return streams;
-    }
-    return [];
+      if (!Array.isArray(data?.streams)) return [];
+      const validItems = data.streams.filter((item) => typeof item?.url === "string" && item.url.startsWith("https"));
+      const streams = yield Promise.all(validItems.map(buildStream));
+      return streams.filter(Boolean);
+    } catch { return []; }
   });
 }
 
@@ -170,22 +107,31 @@ function getStreams(tmdbId, mediaType, season, episode) {
     const isSeries = mediaType === "tv" || season != null || episode != null;
     const s = season ?? 1;
     const e = episode ?? 1;
+    const languages = ["hi", "en", "orig"]; // Languages to fetch
+    let allStreams = [];
 
     try {
       const imdbId = yield getImdbId(tmdbId, isSeries ? "tv" : "movie");
       if (!imdbId) return [];
 
-      if (!isSeries) {
-        return yield fetchStreams(`${PYNVIX_API}/stream/movie/${imdbId}.json`);
+      for (const lang of languages) {
+        let urls = [];
+        if (!isSeries) {
+          urls = [`${PYNVIX_BASE}/source=all|lang=${lang}|res=1080p/stream/movie/${imdbId}.json`];
+        } else {
+          urls = [
+            `${PYNVIX_BASE}/source=all|lang=${lang}|res=1080p/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
+            `${PYNVIX_BASE}/source=all|lang=${lang}|res=1080p/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`
+          ];
+        }
+        // Fetch and append all found streams for this language
+        for (const url of urls) {
+          const streams = yield fetchStreams(url);
+          allStreams = allStreams.concat(streams);
+        }
       }
-
-      return yield fetchFirstValid([
-        `${PYNVIX_API}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
-        `${PYNVIX_API}/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,
-      ]);
-    } catch {
-      return [];
-    }
+      return allStreams;
+    } catch { return []; }
   });
 }
 

@@ -57,6 +57,9 @@ if (allStreams.length === 0) return [];
 
         const result = [];
 
+// Group by res + language
+const grouped = {};
+
 allStreams.forEach(item => {
     const title = (item.title || "").toLowerCase();
 
@@ -67,24 +70,37 @@ allStreams.forEach(item => {
         /480/.test(title) ? "480p" :
         "360p";
 
-    const fullLayout =
+    const key = `${res}-${item.lang}`;
+
+    if (!grouped[key]) grouped[key] = [];
+
+    grouped[key].push(item);
+});
+
+// Build final result
+Object.entries(grouped).forEach(([key, items]) => {
+    const [res, lang] = key.split("-");
+
+    items.forEach(item => {
+        const fullLayout =
 `🎦 ${meta.title || meta.name}
-💎 ${res} | 🗣️ ${item.lang}
+💎 ${res} | 🗣️ ${lang}
 🎞️ MKV | 🔗 ${PROVIDER_NAME}`;
 
-    result.push({
-        name: `${PROVIDER_NAME} | ${res} | ${item.lang}`,
-        title: fullLayout,
-        size: fullLayout,
-        description: fullLayout,
-        url: item.url,
-        behaviorHints: {
-            proxyHeaders: {
-                request: {
-                    "Referer": MOVIEBOX_BASE + "/"
+        result.push({
+            name: `${PROVIDER_NAME} | ${res} | ${lang}`,
+            title: fullLayout,
+            size: fullLayout,
+            description: fullLayout,
+            url: item.url,
+            behaviorHints: {
+                proxyHeaders: {
+                    request: {
+                        "Referer": MOVIEBOX_BASE + "/"
+                    }
                 }
             }
-        }
+        });
     });
 });
         

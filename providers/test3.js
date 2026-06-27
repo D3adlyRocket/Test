@@ -24,14 +24,15 @@ const MOVIEBOX_API_HI = isSeries
     ? `${MOVIEBOX_BASE}/source=v3|lang=hi|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
     : `${MOVIEBOX_BASE}/source=v3|lang=hi|res=all/stream/movie/${imdbId}.json`;
 
-// Replace the Promise.all block with this sequential logic
+// ... inside your try block, after defining MOVIEBOX_API_EN and MOVIEBOX_API_HI:
+
 let allStreams = [];
 const seenUrls = new Set();
 
 const fetchLanguage = async (url, langLabel) => {
     try {
-        const res = await fetch(url);
-        const data = await res.json();
+        const response = await fetch(url);
+        const data = await response.json();
         if (data?.streams) {
             data.streams.forEach(s => {
                 if (s.url && !seenUrls.has(s.url)) {
@@ -41,16 +42,15 @@ const fetchLanguage = async (url, langLabel) => {
             });
         }
     } catch (e) {
-        console.error(`Failed to fetch ${langLabel}:`, e);
+        console.error(`Error fetching ${langLabel}:`, e);
     }
 };
 
-// Execute one after the other to avoid overwhelming the Render instance
-await fetchLanguage(englishUrl, "English 🇺🇸");
-await fetchLanguage(hindiUrl, "Hindi 🇮🇳");
+// Use the exact variable names defined in your script
+await fetchLanguage(MOVIEBOX_API_EN, "English 🇺🇸");
+await fetchLanguage(MOVIEBOX_API_HI, "Hindi 🇮🇳");
 
 if (allStreams.length === 0) return [];
-
 
 const result = [];
 

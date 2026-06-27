@@ -128,7 +128,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       for (const lang of languages) {
         let urls = [];
         if (!isSeries) {
-          urls = [`${PYNVIX_BASE}/source=v3|lang=${lang}|res=1080p/stream/movie/${imdbId}.json`];
+          urls = [`${PYNVIX_BASE}/source=v3|lang=${lang}|res=all/stream/movie/${imdbId}.json`];
         } else {
           urls = [
             `${PYNVIX_BASE}/source=all|lang=${lang}|res=1080p/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,

@@ -14,7 +14,7 @@ const __async = (__this, __arguments, generator) => {
 };
 
 // UPDATED: New base URL (without /manifest.json)
-const MOVIEBOX_API = "https://moviebox-cfa7.onrender.com/source=all%7Clang=en%7Cres=all";
+const MOVIEBOX_API = "https://moviebox-cfa7.onrender.com/source=all%7Clang=all%7Cres=all";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 const HEADERS = {

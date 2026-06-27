@@ -131,6 +131,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
         // Using "source=all" ensures you are querying the most comprehensive index
         if (!isSeries) {
           urls = [`${PYNVIX_BASE}/source=all|lang=${lang}|res=all/stream/movie/${imdbId}.json`];
+                 [`${PYNVIX_BASE}/source=v3|lang=en|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`];
+    :            [`${PYNVIX_BASE}/source=v3|lang=en|res=all/stream/movie/${imdbId}.json`];
         } else {
           urls = [
             `${PYNVIX_BASE}/source=all|lang=${lang}|res=all/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`

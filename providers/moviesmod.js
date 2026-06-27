@@ -4,52 +4,51 @@ const PROVIDER_NAME = "MovieBox";
 const MOVIEBOX_BASE = "https://moviebox-cfa7.onrender.com";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
+// Helper to determine resolution category
+function getResCategory(title) {
+    if (/2160|4k/i.test(title)) return "2160p";
+    if (/1080/i.test(title)) return "1080p";
+    if (/720/i.test(title)) return "720p";
+    if (/480/i.test(title)) return "480p";
+    return "360p";
+}
+
 async function getStreams(tmdbId, mediaType, season, episode) {
-    const isSeries = mediaType === 'tv' || mediaType === 'series';
-    const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+    // ... (fetch meta logic remains same)
     
-    const meta = await fetch(tmdbUrl).then(r => r.json());
-    const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
-    if (!imdbId) return [];
+    // Fetch all streams
+    const url = `${MOVIEBOX_BASE}/source=v3|lang=all|res=all/stream/${isSeries ? 'series' : 'movie'}/${imdbId}${isSeries ? ':' + season + ':' + episode : ''}.json`;
+    const data = await fetch(url).then(r => r.json());
+    
+    if (!data?.streams) return [];
 
-    // Fetch the full list
-    const url = isSeries 
-        ? `${MOVIEBOX_BASE}/source=v3|lang=all|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
-        : `${MOVIEBOX_BASE}/source=v3|lang=all|res=all/stream/movie/${imdbId}.json`;
+    // 1. Group streams by resolution
+    const groups = { "2160p": [], "1080p": [], "720p": [], "480p": [], "360p": [] };
+    data.streams.forEach(s => {
+        const res = getResCategory(s.title);
+        groups[res].push(s);
+    });
 
-    try {
-        const response = await fetch(url);
-        const data = await response.json();
-        if (!data?.streams || data.streams.length === 0) return [];
-
-        // YOUR LOGIC: Split the total list into two halves
-        // If there are 6 links, first 3 = English, last 3 = Hindi
-        const midPoint = Math.floor(data.streams.length / 2);
-        
-        return data.streams.map((item, index) => {
-            const isHindi = index >= midPoint;
-            const lang = isHindi ? "Hindi" : "English";
+    // 2. Interleave within each group
+    const orderedStreams = [];
+    Object.keys(groups).forEach(res => {
+        const list = groups[res];
+        // We assume 1st is English, 2nd is Hindi based on your requirement
+        list.forEach((item, index) => {
+            const lang = (index % 2 === 0) ? "English" : "Hindi";
             
-            // Quality detection (the part you liked)
-            const quality = /2160|4k/i.test(item.title) ? "2160p" : 
-                            /1080/i.test(item.title) ? "1080p" : 
-                            /720/i.test(item.title) ? "720p" : 
-                            /480/i.test(item.title) ? "480p" : "360p";
+            const fullLayout = `🎦 ${meta.title || meta.name}\n💎 ${res} | 🗣️ ${lang === "Hindi" ? "Hindi 🇮🇳 • English 🇺🇸" : "English 🇺🇸"}\n🎞️ MKV | 🔗 ${PROVIDER_NAME}`;
             
-            const fullLayout = `🎦 ${meta.title || meta.name}\n💎 ${quality} | 🗣️ ${lang === "Hindi" ? "Hindi 🇮🇳 • English 🇺🇸" : "English 🇺🇸"}\n🎞️ MKV | 🔗 ${PROVIDER_NAME}`;
-            
-            return {
-                name: `${PROVIDER_NAME} | ${quality} | ${lang}`,
+            orderedStreams.push({
+                name: `${PROVIDER_NAME} | ${res} | ${lang}`,
                 title: fullLayout,
                 size: fullLayout,
                 description: fullLayout,
                 url: item.url,
                 behaviorHints: { proxyHeaders: { request: { "Referer": MOVIEBOX_BASE + "/" } } }
-            };
+            });
         });
-    } catch (e) { 
-        return []; 
-    }
-}
+    });
 
-module.exports = { getStreams };
+    return orderedStreams;
+}

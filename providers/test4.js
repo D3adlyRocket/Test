@@ -27,7 +27,7 @@ const cleanText = (str) =>
     .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "")
     .trim();
 
-// Decodes proxy chains safely to extract hidden destination links
+// Centralized safe URL Decoder to strip proxy layers for inspection
 const getDeepUrl = (urlStr) => {
   if (!urlStr) return "";
   try {
@@ -39,7 +39,6 @@ const getDeepUrl = (urlStr) => {
   }
 };
 
-// Fast non-downloading HEAD request to grab accurate file size metrics 
 function fetchFileSize(urlStr) {
   return __async(this, null, function* () {
     try {
@@ -58,46 +57,52 @@ function fetchFileSize(urlStr) {
   });
 }
 
+// Fixed: Now processes the pre-decoded URL to find true quality flags
 const extractQuality = (titleText, urlStr) => {
-  const combined = `${titleText} ${urlStr}`.toLowerCase();
-  if (combined.includes("4k") || combined.includes("2160p")) return "2160p";
-  if (combined.includes("1080p")) return "1080p";
-  if (combined.includes("720p")) return "720p";
-  if (combined.includes("480p")) return "480p";
+  const decodedUrl = getDeepUrl(urlStr).toLowerCase();
+  const combined = `${titleText} ${decodedUrl}`.toLowerCase();
+  
+  if (combined.includes("4k") || combined.includes("2160p") || combined.includes("uhd")) return "2160p";
+  if (combined.includes("1080p") || combined.includes("fhd")) return "1080p";
+  if (combined.includes("720p") || combined.includes("hd")) return "720p";
+  if (combined.includes("480p") || combined.includes("sd")) return "480p";
+  
   const match = combined.match(/(\d{3,4}p)/i);
   return match ? match[0].toLowerCase() : "1080p";
 };
 
+// Fixed: Processes the fully transparent decoded link for exact audio tags
 const extractAudioOrLanguage = (titleText, urlStr) => {
-  const decodedUrl = decodeURIComponent(urlStr ?? "").toLowerCase();
+  const decodedUrl = getDeepUrl(urlStr).toLowerCase();
   const titleLower = String(titleText ?? "").toLowerCase();
+  const combined = `${titleLower} ${decodedUrl}`;
 
-  if (decodedUrl.includes("/hindidub/") || titleLower.includes("hindi dub")) return "Hindi-Dub";
-  if (decodedUrl.includes("/telugudub/") || titleLower.includes("telugu dub")) return "Telugu-Dub";
-  if (decodedUrl.includes("/tamildub/") || titleLower.includes("tamil dub")) return "Tamil-Dub";
-  if (decodedUrl.includes("/engdub/") || titleLower.includes("eng dub")) return "English-Dub";
+  if (decodedUrl.includes("/hindidub/") || combined.includes("hindi-dub") || combined.includes("hindi dub")) return "Hindi-Dub";
+  if (decodedUrl.includes("/telugudub/") || combined.includes("telugu-dub") || combined.includes("telugu dub")) return "Telugu-Dub";
+  if (decodedUrl.includes("/tamildub/") || combined.includes("tamil-dub") || combined.includes("tamil dub")) return "Tamil-Dub";
+  if (decodedUrl.includes("/engdub/") || combined.includes("english-dub") || combined.includes("eng dub")) return "English-Dub";
 
-  const bracketMatch = titleLower.match(/[([]([^)\]]+)[)\]]/);
+  const bracketMatch = combined.match(/[([]([^)\]]+)[)\]]/);
   if (bracketMatch && bracketMatch[1].trim() !== "hd stream") {
     const rawLang = bracketMatch[1].trim();
     return rawLang.charAt(0).toUpperCase() + rawLang.slice(1);
   }
 
-  if (/multi|dual/i.test(titleLower + decodedUrl)) return "Multi-Audio";
-  if (/hindi/i.test(titleLower + decodedUrl)) return "Hindi";
-  if (/eng/i.test(titleLower + decodedUrl)) return "English";
+  if (/multi|dual/i.test(combined)) return "Multi-Audio";
+  if (/hindi/i.test(combined)) return "Hindi";
+  if (/eng/i.test(combined)) return "English";
 
   return "Default Audio";
 };
 
 const extractMediaNameFromUrl = (urlStr) => {
-  const decodedUrl = decodeURIComponent(urlStr ?? "");
+  const decodedUrl = getDeepUrl(urlStr);
   const match = decodedUrl.match(/\/movies\/[^/]+\/([^/]+)/i);
   return match ? match[1].replace(/%20/g, " ").trim() : "Project Hail Mary (2026)";
 };
 
 const extractContainerFormat = (urlStr) => {
-  const cleanUrl = String(urlStr ?? "").split("?")[0].toLowerCase();
+  const cleanUrl = getDeepUrl(urlStr).split("?")[0].toLowerCase();
   if (cleanUrl.endsWith(".mp4")) return "MP4";
   if (cleanUrl.endsWith(".mkv")) return "MKV";
   if (cleanUrl.endsWith(".m3u8")) return "HLS";
@@ -179,7 +184,6 @@ function makeStream(item) {
     const container = extractContainerFormat(streamUrl);
     const serverName = extractServerName(streamUrl);
     
-    // Asynchronously retrieve content size directly via file headers
     const realSize = yield fetchFileSize(streamUrl);
 
     let qualityEmoji = "";
@@ -190,7 +194,7 @@ function makeStream(item) {
 
     const audioFlag = audio.includes("Hindi") ? "Hindi 🇮🇳" : audio;
     
-    // Explicit format tracking requested layout parameters
+    // Exact requested layout definition
     const headerName = `TENIES.SITE | ${audio} | ${quality.toUpperCase()}`;
 
     const lines = [
@@ -201,7 +205,6 @@ function makeStream(item) {
       `🔗 ${serverName}`
     ];
     
-    // Append size data directly into lines without risking structural bullet generation
     if (realSize) {
       lines.push(`💾 Size: ${realSize}`);
     }
@@ -223,8 +226,8 @@ function makeStream(item) {
       ...(Object.keys(computedHeaders).length > 0 ? { headers: computedHeaders } : {}),
     };
 
-    // Native Property Engine Interceptor Block
-    // Fixed: Stripped layout key assignments that were causing annoying native bullet flags to re-render
+    // Forced configuration variables map down into Nuvio layouts seamlessly 
+    // without triggering ugly default layout bullet marks
     try {
       Object.defineProperties(streamObject, {
         title: { get: function() { return unifiedLayoutBlock; }, enumerable: true, configurable: true },
@@ -250,7 +253,6 @@ function parseStreams(data) {
     const streams = yield Promise.all(validItems.map(makeStream));
     const processed = streams.filter(Boolean);
 
-    // DEDUPLICATION ENGINE: Eliminates identical mirrored destination tracks
     const uniqueStreams = [];
     const seenUrls = new Set();
 

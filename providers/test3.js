@@ -118,7 +118,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
     const isSeries = mediaType === "tv" || season != null || episode != null;
     const s = season ?? 1;
     const e = episode ?? 1;
-    const languages = ["hi", "en", "all"]; // Languages to fetch
+    const languages = ["hi", "en"]; // Languages to fetch
     let allStreams = [];
 
     try {
@@ -128,7 +128,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       for (const lang of languages) {
         let urls = [];
         if (!isSeries) {
-          urls = [`${PYNVIX_BASE}/source=all|lang=${lang}|res=all/stream/movie/${imdbId}.json`];
+          urls = [`${PYNVIX_BASE}/source=v2|lang=${lang}|res=all/stream/movie/${imdbId}.json`];
         } else {
           urls = [
             `${PYNVIX_BASE}/source=all|lang=${lang}|res=1080p/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,

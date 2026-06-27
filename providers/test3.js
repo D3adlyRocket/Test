@@ -13,7 +13,7 @@ const __async = (__this, __arguments, generator) => {
   });
 };
 
-const MOVIEBOX_API = "https://moviebox-cfa7.onrender.com/source=all%7Clang=hi%7Cres=all";
+const PYNVIX_API = "https://moviebox-cfa7.onrender.com/source=all%7Clang=hi%7Cres=1080p";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 const HEADERS = {
@@ -113,7 +113,7 @@ function buildStream(item) {
 
     if (!streamUrl) return null;
 
-    const nameParts = ["MovieBox."];
+    const nameParts = ["Pynvix."];
     if (language !== "Default") nameParts.push(language);
 
     return {
@@ -122,7 +122,7 @@ function buildStream(item) {
       url: streamUrl,
       quality,
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
-      provider: "MovieBox.",
+      provider: "Pynvix.",
     };
   });
 }
@@ -176,12 +176,12 @@ function getStreams(tmdbId, mediaType, season, episode) {
       if (!imdbId) return [];
 
       if (!isSeries) {
-        return yield fetchStreams(`${MOVIEBOX_API}/stream/movie/${imdbId}.json`);
+        return yield fetchStreams(`${PYNVIX_API}/stream/movie/${imdbId}.json`);
       }
 
       return yield fetchFirstValid([
-        `${MOVIEBOX_API}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
-        `${MOVIEBOX_API}/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,
+        `${PYNVIX_API}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
+        `${PYNVIX_API}/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,
       ]);
     } catch {
       return [];

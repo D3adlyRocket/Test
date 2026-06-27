@@ -68,32 +68,37 @@ function resolveProxyUrl(url) {
   });
 }
 
-function buildStream(item) {
+function fetchStreams(url, lang) {
   return __async(this, null, function* () {
-    // 1. Filter out the unwanted link
+    try {
+      const response = yield fetch(url);
+      if (!response.ok) return [];
+      const data = yield response.json();
+      if (!Array.isArray(data?.streams)) return [];
+      // Pass the 'lang' parameter here
+      const streams = yield Promise.all(data.streams.map(item => buildStream(item, lang)));
+      return streams.filter(Boolean);
+    } catch { return []; }
+  });
+}
+
+// Update buildStream to use the passed language
+function buildStream(item, lang) {
+  return __async(this, null, function* () {
     const unwantedUrl = "https://bcdnxw.hakunaymatata.com/resource/320b187e54ef8eba8a5e5512bc13d47e.mp4";
-    if (!item?.url || item.url.includes(unwantedUrl) || item.externalUrl || String(item.url).includes("github.com")) return null;
-
-    const cleanedTitle = cleanText(item.title);
-    const quality = extractQuality(cleanedTitle);
-    let language = extractLanguage(cleanedTitle);
-
-    // 2. Force "Default" to "Hindi" to match your requirement for the first entry
-    if (language === "Default") {
-      language = "Hindi";
-    }
+    if (!item?.url || item.url.includes(unwantedUrl) || item.externalUrl) return null;
 
     const streamUrl = isProxyUrl(item.url) ? yield resolveProxyUrl(item.url) : item.url;
     if (!streamUrl) return null;
 
-    const nameParts = ["Pynvix."];
-    if (language) nameParts.push(language);
+    // Map the language code to a display name
+    const langMap = { "hi": "Hindi", "en": "English" };
+    const languageLabel = langMap[lang] || "Default";
 
     return {
-      name: nameParts.join(" • "),
-      title: quality,
+      name: `Pynvix • ${languageLabel}`,
+      title: extractQuality(item.title || ""),
       url: streamUrl,
-      quality,
       provider: "Pynvix.",
     };
   });
@@ -118,7 +123,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
     const isSeries = mediaType === "tv" || season != null || episode != null;
     const s = season ?? 1;
     const e = episode ?? 1;
-    const languages = ["hi", "en"]; // Languages to fetch
+    const languages = ["hi", "en"]; 
     let allStreams = [];
 
     try {
@@ -126,20 +131,16 @@ function getStreams(tmdbId, mediaType, season, episode) {
       if (!imdbId) return [];
 
       for (const lang of languages) {
-        let urls = [];
+        let url;
         if (!isSeries) {
-          urls = [`${PYNVIX_BASE}/source=v2|lang=${lang}|res=all/stream/movie/${imdbId}.json`];
+          // Use a broader source parameter if v2 is failing for specific titles
+          url = `${PYNVIX_BASE}/source=all|lang=${lang}|res=all/stream/movie/${imdbId}.json`;
         } else {
-          urls = [
-            `${PYNVIX_BASE}/source=all|lang=${lang}|res=1080p/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
-            `${PYNVIX_BASE}/source=all|lang=${lang}|res=1080p/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`
-          ];
+          url = `${PYNVIX_BASE}/source=all|lang=${lang}|res=all/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`;
         }
-        // Fetch and append all found streams for this language
-        for (const url of urls) {
-          const streams = yield fetchStreams(url);
-          allStreams = allStreams.concat(streams);
-        }
+        
+        const streams = yield fetchStreams(url, lang); // Pass the lang to the fetcher
+        allStreams = allStreams.concat(streams);
       }
       return allStreams;
     } catch { return []; }

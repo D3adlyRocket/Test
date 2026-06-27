@@ -38,17 +38,25 @@ const getDeepUrl = (urlStr) => {
   }
 };
 
-// Ultra-fast HEAD request with an 800ms abort timeout to prevent UI freezing
+// Increased timeout and added a check for response.ok
 function fetchFileSize(urlStr) {
   return Promise.race([
-    // Fallback if the server takes longer than 800ms
-    new Promise((resolve) => setTimeout(() => resolve("unknown"), 800)),
+    // Bumped to 2500ms. 800ms is too fast for external handshakes.
+    new Promise((resolve) => setTimeout(() => resolve("unknown"), 2500)),
     
-    // The actual HEAD request
     __async(this, null, function* () {
       try {
-        const response = yield fetch(urlStr, { method: "HEAD", headers: HEADERS });
-        const bytes = Number.parseInt(response.headers.get("content-length") ?? "0", 10);
+        const response = yield fetch(urlStr, { 
+            method: "HEAD", 
+            headers: HEADERS 
+        });
+        
+        // If the server blocks HEAD requests (e.g., 405 Method Not Allowed), bail out cleanly
+        if (!response.ok) return "unknown";
+
+        const contentLength = response.headers.get("content-length");
+        const bytes = Number.parseInt(contentLength ?? "0", 10);
+        
         if (!bytes || Number.isNaN(bytes)) return "unknown";
         
         const gb = bytes / (1024 * 1024 * 1024);
@@ -56,7 +64,8 @@ function fetchFileSize(urlStr) {
         
         const mb = bytes / (1024 * 1024);
         return mb.toFixed(0) + " MB";
-      } catch {
+      } catch (err) {
+        // Catches CORS blocks in browsers or hard network timeouts
         return "unknown";
       }
     })
@@ -200,7 +209,7 @@ function makeStream(item) {
     
     const headerName = `TENIES.SITE | ${audio} | ${quality.toUpperCase()}`;
 
-    const lines = [
+        const lines = [
       qualityEmoji,
       `🎬 ${mediaName}`,
       `🌍 ${audioFlag}`,
@@ -208,7 +217,8 @@ function makeStream(item) {
       `🔗 ${serverName}`
     ];
     
-    if (realSize) {
+    // FIX: Ensure we don't print "unknown" to the UI
+    if (realSize && realSize !== "unknown") {
       lines.push(`💾 Size: ${realSize}`);
     }
     

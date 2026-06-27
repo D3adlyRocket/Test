@@ -17,12 +17,12 @@ try {
     if (!imdbId) return [];  
 
     const MOVIEBOX_API_EN = isSeries
-    ? `${MOVIEBOX_BASE}/source=all|lang=en|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
-    : `${MOVIEBOX_BASE}/source=all|lang=en|res=all/stream/movie/${imdbId}.json`;
+    ? `${MOVIEBOX_BASE}/source=v3|lang=en|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
+    : `${MOVIEBOX_BASE}/source=v3|lang=en|res=all/stream/movie/${imdbId}.json`;
 
 const MOVIEBOX_API_HI = isSeries
-    ? `${MOVIEBOX_BASE}/source=all|lang=hi|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
-    : `${MOVIEBOX_BASE}/source=all|lang=hi|res=all/stream/movie/${imdbId}.json`;
+    ? `${MOVIEBOX_BASE}/source=v3|lang=hi|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
+    : `${MOVIEBOX_BASE}/source=v3|lang=hi|res=all/stream/movie/${imdbId}.json`;
 
 const [englishData, hindiData] = await Promise.all([
     fetch(MOVIEBOX_API_EN).then(r => r.json()),

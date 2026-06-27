@@ -13,7 +13,6 @@ const __async = (__this, __arguments, generator) => {
   });
 };
 
-// UPDATED: Replaced PYNVIX_API with the new base URL (without /manifest.json)
 const MOVIEBOX_API = "https://moviebox-cfa7.onrender.com/source=all%7Clang=all%7Cres=all";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
@@ -28,19 +27,66 @@ const cleanText = (str) =>
     .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "")
     .trim();
 
+// --- EXTRACTION & FORMATTING HELPERS ---
+
 const extractQuality = (titleText) => {
-  const match = String(titleText ?? "").match(/(\d{3,4}p)/i);
-  return match?.[0] ?? "Unknown";
+  const match = String(titleText ?? "").match(/(\d{3,4}p|4k)/i);
+  return match?.[0] ?? "Unknown Quality";
+};
+
+const formatQualityEmoji = (quality) => {
+  const q = quality.toLowerCase();
+  if (q.includes("2160") || q.includes("4k")) return `🔥 ${quality}`;
+  if (q.includes("1080")) return `💎 ${quality}`;
+  if (q.includes("720")) return `📺 ${quality}`;
+  return `📱 ${quality}`; 
 };
 
 const extractLanguage = (cleanedTitle) => {
   const langMatch = String(cleanedTitle ?? "").match(/\(([^)]+)\)/);
-  if (!langMatch) return "Default";
+  if (!langMatch) return "English"; // Defaulting to English if none specified
   const raw = langMatch[1].trim();
   return raw.toLowerCase() === "hd stream"
-    ? "Default"
+    ? "English"
     : raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
 };
+
+const formatLanguageEmoji = (language) => {
+  const l = language.toLowerCase();
+  if (l.includes("english")) return "🇺🇲 [English]";
+  if (l.includes("hindi")) return "🇮🇳 [Hindi]";
+  return `🗣️ [${language}]`;
+};
+
+const extractCodec = (text) => {
+  const t = text.toLowerCase();
+  if (/hevc|x265|h265/.test(t)) return "HEVC/x265";
+  if (/x264|h264/.test(t)) return "x264";
+  return "Auto";
+};
+
+const extractFormat = (text) => {
+  const t = text.toLowerCase();
+  if (t.includes(".mkv") || t.includes("mkv")) return "MKV";
+  if (t.includes(".mp4") || t.includes("mp4")) return "MP4";
+  if (t.includes(".avi") || t.includes("avi")) return "AVI";
+  return "Stream";
+};
+
+const extractNameAndYear = (text) => {
+  // Tries to match standard release formats: Title.Year.Quality
+  const match = text.match(/(.+?)[. (]*((?:19|20)\d{2})[. )]*/);
+  if (match) {
+    const name = match[1].replace(/\./g, ' ').trim();
+    const year = match[2];
+    return `🎬 ${name} - (${year})`;
+  }
+  // Fallback: Strip quality and format, return remaining text
+  const cleanName = text.split(/\d{3,4}p/i)[0].replace(/\./g, ' ').trim();
+  return `🎬 ${cleanName || "Unknown Title"}`;
+};
+
+// --- END HELPERS ---
 
 const isProxyUrl = (url) =>
   String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
@@ -87,26 +133,10 @@ function resolveProxyUrl(url) {
   });
 }
 
-const detectStreamType = (url) => {
-  if (!url)
-    return "video";
-  const lower = String(url).toLowerCase().split("?")[0];
-  return lower.includes(".m3u8") ? "m3u8" : "video";
-};
-
 function buildStream(item) {
   return __async(this, null, function* () {
     if (!item?.url || item.externalUrl) return null;
     if (String(item.url).includes("github.com")) return null;
-
-    const cleanedTitle = cleanText(item.title);
-    const quality = extractQuality(cleanedTitle);
-    const language = extractLanguage(cleanedTitle);
-
-    const headers = {
-      ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
-      ...(item.behaviorHints?.headers ?? {}),
-    };
 
     const streamUrl = isProxyUrl(item.url)
       ? yield resolveProxyUrl(item.url)
@@ -114,17 +144,41 @@ function buildStream(item) {
 
     if (!streamUrl) return null;
 
-    // UPDATED: Changed display name from Pynvix to Moviebox
-    const nameParts = ["Moviebox."];
-    if (language !== "Default") nameParts.push(language);
+    // --- CINEFREAK STYLE FORMATTING ---
+    const cleanedTitle = cleanText(item.title || "Unknown");
+    
+    // Extracted Data
+    const rawQuality = extractQuality(cleanedTitle);
+    const rawLanguage = extractLanguage(cleanedTitle);
+    const nameYear = extractNameAndYear(cleanedTitle);
+    const codec = extractCodec(cleanedTitle);
+    const format = extractFormat(cleanedTitle) || extractFormat(streamUrl);
+    
+    // Formatted Strings (Emojis mapped)
+    const formattedQuality = formatQualityEmoji(rawQuality);
+    const formattedLanguage = formatLanguageEmoji(rawLanguage);
+    const serverName = "MovieBox"; 
+
+    // Header: MovieBox | Quality | English or Hindi
+    const headerString = `${serverName} | ${rawQuality} | ${rawLanguage}`;
+
+    // Subheadings (Using \n for Stremio line breaks)
+    // Line 1: 🎬 Movie or Series Name - (Year)
+    // Line 2: 🔥 2160p or 💎 1080p | 🗣️ 🇺🇲 [English]
+    // Line 3: ⚡HEVC 🎞️ Format |  🔗 Server
+    const subHeadingString = `${nameYear}\n${formattedQuality} | ${formattedLanguage}\n⚡${codec} 🎞️ ${format} | 🔗 ${serverName}`;
+
+    const headers = {
+      ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
+      ...(item.behaviorHints?.headers ?? {}),
+    };
 
     return {
-      name: nameParts.join(" • "),
-      title: quality,
+      name: headerString,
+      title: subHeadingString,
       url: streamUrl,
-      quality: "1080p",
+      quality: rawQuality,
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
-      provider: "Moviebox.", // UPDATED string
     };
   });
 }
@@ -181,11 +235,9 @@ function getStreams(tmdbId, mediaType, season, episode) {
       if (!imdbId) return [];
 
       if (!isSeries) {
-        // UPDATED: Swapped PYNVIX_API to MOVIEBOX_API
         return yield fetchStreams(`${MOVIEBOX_API}/stream/movie/${imdbId}.json`);
       }
 
-      // UPDATED: Swapped PYNVIX_API to MOVIEBOX_API
       return yield fetchFirstValid([
         `${MOVIEBOX_API}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
         `${MOVIEBOX_API}/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,

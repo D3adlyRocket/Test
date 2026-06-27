@@ -122,7 +122,7 @@ function buildStream(item) {
       url: streamUrl,
       quality,
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
-      provider: "Pynvix.",
+      provider: "MovieBox.",
     };
   });
 }
@@ -176,7 +176,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       if (!imdbId) return [];
 
       if (!isSeries) {
-        return yield fetchStreams(`${PYNVIX_API}/stream/movie/${imdbId}.json`);
+        return yield fetchStreams(`${MOVIEBOX_API}/stream/movie/${imdbId}.json`);
       }
 
       return yield fetchFirstValid([

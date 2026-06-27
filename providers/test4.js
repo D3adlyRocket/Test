@@ -38,37 +38,30 @@ const getDeepUrl = (urlStr) => {
   }
 };
 
-// Increased timeout and added a check for response.ok
+// Clean internal fetcher using your working __async syntax
+function _executeSizeFetch(urlStr) {
+  return __async(this, null, function* () {
+    try {
+      const response = yield fetch(urlStr, { method: "HEAD", headers: HEADERS });
+      const bytes = Number.parseInt(response.headers.get("content-length") ?? "0", 10);
+      if (!bytes || Number.isNaN(bytes)) return "";
+      
+      const gb = bytes / (1024 * 1024 * 1024);
+      if (gb >= 1) return gb.toFixed(1) + " GB";
+      
+      const mb = bytes / (1024 * 1024);
+      return mb.toFixed(0) + " MB";
+    } catch {
+      return "";
+    }
+  });
+}
+
+// Public wrapper that adds your 800ms abort timeout safely
 function fetchFileSize(urlStr) {
   return Promise.race([
-    // Bumped to 2500ms. 800ms is too fast for external handshakes.
-    new Promise((resolve) => setTimeout(() => resolve("unknown"), 2500)),
-    
-    __async(this, null, function* () {
-      try {
-        const response = yield fetch(urlStr, { 
-            method: "HEAD", 
-            headers: HEADERS 
-        });
-        
-        // If the server blocks HEAD requests (e.g., 405 Method Not Allowed), bail out cleanly
-        if (!response.ok) return "unknown";
-
-        const contentLength = response.headers.get("content-length");
-        const bytes = Number.parseInt(contentLength ?? "0", 10);
-        
-        if (!bytes || Number.isNaN(bytes)) return "unknown";
-        
-        const gb = bytes / (1024 * 1024 * 1024);
-        if (gb >= 1) return gb.toFixed(1) + " GB";
-        
-        const mb = bytes / (1024 * 1024);
-        return mb.toFixed(0) + " MB";
-      } catch (err) {
-        // Catches CORS blocks in browsers or hard network timeouts
-        return "unknown";
-      }
-    })
+    new Promise((resolve) => setTimeout(() => resolve(""), 800)),
+    _executeSizeFetch(urlStr)
   ]);
 }
 

@@ -22,16 +22,11 @@ const HEADERS = {
 
 const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
 
-const cleanText = (str) =>
-  String(str ?? "")
-    .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "")
-    .trim();
-
 // --- EXTRACTION & FORMATTING HELPERS ---
 
-const extractQuality = (titleText) => {
-  const match = String(titleText ?? "").match(/(\d{3,4}p|4k)/i);
-  return match?.[0] ?? "Unknown Quality";
+const extractQuality = (text) => {
+  const match = text.match(/(2160p|1080p|720p|480p|360p|4k)/i);
+  return match ? match[1].toLowerCase() : "Unknown Quality";
 };
 
 const formatQualityEmoji = (quality) => {
@@ -39,22 +34,34 @@ const formatQualityEmoji = (quality) => {
   if (q.includes("2160") || q.includes("4k")) return `🔥 ${quality}`;
   if (q.includes("1080")) return `💎 ${quality}`;
   if (q.includes("720")) return `📺 ${quality}`;
+  if (q.includes("unknown")) return `✨ Unknown`;
   return `📱 ${quality}`; 
 };
 
-const extractLanguage = (cleanedTitle) => {
-  const langMatch = String(cleanedTitle ?? "").match(/\(([^)]+)\)/);
-  if (!langMatch) return "English"; // Defaulting to English if none specified
-  const raw = langMatch[1].trim();
-  return raw.toLowerCase() === "hd stream"
-    ? "English"
-    : raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+const extractLanguage = (text) => {
+  const t = text.toLowerCase();
+  // Scanning the entire string for language keywords instead of relying on parentheses
+  if (t.includes("hindi")) return "Hindi";
+  if (t.includes("tamil")) return "Tamil";
+  if (t.includes("telugu")) return "Telugu";
+  if (t.includes("malayalam")) return "Malayalam";
+  if (t.includes("korean")) return "Korean";
+  if (t.includes("japanese")) return "Japanese";
+  if (t.includes("french")) return "French";
+  if (t.includes("spanish")) return "Spanish";
+  if (t.includes("multi")) return "Multi-Audio";
+  if (t.includes("dual")) return "Dual-Audio";
+  return "English"; // Fallback
 };
 
 const formatLanguageEmoji = (language) => {
   const l = language.toLowerCase();
   if (l.includes("english")) return "🇺🇲 [English]";
   if (l.includes("hindi")) return "🇮🇳 [Hindi]";
+  if (l.includes("tamil") || l.includes("telugu") || l.includes("malayalam")) return `🇮🇳 [${language}]`;
+  if (l.includes("multi") || l.includes("dual")) return `🌍 [${language}]`;
+  if (l.includes("korean")) return `🇰🇷 [${language}]`;
+  if (l.includes("japanese")) return `🇯🇵 [${language}]`;
   return `🗣️ [${language}]`;
 };
 
@@ -73,25 +80,13 @@ const extractFormat = (text) => {
   return "Stream";
 };
 
-const extractNameAndYear = (text) => {
-  // Tries to match standard release formats: Title.Year.Quality
-  const match = text.match(/(.+?)[. (]*((?:19|20)\d{2})[. )]*/);
-  if (match) {
-    const name = match[1].replace(/\./g, ' ').trim();
-    const year = match[2];
-    return `🎬 ${name} - (${year})`;
-  }
-  // Fallback: Strip quality and format, return remaining text
-  const cleanName = text.split(/\d{3,4}p/i)[0].replace(/\./g, ' ').trim();
-  return `🎬 ${cleanName || "Unknown Title"}`;
-};
-
 // --- END HELPERS ---
 
 const isProxyUrl = (url) =>
   String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
-function getImdbId(tmdbId, mediaType) {
+// Modified to fetch Title and Year alongside the IMDB ID directly from TMDB
+function getTmdbInfo(tmdbId, mediaType) {
   return __async(this, null, function* () {
     const type = mediaType === "tv" ? "tv" : "movie";
     const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
@@ -99,7 +94,12 @@ function getImdbId(tmdbId, mediaType) {
       const response = yield fetch(url);
       if (!response.ok) return null;
       const data = yield response.json();
-      return data?.external_ids?.imdb_id ?? null;
+      
+      const imdbId = data?.external_ids?.imdb_id ?? null;
+      const title = data?.name || data?.title || "Unknown Title";
+      const year = (data?.release_date || data?.first_air_date || "").split("-")[0] || "";
+      
+      return { imdbId, title, year };
     } catch {
       return null;
     }
@@ -133,7 +133,8 @@ function resolveProxyUrl(url) {
   });
 }
 
-function buildStream(item) {
+// Meta object is passed down to properly map the true TMDB Title
+function buildStream(item, meta) {
   return __async(this, null, function* () {
     if (!item?.url || item.externalUrl) return null;
     if (String(item.url).includes("github.com")) return null;
@@ -144,28 +145,30 @@ function buildStream(item) {
 
     if (!streamUrl) return null;
 
-    // --- CINEFREAK STYLE FORMATTING ---
-    const cleanedTitle = cleanText(item.title || "Unknown");
+    // Combine any text fields MovieBox sends to search for codecs/languages
+    const fullText = (String(item.title || "") + " " + String(item.name || "")).toLowerCase();
     
     // Extracted Data
-    const rawQuality = extractQuality(cleanedTitle);
-    const rawLanguage = extractLanguage(cleanedTitle);
-    const nameYear = extractNameAndYear(cleanedTitle);
-    const codec = extractCodec(cleanedTitle);
-    const format = extractFormat(cleanedTitle) || extractFormat(streamUrl);
+    const rawQuality = extractQuality(fullText);
+    const rawLanguage = extractLanguage(fullText);
+    const codec = extractCodec(fullText);
+    const format = extractFormat(fullText) || extractFormat(streamUrl);
     
     // Formatted Strings (Emojis mapped)
     const formattedQuality = formatQualityEmoji(rawQuality);
     const formattedLanguage = formatLanguageEmoji(rawLanguage);
     const serverName = "MovieBox"; 
 
-    // Header: MovieBox | Quality | English or Hindi
-    const headerString = `${serverName} | ${rawQuality} | ${rawLanguage}`;
+    // Construct precise Movie/Series Title Header
+    let nameYear = `🎬 ${meta.title}`;
+    if (meta.year) nameYear += ` - (${meta.year})`;
+    if (meta.isSeries) nameYear += ` [S${pad2(meta.season)}E${pad2(meta.episode)}]`;
 
-    // Subheadings (Using \n for Stremio line breaks)
-    // Line 1: 🎬 Movie or Series Name - (Year)
-    // Line 2: 🔥 2160p or 💎 1080p | 🗣️ 🇺🇲 [English]
-    // Line 3: ⚡HEVC 🎞️ Format |  🔗 Server
+    // Header: MovieBox | Quality | English or Hindi
+    const displayQuality = rawQuality === "Unknown Quality" ? "Unknown" : rawQuality;
+    const headerString = `${serverName} | ${displayQuality} | ${rawLanguage}`;
+
+    // Subheadings
     const subHeadingString = `${nameYear}\n${formattedQuality} | ${formattedLanguage}\n⚡${codec} 🎞️ ${format} | 🔗 ${serverName}`;
 
     const headers = {
@@ -176,48 +179,45 @@ function buildStream(item) {
     return {
       name: headerString,
       title: subHeadingString,
+      description: subHeadingString, // <-- CRITICAL: Stremio Mobile requires 'description' for multiline text
       url: streamUrl,
-      quality: rawQuality,
-      ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      ...(Object.keys(headers).length > 0 ? { behaviorHints: { proxyHeaders: { request: headers } } } : {})
     };
   });
 }
 
-function parseStreams(data) {
+function parseStreams(data, meta) {
   return __async(this, null, function* () {
     if (!Array.isArray(data?.streams) || data.streams.length === 0) return [];
 
     const validItems = data.streams.filter((item) => {
-      const cleanedTitle = cleanText(item?.title);
-      if (!cleanedTitle.toLowerCase().includes("")) return false;
       if (typeof item?.url !== "string" || !item.url.startsWith("https")) return false;
-
       const innerMatch = item.url.match(/[?&]url=(https?:\/\/[^&]+)/);
       return !innerMatch || innerMatch[1].startsWith("https");
     });
 
-    const streams = yield Promise.all(validItems.map(buildStream));
+    const streams = yield Promise.all(validItems.map(item => buildStream(item, meta)));
     return streams.filter(Boolean);
   });
 }
 
-function fetchStreams(url) {
+function fetchStreams(url, meta) {
   return __async(this, null, function* () {
     try {
       const response = yield fetch(url);
       if (!response.ok) return [];
       const data = yield response.json();
-      return yield parseStreams(data);
+      return yield parseStreams(data, meta);
     } catch {
       return [];
     }
   });
 }
 
-function fetchFirstValid(urls) {
+function fetchFirstValid(urls, meta) {
   return __async(this, null, function* () {
     for (const url of urls) {
-      const streams = yield fetchStreams(url);
+      const streams = yield fetchStreams(url, meta);
       if (streams.length > 0) return streams;
     }
     return [];
@@ -231,17 +231,27 @@ function getStreams(tmdbId, mediaType, season, episode) {
     const e = episode ?? 1;
 
     try {
-      const imdbId = yield getImdbId(tmdbId, isSeries ? "tv" : "movie");
-      if (!imdbId) return [];
+      // Fetch TMDB Metadata alongside IMDB conversion
+      const tmdbInfo = yield getTmdbInfo(tmdbId, isSeries ? "tv" : "movie");
+      if (!tmdbInfo || !tmdbInfo.imdbId) return [];
+
+      // Pack metadata to pass to the stream builder
+      const meta = {
+        title: tmdbInfo.title,
+        year: tmdbInfo.year,
+        isSeries,
+        season: s,
+        episode: e
+      };
 
       if (!isSeries) {
-        return yield fetchStreams(`${MOVIEBOX_API}/stream/movie/${imdbId}.json`);
+        return yield fetchStreams(`${MOVIEBOX_API}/stream/movie/${tmdbInfo.imdbId}.json`, meta);
       }
 
       return yield fetchFirstValid([
-        `${MOVIEBOX_API}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
-        `${MOVIEBOX_API}/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,
-      ]);
+        `${MOVIEBOX_API}/stream/series/${tmdbInfo.imdbId}:${pad2(s)}:${pad2(e)}.json`,
+        `${MOVIEBOX_API}/stream/series/${tmdbInfo.imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,
+      ], meta);
     } catch {
       return [];
     }

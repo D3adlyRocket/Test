@@ -24,39 +24,33 @@ const MOVIEBOX_API_HI = isSeries
     ? `${MOVIEBOX_BASE}/source=v3|lang=hi|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
     : `${MOVIEBOX_BASE}/source=v3|lang=hi|res=all/stream/movie/${imdbId}.json`;
 
-const [englishData, hindiData] = await Promise.all([
-    fetch(MOVIEBOX_API_EN).then(r => r.json()),
-    fetch(MOVIEBOX_API_HI).then(r => r.json())
-]);
-
-const allStreams = [];
+// Replace the Promise.all block with this sequential logic
+let allStreams = [];
 const seenUrls = new Set();
 
-if (englishData?.streams) {
-englishData.streams.forEach(s => {
-if (!seenUrls.has(s.url)) {
-seenUrls.add(s.url);
-allStreams.push({
-...s,
-lang: "English 🇺🇸"
-});
-}
-});
-}
+const fetchLanguage = async (url, langLabel) => {
+    try {
+        const res = await fetch(url);
+        const data = await res.json();
+        if (data?.streams) {
+            data.streams.forEach(s => {
+                if (s.url && !seenUrls.has(s.url)) {
+                    seenUrls.add(s.url);
+                    allStreams.push({ ...s, lang: langLabel });
+                }
+            });
+        }
+    } catch (e) {
+        console.error(`Failed to fetch ${langLabel}:`, e);
+    }
+};
 
-if (hindiData?.streams) {
-hindiData.streams.forEach(s => {
-if (!seenUrls.has(s.url)) {
-seenUrls.add(s.url);
-allStreams.push({
-...s,
-lang: "Hindi 🇮🇳"
-});
-}
-});
-}
+// Execute one after the other to avoid overwhelming the Render instance
+await fetchLanguage(englishUrl, "English 🇺🇸");
+await fetchLanguage(hindiUrl, "Hindi 🇮🇳");
 
 if (allStreams.length === 0) return [];
+
 
 const result = [];
 

@@ -1,199 +1,119 @@
+
 "use strict";
 
-const __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    const fulfilled = (value) => {
-      try { step(generator.next(value)); } catch (e) { reject(e); }
-    };
-    const rejected = (value) => {
-      try { step(generator.throw(value)); } catch (e) { reject(e); }
-    };
-    const step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
-
-// UPDATED: New base URL (without /manifest.json)
-const MOVIEBOX_API = "https://moviebox-cfa7.onrender.com/source=all%7Clang=all%7Cres=all";
+const PROVIDER_NAME = "MovieBox";
+const MOVIEBOX_BASE = "https://moviebox-cfa7.onrender.com";
+const MOVIEBOX_API_EN ="https://moviebox-cfa7.onrender.com/source=all%7Clang=en%7Cres=all";
+const MOVIEBOX_API_Hi ="https://moviebox-cfa7.onrender.com/source=all%7Clang=hi%7Cres=all"
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
-const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
-};
+async function getStreams(tmdbId, mediaType, season, episode) {
+const isSeries = mediaType === 'tv' || mediaType === 'series';
+const tmdbUrl = https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids;
 
-const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
+try {  
+    const meta = await fetch(tmdbUrl).then(r => r.json());  
+    const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;  
+    if (!imdbId) return [];  
 
-const cleanText = (str) =>
-  String(str ?? "")
-    .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "")
-    .trim();
+    const MOVIEBOX_API_EN = isSeries
+    ? `${MOVIEBOX_BASE}/source=all|lang=en|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
+    : `${MOVIEBOX_BASE}/source=all|lang=en|res=all/stream/movie/${imdbId}.json`;
 
-const extractQuality = (titleText) => {
-  const match = String(titleText ?? "").match(/(\d{3,4}p)/i);
-  return match?.[0] ?? "Unknown";
-};
+const MOVIEBOX_API_HI = isSeries
+    ? `${MOVIEBOX_BASE}/source=all|lang=hi|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
+    : `${MOVIEBOX_BASE}/source=all|lang=hi|res=all/stream/movie/${imdbId}.json`;
 
-const extractLanguage = (cleanedTitle) => {
-  const langMatch = String(cleanedTitle ?? "").match(/\(([^)]+)\)/);
-  if (!langMatch) return "Default";
-  const raw = langMatch[1].trim();
-  return raw.toLowerCase() === "hd stream"
-    ? "Default"
-    : raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
-};
+const [englishData, hindiData] = await Promise.all([
+    fetch(MOVIEBOX_API_EN).then(r => r.json()),
+    fetch(MOVIEBOX_API_HI).then(r => r.json())
+]);
 
-const isProxyUrl = (url) =>
-  String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
+const allStreams = [];
+const seenUrls = new Set();
 
-function getImdbId(tmdbId, mediaType) {
-  return __async(this, null, function* () {
-    const type = mediaType === "tv" ? "tv" : "movie";
-    const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
-    try {
-      const response = yield fetch(url);
-      if (!response.ok) return null;
-      const data = yield response.json();
-      return data?.external_ids?.imdb_id ?? null;
-    } catch {
-      return null;
-    }
-  });
+if (englishData?.streams) {
+englishData.streams.forEach(s => {
+if (!seenUrls.has(s.url)) {
+seenUrls.add(s.url);
+allStreams.push({
+...s,
+lang: "English 🇺🇸"
+});
+}
+});
 }
 
-function resolveProxyUrl(url) {
-  return __async(this, null, function* () {
-    try {
-      const response = yield fetch(url, {
-        redirect: "follow",
-        headers: { ...HEADERS, "Referer": url },
-      });
-      const finalUrl = response.url;
-      if ([".m3u8", ".mp4", ".mkv"].some((ext) => finalUrl.includes(ext))) {
-        return finalUrl;
-      }
-      const contentType = response.headers.get("content-type") ?? "";
-      if (contentType.includes("text/plain")) {
-        const text = yield response.text();
-        return text.trim() || null;
-      }
-      if (contentType.includes("application/json")) {
-        const data = yield response.json();
-        return data?.url ?? data?.stream ?? data?.src ?? null;
-      }
-      return finalUrl || null;
-    } catch {
-      return null;
-    }
-  });
+if (hindiData?.streams) {
+hindiData.streams.forEach(s => {
+if (!seenUrls.has(s.url)) {
+seenUrls.add(s.url);
+allStreams.push({
+...s,
+lang: "Hindi 🇮🇳"
+});
+}
+});
 }
 
-const detectStreamType = (url) => {
-  if (!url)
-    return "video";
-  const lower = String(url).toLowerCase().split("?")[0];
-  return lower.includes(".m3u8") ? "m3u8" : "video";
-};
+if (allStreams.length === 0) return [];
 
-function buildStream(item) {
-  return __async(this, null, function* () {
-    if (!item?.url || item.externalUrl) return null;
-    if (String(item.url).includes("github.com")) return null;
+const result = [];
 
-    const cleanedTitle = cleanText(item.title);
-    const quality = extractQuality(cleanedTitle);
-    const language = extractLanguage(cleanedTitle);
+// Group by res + language
+const grouped = {};
 
-    const headers = {
-      ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
-      ...(item.behaviorHints?.headers ?? {}),
-    };
+allStreams.forEach(item => {
+const title = (item.title || "").toLowerCase();
 
-    const streamUrl = isProxyUrl(item.url)
-      ? yield resolveProxyUrl(item.url)
-      : item.url;
+const res =  
+    /2160|4k/.test(title) ? "2160p" :  
+    /1080/.test(title) ? "1080p" :  
+    /720/.test(title) ? "720p" :  
+    /480/.test(title) ? "480p" :  
+    "360p";  
 
-    if (!streamUrl) return null;
+const key = `${res}-${item.lang}`;  
 
-    // UPDATED: Changed display name from Pynvix to Moviebox
-    const nameParts = ["Moviebox."];
-    if (language !== "Default") nameParts.push(language);
+if (!grouped[key]) grouped[key] = [];  
 
-    return {
-      name: nameParts.join(" • "),
-      title: quality,
-      url: streamUrl,
-      quality: "1080p",
-      ...(Object.keys(headers).length > 0 ? { headers } : {}),
-      provider: "Moviebox.", // UPDATED string
-    };
-  });
+grouped[key].push(item);
+
+});
+
+// Build final result
+Object.entries(grouped).forEach(([key, items]) => {
+const [res, lang] = key.split("-");
+
+items.forEach(item => {  
+    const fullLayout =
+
+🎦 ${meta.title || meta.name}   💎 ${res} | 🗣️ ${lang}   🎞️ MKV | 🔗 ${PROVIDER_NAME};
+
+result.push({  
+        name: `${PROVIDER_NAME} | ${res} | ${lang}`,  
+        title: fullLayout,  
+        size: fullLayout,  
+        description: fullLayout,  
+        url: item.url,  
+        behaviorHints: {  
+            proxyHeaders: {  
+                request: {  
+                    "Referer": MOVIEBOX_BASE + "/"  
+                }  
+            }  
+        }  
+    });  
+});
+
+});
+
+return result;  
+} catch (err) {  
+    console.error("Fetch failed:", err);  
+    return [];  
 }
 
-function parseStreams(data) {
-  return __async(this, null, function* () {
-    if (!Array.isArray(data?.streams) || data.streams.length === 0) return [];
-
-    const validItems = data.streams.filter((item) => {
-      const cleanedTitle = cleanText(item?.title);
-      if (!cleanedTitle.toLowerCase().includes("")) return false;
-      if (typeof item?.url !== "string" || !item.url.startsWith("https")) return false;
-
-      const innerMatch = item.url.match(/[?&]url=(https?:\/\/[^&]+)/);
-      return !innerMatch || innerMatch[1].startsWith("https");
-    });
-
-    const streams = yield Promise.all(validItems.map(buildStream));
-    return streams.filter(Boolean);
-  });
-}
-
-function fetchStreams(url) {
-  return __async(this, null, function* () {
-    try {
-      const response = yield fetch(url);
-      if (!response.ok) return [];
-      const data = yield response.json();
-      return yield parseStreams(data);
-    } catch {
-      return [];
-    }
-  });
-}
-
-function fetchFirstValid(urls) {
-  return __async(this, null, function* () {
-    for (const url of urls) {
-      const streams = yield fetchStreams(url);
-      if (streams.length > 0) return streams;
-    }
-    return [];
-  });
-}
-
-function getStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    const isSeries = mediaType === "tv" || season != null || episode != null;
-    const s = season ?? 1;
-    const e = episode ?? 1;
-
-    try {
-      const imdbId = yield getImdbId(tmdbId, isSeries ? "tv" : "movie");
-      if (!imdbId) return [];
-
-      if (!isSeries) {
-        // UPDATED: Swapped PYNVIX_API to MOVIEBOX_API
-        return yield fetchStreams(`${MOVIEBOX_API}/stream/movie/${imdbId}.json`);
-      }
-
-      // UPDATED: Swapped PYNVIX_API to MOVIEBOX_API
-      return yield fetchFirstValid([
-        `${MOVIEBOX_API}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
-        `${MOVIEBOX_API}/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,
-      ]);
-    } catch {
-      return [];
-    }
-  });
 }
 
 module.exports = { getStreams };

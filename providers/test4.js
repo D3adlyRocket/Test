@@ -73,10 +73,11 @@ const extractQuality = (titleText, urlStr) => {
 const extractAudioOrLanguage = (titleText, urlStr) => {
   const combined = `${titleText} ${urlStr}`.toLowerCase();
   
-  // Prioritize Multi/Dual first
-  if (/multi|dual/i.test(combined)) return "Multi-Audio";
+  // Explicit check for Multi-Audio
+  if (/multi|dual|4k|hdr/i.test(combined)) return "Multi-Audio"; 
   
-  if (combined.includes("/hindidub/") || combined.includes("hindi-dub")) return "Hindi-Dub";
+  // Specific naming requests
+  if (combined.includes("hindi-dub") || combined.includes("/hindidub/")) return "Hindi-Dub";
   if (combined.includes("hindi")) return "Hindi";
   if (combined.includes("eng")) return "English";
   
@@ -91,12 +92,11 @@ const extractMediaNameFromUrl = (urlStr) => {
 
 const extractContainerFormat = (urlStr) => {
   const cleanUrl = getDeepUrl(urlStr).toLowerCase();
-  if (cleanUrl.endsWith(".mkv")) return "MKV";
-  if (cleanUrl.endsWith(".mp4")) return "MP4";
-  if (cleanUrl.endsWith(".m3u8")) return "HLS";
-  if (cleanUrl.includes("mkv")) return "MKV";
-  if (cleanUrl.includes("mp4")) return "MP4";
-  return "Video";
+  // Check extensions explicitly
+  if (cleanUrl.includes(".mkv")) return "MKV";
+  if (cleanUrl.includes(".mp4")) return "MP4";
+  if (cleanUrl.includes(".m3u8")) return "HLS";
+  return "Video"; // Fallback
 };
 
 const extractServerName = (urlStr) => {
@@ -159,8 +159,7 @@ function resolveProxyUrl(url) {
 function makeStream(item) {
   return __async(this, null, function* () {
     if (!item?.url || item.externalUrl) return null;
-    if (String(item.url).includes("github.com")) return null;
-
+    
     const streamUrl = isProxyUrl(item.url) ? yield resolveProxyUrl(item.url) : item.url;
     if (!streamUrl) return null;
 
@@ -171,55 +170,42 @@ function makeStream(item) {
     const container = extractContainerFormat(streamUrl);
     const serverName = extractServerName(streamUrl);
     
-    // Fetch size asynchronously
+    // Asynchronous size fetch
     const realSize = yield fetchFileSize(streamUrl);
 
-    // 1. The Header: Short, clean label for the main list
-    const headerName = `TENIES.SITE | ${audio} | ${quality.toUpperCase()}`;
+    // 1. THE HEADER (Kept short for Mobile list view)
+    const label = `TENIES.SITE | ${audio} | ${quality.toUpperCase()}`;
 
-    // 2. The Body: Detailed info for the expanded view
-    let qualityEmoji = quality === "2160p" ? "💎 2160p" : quality === "1080p" ? "🔥 1080p" : "📺 " + quality;
+    // 2. THE BODY (Formatted exactly like your example)
     const lines = [
-      qualityEmoji,
       `🎬 ${mediaName}`,
-      `🌍 ${audio}`,
-      `🎞️ ${container}`,
-      `🔗 ${serverName}`
+      `💎 Quality: ${quality}`,
+      `🌍 Audio: ${audio}`,
+      `🎞️ Format: ${container}`,
+      `🔗 Server: ${serverName}`
     ];
     
-    // Only push Size line if it's a valid, non-zero value
-    if (realSize && realSize !== "0 MB" && realSize !== "unknown" && realSize !== "") {
+    // Only add size if it's meaningful data
+    if (realSize && realSize !== "0 MB" && realSize !== "unknown") {
       lines.push(`💾 Size: ${realSize}`);
     }
     
     const bodyLayout = lines.join("\n");
 
-    const computedHeaders = {
-      ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
-      ...(item.behaviorHints?.headers ?? {}),
-    };
-
-    // Construct the stream object with distinct fields
-    const streamObject = {
-      name: headerName,        // This is the clean, single-line button
-      title: bodyLayout,       // This is the multi-line detail
-      description: bodyLayout, // This ensures it displays when clicked/expanded
+    return {
+      name: label,
+      title: bodyLayout,
+      description: bodyLayout,
       url: streamUrl,
       behaviorHints: {
         notWebReady: false,
         bingeGroup: `tenies-${quality}-${audio}`
       },
-      _dedupeMeta: {
-        size: realSize || "unknown",
-        quality: quality,
-        server: serverName
-      },
-      ...(Object.keys(computedHeaders).length > 0 ? { headers: computedHeaders } : {}),
+      _dedupeMeta: { size: realSize || "unknown", quality, server: serverName }
     };
-
-    return streamObject;
   });
 }
+
 
 function parseStreams(data) {
   return __async(this, null, function* () {

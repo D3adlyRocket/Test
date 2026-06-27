@@ -3,8 +3,8 @@
 
 const PROVIDER_NAME = "MovieBox";
 const MOVIEBOX_BASE = "https://moviebox-cfa7.onrender.com";
-const MOVIEBOX_API_EN ="https://moviebox-cfa7.onrender.com/source=v3%7Clang=en%7Cres=all";
-const MOVIEBOX_API_HI ="https://moviebox-cfa7.onrender.com/source=v3%7Clang=hi%7Cres=all";
+const MOVIEBOX_API_EN = "https://moviebox-cfa7.onrender.com/source=v3%7Clang=en%7Cres=all";
+const MOVIEBOX_API_HI = "https://moviebox-cfa7.onrender.com/source=v3%7Clang=hi%7Cres=all";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 async function getStreams(tmdbId, mediaType, season, episode) {

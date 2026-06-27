@@ -13,7 +13,7 @@ const __async = (__this, __arguments, generator) => {
   });
 };
 
-const MOVIEBOX_API = "https://moviebox-cfa7.onrender.com/source=v3%7Clang=hi%7Cres=1080p";
+const MOVIEBOX_API = "https://moviebox-cfa7.onrender.com/source=all%7Clang=hi%7Cres=all";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 const HEADERS = {
@@ -113,7 +113,7 @@ function buildStream(item) {
 
     if (!streamUrl) return null;
 
-    const nameParts = ["Pynvix."];
+    const nameParts = ["MovieBox."];
     if (language !== "Default") nameParts.push(language);
 
     return {

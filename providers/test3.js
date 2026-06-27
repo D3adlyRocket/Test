@@ -118,7 +118,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
     const isSeries = mediaType === "tv" || season != null || episode != null;
     const s = season ?? 1;
     const e = episode ?? 1;
-    const languages = ["hi", "en"]; // Languages to fetch
+    // Ensure both languages are included
+    const languages = ["hi", "en"]; 
     let allStreams = [];
 
     try {
@@ -127,21 +128,27 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
       for (const lang of languages) {
         let urls = [];
+        // Using "source=all" ensures you are querying the most comprehensive index
         if (!isSeries) {
           urls = [`${PYNVIX_BASE}/source=all|lang=${lang}|res=all/stream/movie/${imdbId}.json`];
         } else {
           urls = [
-            `${PYNVIX_BASE}/source=all|lang=${lang}|res=1080p/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
-            `${PYNVIX_BASE}/source=all|lang=${lang}|res=1080p/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`
+            `${PYNVIX_BASE}/source=all|lang=${lang}|res=all/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`
           ];
         }
-        // Fetch and append all found streams for this language
+        
         for (const url of urls) {
           const streams = yield fetchStreams(url);
+          // Aggregating all streams found across both languages
           allStreams = allStreams.concat(streams);
         }
       }
-      return allStreams;
+      
+      // Use a Set to remove duplicate stream objects based on their URL
+      const uniqueStreams = Array.from(new Set(allStreams.map(s => s.url)))
+        .map(url => allStreams.find(s => s.url === url));
+
+      return uniqueStreams;
     } catch { return []; }
   });
 }

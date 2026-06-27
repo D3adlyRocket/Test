@@ -27,7 +27,6 @@ const cleanText = (str) =>
     .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "")
     .trim();
 
-// Centralized safe URL Decoder to strip proxy layers for inspection
 const getDeepUrl = (urlStr) => {
   if (!urlStr) return "";
   try {
@@ -57,7 +56,6 @@ function fetchFileSize(urlStr) {
   });
 }
 
-// Fixed: Now processes the pre-decoded URL to find true quality flags
 const extractQuality = (titleText, urlStr) => {
   const decodedUrl = getDeepUrl(urlStr).toLowerCase();
   const combined = `${titleText} ${decodedUrl}`.toLowerCase();
@@ -71,7 +69,6 @@ const extractQuality = (titleText, urlStr) => {
   return match ? match[0].toLowerCase() : "1080p";
 };
 
-// Fixed: Processes the fully transparent decoded link for exact audio tags
 const extractAudioOrLanguage = (titleText, urlStr) => {
   const decodedUrl = getDeepUrl(urlStr).toLowerCase();
   const titleLower = String(titleText ?? "").toLowerCase();
@@ -194,7 +191,6 @@ function makeStream(item) {
 
     const audioFlag = audio.includes("Hindi") ? "Hindi 🇮🇳" : audio;
     
-    // Exact requested layout definition
     const headerName = `TENIES.SITE | ${audio} | ${quality.toUpperCase()}`;
 
     const lines = [
@@ -223,11 +219,15 @@ function makeStream(item) {
         notWebReady: false,
         bingeGroup: `tenies-${quality}-${audio}`
       },
+      // Pass raw properties downstairs so the deduplicator layout engine can parse them
+      _dedupeMeta: {
+        size: realSize || "unknown",
+        quality: quality,
+        server: serverName
+      },
       ...(Object.keys(computedHeaders).length > 0 ? { headers: computedHeaders } : {}),
     };
 
-    // Forced configuration variables map down into Nuvio layouts seamlessly 
-    // without triggering ugly default layout bullet marks
     try {
       Object.defineProperties(streamObject, {
         title: { get: function() { return unifiedLayoutBlock; }, enumerable: true, configurable: true },
@@ -254,13 +254,28 @@ function parseStreams(data) {
     const processed = streams.filter(Boolean);
 
     const uniqueStreams = [];
-    const seenUrls = new Set();
+    const seenFingerprints = new Set();
 
     for (const stream of processed) {
-      const normalizedUrl = getDeepUrl(stream.url);
-      if (!seenUrls.has(normalizedUrl)) {
-        seenUrls.add(normalizedUrl);
-        uniqueStreams.push(stream);
+      const meta = stream._dedupeMeta;
+      
+      // If we got size info, compile a strict layout fingerprint string
+      // Example: "29.8 GB-2160p-HubWhistle Server"
+      const fingerprint = `${meta.size}-${meta.quality}-${meta.server}`.toLowerCase();
+      
+      // If size is unknown, drop back to safe URL checking so we don't accidentally drop valid items
+      if (meta.size === "unknown") {
+        const fallbackUrl = getDeepUrl(stream.url);
+        if (!seenFingerprints.has(fallbackUrl)) {
+          seenFingerprints.add(fallbackUrl);
+          uniqueStreams.push(stream);
+        }
+      } else {
+        // Strict deduplication matching based on file payload size and endpoint provider values
+        if (!seenFingerprints.has(fingerprint)) {
+          seenFingerprints.add(fingerprint);
+          uniqueStreams.push(stream);
+        }
       }
     }
 

@@ -1,10 +1,8 @@
 /**
- * vidlink - Built from src/vidlink/
- * Generated: 2026-05-24T13:07:23.110Z
+ * vidlink - Enhanced Version
+ * Generated: 2026-06-29
  */
 var __defProp = Object.defineProperty;
-var __defProps = Object.defineProperties;
-var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
 var __getOwnPropSymbols = Object.getOwnPropertySymbols;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __propIsEnum = Object.prototype.propertyIsEnumerable;
@@ -20,167 +18,87 @@ var __spreadValues = (a, b) => {
     }
   return a;
 };
-var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
+    var fulfilled = (value) => { try { step(generator.next(value)); } catch (e) { reject(e); } };
+    var rejected = (value) => { try { step(generator.throw(value)); } catch (e) { reject(e); } };
     var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
     step((generator = generator.apply(__this, __arguments)).next());
   });
 };
 
-// src/vidlink/constants.js
-var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
-var ENC_DEC_API = "https://enc-dec.app/api";
-var VIDLINK_API = "https://vidlink.pro/api/b";
-var VIDLINK_HEADERS = {
+// Configuration
+const VIDLINK_API = "https://vidlink.pro/api/b";
+const DECRYPT_API = "https://enc-dec.app/api";
+const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36",
-  "Connection": "keep-alive",
+  "Accept": "application/json,*/*",
   "Referer": "https://vidlink.pro/",
   "Origin": "https://vidlink.pro"
 };
 
-
-// src/vidlink/utils.js
-function generateM3u8(_0) {
-  return __async(this, arguments, function* (masterUrl, headers = {}) {
-    try {
-      console.log(`[M3U8] Parsing master m3u8: ${masterUrl}`);
-      const resp = yield fetch(masterUrl, { headers });
-      const text = yield resp.text();
-      const baseUri = masterUrl.substring(0, masterUrl.lastIndexOf("/")) + "/";
-      const results = [];
-      const regex = /#EXT-X-STREAM-INF:.*?RESOLUTION=(\d+x\d+).*?\n([^\n]+)/g;
-      let match;
-      while ((match = regex.exec(text)) !== null) {
-        const height = parseInt(match[1].split("x")[1]);
-        if (height < 720)
-          continue;
-        const res = height + "p";
-        let url = match[2].trim();
-        if (!url.startsWith("http")) {
-          if (url.startsWith("/")) {
-            const root = new URL(masterUrl).origin;
-            url = root + url;
-          } else {
-            url = baseUri + url;
-          }
-        }
-        results.push({
-          quality: res,
-          url
-        });
-      }
-      return results;
-    } catch (err) {
-      console.warn(`[M3U8] Error parsing M3U8, returning empty.`, err);
-      return [];
-    }
+// Enhanced Request Handler
+function makeRequest(url) {
+  return __async(this, null, function* () {
+    const response = yield fetch(url, { headers: HEADERS });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response;
   });
 }
 
-// src/vidlink/index.js
+// Adaptive Parser to find streams regardless of JSON structure
+function findStreamsInResponse(data) {
+  const found = [];
+  function recursiveSearch(obj) {
+    if (!obj || typeof obj !== 'object') return;
+    if (obj.url && (obj.url.includes('.m3u8') || obj.url.startsWith('http'))) {
+      found.push(obj);
+    }
+    for (const key in obj) {
+      if (typeof obj[key] === 'object') recursiveSearch(obj[key]);
+      else if (typeof obj[key] === 'string' && (obj[key].includes('.m3u8'))) {
+        found.push({ url: obj[key], quality: key });
+      }
+    }
+  }
+  recursiveSearch(data);
+  return found;
+}
+
 function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
-    console.log(`[Vidlink] Fetching streams for ${mediaType} ${tmdbId}`);
+    console.log(`[Vidlink] Fetching for ${tmdbId}`);
     try {
-      const encUrl = `${DECRYPT_API}/enc-vidlink?text=${tmdbId}`;
-      const encResp = yield fetch(encUrl);
+      // 1. Decrypt ID
+      const encResp = yield makeRequest(`${DECRYPT_API}/enc-vidlink?text=${tmdbId}`);
       const encJson = yield encResp.json();
       const encData = encJson.result;
-      if (!encData) {
-        console.log(`[Vidlink] No encrypted ID returned`);
-        return [];
-      }
-      const isMovie = mediaType !== "tv" && season == null;
-      const epUrl = isMovie ? `${VIDLINK_API}/api/b/movie/${encData}` : `${VIDLINK_API}/api/b/tv/${encData}/${season}/${episode}`;
-      console.log(`[Vidlink] Fetching playlist from: ${epUrl}`);
-      const epResp = yield fetch(epUrl, { headers: HEADERS });
-      const epJson = yield epResp.json();
-      const playlist = epJson && epJson.stream && epJson.stream.playlist;
-      if (!playlist) {
-        console.log(`[Vidlink] No playlist in response`);
-        return [];
-      }
-      const streams = [{
+      
+      // 2. Fetch from Vidlink
+      const epUrl = (mediaType === "tv") 
+        ? `${VIDLINK_API}/tv/${encData}/${season}/${episode}` 
+        : `${VIDLINK_API}/movie/${encData}`;
+        
+      const epResp = yield makeRequest(epUrl);
+      const data = yield epResp.json();
+
+      // 3. Adaptive Processing
+      const extracted = findStreamsInResponse(data);
+      
+      return extracted.map(s => ({
         name: "Vidlink",
-        title: "Auto",
-        url: playlist,
-        quality: "Auto",
+        title: s.quality || "Auto",
+        url: s.url,
         type: "m3u8",
-        headers: {
-          "User-Agent": HEADERS["User-Agent"],
-          "Referer": `${VIDLINK_API}/`,
-          "Origin": VIDLINK_API
-        },
+        headers: HEADERS,
         provider: "vidlink"
-      }];
-      try {
-        const extraStreams = yield generateM3u8(playlist, {
-          "Referer": `${VIDLINK_API}/`,
-          "User-Agent": HEADERS["User-Agent"]
-        });
-        extraStreams.forEach((s) => {
-          streams.push({
-            name: "Vidlink",
-            title: s.quality,
-            url: s.url,
-            quality: s.quality,
-            type: "m3u8",
-            headers: {
-              "Referer": `${VIDLINK_API}/`,
-              "Origin": VIDLINK_API,
-              "User-Agent": HEADERS["User-Agent"]
-            },
-            provider: "vidlink"
-          });
-        });
-      } catch (err) {
-        console.warn(`[Vidlink] Failed to parse extra qualities for ${playlist}`);
-      }
-      console.log(`[Vidlink] Found playlist stream`);
-      return streams.map((s) => __spreadProps(__spreadValues({}, s), { quality: getSortedQuality(s.quality) }));
+      }));
+
     } catch (error) {
       console.error(`[Vidlink] Error: ${error.message}`);
       return [];
     }
   });
 }
-function getSortedQuality(quality) {
-  if (!quality)
-    return "Auto";
-  const q = quality.toLowerCase();
-  if (q.includes("auto")) {
-    return "Auto";
-  }
-  if (q.includes("2160") || q.includes("4k") || q.includes("uhd")) {
-    return "\u200B" + quality;
-  }
-  if (q.includes("1080") || q.includes("fhd")) {
-    return "\u200B\u200B" + quality;
-  }
-  if (q.includes("720") || q.includes("hd")) {
-    return "\u200B\u200B\u200B" + quality;
-  }
-  if (q.includes("480") || q.includes("sd")) {
-    return "\u200B\u200B\u200B\u200B" + quality;
-  }
-  if (q.includes("360")) {
-    return "\u200B\u200B\u200B\u200B\u200B" + quality;
-  }
-  return "\u200B\u200B\u200B\u200B" + quality;
-}
+
 module.exports = { getStreams };

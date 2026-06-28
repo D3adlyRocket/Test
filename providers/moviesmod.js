@@ -15,11 +15,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
         const englishUrl = isSeries
     ? `${MOVIEBOX_BASE}/source=v3|lang=en|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
-    : `${MOVIEBOX_BASE}/source=v3|lang=en|res=all/stream/movie/${imdbId}.json`;
+    : `${MOVIEBOX_BASE}/stream/movie/${imdbId}.json`;
 
 const hindiUrl = isSeries
     ? `${MOVIEBOX_BASE}/source=v3|lang=hi|res=all/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
-    : `${MOVIEBOX_BASE}/source=v3|lang=hi|res=all/stream/movie/${imdbId}.json`;
+    : `${MOVIEBOX_BASE}/stream/movie/${imdbId}.json`;
 
 const [englishData, hindiData] = await Promise.all([
     fetch(englishUrl).then(r => r.json()),

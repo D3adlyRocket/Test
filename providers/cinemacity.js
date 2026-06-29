@@ -39,9 +39,16 @@ const isProxyUrl = (url) =>
 function upgradeToHighQuality(url) {
   if (!url || !url.includes("einthusan.io")) return url;
   
-  // Replaces the standard /content/Dxxxx stream code prefix with /content/Bxxxx for higher bitrate master files
   if (url.includes("/content/D")) {
-    return url.replace("/content/D", "/content/B");
+    // 1. Upgrade the quality token prefix from D to B
+    let upgraded = url.replace("/content/D", "/content/B");
+    
+    // 2. Convert the plain .mp4 path to an adaptive HLS playlist (.mp4.m3u8) right before the URL parameters
+    if (upgraded.includes(".mp4?") && !upgraded.includes(".mp4.m3u8?")) {
+      upgraded = upgraded.replace(".mp4?", ".mp4.m3u8?");
+    }
+    
+    return upgraded;
   }
   return url;
 }

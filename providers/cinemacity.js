@@ -35,24 +35,6 @@ const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
 const isProxyUrl = (url) =>
   String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
-// Helper to force-upgrade Einthusan video URLs to the higher premium tier
-function upgradeToHighQuality(url) {
-  if (!url || !url.includes("einthusan.io")) return url;
-  
-  if (url.includes("/content/D")) {
-    // 1. Upgrade the quality token prefix from D to B
-    let upgraded = url.replace("/content/D", "/content/B");
-    
-    // 2. Convert the plain .mp4 path to an adaptive HLS playlist (.mp4.m3u8) right before the URL parameters
-    if (upgraded.includes(".mp4?") && !upgraded.includes(".mp4.m3u8?")) {
-      upgraded = upgraded.replace(".mp4?", ".mp4.m3u8?");
-    }
-    
-    return upgraded;
-  }
-  return url;
-}
-
 async function getTmdbMeta(tmdbId, mediaType) {
   const type = mediaType === "tv" ? "tv" : "movie";
   const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
@@ -155,24 +137,24 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     for (const item of allStreams) {
       if (!item?.url || item.externalUrl || String(item.url).includes("github.com")) continue;
 
-      let streamUrl = isProxyUrl(item.url)
+      const streamUrl = isProxyUrl(item.url)
         ? await resolveProxyUrl(item.url)
         : item.url;
 
       if (!streamUrl) continue;
 
-      // Intercept and rewrite the URL to higher quality variant
-      streamUrl = upgradeToHighQuality(streamUrl);
-
-      const searchTitle = String(item.description || item.title || "").toLowerCase();
+      const searchTitle = String(item.name || item.description || item.title || "").toLowerCase();
       
-      // If the URL has been upgraded to a 'B' string token, treat it as 1080p/UHD
-      let res = "1080p";
-      if (!streamUrl.includes("/content/B")) {
-         res = /2160|4k/.test(searchTitle) ? "2160p" :
-               /1080/.test(searchTitle) ? "1080p" :
-               /720/.test(searchTitle) ? "720p" :
-               /480/.test(searchTitle) ? "480p" : "720p";
+      // Dynamic quality detection reading native tokens or video playlist extensions
+      let res = "720p";
+      if (streamUrl.includes("/content/B") || streamUrl.includes(".m3u8") || /1080|fhd|ultra/i.test(searchTitle)) {
+         res = "1080p";
+      } else if (/2160|4k/i.test(searchTitle)) {
+         res = "2160p";
+      } else if (/720|hd/i.test(searchTitle)) {
+         res = "720p";
+      } else if (/480|sd/i.test(searchTitle)) {
+         res = "480p";
       }
 
       const lang = item.langLabel; 
@@ -182,14 +164,24 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       grouped[key].push({ ...item, resolvedUrl: streamUrl });
     }
 
-    Object.entries(grouped).forEach(([key, items]) => {
+    // Sort entries so highest resolution blocks (like 1080p) show up first in list layout
+    const sortedGroups = Object.entries(grouped).sort((a, b) => {
+       const resA = parseInt(a[0]) || 0;
+       const resB = parseInt(b[0]) || 0;
+       return resB - resA;
+    });
+
+    sortedGroups.forEach(([key, items]) => {
       const [res, lang] = key.split("-");
 
       items.forEach(item => {
+        const isHls = item.resolvedUrl.includes(".m3u8");
+        const formatLabel = isHls ? "M3U8" : "MP4";
+
         const fullLayout =
 `🎦 ${meta.title || meta.name}
 💎 ${res} | 🗣️ ${lang}
-🎞️ MP4/MKV | 🔗 ${PROVIDER_NAME}`;
+🎞️ ${formatLabel} | 🔗 ${PROVIDER_NAME}`;
 
         result.push({
           name: `${PROVIDER_NAME} | ${res} | ${lang}`,

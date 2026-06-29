@@ -1,18 +1,30 @@
 "use strict";
 
-// Change this to the base URL instead of hardcoding /hindi
+// 1. Settings Layout for Nuvio Local Scrapers
+async function onSettings() {
+    return [
+        { type: "header", label: "Language Preferences" },
+        { type: "toggle", key: "langHindi", label: "Enable Hindi 🇮🇳", defaultValue: true },
+        { type: "toggle", key: "langTamil", label: "Enable Tamil 🇮🇳", defaultValue: true },
+        { type: "toggle", key: "langTelugu", label: "Enable Telugu 🇮🇳", defaultValue: true },
+        { type: "toggle", key: "langMalayalam", label: "Enable Malayalam 🇮🇳", defaultValue: true },
+        { type: "toggle", key: "langKannada", label: "Enable Kannada 🇮🇳", defaultValue: true },
+        { type: "toggle", key: "langBengali", label: "Enable Bengali 🇮🇳", defaultValue: true }
+    ];
+}
+
 const EINTHUSAN_BASE = "https://einthusan.asaddon.com";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 const PROVIDER_NAME = "Einthusan";
 
-// Map out the language endpoints you want to support
+// Core available languages matching keys in settings
 const LANGUAGES = {
-  hindi: { path: "hindi", label: "Hindi 🇮🇳" },
-  tamil: { path: "tamil", label: "Tamil 🇮🇳" },
-  telugu: { path: "telugu", label: "Telugu 🇮🇳" },
-  malayalam: { path: "malayalam", label: "Malayalam 🇮🇳" },
-  kannada: { path: "kannada", label: "Kannada 🇮🇳" },
-  bengali: { path: "bengali", label: "Bengali 🇮🇳" }
+  langHindi: { path: "hindi", label: "Hindi 🇮🇳" },
+  langTamil: { path: "tamil", label: "Tamil 🇮🇳" },
+  langTelugu: { path: "telugu", label: "Telugu 🇮🇳" },
+  langMalayalam: { path: "malayalam", label: "Malayalam 🇮🇳" },
+  langKannada: { path: "kannada", label: "Kannada 🇮🇳" },
+  langBengali: { path: "bengali", label: "Bengali 🇮🇳" }
 };
 
 const HEADERS = {
@@ -84,15 +96,23 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   const e = episode ?? 1;
 
   try {
+    // 2. Read User Custom Preferences
+    const settings = globalThis.SCRAPER_SETTINGS || {};
+    
+    // Filter down to allowed languages selected by user toggles (Default to true if setting is unset)
+    const allowedLanguages = Object.entries(LANGUAGES).filter(([key]) => {
+        return settings[key] !== false;
+    });
+
     const meta = await getTmdbMeta(tmdbId, isSeries ? "tv" : "movie");
     const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
     if (!imdbId) return [];
 
     const allStreams = [];
 
-    // 1. Fetch concurrently across all configured languages
+    // 3. Process fetching ONLY for the user allowed languages
     await Promise.all(
-      Object.entries(LANGUAGES).map(async ([langKey, langConfig]) => {
+      allowedLanguages.map(async ([_, langConfig]) => {
         let rawStreams = [];
         const endpointBase = `${EINTHUSAN_BASE}/${langConfig.path}`;
 
@@ -105,7 +125,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           }
         }
 
-        // Tag each stream item with its language label so the grouper knows what it is
         rawStreams.forEach((stream) => {
           allStreams.push({
             ...stream,
@@ -120,7 +139,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const result = [];
     const grouped = {};
 
-    // 2. Filter, resolve proxies, and group
     for (const item of allStreams) {
       if (!item?.url || item.externalUrl || String(item.url).includes("github.com")) continue;
 
@@ -138,7 +156,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         /480/.test(searchTitle) ? "480p" :
         "HD";
 
-      // Use the dynamic langLabel assigned during the fetch step
       const lang = item.langLabel; 
       const key = `${res}-${lang}`;
 
@@ -146,7 +163,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       grouped[key].push({ ...item, resolvedUrl: streamUrl });
     }
 
-    // 3. Build final slick result cards
     Object.entries(grouped).forEach(([key, items]) => {
       const [res, lang] = key.split("-");
 
@@ -174,4 +190,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   }
 }
 
-module.exports = { getStreams };
+// 4. Multi-environment Module Export matching Dahmer template
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { getStreams, onSettings };
+} else {
+    global.getStreams = getStreams;
+    global.onSettings = onSettings;
+}

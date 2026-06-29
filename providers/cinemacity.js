@@ -42,10 +42,7 @@ const isProxyUrl = (url) =>
 function upgradeToUhdStream(lowQualityUrl) {
   if (!lowQualityUrl || !lowQualityUrl.includes("/content/D")) return lowQualityUrl;
   
-  // 1. Swap out the low-quality indicator 'D' for the Ultra HD master indicator 'B'
   let highQualityUrl = lowQualityUrl.replace("/content/D", "/content/B");
-  
-  // 2. Change the file target extension from standard MP4 to adaptive HLS stream M3U8
   highQualityUrl = highQualityUrl.replace(".mp4?", ".mp4.m3u8?");
   
   return highQualityUrl;
@@ -155,11 +152,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       if (!baseStreamUrl) continue;
 
-      // Automatically generate the Ultra HD stream using the backend's valid tokens
       const uhdStreamUrl = upgradeToUhdStream(baseStreamUrl);
       const lang = item.langLabel; 
 
-      // 1. Add the Ultra HD Stream link option
+      // 1. Add Ultra HD Stream Choice backed by mandatory player proxy verification headers
       const uhdLayout = `🎦 ${meta.title || meta.name}\n💎 1080p Ultra HD | 🗣️ ${lang}\n🎞️ M3U8 | 🔗 ${PROVIDER_NAME}`;
       result.push({
         name: `${PROVIDER_NAME} | 1080p UHD | ${lang}`,
@@ -167,10 +163,18 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         size: uhdLayout,
         description: uhdLayout,
         url: uhdStreamUrl,
-        behaviorHints: item.behaviorHints ?? {}
+        behaviorHints: {
+          ...item.behaviorHints,
+          proxyHeaders: {
+            request: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+              "Referer": "https://einthusan.tv/"
+            }
+          }
+        }
       });
 
-      // 2. Keep the original 720p stream as a backup choice
+      // 2. Original fallback Choice
       const hdLayout = `🎦 ${meta.title || meta.name}\n💎 720p HD | 🗣️ ${lang}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
       result.push({
         name: `${PROVIDER_NAME} | 720p HD | ${lang}`,

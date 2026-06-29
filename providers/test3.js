@@ -99,14 +99,13 @@ function buildStream(item) {
     const sourceName = extractSourceName(item.name);
     const qualitySpecs = extractQualitySpecs(descToParse);
     
-    // Default language to Hindi since this is the /hindi endpoint
     const language = "Hindi"; 
 
-    // Construct your custom sleek layout block
-    const fullLayout = 
-`🎦 ${sourceName}
-💎 ${qualitySpecs} | 🗣️ ${language}
-🎞️ MP4/MKV | 🔗 Einthusan`;
+    // The primary text displayed in bold on the card
+    const cardName = `Einthusan | ${qualitySpecs} | ${language}`;
+
+    // The sub-details using emojis that Stremio Mobile renders underneath
+    const descriptionLayout = `🎦 ${sourceName} • 💎 ${qualitySpecs} • 🗣️ ${language} • 🎞️ MP4 • 🔗 Einthusan`;
 
     const headers = {
       ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
@@ -119,11 +118,10 @@ function buildStream(item) {
 
     if (!streamUrl) return null;
 
-    // Return the formatted object Stremio expects
     return {
-      name: `Einthusan | ${qualitySpecs} | ${language}`,
-      title: fullLayout,
-      description: fullLayout,
+      name: cardName,
+      title: descriptionLayout,       // Stremio desktop uses this for hover-text
+      description: descriptionLayout, // Stremio mobile renders this directly as the subheading line
       url: streamUrl,
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
       behaviorHints: item.behaviorHints ?? {}

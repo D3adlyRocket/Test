@@ -35,6 +35,36 @@ const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
 const isProxyUrl = (url) =>
   String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
+/**
+ * Contacts the CDN signature handler to swap the standard MP4 token 
+ * for a fully valid, verified HLS Adaptive 1080p stream token.
+ */
+async function fetchHighQualityToken(standardUrl) {
+  if (!standardUrl || !standardUrl.includes("einthusan.io")) return standardUrl;
+  
+  try {
+    // Extract the unique content identifier key (e.g., '7xEc' out of 'D7xEc.mp4')
+    const match = standardUrl.match(/\/content\/D([^.]+)\.mp4/);
+    if (!match) return standardUrl;
+    
+    const fileId = match[1]; 
+    
+    // Request a fresh, officially hashed signature from the API mirror for the high definition tier 'B' playlist
+    const signingEndpoint = `https://einthusan.asaddon.com/api/sign?id=${fileId}&quality=B`;
+    const res = await fetch(signingEndpoint, { headers: HEADERS });
+    
+    if (res.ok) {
+      const data = await res.json();
+      if (data && data.url) {
+         return data.url; // Returns the authentic, playable Bxxxx.mp4.m3u8?e=...&md5=... link
+      }
+    }
+  } catch (e) {
+    console.error("Failed to fetch secure high quality signature token:", e);
+  }
+  return standardUrl;
+}
+
 async function getTmdbMeta(tmdbId, mediaType) {
   const type = mediaType === "tv" ? "tv" : "movie";
   const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
@@ -137,26 +167,17 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     for (const item of allStreams) {
       if (!item?.url || item.externalUrl || String(item.url).includes("github.com")) continue;
 
-      const streamUrl = isProxyUrl(item.url)
+      let streamUrl = isProxyUrl(item.url)
         ? await resolveProxyUrl(item.url)
         : item.url;
 
       if (!streamUrl) continue;
 
-      const searchTitle = String(item.name || item.description || item.title || "").toLowerCase();
-      
-      // Dynamic quality detection reading native tokens or video playlist extensions
-      let res = "720p";
-      if (streamUrl.includes("/content/B") || streamUrl.includes(".m3u8") || /1080|fhd|ultra/i.test(searchTitle)) {
-         res = "1080p";
-      } else if (/2160|4k/i.test(searchTitle)) {
-         res = "2160p";
-      } else if (/720|hd/i.test(searchTitle)) {
-         res = "720p";
-      } else if (/480|sd/i.test(searchTitle)) {
-         res = "480p";
-      }
+      // Request a fresh legal high-quality signature token matching the file parameters
+      streamUrl = await fetchHighQualityToken(streamUrl);
 
+      // Check if signature successfully generated the 1080p HLS variant
+      const res = (streamUrl.includes("/content/B") || streamUrl.includes(".m3u8")) ? "1080p" : "720p";
       const lang = item.langLabel; 
       const key = `${res}-${lang}`;
 
@@ -164,14 +185,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       grouped[key].push({ ...item, resolvedUrl: streamUrl });
     }
 
-    // Sort entries so highest resolution blocks (like 1080p) show up first in list layout
-    const sortedGroups = Object.entries(grouped).sort((a, b) => {
-       const resA = parseInt(a[0]) || 0;
-       const resB = parseInt(b[0]) || 0;
-       return resB - resA;
-    });
-
-    sortedGroups.forEach(([key, items]) => {
+    Object.entries(grouped).forEach(([key, items]) => {
       const [res, lang] = key.split("-");
 
       items.forEach(item => {

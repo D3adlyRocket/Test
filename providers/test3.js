@@ -98,6 +98,15 @@ function buildStream(item) {
     const descToParse = item.description || item.title || "";
     const sourceName = extractSourceName(item.name);
     const qualitySpecs = extractQualitySpecs(descToParse);
+    
+    // Default language to Hindi since this is the /hindi endpoint
+    const language = "Hindi"; 
+
+    // Construct your custom sleek layout block
+    const fullLayout = 
+`🎦 ${sourceName}
+💎 ${qualitySpecs} | 🗣️ ${language}
+🎞️ MP4/MKV | 🔗 Einthusan`;
 
     const headers = {
       ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
@@ -110,13 +119,14 @@ function buildStream(item) {
 
     if (!streamUrl) return null;
 
+    // Return the formatted object Stremio expects
     return {
-      name: "Einthusan",
-      title: `Einthusan • ${sourceName}`,
+      name: `Einthusan | ${qualitySpecs} | ${language}`,
+      title: fullLayout,
+      description: fullLayout,
       url: streamUrl,
-      quality: qualitySpecs,
       ...(Object.keys(headers).length > 0 ? { headers } : {}),
-      provider: "Einthusan",
+      behaviorHints: item.behaviorHints ?? {}
     };
   });
 }

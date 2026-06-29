@@ -17,7 +17,6 @@ const EINTHUSAN_BASE = "https://einthusan.asaddon.com";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 const PROVIDER_NAME = "Einthusan";
 
-// Added clean web matching paths for internal site query strings
 const LANGUAGES = {
   langHindi: { path: "hindi", label: "Hindi 🇮🇳", webCode: "hindi" },
   langTamil: { path: "tamil", label: "Tamil 🇮🇳", webCode: "tamil" },
@@ -37,14 +36,13 @@ const isProxyUrl = (url) =>
   String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
 /**
- * Automatically extracts the authentic, server-side validated UHD token parameters
- * directly from the webpage's data attributes as discovered in DevTools.
+ * Extracts UHD tokens from page attributes and strips the M3U8 extension
+ * to force standard MP4 playback.
  */
 async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
   if (!lowQualityUrl || !lowQualityUrl.includes("einthusan.")) return lowQualityUrl;
 
   try {
-    // 1. Extract the alpha content identifier from the fallback link
     const idMatch = lowQualityUrl.match(/\/content\/D([^.]+)\.mp4/);
     if (!idMatch) return lowQualityUrl;
     const contentId = idMatch[1];
@@ -57,32 +55,34 @@ async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
 
     const html = await response.text();
     
-    // 2. Extract the fresh signature string from the data-m3u8 attribute (Seen in file 1000144543.jpg)
-    const m3u8AttrRegex = /data-m3u8=["']([^"']*\.mp4\.m3u8\?[^"']+)["']/;
+    // 1. Check data-m3u8 attribute
+    const m3u8AttrRegex = /data-m3u8=["']([^"']*\.mp4(?:\.m3u8)?\?[^"']+)["']/;
     const m3u8Match = html.match(m3u8AttrRegex);
     
     if (m3u8Match && m3u8Match[1]) {
       let tokenParameters = m3u8Match[1];
       
-      // Clean up the web syntax encoding (&amp; -> &) safely
       tokenParameters = tokenParameters.replace(/&amp;/g, "&");
       
-      // Ensure it starts cleanly with the core stream folder path
+      // CRITICAL FIX: Convert adaptive playlist reference back to standalone MP4 container
+      tokenParameters = tokenParameters.replace(".mp4.m3u8?", ".mp4?");
+      
       if (!tokenParameters.startsWith("/")) {
         tokenParameters = "/etv/content/" + tokenParameters;
       }
       
-      // 3. Stitched cleanly to the verified CDN base domain for flawless playback
       return `https://cdn1.einthusan.io${tokenParameters}`;
     }
     
-    // Fallback parser: Check data-mp4-link attribute if data-m3u8 isn't present (Seen in file 1000144540.jpg)
+    // 2. Fallback check for data-mp4-link attribute
     const mp4LinkRegex = /data-mp4-link=["']([^"']+)["']/;
     const mp4Match = html.match(mp4LinkRegex);
     if (mp4Match && mp4Match[1]) {
       let cleanMp4 = mp4Match[1].replace(/&amp;/g, "&");
-      // Swap out low quality variables for high quality streaming targets
-      cleanMp4 = cleanMp4.replace("/content/D", "/content/B").replace(".mp4?", ".mp4.m3u8?");
+      
+      // Standardize to high-quality path, dropping M3U8 variants entirely
+      cleanMp4 = cleanMp4.replace("/content/D", "/content/B");
+      cleanMp4 = cleanMp4.replace(".mp4.m3u8?", ".mp4?");
       cleanMp4 = cleanMp4.replace(/^https:\/\/[^\/]+/, "https://cdn1.einthusan.io");
       return cleanMp4;
     }
@@ -179,7 +179,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
 
         rawStreams.forEach((stream) => {
-          // Attached langWebCode so it maps over to our page scraper accurately
           allStreams.push({ 
             ...stream, 
             langLabel: langConfig.label,
@@ -202,27 +201,18 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       if (!baseStreamUrl) continue;
 
-      // FIX 1 & 2: Await the scraper function and pass the required parameters
       const uhdStreamUrl = await scrapeOfficialUhdLink(baseStreamUrl, item.langWebCode, isSeries);
       const lang = item.langLabel; 
 
-      // 1. Add Ultra HD Stream Choice backed by mandatory player proxy verification headers
-      const uhdLayout = `🎦 ${meta.title || meta.name}\n💎 1080p Ultra HD | 🗣️ ${lang}\n🎞️ M3U8 | 🔗 ${PROVIDER_NAME}`;
+      // 1. Cleaned 1080p Ultra HD stream using native, containerized MP4 addressing
+      const uhdLayout = `🎦 ${meta.title || meta.name}\n💎 1080p Ultra HD | 🗣️ ${lang}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
       result.push({
         name: `${PROVIDER_NAME} | 1080p UHD | ${lang}`,
         title: uhdLayout,
         size: uhdLayout,
         description: uhdLayout,
         url: uhdStreamUrl,
-        behaviorHints: {
-          ...item.behaviorHints,
-          proxyHeaders: {
-            request: {
-              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-              "Referer": "https://einthusan.tv/"
-            }
-          }
-        }
+        behaviorHints: item.behaviorHints ?? {}
       });
 
       // 2. Original fallback Choice

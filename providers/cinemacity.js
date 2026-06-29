@@ -18,16 +18,18 @@ const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 const PROVIDER_NAME = "Einthusan";
 
 const LANGUAGES = {
-  langHindi: { path: "hindi", label: "Hindi 🇮🇳" },
-  langTamil: { path: "tamil", label: "Tamil 🇮🇳" },
-  langTelugu: { path: "telugu", label: "Telugu 🇮🇳" },
-  langMalayalam: { path: "malayalam", label: "Malayalam 🇮🇳" },
-  langKannada: { path: "kannada", label: "Kannada 🇮🇳" },
-  langBengali: { path: "bengali", label: "Bengali 🇮🇳" }
+  langHindi: { path: "hindi", label: "Hindi 🇮🇳", webCode: "hindi" },
+  langTamil: { path: "tamil", label: "Tamil 🇮🇳", webCode: "tamil" },
+  langTelugu: { path: "telugu", label: "Telugu 🇮🇳", webCode: "telugu" },
+  langMalayalam: { path: "malayalam", label: "Malayalam 🇮🇳", webCode: "malayalam" },
+  langKannada: { path: "kannada", label: "Kannada 🇮🇳", webCode: "kannada" },
+  langBengali: { path: "bengali", label: "Bengali 🇮🇳", webCode: "bengali" }
 };
 
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+  "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
+  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  "Accept-Language": "en-US,en;q=0.5"
 };
 
 const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
@@ -36,33 +38,39 @@ const isProxyUrl = (url) =>
   String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
 /**
- * Contacts the CDN signature handler to swap the standard MP4 token 
- * for a fully valid, verified HLS Adaptive 1080p stream token.
+ * Directly scrapes the official web page source using the extracted ID 
+ * and &uhd=true to safely grab the real, validated UHD adaptive playlist link.
  */
-async function fetchHighQualityToken(standardUrl) {
-  if (!standardUrl || !standardUrl.includes("einthusan.io")) return standardUrl;
-  
+async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
+  if (!lowQualityUrl || !lowQualityUrl.includes("einthusan.io")) return lowQualityUrl;
+
   try {
-    // Extract the unique content identifier key (e.g., '7xEc' out of 'D7xEc.mp4')
-    const match = standardUrl.match(/\/content\/D([^.]+)\.mp4/);
-    if (!match) return standardUrl;
+    // Extract the page content ID from the low quality file name (e.g. 7xEc)
+    const idMatch = lowQualityUrl.match(/\/content\/D([^.]+)\.mp4/);
+    if (!idMatch) return lowQualityUrl;
+    const contentId = idMatch[1];
+
+    // Build the exact webpage watch URL discovered in your DevTools logs
+    const typePath = isSeries ? "serial" : "movie";
+    const watchPageUrl = `https://einthusan.tv/${typePath}/watch/${contentId}/?lang=${langWebCode}&uhd=true`;
+
+    const response = await fetch(watchPageUrl, { headers: HEADERS });
+    if (!response.ok) return lowQualityUrl;
+
+    const html = await response.text();
     
-    const fileId = match[1]; 
+    // Look for any signed UHD '/content/B...' stream embedded inside the webpage code
+    const streamRegex = /https:\/\/[^"' ]+\/content\/B[^"' ]+\.mp4\.m3u8\?[^"' ]+/;
+    const match = html.match(streamRegex);
     
-    // Request a fresh, officially hashed signature from the API mirror for the high definition tier 'B' playlist
-    const signingEndpoint = `https://einthusan.asaddon.com/api/sign?id=${fileId}&quality=B`;
-    const res = await fetch(signingEndpoint, { headers: HEADERS });
-    
-    if (res.ok) {
-      const data = await res.json();
-      if (data && data.url) {
-         return data.url; // Returns the authentic, playable Bxxxx.mp4.m3u8?e=...&md5=... link
-      }
+    if (match && match[0]) {
+      // Return the unescaped, perfectly clean premium playlist link
+      return match[0].replace(/\\/g, "");
     }
-  } catch (e) {
-    console.error("Failed to fetch secure high quality signature token:", e);
+  } catch (err) {
+    console.error("Web scraping for UHD stream link failed:", err);
   }
-  return standardUrl;
+  return lowQualityUrl;
 }
 
 async function getTmdbMeta(tmdbId, mediaType) {
@@ -153,7 +161,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         rawStreams.forEach((stream) => {
           allStreams.push({
             ...stream,
-            langLabel: langConfig.label
+            langLabel: langConfig.label,
+            langWebCode: langConfig.webCode
           });
         });
       })
@@ -173,11 +182,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       if (!streamUrl) continue;
 
-      // Request a fresh legal high-quality signature token matching the file parameters
-      streamUrl = await fetchHighQualityToken(streamUrl);
+      // Leverage the page-scrapper fallback to grab the true premium link using your devtools recipe
+      streamUrl = await scrapeOfficialUhdLink(streamUrl, item.langWebCode, isSeries);
 
-      // Check if signature successfully generated the 1080p HLS variant
-      const res = (streamUrl.includes("/content/B") || streamUrl.includes(".m3u8")) ? "1080p" : "720p";
+      // Verify if we successfully pulled the genuine HLS streaming master link
+      const res = streamUrl.includes("/content/B") ? "1080p Ultra HD" : "720p HD";
       const lang = item.langLabel; 
       const key = `${res}-${lang}`;
 

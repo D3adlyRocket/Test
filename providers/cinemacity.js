@@ -64,8 +64,13 @@ async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
     const match = html.match(streamRegex);
     
     if (match && match[0]) {
-      // Return the unescaped, perfectly clean premium playlist link
-      return match[0].replace(/\\/g, "");
+      // 1. Remove escape slashes from the string match
+      let cleanUrl = match[0].replace(/\\/g, "");
+      
+      // 2. CONVERT HTML ENTITIES (&amp; -> &) to keep the cryptographic key valid
+      cleanUrl = cleanUrl.replace(/&amp;/g, "&");
+      
+      return cleanUrl;
     }
   } catch (err) {
     console.error("Web scraping for UHD stream link failed:", err);

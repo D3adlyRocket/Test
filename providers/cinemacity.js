@@ -27,7 +27,7 @@ const LANGUAGES = {
 };
 
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
   "Accept-Language": "en-US,en;q=0.5"
 };
@@ -38,19 +38,18 @@ const isProxyUrl = (url) =>
   String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
 /**
- * Directly scrapes the official web page source using the extracted ID 
- * and &uhd=true to safely grab the real, validated UHD adaptive playlist link.
+ * Automatically intercepts the plugin feed, requests Einthusan's live asset page,
+ * pulls the authentic UHD stream link, and cleanses HTML syntax errors.
  */
 async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
-  if (!lowQualityUrl || !lowQualityUrl.includes("einthusan.io")) return lowQualityUrl;
+  if (!lowQualityUrl || !lowQualityUrl.includes("einthusan.")) return lowQualityUrl;
 
   try {
-    // Extract the page content ID from the low quality file name (e.g. 7xEc)
+    // Extract the precise content alpha token identifier
     const idMatch = lowQualityUrl.match(/\/content\/D([^.]+)\.mp4/);
     if (!idMatch) return lowQualityUrl;
     const contentId = idMatch[1];
 
-    // Build the exact webpage watch URL discovered in your DevTools logs
     const typePath = isSeries ? "serial" : "movie";
     const watchPageUrl = `https://einthusan.tv/${typePath}/watch/${contentId}/?lang=${langWebCode}&uhd=true`;
 
@@ -59,24 +58,20 @@ async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
 
     const html = await response.text();
     
-    // Look for any signed UHD '/content/B...' stream embedded inside the webpage code
+    // Scrape the true assigned load-balanced streaming servers (Supports raw IPs and CDNs)
     const streamRegex = /https:\/\/[^"' ]+\/content\/B[^"' ]+\.mp4\.m3u8\?[^"' ]+/;
     const match = html.match(streamRegex);
     
     if (match && match[0]) {
-      // 1. Remove escape slashes from the string match
       let cleanUrl = match[0].replace(/\\/g, "");
       
-      // 2. Convert HTML entities (&amp; -> &) to keep the cryptographic key valid
+      // Fix the web entities syntax issue safely so signatures pass validation checks
       cleanUrl = cleanUrl.replace(/&amp;/g, "&");
-      
-      // 3. Normalize the domain: swap out the dynamic IP address for the official CDN host name
-      cleanUrl = cleanUrl.replace(/^https:\/\/[^\/]+/, "https://cdn1.einthusan.io");
       
       return cleanUrl;
     }
   } catch (err) {
-    console.error("Web scraping for UHD stream link failed:", err);
+    console.error("Auto UHD generation failed:", err);
   }
   return lowQualityUrl;
 }
@@ -190,11 +185,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       if (!streamUrl) continue;
 
-      // Leverage the page-scrapper fallback to grab the true premium link using your devtools recipe
+      // Automated fetch upgrade handler
       streamUrl = await scrapeOfficialUhdLink(streamUrl, item.langWebCode, isSeries);
 
-      // Verify if we successfully pulled the genuine HLS streaming master link
-      const res = streamUrl.includes("/content/B") ? "1080p Ultra HD" : "720p HD";
+      // Label dynamically according to what stream was pulled successfully
+      const res = (streamUrl.includes("/content/B") || streamUrl.includes(".m3u8")) ? "1080p Ultra HD" : "720p HD";
       const lang = item.langLabel; 
       const key = `${res}-${lang}`;
 

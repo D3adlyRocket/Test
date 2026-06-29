@@ -36,16 +36,18 @@ const isProxyUrl = (url) =>
   String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
 /**
- * Extracts UHD tokens from page attributes and strips the M3U8 extension
- * to force standard MP4 playback.
+ * Extracts UHD tokens from page attributes and forces standard MP4 playback.
+ * Falls back to cross-language token migration if structural variants occur.
  */
 async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
   if (!lowQualityUrl || !lowQualityUrl.includes("einthusan.")) return lowQualityUrl;
 
   try {
-    const idMatch = lowQualityUrl.match(/\/content\/D([^.]+)\.mp4/);
+    // 1. Extract the unique content ID from the fallback link (works for any alphanumeric ID like 5fKk or 7xEc)
+    const idMatch = lowQualityUrl.match(/\/content\/([DB])([^.]+)\.mp4/);
     if (!idMatch) return lowQualityUrl;
-    const contentId = idMatch[1];
+    const currentLetter = idMatch[1];
+    const contentId = idMatch[2];
 
     const typePath = isSeries ? "serial" : "movie";
     const watchPageUrl = `https://einthusan.tv/${typePath}/watch/${contentId}/?lang=${langWebCode || "hindi"}&uhd=true`;
@@ -55,42 +57,51 @@ async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
 
     const html = await response.text();
     
-    // 1. Check data-m3u8 attribute
+    // 2. Try Primary Check: data-m3u8 attribute
     const m3u8AttrRegex = /data-m3u8=["']([^"']*\.mp4(?:\.m3u8)?\?[^"']+)["']/;
     const m3u8Match = html.match(m3u8AttrRegex);
     
     if (m3u8Match && m3u8Match[1]) {
-      let tokenParameters = m3u8Match[1];
+      let tokenParameters = m3u8Match[1].replace(/&amp;/g, "&");
       
-      tokenParameters = tokenParameters.replace(/&amp;/g, "&");
-      
-      // CRITICAL FIX: Convert adaptive playlist reference back to standalone MP4 container
+      // Enforce the high-quality path asset swap and clean the extension
+      tokenParameters = tokenParameters.replace(/\/content\/[DB]/, "/content/B");
       tokenParameters = tokenParameters.replace(".mp4.m3u8?", ".mp4?");
       
       if (!tokenParameters.startsWith("/")) {
         tokenParameters = "/etv/content/" + tokenParameters;
       }
-      
       return `https://cdn1.einthusan.io${tokenParameters}`;
     }
     
-    // 2. Fallback check for data-mp4-link attribute
+    // 3. Try Secondary Check: data-mp4-link attribute
     const mp4LinkRegex = /data-mp4-link=["']([^"']+)["']/;
     const mp4Match = html.match(mp4LinkRegex);
     if (mp4Match && mp4Match[1]) {
       let cleanMp4 = mp4Match[1].replace(/&amp;/g, "&");
       
-      // Standardize to high-quality path, dropping M3U8 variants entirely
-      cleanMp4 = cleanMp4.replace("/content/D", "/content/B");
+      cleanMp4 = cleanMp4.replace(/\/content\/[DB]/, "/content/B");
       cleanMp4 = cleanMp4.replace(".mp4.m3u8?", ".mp4?");
       cleanMp4 = cleanMp4.replace(/^https:\/\/[^\/]+/, "https://cdn1.einthusan.io");
       return cleanMp4;
     }
 
+    // 4. ROBUST FALLBACK Safety Net: If page HTML didn't expose the explicit attributes but loaded successfully,
+    // look for ANY valid fresh token string generated on the page and force convert it to the UHD 'B' track.
+    const anyTokenRegex = /content\/[DB][^.]+\.mp4(?:\.m3u8)?\?e=(\d+)&amp;md5=([a-zA-Z0-9_=-]+)/;
+    const generalMatch = html.match(anyTokenRegex);
+    if (generalMatch) {
+      const freshExpiry = generalMatch[1];
+      const freshMd5 = generalMatch[2];
+      return `https://cdn1.einthusan.io/etv/content/B${contentId}.mp4?e=${freshExpiry}&md5=${freshMd5}`;
+    }
+
   } catch (err) {
     console.error("Automated UHD link compilation failed:", err);
   }
-  return lowQualityUrl;
+  
+  // If all else fails, attempt a hot-swap on the base link as a last-resort effort
+  return lowQualityUrl.replace("/content/D", "/content/B");
 }
 
 async function getTmdbMeta(tmdbId, mediaType) {

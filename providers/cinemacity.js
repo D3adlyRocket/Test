@@ -67,8 +67,11 @@ async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
       // 1. Remove escape slashes from the string match
       let cleanUrl = match[0].replace(/\\/g, "");
       
-      // 2. CONVERT HTML ENTITIES (&amp; -> &) to keep the cryptographic key valid
+      // 2. Convert HTML entities (&amp; -> &) to keep the cryptographic key valid
       cleanUrl = cleanUrl.replace(/&amp;/g, "&");
+      
+      // 3. Normalize the domain: swap out the dynamic IP address for the official CDN host name
+      cleanUrl = cleanUrl.replace(/^https:\/\/[^\/]+/, "https://cdn1.einthusan.io");
       
       return cleanUrl;
     }

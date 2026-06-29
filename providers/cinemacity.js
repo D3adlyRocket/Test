@@ -17,13 +17,14 @@ const EINTHUSAN_BASE = "https://einthusan.asaddon.com";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 const PROVIDER_NAME = "Einthusan";
 
+// Added clean web matching paths for internal site query strings
 const LANGUAGES = {
-  langHindi: { path: "hindi", label: "Hindi 🇮🇳" },
-  langTamil: { path: "tamil", label: "Tamil 🇮🇳" },
-  langTelugu: { path: "telugu", label: "Telugu 🇮🇳" },
-  langMalayalam: { path: "malayalam", label: "Malayalam 🇮🇳" },
-  langKannada: { path: "kannada", label: "Kannada 🇮🇳" },
-  langBengali: { path: "bengali", label: "Bengali 🇮🇳" }
+  langHindi: { path: "hindi", label: "Hindi 🇮🇳", webCode: "hindi" },
+  langTamil: { path: "tamil", label: "Tamil 🇮🇳", webCode: "tamil" },
+  langTelugu: { path: "telugu", label: "Telugu 🇮🇳", webCode: "telugu" },
+  langMalayalam: { path: "malayalam", label: "Malayalam 🇮🇳", webCode: "malayalam" },
+  langKannada: { path: "kannada", label: "Kannada 🇮🇳", webCode: "kannada" },
+  langBengali: { path: "bengali", label: "Bengali 🇮🇳", webCode: "bengali" }
 };
 
 const HEADERS = {
@@ -36,16 +37,60 @@ const isProxyUrl = (url) =>
   String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
 /**
- * Converts a working low-quality URL into a working high-quality URL
- * by mutating the path strings while retaining the valid signature tokens.
+ * Automatically extracts the authentic, server-side validated UHD token parameters
+ * directly from the webpage's data attributes as discovered in DevTools.
  */
-function upgradeToUhdStream(lowQualityUrl) {
-  if (!lowQualityUrl || !lowQualityUrl.includes("/content/D")) return lowQualityUrl;
-  
-  let highQualityUrl = lowQualityUrl.replace("/content/D", "/content/B");
-  highQualityUrl = highQualityUrl.replace(".mp4?", ".mp4.m3u8?");
-  
-  return highQualityUrl;
+async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
+  if (!lowQualityUrl || !lowQualityUrl.includes("einthusan.")) return lowQualityUrl;
+
+  try {
+    // 1. Extract the alpha content identifier from the fallback link
+    const idMatch = lowQualityUrl.match(/\/content\/D([^.]+)\.mp4/);
+    if (!idMatch) return lowQualityUrl;
+    const contentId = idMatch[1];
+
+    const typePath = isSeries ? "serial" : "movie";
+    const watchPageUrl = `https://einthusan.tv/${typePath}/watch/${contentId}/?lang=${langWebCode || "hindi"}&uhd=true`;
+
+    const response = await fetch(watchPageUrl, { headers: HEADERS });
+    if (!response.ok) return lowQualityUrl;
+
+    const html = await response.text();
+    
+    // 2. Extract the fresh signature string from the data-m3u8 attribute (Seen in file 1000144543.jpg)
+    const m3u8AttrRegex = /data-m3u8=["']([^"']*\.mp4\.m3u8\?[^"']+)["']/;
+    const m3u8Match = html.match(m3u8AttrRegex);
+    
+    if (m3u8Match && m3u8Match[1]) {
+      let tokenParameters = m3u8Match[1];
+      
+      // Clean up the web syntax encoding (&amp; -> &) safely
+      tokenParameters = tokenParameters.replace(/&amp;/g, "&");
+      
+      // Ensure it starts cleanly with the core stream folder path
+      if (!tokenParameters.startsWith("/")) {
+        tokenParameters = "/etv/content/" + tokenParameters;
+      }
+      
+      // 3. Stitched cleanly to the verified CDN base domain for flawless playback
+      return `https://cdn1.einthusan.io${tokenParameters}`;
+    }
+    
+    // Fallback parser: Check data-mp4-link attribute if data-m3u8 isn't present (Seen in file 1000144540.jpg)
+    const mp4LinkRegex = /data-mp4-link=["']([^"']+)["']/;
+    const mp4Match = html.match(mp4LinkRegex);
+    if (mp4Match && mp4Match[1]) {
+      let cleanMp4 = mp4Match[1].replace(/&amp;/g, "&");
+      // Swap out low quality variables for high quality streaming targets
+      cleanMp4 = cleanMp4.replace("/content/D", "/content/B").replace(".mp4?", ".mp4.m3u8?");
+      cleanMp4 = cleanMp4.replace(/^https:\/\/[^\/]+/, "https://cdn1.einthusan.io");
+      return cleanMp4;
+    }
+
+  } catch (err) {
+    console.error("Automated UHD link compilation failed:", err);
+  }
+  return lowQualityUrl;
 }
 
 async function getTmdbMeta(tmdbId, mediaType) {
@@ -134,7 +179,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
 
         rawStreams.forEach((stream) => {
-          allStreams.push({ ...stream, langLabel: langConfig.label });
+          // Attached langWebCode so it maps over to our page scraper accurately
+          allStreams.push({ 
+            ...stream, 
+            langLabel: langConfig.label,
+            langWebCode: langConfig.webCode 
+          });
         });
       })
     );
@@ -152,7 +202,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       if (!baseStreamUrl) continue;
 
-      const uhdStreamUrl = upgradeToUhdStream(baseStreamUrl);
+      // FIX 1 & 2: Await the scraper function and pass the required parameters
+      const uhdStreamUrl = await scrapeOfficialUhdLink(baseStreamUrl, item.langWebCode, isSeries);
       const lang = item.langLabel; 
 
       // 1. Add Ultra HD Stream Choice backed by mandatory player proxy verification headers

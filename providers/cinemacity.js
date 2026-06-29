@@ -18,18 +18,16 @@ const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 const PROVIDER_NAME = "Einthusan";
 
 const LANGUAGES = {
-  langHindi: { path: "hindi", label: "Hindi 🇮🇳", webCode: "hindi" },
-  langTamil: { path: "tamil", label: "Tamil 🇮🇳", webCode: "tamil" },
-  langTelugu: { path: "telugu", label: "Telugu 🇮🇳", webCode: "telugu" },
-  langMalayalam: { path: "malayalam", label: "Malayalam 🇮🇳", webCode: "malayalam" },
-  langKannada: { path: "kannada", label: "Kannada 🇮🇳", webCode: "kannada" },
-  langBengali: { path: "bengali", label: "Bengali 🇮🇳", webCode: "bengali" }
+  langHindi: { path: "hindi", label: "Hindi 🇮🇳" },
+  langTamil: { path: "tamil", label: "Tamil 🇮🇳" },
+  langTelugu: { path: "telugu", label: "Telugu 🇮🇳" },
+  langMalayalam: { path: "malayalam", label: "Malayalam 🇮🇳" },
+  langKannada: { path: "kannada", label: "Kannada 🇮🇳" },
+  langBengali: { path: "bengali", label: "Bengali 🇮🇳" }
 };
 
 const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.5"
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 };
 
 const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
@@ -38,42 +36,19 @@ const isProxyUrl = (url) =>
   String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
 
 /**
- * Automatically intercepts the plugin feed, requests Einthusan's live asset page,
- * pulls the authentic UHD stream link, and cleanses HTML syntax errors.
+ * Converts a working low-quality URL into a working high-quality URL
+ * by mutating the path strings while retaining the valid signature tokens.
  */
-async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
-  if (!lowQualityUrl || !lowQualityUrl.includes("einthusan.")) return lowQualityUrl;
-
-  try {
-    // Extract the precise content alpha token identifier
-    const idMatch = lowQualityUrl.match(/\/content\/D([^.]+)\.mp4/);
-    if (!idMatch) return lowQualityUrl;
-    const contentId = idMatch[1];
-
-    const typePath = isSeries ? "serial" : "movie";
-    const watchPageUrl = `https://einthusan.tv/${typePath}/watch/${contentId}/?lang=${langWebCode}&uhd=true`;
-
-    const response = await fetch(watchPageUrl, { headers: HEADERS });
-    if (!response.ok) return lowQualityUrl;
-
-    const html = await response.text();
-    
-    // Scrape the true assigned load-balanced streaming servers (Supports raw IPs and CDNs)
-    const streamRegex = /https:\/\/[^"' ]+\/content\/B[^"' ]+\.mp4\.m3u8\?[^"' ]+/;
-    const match = html.match(streamRegex);
-    
-    if (match && match[0]) {
-      let cleanUrl = match[0].replace(/\\/g, "");
-      
-      // Fix the web entities syntax issue safely so signatures pass validation checks
-      cleanUrl = cleanUrl.replace(/&amp;/g, "&");
-      
-      return cleanUrl;
-    }
-  } catch (err) {
-    console.error("Auto UHD generation failed:", err);
-  }
-  return lowQualityUrl;
+function upgradeToUhdStream(lowQualityUrl) {
+  if (!lowQualityUrl || !lowQualityUrl.includes("/content/D")) return lowQualityUrl;
+  
+  // 1. Swap out the low-quality indicator 'D' for the Ultra HD master indicator 'B'
+  let highQualityUrl = lowQualityUrl.replace("/content/D", "/content/B");
+  
+  // 2. Change the file target extension from standard MP4 to adaptive HLS stream M3U8
+  highQualityUrl = highQualityUrl.replace(".mp4?", ".mp4.m3u8?");
+  
+  return highQualityUrl;
 }
 
 async function getTmdbMeta(tmdbId, mediaType) {
@@ -162,11 +137,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
 
         rawStreams.forEach((stream) => {
-          allStreams.push({
-            ...stream,
-            langLabel: langConfig.label,
-            langWebCode: langConfig.webCode
-          });
+          allStreams.push({ ...stream, langLabel: langConfig.label });
         });
       })
     );
@@ -174,51 +145,42 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     if (allStreams.length === 0) return [];
 
     const result = [];
-    const grouped = {};
 
     for (const item of allStreams) {
       if (!item?.url || item.externalUrl || String(item.url).includes("github.com")) continue;
 
-      let streamUrl = isProxyUrl(item.url)
+      let baseStreamUrl = isProxyUrl(item.url)
         ? await resolveProxyUrl(item.url)
         : item.url;
 
-      if (!streamUrl) continue;
+      if (!baseStreamUrl) continue;
 
-      // Automated fetch upgrade handler
-      streamUrl = await scrapeOfficialUhdLink(streamUrl, item.langWebCode, isSeries);
-
-      // Label dynamically according to what stream was pulled successfully
-      const res = (streamUrl.includes("/content/B") || streamUrl.includes(".m3u8")) ? "1080p Ultra HD" : "720p HD";
+      // Automatically generate the Ultra HD stream using the backend's valid tokens
+      const uhdStreamUrl = upgradeToUhdStream(baseStreamUrl);
       const lang = item.langLabel; 
-      const key = `${res}-${lang}`;
 
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push({ ...item, resolvedUrl: streamUrl });
-    }
-
-    Object.entries(grouped).forEach(([key, items]) => {
-      const [res, lang] = key.split("-");
-
-      items.forEach(item => {
-        const isHls = item.resolvedUrl.includes(".m3u8");
-        const formatLabel = isHls ? "M3U8" : "MP4";
-
-        const fullLayout =
-`🎦 ${meta.title || meta.name}
-💎 ${res} | 🗣️ ${lang}
-🎞️ ${formatLabel} | 🔗 ${PROVIDER_NAME}`;
-
-        result.push({
-          name: `${PROVIDER_NAME} | ${res} | ${lang}`,
-          title: fullLayout,
-          size: fullLayout,
-          description: fullLayout,
-          url: item.resolvedUrl,
-          behaviorHints: item.behaviorHints ?? {}
-        });
+      // 1. Add the Ultra HD Stream link option
+      const uhdLayout = `🎦 ${meta.title || meta.name}\n💎 1080p Ultra HD | 🗣️ ${lang}\n🎞️ M3U8 | 🔗 ${PROVIDER_NAME}`;
+      result.push({
+        name: `${PROVIDER_NAME} | 1080p UHD | ${lang}`,
+        title: uhdLayout,
+        size: uhdLayout,
+        description: uhdLayout,
+        url: uhdStreamUrl,
+        behaviorHints: item.behaviorHints ?? {}
       });
-    });
+
+      // 2. Keep the original 720p stream as a backup choice
+      const hdLayout = `🎦 ${meta.title || meta.name}\n💎 720p HD | 🗣️ ${lang}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
+      result.push({
+        name: `${PROVIDER_NAME} | 720p HD | ${lang}`,
+        title: hdLayout,
+        size: hdLayout,
+        description: hdLayout,
+        url: baseStreamUrl,
+        behaviorHints: item.behaviorHints ?? {}
+      });
+    }
 
     return result;
   } catch (err) {

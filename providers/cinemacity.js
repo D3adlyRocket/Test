@@ -1,6 +1,6 @@
 "use strict";
 
-// 1. Settings Layout for Nuvio Local Scrapers
+// Settings Layout for Nuvio Local Scrapers
 async function onSettings() {
     return [
         { type: "header", label: "Language Preferences" },
@@ -17,7 +17,6 @@ const EINTHUSAN_BASE = "https://einthusan.asaddon.com";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 const PROVIDER_NAME = "Einthusan";
 
-// Core available languages matching keys in settings
 const LANGUAGES = {
   langHindi: { path: "hindi", label: "Hindi 🇮🇳" },
   langTamil: { path: "tamil", label: "Tamil 🇮🇳" },
@@ -35,6 +34,17 @@ const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
 
 const isProxyUrl = (url) =>
   String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
+
+// Helper to force-upgrade Einthusan video URLs to the higher premium tier
+function upgradeToHighQuality(url) {
+  if (!url || !url.includes("einthusan.io")) return url;
+  
+  // Replaces the standard /content/Dxxxx stream code prefix with /content/Bxxxx for higher bitrate master files
+  if (url.includes("/content/D")) {
+    return url.replace("/content/D", "/content/B");
+  }
+  return url;
+}
 
 async function getTmdbMeta(tmdbId, mediaType) {
   const type = mediaType === "tv" ? "tv" : "movie";
@@ -96,10 +106,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   const e = episode ?? 1;
 
   try {
-    // 2. Read User Custom Preferences
     const settings = globalThis.SCRAPER_SETTINGS || {};
-    
-    // Filter down to allowed languages selected by user toggles (Default to true if setting is unset)
     const allowedLanguages = Object.entries(LANGUAGES).filter(([key]) => {
         return settings[key] !== false;
     });
@@ -110,7 +117,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const allStreams = [];
 
-    // 3. Process fetching ONLY for the user allowed languages
     await Promise.all(
       allowedLanguages.map(async ([_, langConfig]) => {
         let rawStreams = [];
@@ -142,19 +148,25 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     for (const item of allStreams) {
       if (!item?.url || item.externalUrl || String(item.url).includes("github.com")) continue;
 
-      const streamUrl = isProxyUrl(item.url)
+      let streamUrl = isProxyUrl(item.url)
         ? await resolveProxyUrl(item.url)
         : item.url;
 
       if (!streamUrl) continue;
 
+      // Intercept and rewrite the URL to higher quality variant
+      streamUrl = upgradeToHighQuality(streamUrl);
+
       const searchTitle = String(item.description || item.title || "").toLowerCase();
-      const res =
-        /2160|4k/.test(searchTitle) ? "2160p" :
-        /1080/.test(searchTitle) ? "1080p" :
-        /720/.test(searchTitle) ? "720p" :
-        /480/.test(searchTitle) ? "480p" :
-        "HD";
+      
+      // If the URL has been upgraded to a 'B' string token, treat it as 1080p/UHD
+      let res = "1080p";
+      if (!streamUrl.includes("/content/B")) {
+         res = /2160|4k/.test(searchTitle) ? "2160p" :
+               /1080/.test(searchTitle) ? "1080p" :
+               /720/.test(searchTitle) ? "720p" :
+               /480/.test(searchTitle) ? "480p" : "720p";
+      }
 
       const lang = item.langLabel; 
       const key = `${res}-${lang}`;
@@ -190,7 +202,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   }
 }
 
-// 4. Multi-environment Module Export matching Dahmer template
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { getStreams, onSettings };
 } else {

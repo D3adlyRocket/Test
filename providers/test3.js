@@ -216,7 +216,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const allowedLanguages = Object.entries(LANGUAGES).filter(([key]) => settings[key] !== false);
 
     const meta = await getTmdbMeta(tmdbId, isSeries ? "tv" : "movie");
-    const movieTitle = meta ? (meta.title || meta.name) : "Movie";
+    // FIXED: Mapped variable name alignment for formatting
+    const mediaName = meta ? (meta.title || meta.name) : "Movie";
     const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
     if (!imdbId) return [];
 
@@ -264,7 +265,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           if (isHindi) {
             let explicitlyAvailable = false;
             try {
-              // Fire a super quick verification request directly at the CDN2 'B' file route
               const validationRes = await fetch(cdn2Url, { method: "HEAD", headers: DEFAULT_HEADERS });
               if (validationRes.ok) {
                 explicitlyAvailable = true;
@@ -273,11 +273,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
               explicitlyAvailable = false;
             }
 
-            // FILTER: Only display the 1080p choice if the CDN server confirmed the file actively exists
             if (explicitlyAvailable) {
-              const uhdLayout = `🎦 ${mediaName}\n⚡ 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
+              const uhdLayout = `🍿 ${mediaName}\n⚡ 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
               result.push({
-                name: `${PROVIDER_NAME} | 1080p UHD | ${lang}`,
+                name: `${PROVIDER_NAME} | 1080p UHD | ${langConfig.label}`,
                 title: uhdLayout,
                 url: cdn2Url,
                 langKey: langConfig.webCode,
@@ -286,10 +285,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             }
           }
 
-          // Standard 720p fallback choice using Track D is always added
-          const hdLayout = `🎦 ${mediaName}\n💎 480p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 Routing) | 🔗 ${PROVIDER_NAME}`;
+          const hdLayout = `🍿 ${mediaName}\n💎 480p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 Routing) | 🔗 ${PROVIDER_NAME}`;
           result.push({
-            name: `${PROVIDER_NAME} | 480p HD | ${lang}`,
+            name: `${PROVIDER_NAME} | 480p HD | ${langConfig.label}`,
             title: hdLayout,
             url: cdn1Url,
             langKey: langConfig.webCode,
@@ -299,7 +297,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       })
     );
 
-    // Sort engine maps language categories and resolves 1080p precedence
     return result.sort((a, b) => {
       const indexA = LANGUAGE_ORDER.indexOf(a.langKey);
       const indexB = LANGUAGE_ORDER.indexOf(b.langKey);

@@ -275,7 +275,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
             if (explicitlyAvailable) {
               // 1. 1080p Ultra HD layout template mapping
-              const uhdLayout = `🎦 ${mediaName}${mediaYear}\n⚡ 1080p | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 (CDN2 • Premium)
+              const uhdLayout = `🎦 ${mediaName}${mediaYear}\n⚡ 1080p | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 (CDN2 • Premium)`;
               result.push({
                 name: `${PROVIDER_NAME} | 1080p | ${langConfig.label}`,                
                 title: uhdLayout,

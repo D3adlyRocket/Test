@@ -29,6 +29,9 @@ const LANGUAGES = {
   langBengali: { path: "bengali", label: "Bengali 🇮🇳", webCode: "bengali" }
 };
 
+// Strict display ordering layout rules for UI ingestion 
+const LANGUAGE_ORDER = ["hindi", "tamil", "telugu", "malayalam", "kannada", "bengali"];
+
 const DEFAULT_HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
@@ -71,9 +74,6 @@ function parseAndCombineCookies(existingCookieStr, setCookieHeaders) {
   return Object.entries(cookies).map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
-// ─────────────────────────────────────────────────────────────
-// AUTHENTICATION ENGINE
-// ─────────────────────────────────────────────────────────────
 async function loginAndGetCookies(email, password, langWebCode) {
   if (!email || !password) return "";
   
@@ -124,9 +124,6 @@ async function loginAndGetCookies(email, password, langWebCode) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// AUTHENTICATED REAL-TIME TOKEN EXTRACTION ENGINE
-// ─────────────────────────────────────────────────────────────
 async function scrapePremiumTokens(contentId, langWebCode, isSeries, cookieStr) {
   try {
     const typePath = isSeries ? "serial" : "movie";
@@ -229,7 +226,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     await Promise.all(
       allowedLanguages.map(async ([_, langConfig]) => {
-        const sessionCookieStr = await loginAndGetCookies(email, password, langConfig.webCode);
+        const sessionCookieStr = await loginAndGetCookies(email, password, langWebCode);
 
         let rawStreams = [];
         const endpointBase = `${EINTHUSAN_BASE}/${langConfig.path}`;
@@ -259,10 +256,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             tokenString = fallbackParams ? fallbackParams.replace(/&amp;/g, "&") : "";
           }
 
-          const cdn1Url = `https://cdn1.einthusan.io/etv/content/B${contentId}.mp4?${tokenString}`;
+          // FIX 1: cdn1Url uses track 'D' for working 720p playback, cdn2Url targets 'B' for 1080p UHD
+          const cdn1Url = `https://cdn1.einthusan.io/etv/content/D${contentId}.mp4?${tokenString}`;
           const cdn2Url = `https://cdn2.einthusan.io/etv/content/B${contentId}.mp4?${tokenString}`;
 
-          // Check if language is Hindi to determine if CDN2 (UHD) generation should be attempted
           const isHindi = langConfig.webCode === "hindi";
 
           if (isHindi) {
@@ -270,34 +267,50 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             try {
               const testRes = await fetch(cdn2Url, { method: 'HEAD', headers: DEFAULT_HEADERS });
               if (!testRes.ok) {
-                finalUhdUrl = cdn1Url; // Fallback to HD if CDN2 fails or lacks UHD asset
+                finalUhdUrl = cdn1Url; 
               }
             } catch (e) {
               finalUhdUrl = cdn1Url; 
             }
 
-            const uhdLayout = `🎦 ${movieTitle}\n🔥 1080p Ultra HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
+            const uhdLayout = `🎦 ${movieTitle}\n💎 1080p Ultra HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
             result.push({
               name: `${PROVIDER_NAME} | 1080p UHD`,
               title: uhdLayout,
               url: finalUhdUrl,
+              langKey: langConfig.webCode, // Attached for prioritization sorting logic
               behaviorHints: item.behaviorHints ?? {}
             });
           }
 
-          // Generate HD Choice for all languages (including Hindi) on stable CDN1 routing context
           const hdLayout = `🎦 ${movieTitle}\n💎 720p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 Routing) | 🔗 ${PROVIDER_NAME}`;
           result.push({
             name: `${PROVIDER_NAME} | 720p HD`,
             title: hdLayout,
             url: cdn1Url,
+            langKey: langConfig.webCode, // Attached for prioritization sorting logic
             behaviorHints: item.behaviorHints ?? {}
           });
         }
       })
     );
 
-    return result;
+    // FIX 2: Explicit language mapping filter sort engine
+    return result.sort((a, b) => {
+      const indexA = LANGUAGE_ORDER.indexOf(a.langKey);
+      const indexB = LANGUAGE_ORDER.indexOf(b.langKey);
+      
+      const weightA = indexA === -1 ? 99 : indexA;
+      const weightB = indexB === -1 ? 99 : indexB;
+      
+      if (weightA !== weightB) {
+        return weightA - weightB;
+      }
+      
+      // Secondary sort rule: surface 1080p choice above 720p for the same language
+      return a.name.includes("1080p") ? -1 : 1;
+    });
+
   } catch (err) {
     console.error("Global processing failure context:", err);
     return [];

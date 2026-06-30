@@ -275,9 +275,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
             if (explicitlyAvailable) {
               // 1. Cleaned 1080p Ultra HD stream layout mapping
-              const uhdLayout = `🍿 ${mediaName}${mediaYear}\n⚡ 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 • Premium) | 🔗 ${PROVIDER_NAME}`;
+              const uhdLayout = `🍿 ${mediaName}${mediaYear}\n⚡ 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 • Premium)`;
               result.push({
-                name: `${PROVIDER_NAME} | 1080p UHD | ${langConfig.label}`,                
+                name: `🍿 ${PROVIDER_NAME}`,                
                 title: uhdLayout,                         
                 url: cdn2Url,
                 langKey: langConfig.webCode,
@@ -287,9 +287,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           }
 
           // 2. Original 480p fallback layout mapping (Available for all allowed languages)
-          const hdLayout = `🍿 ${mediaName}${mediaYear}\n💎 480p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 • Standard) | 🔗 ${PROVIDER_NAME}`;
+          const hdLayout = `🍿 ${mediaName}${mediaYear}\n💎 480p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 • Standard)`;
           result.push({
-            name: `${PROVIDER_NAME} | 480p HD | ${langConfig.label}`,                 
+            name: `💎 ${PROVIDER_NAME}`,                 
             title: hdLayout,                          
             url: cdn1Url,
             langKey: langConfig.webCode,
@@ -310,7 +310,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         return weightA - weightB;
       }
       
-      return a.name.includes("1080p") ? -1 : 1;
+      return a.title.includes("1080p") ? -1 : 1;
     });
 
   } catch (err) {

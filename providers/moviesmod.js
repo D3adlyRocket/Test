@@ -36,7 +36,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       const res = /2160|4k/.test(lowerTitle) ? "2160p" : 
                   /1080/.test(lowerTitle) ? "1080p" : 
                   /720/.test(lowerTitle)  ? "720p"  : 
-                  /480/.test(lowerTitle)  ? "480p"  : "1080p"; // Default safely to 1080p if unparsed
+                  /480/.test(lowerTitle)  ? "480p"  : "1080p";
 
       // Extract Language Label and Emoji
       let langLabel = "English";
@@ -51,7 +51,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       // Extract Size (looks for patterns like 1.99 GB, 1021 MB)
       const sizeMatch = rawTitle.match(/(\d+(?:\.\d+)?\s*(?:GB|MB|gb|mb))/i);
-      const sizeStr = sizeMatch ? sizeMatch[1] : "1.99 GB"; // Safe default layout placeholder if CineScrape strips it
+      const sizeStr = sizeMatch ? sizeMatch[1] : "1.99 GB"; 
 
       // Extract Format (MKV, MP4, etc.)
       const formatMatch = lowerTitle.match(/\b(mkv|mp4|avi|m4v)\b/);
@@ -71,14 +71,19 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         `💎 ${res} | 🔊 ${langLabel} | 💾 ${sizeStr}\n` +
         `🎞️ ${formatStr} | ⚡ ${codecStr}`;
 
+      // Single line version specifically optimized for mobile's rendering limits
+      const mobileSubheading = `🎬 ${titleName} (${releaseYear}) • 💎 ${res} | 🔊 ${langLabel} | 💾 ${sizeStr} • 🎞️ ${formatStr} | ⚡ ${codecStr}`;
+
       result.push({
-        // Forces clean header block matching your exact request style
+        // Top Header Line
         name: `${PROVIDER_NAME} | ${res} | ${langLabel} ${langEmoji}`,
-        // Overwriting all text positions eliminates device conflicts
+        // TV Layout fields
         title: customLayout,
         description: customLayout,
         url: item.url,
         behaviorHints: {
+          // BingeGroup forces Stremio mobile UI engine to print this text block underneath the header
+          bingeGroup: mobileSubheading,
           proxyHeaders: {
             request: {
               "Referer": "https://cinescrape-w9wl.onrender.com/"

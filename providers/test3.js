@@ -289,7 +289,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           }
 
           // 2. Original fallback Choice layout template mapping
-          const hdLayout = `🎦 ${mediaName}${mediaYear}\n💎 480p | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
+          const hdLayout = `🎦 ${mediaName}${mediaYear}\n💎 480p | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 (CDN1 • Standard)`;
           result.push({
             name: `${PROVIDER_NAME} | 480p | ${langConfig.label}`,                 
             title: hdLayout,

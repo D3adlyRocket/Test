@@ -19,10 +19,10 @@ const PROVIDER_NAME = "Einthusan";
 
 const LANGUAGES = {
   langHindi: { path: "hindi", label: "Hindi 🇮🇳", webCode: "hindi" },
-  langTamil: { path: "tamil", label: "Tamil 🇮🇳", webCode: "tamil" },
-  langTelugu: { path: "telugu", label: "Telugu 🇮🇳", webCode: "telugu" },
-  langMalayalam: { path: "malayalam", label: "Malayalam 🇮🇳", webCode: "malayalam" },
-  langKannada: { path: "kannada", label: "Kannada 🇮🇳", webCode: "kannada" },
+  langTamil: { path: "tamil", label: "Tamil", webCode: "tamil" },
+  langTelugu: { path: "telugu", label: "Telugu", webCode: "telugu" },
+  langMalayalam: { path: "malayalam", label: "Malayalam", webCode: "malayalam" },
+  langKannada: { path: "kannada", label: "Kannada", webCode: "kannada" },
   langBengali: { path: "bengali", label: "Bengali 🇧🇩", webCode: "bengali" }
 };
 
@@ -275,7 +275,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
             if (explicitlyAvailable) {
               // 1. 1080p Ultra HD layout template mapping
-              const uhdLayout = `🎦 ${mediaName}${mediaYear}\n💎 1080p | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
+              const uhdLayout = `🎦 ${mediaName}${mediaYear}\n⚡ 1080p | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 (CDN2 • Premium)
               result.push({
                 name: `${PROVIDER_NAME} | 1080p | ${langConfig.label}`,                
                 title: uhdLayout,

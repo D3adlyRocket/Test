@@ -28,8 +28,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const result = [];
 
     data.streams.forEach(item => {
-      // Stremio addons usually combine info in item.title or item.description
-      const rawTitle = item.title || item.description || "";
+      // Use whatever raw text block the source provides
+      const rawTitle = item.title || item.description || item.name || "";
       const lowerTitle = rawTitle.toLowerCase();
       
       // Extract Resolution
@@ -74,7 +74,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       result.push({
         name: `${PROVIDER_NAME} | ${res} | ${langLabel} ${langEmoji}`,
         title: customSubheading,
-        description: customSubheading,
+        // We explicitly omit or leave description out to force Stremio mobile 
+        // to read the layout from the 'title' field instead.
         url: item.url,
         behaviorHints: {
           proxyHeaders: {

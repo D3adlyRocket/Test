@@ -12,7 +12,7 @@ async function onSettings() {
         { type: "toggle", key: "langTelugu", label: "Enable Telugu 🇮🇳", defaultValue: true },
         { type: "toggle", key: "langMalayalam", label: "Enable Malayalam 🇮🇳", defaultValue: true },
         { type: "toggle", key: "langKannada", label: "Enable Kannada 🇮🇳", defaultValue: true },
-        { type: "toggle", key: "langBengali", label: "Enable Bengali 🇮🇳", defaultValue: true }
+        { type: "toggle", key: "langBengali", label: "Enable Bengali 🇧🇩", defaultValue: true }
     ];
 }
 
@@ -26,7 +26,7 @@ const LANGUAGES = {
   langTelugu: { path: "telugu", label: "Telugu 🇮🇳", webCode: "telugu" },
   langMalayalam: { path: "malayalam", label: "Malayalam 🇮🇳", webCode: "malayalam" },
   langKannada: { path: "kannada", label: "Kannada 🇮🇳", webCode: "kannada" },
-  langBengali: { path: "bengali", label: "Bengali 🇮🇳", webCode: "bengali" }
+  langBengali: { path: "bengali", label: "Bengali 🇧🇩", webCode: "bengali" }
 };
 
 // Strict display ordering layout rules for UI ingestion 
@@ -275,7 +275,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
             // FILTER: Only display the 1080p choice if the CDN server confirmed the file actively exists
             if (explicitlyAvailable) {
-              const uhdLayout = `🎦 ${movieTitle}\n💎 1080p Ultra HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
+              const uhdLayout = `🎦 ${mediaName}\n⚡ 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
               result.push({
                 name: `${PROVIDER_NAME} | 1080p UHD`,
                 title: uhdLayout,
@@ -287,9 +287,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           }
 
           // Standard 720p fallback choice using Track D is always added
-          const hdLayout = `🎦 ${movieTitle}\n💎 720p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 Routing) | 🔗 ${PROVIDER_NAME}`;
+          const hdLayout = `🎦 ${mediaName}\n💎 480p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 Routing) | 🔗 ${PROVIDER_NAME}`;
           result.push({
-            name: `${PROVIDER_NAME} | 720p HD`,
+            name: `${PROVIDER_NAME} | 480p HD`,
             title: hdLayout,
             url: cdn1Url,
             langKey: langConfig.webCode,

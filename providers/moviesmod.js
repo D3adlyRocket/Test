@@ -9,66 +9,80 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
   try {
-    // 1. Fetch metadata from TMDB to get the IMDb ID
+    // 1. Fetch metadata from TMDB
     const meta = await fetch(tmdbUrl).then(r => r.json());
     const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
     if (!imdbId) return [];
 
-    // 2. Construct the Stremio standard stream URL using the "all" languages configuration
+    const titleName = meta.title || meta.name || "Unknown";
+    const releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
+
+    // 2. Construct and fetch the stream URL
     const streamUrl = isSeries 
       ? `${CINESCRAPE_BASE}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
       : `${CINESCRAPE_BASE}/stream/movie/${imdbId}.json`;
 
-    // 3. Fetch the stream data
     const data = await fetch(streamUrl).then(r => r.json());
     if (!data?.streams || data.streams.length === 0) return [];
 
     const result = [];
-    const grouped = {};
 
-    // 4. Group by resolution and extract languages
     data.streams.forEach(item => {
-      const title = (item.title || item.name || "").toLowerCase();
+      // Stremio addons usually combine info in item.title or item.description
+      const rawTitle = item.title || item.description || "";
+      const lowerTitle = rawTitle.toLowerCase();
       
-      // Determine resolution
-      const res = /2160|4k/.test(title) ? "2160p" : 
-                  /1080/.test(title) ? "1080p" : 
-                  /720/.test(title)  ? "720p"  : 
-                  /480/.test(title)  ? "480p"  : "360p";
+      // Extract Resolution
+      const res = /2160|4k/.test(lowerTitle) ? "2160p" : 
+                  /1080/.test(lowerTitle) ? "1080p" : 
+                  /720/.test(lowerTitle)  ? "720p"  : 
+                  /480/.test(lowerTitle)  ? "480p"  : "360p";
 
-      // Separate English, Hindi, or fallback to Multi
-      let lang = "Multi 🌐";
-      if (/hindi|hin|dual/.test(title)) {
-        lang = "Hindi 🇮🇳";
-      } else if (/english|eng/.test(title)) {
-        lang = "English 🇺🇸";
+      // Extract Language
+      let langLabel = "English";
+      let langEmoji = "🇺🇸";
+      if (/hindi|hin|dual/.test(lowerTitle)) {
+        langLabel = "Hindi";
+        langEmoji = "🇮🇳";
+      } else if (/multi|🌐/.test(lowerTitle)) {
+        langLabel = "Multi";
+        langEmoji = "🌐";
       }
 
-      const key = `${res}-${lang}`;
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(item);
-    });
+      // Extract Size (looks for patterns like 1.99 GB, 1021 MB)
+      const sizeMatch = rawTitle.match(/(\d+(?:\.\d+)?\s*(?:GB|MB|gb|mb))/);
+      const sizeStr = sizeMatch ? sizeMatch[1] : "Unknown Size";
 
-    // 5. Build final UI layout items split by language
-    Object.entries(grouped).forEach(([key, items]) => {
-      const [res, lang] = key.split("-");
-      items.forEach(item => {
-        const fullLayout = `🎦 ${meta.title || meta.name || "Stream"} 💎 ${res} | 🗣️ ${lang} | 🔗 ${PROVIDER_NAME}`;
-        
-        result.push({
-          name: `${PROVIDER_NAME} | ${res} | ${lang}`,
-          title: item.title || fullLayout,
-          size: item.title || fullLayout, 
-          description: item.description || fullLayout,
-          url: item.url,
-          behaviorHints: {
-            proxyHeaders: {
-              request: {
-                "Referer": "https://cinescrape-w9wl.onrender.com/"
-              }
+      // Extract Format (MKV, MP4, etc.)
+      const formatMatch = lowerTitle.match(/\b(mkv|mp4|avi|m4v)\b/);
+      const formatStr = formatMatch ? formatMatch[1].toUpperCase() : "MKV";
+
+      // Extract Codec (x265, x264, h264, hevc)
+      let codecStr = "x264";
+      if (/x265|hevc|h265/.test(lowerTitle)) {
+        codecStr = "x265";
+      } else if (/x264|h264/.test(lowerTitle)) {
+        codecStr = "x264";
+      }
+
+      // Build your exact multi-line subheading layout
+      const customSubheading = 
+        `🎬 ${titleName} - (${releaseYear})\n` +
+        `💎 ${res} | 🔊 ${langLabel} | 💾 ${sizeStr}\n` +
+        `🎞️ ${formatStr} | ⚡ ${codecStr}`;
+
+      result.push({
+        name: `${PROVIDER_NAME} | ${res} | ${langLabel} ${langEmoji}`,
+        title: customSubheading,
+        description: customSubheading,
+        url: item.url,
+        behaviorHints: {
+          proxyHeaders: {
+            request: {
+              "Referer": "https://cinescrape-w9wl.onrender.com/"
             }
           }
-        });
+        }
       });
     });
 

@@ -19,11 +19,11 @@ const PROVIDER_NAME = "Einthusan";
 
 const LANGUAGES = {
   langHindi: { path: "hindi", label: "Hindi 🇮🇳", webCode: "hindi" },
-  langTamil: { path: "tamil", label: "Tamil 🇮🇳", webCode: "tamil" },
-  langTelugu: { path: "telugu", label: "Telugu 🇮🇳", webCode: "telugu" },
-  langMalayalam: { path: "malayalam", label: "Malayalam 🇮🇳", webCode: "malayalam" },
-  langKannada: { path: "kannada", label: "Kannada 🇮🇳", webCode: "kannada" },
-  langBengali: { path: "bengali", label: "Bengali 🇮🇳", webCode: "bengali" }
+  langTamil: { path: "tamil", label: "Tamil", webCode: "tamil" },
+  langTelugu: { path: "telugu", label: "Telugu", webCode: "telugu" },
+  langMalayalam: { path: "malayalam", label: "Malayalam", webCode: "malayalam" },
+  langKannada: { path: "kannada", label: "Kannada", webCode: "kannada" },
+  langBengali: { path: "bengali", label: "Bengali 🇧🇩", webCode: "bengali" }
 };
 
 const HEADERS = {
@@ -216,9 +216,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       const lang = item.langLabel; 
 
       // 1. Cleaned 1080p Ultra HD stream using native, containerized MP4 addressing
-      const uhdLayout = `🎦 ${meta.title || meta.name}\n💎 1080p Ultra HD | 🗣️ ${lang}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
+      const uhdLayout = `🎦 ${meta.title || meta.name}\n💎 1080p | 🗣️ ${lang}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
       result.push({
-        name: `${PROVIDER_NAME} | 1080p UHD | ${lang}`,
+        name: `${PROVIDER_NAME} | 1080p | ${lang}`,
         title: uhdLayout,
         size: uhdLayout,
         description: uhdLayout,
@@ -227,9 +227,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       });
 
       // 2. Original fallback Choice
-      const hdLayout = `🎦 ${meta.title || meta.name}\n💎 720p HD | 🗣️ ${lang}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
+      const hdLayout = `🎦 ${meta.title || meta.name}\n💎 720p | 🗣️ ${lang}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
       result.push({
-        name: `${PROVIDER_NAME} | 720p HD | ${lang}`,
+        name: `${PROVIDER_NAME} | 720p | ${lang}`,
         title: hdLayout,
         size: hdLayout,
         description: hdLayout,

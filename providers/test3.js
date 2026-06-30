@@ -278,27 +278,23 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             }
 
             if (explicitlyAvailable) {
-              // Appended ${mediaYear} directly after the layout title
-              const uhdLayout = `🍿 ${mediaName}${mediaYear}\n⚡ 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 • Premium) | 🔗 ${PROVIDER_NAME}`;
-              result.push({
-                name: `${PROVIDER_NAME} | 1080p UHD | ${langConfig.label}`,
-                title: uhdLayout,
-                url: cdn2Url,
-                langKey: langConfig.webCode,
-                behaviorHints: item.behaviorHints ?? {}
-              });
-            }
-          }
+        // 1. Cleaned 1080p Ultra HD stream layout mapping
+        const uhdLayout = `🍿 1080p UHD\n🗣️ ${lang}\n🎞️ MP4 (CDN2 • Premium) | 🔗 ${PROVIDER_NAME}`;
+        result.push({
+        name: `${PROVIDER_NAME}`,                
+        title: uhdLayout,                         
+        url: uhdStreamUrl,
+        behaviorHints: item.behaviorHints ?? {}
+        });
 
-          // Appended ${mediaYear} directly after the layout title
-          const hdLayout = `🍿 ${mediaName}${mediaYear}\n💎 480p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 • Standard) | 🔗 ${PROVIDER_NAME}`;
-          result.push({
-            name: `${PROVIDER_NAME} | 480p HD | ${langConfig.label}`,
-            title: hdLayout,
-            url: cdn1Url,
-            langKey: langConfig.webCode,
-            behaviorHints: item.behaviorHints ?? {}
-          });
+        // 2. Original 480p fallback layout mapping
+        const hdLayout = `💎 480p HD\n🗣️ ${lang}\n🎞️ MP4 (CDN1 • Standard) | 🔗 ${PROVIDER_NAME}`;
+        result.push({
+        name: `${PROVIDER_NAME}`,                 
+        title: hdLayout,                          
+        url: baseStreamUrl,
+        behaviorHints: item.behaviorHints ?? {}
+        });
         }
       })
     );

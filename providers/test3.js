@@ -140,7 +140,6 @@ async function scrapePremiumTokens(contentId, langWebCode, isSeries, cookieStr) 
 
     const html = await response.text();
     
-    // Pattern 1: Parse from standard attribute injection arrays
     const m3u8AttrRegex = /data-m3u8=["']([^"']*\.mp4(?:\.m3u8)?\?[^"']+)["']/;
     const m3u8Match = html.match(m3u8AttrRegex);
     if (m3u8Match && m3u8Match[1]) {
@@ -149,7 +148,6 @@ async function scrapePremiumTokens(contentId, langWebCode, isSeries, cookieStr) 
       if (paramMatch) return paramMatch[1];
     }
     
-    // Pattern 2: Global text string signature capture
     const anyTokenRegex = /content\/[DB][^.]+\.mp4(?:\.m3u8)?\?(e=\d+&amp;md5=[a-zA-Z0-9_=-]+)/;
     const generalMatch = html.match(anyTokenRegex);
     if (generalMatch) {
@@ -247,7 +245,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           let baseStreamUrl = isProxyUrl(item.url) ? await resolveProxyUrl(item.url) : item.url;
           if (!baseStreamUrl) continue;
 
-          // Extract the native alphanumeric media source ID directly from the stream url path safely
           const idMatch = baseStreamUrl.match(/\/content\/[DB]([^.]+)\.mp4/);
           if (!idMatch) continue;
           const contentId = idMatch[1];
@@ -257,39 +254,38 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             tokenString = await scrapePremiumTokens(contentId, langConfig.webCode, isSeries, sessionCookieStr);
           }
 
-          // If no fresh token string is found (or no login), parse fallback parameters out of the standard URL template
           if (!tokenString) {
             const fallbackParams = baseStreamUrl.split("?")[1];
             tokenString = fallbackParams ? fallbackParams.replace(/&amp;/g, "&") : "";
           }
 
-          // Setup CDN Endpoints based on your requirements
-          // CDN1 forces standard HD file structures; CDN2 forces high bitrate UHD file structures
           const cdn1Url = `https://cdn1.einthusan.io/etv/content/B${contentId}.mp4?${tokenString}`;
           const cdn2Url = `https://cdn2.einthusan.io/etv/content/B${contentId}.mp4?${tokenString}`;
 
-          // Automatic Fallback Check: Test if the server serves the UHD route on CDN2
-          let finalUhdUrl = cdn2Url;
-          try {
-            const testRes = await fetch(cdn2Url, { method: 'HEAD', headers: DEFAULT_HEADERS });
-            if (!testRes.ok) {
-              // If CDN2 (UHD) returns a 404 or fails, seamlessly fall back to CDN1 (HD)
-              finalUhdUrl = cdn1Url;
+          // Check if language is Hindi to determine if CDN2 (UHD) generation should be attempted
+          const isHindi = langConfig.webCode === "hindi";
+
+          if (isHindi) {
+            let finalUhdUrl = cdn2Url;
+            try {
+              const testRes = await fetch(cdn2Url, { method: 'HEAD', headers: DEFAULT_HEADERS });
+              if (!testRes.ok) {
+                finalUhdUrl = cdn1Url; // Fallback to HD if CDN2 fails or lacks UHD asset
+              }
+            } catch (e) {
+              finalUhdUrl = cdn1Url; 
             }
-          } catch (e) {
-            finalUhdUrl = cdn1Url; 
+
+            const uhdLayout = `🎦 ${movieTitle}\n🔥 1080p Ultra HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
+            result.push({
+              name: `${PROVIDER_NAME} | 1080p UHD`,
+              title: uhdLayout,
+              url: finalUhdUrl,
+              behaviorHints: item.behaviorHints ?? {}
+            });
           }
 
-          // Option A: Premium 1080p UHD Stream Layout
-          const uhdLayout = `🎦 ${movieTitle}\n💎 1080p Ultra HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
-          result.push({
-            name: `${PROVIDER_NAME} | 1080p UHD`,
-            title: uhdLayout,
-            url: finalUhdUrl,
-            behaviorHints: item.behaviorHints ?? {}
-          });
-
-          // Option B: Premium 720p HD Stream Layout
+          // Generate HD Choice for all languages (including Hindi) on stable CDN1 routing context
           const hdLayout = `🎦 ${movieTitle}\n💎 720p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 Routing) | 🔗 ${PROVIDER_NAME}`;
           result.push({
             name: `${PROVIDER_NAME} | 720p HD`,

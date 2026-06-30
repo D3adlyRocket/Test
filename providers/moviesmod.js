@@ -28,7 +28,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const result = [];
 
     data.streams.forEach(item => {
-      // Use whatever raw text block the source provides
+      // Extract the raw text from the source to scrape details
       const rawTitle = item.title || item.description || item.name || "";
       const lowerTitle = rawTitle.toLowerCase();
       
@@ -38,7 +38,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                   /720/.test(lowerTitle)  ? "720p"  : 
                   /480/.test(lowerTitle)  ? "480p"  : "360p";
 
-      // Extract Language
+      // Extract Language Label and Emoji
       let langLabel = "English";
       let langEmoji = "🇺🇸";
       if (/hindi|hin|dual/.test(lowerTitle)) {
@@ -72,10 +72,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         `🎞️ ${formatStr} | ⚡ ${codecStr}`;
 
       result.push({
+        // Top Header Line
         name: `${PROVIDER_NAME} | ${res} | ${langLabel} ${langEmoji}`,
-        title: customSubheading,
-        // We explicitly omit or leave description out to force Stremio mobile 
-        // to read the layout from the 'title' field instead.
+        // Subheading Lines (Stremio Mobile reads this for the layout block)
+        description: customSubheading,
         url: item.url,
         behaviorHints: {
           proxyHeaders: {

@@ -35,15 +35,12 @@ const DEFAULT_HEADERS = {
   "Accept-Language": "en-US,en;q=0.9"
 };
 
-// ─────────────────────────────────────────────────────────────
-// NATIVE COOKIE & SESSION STORAGE
-// ─────────────────────────────────────────────────────────────
 const sessionCache = {};
 
 function getSession(email) {
   const session = sessionCache[`session_${email}`];
   if (!session) return null;
-  if (Date.now() - session.createdAt > 2.5 * 60 * 60 * 1000) { // 2.5 Hours Expiry
+  if (Date.now() - session.createdAt > 2.5 * 60 * 60 * 1000) {
     delete sessionCache[`session_${email}`];
     return null;
   }
@@ -75,7 +72,7 @@ function parseAndCombineCookies(existingCookieStr, setCookieHeaders) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// NATIVE FETCH AUTHENTICATION ENGINE
+// AUTHENTICATION ENGINE
 // ─────────────────────────────────────────────────────────────
 async function loginAndGetCookies(email, password, langWebCode) {
   if (!email || !password) return "";
@@ -83,23 +80,17 @@ async function loginAndGetCookies(email, password, langWebCode) {
   const cachedCookie = getSession(email);
   if (cachedCookie) return cachedCookie;
 
-  console.log(`[Premium Engine] Authorizing user session for ${email}...`);
   try {
     const loginUrl = `https://einthusan.tv/account/login/?lang=${langWebCode}`;
-    
-    // Step 1: Initialize token context
     const initRes = await fetch(loginUrl, { headers: DEFAULT_HEADERS });
     const html = await initRes.text();
     
-    // Cross-check alternative token properties via standard regex match
     const csrfMatch = html.match(/name="(?:csrfmiddlewaretoken|_token)"\s+value="([^"]+)"/) || html.match(/value="([^"]+)"\s+name="(?:csrfmiddlewaretoken|_token)"/);
     const csrfToken = csrfMatch ? csrfMatch[1] : "";
     
-    // Parse initial cookies using modern environment fallback structures
     const setCookieField = initRes.headers.getSetCookie ? initRes.headers.getSetCookie() : initRes.headers.get("set-cookie");
     let currentCookies = parseAndCombineCookies("", setCookieField);
 
-    // Step 2: Request authentication handshake
     const bodyParams = new URLSearchParams({
       csrfmiddlewaretoken: csrfToken,
       email: email,
@@ -116,94 +107,77 @@ async function loginAndGetCookies(email, password, langWebCode) {
         "Referer": loginUrl
       },
       body: bodyParams.toString(),
-      redirect: "manual" // Handle state transformations cleanly
+      redirect: "manual"
     });
 
     const postCookies = loginRes.headers.getSetCookie ? loginRes.headers.getSetCookie() : loginRes.headers.get("set-cookie");
     currentCookies = parseAndCombineCookies(currentCookies, postCookies);
 
     if (!currentCookies.includes("sid=")) {
-      console.warn("[Premium Engine] ⚠️ Subscription payload 'sid' absent. Defaulting to standard stream resolution.");
       return "";
     }
 
     sessionCache[`session_${email}`] = { cookieString: currentCookies, createdAt: Date.now() };
-    console.log(`[Premium Engine] ✅ Active Subscriber Session Ready.`);
     return currentCookies;
   } catch (err) {
-    console.error("[Premium Engine] Authentication execution failed:", err);
     return "";
   }
 }
 
-const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
-
-const isProxyUrl = (url) =>
-  String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
-
 // ─────────────────────────────────────────────────────────────
-// PREMIUM RESOLVER CORE
+// DIRECT EINTHUSAN SEARCH PARSER (PREMIUM BYPASS)
 // ─────────────────────────────────────────────────────────────
-async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
-  if (!lowQualityUrl || !lowQualityUrl.includes("einthusan.")) return lowQualityUrl;
-
+async function queryOfficialMovieId(title, langWebCode, cookieStr) {
   try {
-    const idMatch = lowQualityUrl.match(/\/content\/([DB])([^.]+)\.mp4/);
-    if (!idMatch) return lowQualityUrl;
-    const contentId = idMatch[2];
+    const searchUrl = `https://einthusan.tv/movie/results/?find=Search&lang=${langWebCode}&query=${encodeURIComponent(title)}`;
+    const headers = { ...DEFAULT_HEADERS };
+    if (cookieStr) headers["Cookie"] = cookieStr;
 
-    const typePath = isSeries ? "serial" : "movie";
-    
-    // Check global variables for premium credentials dynamically
-    const settings = globalThis.SCRAPER_SETTINGS || {};
-    const email = settings.premiumEmail || "";
-    const password = settings.premiumPassword || "";
-    
-    // Gather premium session string if configured
-    const sessionCookieStr = await loginAndGetCookies(email, password, langWebCode || "hindi");
-    
-    const targetEndpoint = sessionCookieStr ? "premium/movie" : "movie";
-    const watchPageUrl = `https://einthusan.tv/${sessionCookieStr ? 'premium/' : ''}${typePath}/watch/${contentId}/?lang=${langWebCode || "hindi"}&uhd=true`;
+    const res = await fetch(searchUrl, { headers });
+    if (!res.ok) return null;
+    const html = await res.text();
 
-    const requestHeaders = { ...DEFAULT_HEADERS };
-    if (sessionCookieStr) {
-      requestHeaders["Cookie"] = sessionCookieStr;
+    // Pull directly from site watch layout structure expressions
+    const watchRegex = /\/(?:premium\/)?movie\/watch\/([a-zA-Z0-9]+)\//g;
+    const matches = [...html.matchAll(watchRegex)];
+    if (matches && matches.length > 0) {
+      return matches[0][1]; // Returns clean Alphanumeric site ID
     }
+  } catch (e) {
+    console.error("Direct site search translation failed:", e);
+  }
+  return null;
+}
 
-    const response = await fetch(watchPageUrl, { headers: requestHeaders });
-    if (!response.ok) return lowQualityUrl;
+// ─────────────────────────────────────────────────────────────
+// PREMIUM TOKEN EXTRACTOR & CLEAN CONTAINER LINK COMPILER
+// ─────────────────────────────────────────────────────────────
+async function generateNativePremiumUhdLink(contentId, langWebCode, isSeries, cookieStr) {
+  try {
+    const typePath = isSeries ? "serial" : "movie";
+    const watchPageUrl = `https://einthusan.tv/${cookieStr ? 'premium/' : ''}${typePath}/watch/${contentId}/?lang=${langWebCode || "hindi"}&uhd=true`;
+
+    const headers = { ...DEFAULT_HEADERS, "Referer": "https://einthusan.tv/" };
+    if (cookieStr) headers["Cookie"] = cookieStr;
+
+    const response = await fetch(watchPageUrl, { headers });
+    if (!response.ok) return null;
 
     const html = await response.text();
     
-    // 1. Try Primary Check: data-m3u8 attribute
+    // Pattern 1: data-m3u8 parsing injection lookup
     const m3u8AttrRegex = /data-m3u8=["']([^"']*\.mp4(?:\.m3u8)?\?[^"']+)["']/;
     const m3u8Match = html.match(m3u8AttrRegex);
     
     if (m3u8Match && m3u8Match[1]) {
       let tokenParameters = m3u8Match[1].replace(/&amp;/g, "&");
-      
       tokenParameters = tokenParameters.replace(/\/content\/[DB]/, "/content/B");
       tokenParameters = tokenParameters.replace(".mp4.m3u8?", ".mp4?");
-      
-      if (!tokenParameters.startsWith("/")) {
-        tokenParameters = "/etv/content/" + tokenParameters;
-      }
+      if (!tokenParameters.startsWith("/")) tokenParameters = "/etv/content/" + tokenParameters;
       return `https://cdn1.einthusan.io${tokenParameters}`;
     }
     
-    // 2. Try Secondary Check: data-mp4-link attribute
-    const mp4LinkRegex = /data-mp4-link=["']([^"']+)["']/;
-    const mp4Match = html.match(mp4LinkRegex);
-    if (mp4Match && mp4Match[1]) {
-      let cleanMp4 = mp4Match[1].replace(/&amp;/g, "&");
-      
-      cleanMp4 = cleanMp4.replace(/\/content\/[DB]/, "/content/B");
-      cleanMp4 = cleanMp4.replace(".mp4.m3u8?", ".mp4?");
-      cleanMp4 = cleanMp4.replace(/^https:\/\/[^\/]+/, "https://cdn1.einthusan.io");
-      return cleanMp4;
-    }
-
-    // 3. Robust Fallback: Handle general regex captures
+    // Pattern 2: Global structural token expression capture
     const anyTokenRegex = /content\/[DB][^.]+\.mp4(?:\.m3u8)?\?e=(\d+)&amp;md5=([a-zA-Z0-9_=-]+)/;
     const generalMatch = html.match(anyTokenRegex);
     if (generalMatch) {
@@ -211,12 +185,10 @@ async function scrapeOfficialUhdLink(lowQualityUrl, langWebCode, isSeries) {
       const freshMd5 = generalMatch[2];
       return `https://cdn1.einthusan.io/etv/content/B${contentId}.mp4?e=${freshExpiry}&md5=${freshMd5}`;
     }
-
   } catch (err) {
-    console.error("Automated UHD link compilation failed:", err);
+    console.error("Premium layout compilation error:", err);
   }
-  
-  return lowQualityUrl.replace("/content/D", "/content/B");
+  return null;
 }
 
 async function getTmdbMeta(tmdbId, mediaType) {
@@ -231,6 +203,9 @@ async function getTmdbMeta(tmdbId, mediaType) {
   }
 }
 
+const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
+const isProxyUrl = (url) => String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
+
 async function resolveProxyUrl(url) {
   try {
     const response = await fetch(url, {
@@ -238,19 +213,14 @@ async function resolveProxyUrl(url) {
       headers: { ...DEFAULT_HEADERS, "Referer": url },
     });
     const finalUrl = response.url;
-    if ([".m3u8", ".mp4", ".mkv"].some((ext) => finalUrl.includes(ext))) {
-      return finalUrl;
-    }
+    if ([".m3u8", ".mp4", ".mkv"].some((ext) => finalUrl.includes(ext))) return finalUrl;
     const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("text/plain")) {
-      const text = await response.text();
-      return text.trim() || null;
-    }
+    if (contentType.includes("text/plain")) return (await response.text()).trim();
     if (contentType.includes("application/json")) {
       const data = await response.json();
       return data?.url ?? data?.stream ?? data?.src ?? null;
     }
-    return finalUrl || null;
+    return finalUrl;
   } catch {
     return null;
   }
@@ -262,17 +232,15 @@ async function fetchStreams(url) {
     if (!response.ok) return [];
     const data = await response.json();
     if (!Array.isArray(data?.streams)) return [];
-    
-    return data.streams.filter((item) => {
-      if (typeof item?.url !== "string" || !item.url.startsWith("https")) return false;
-      const innerMatch = item.url.match(/[?&]url=(https?:\/\/[^&]+)/);
-      return !innerMatch || innerMatch[1].startsWith("https");
-    });
+    return data.streams.filter((item) => typeof item?.url === "string" && item.url.startsWith("https"));
   } catch {
     return [];
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// STREAM RESOLVER CONTROLLER
+// ─────────────────────────────────────────────────────────────
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === "tv" || mediaType === "series" || season != null || episode != null;
   const s = season ?? 1;
@@ -280,80 +248,85 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
   try {
     const settings = globalThis.SCRAPER_SETTINGS || {};
-    const allowedLanguages = Object.entries(LANGUAGES).filter(([key]) => {
-        return settings[key] !== false;
-    });
+    const allowedLanguages = Object.entries(LANGUAGES).filter(([key]) => settings[key] !== false);
 
     const meta = await getTmdbMeta(tmdbId, isSeries ? "tv" : "movie");
+    const movieTitle = meta ? (meta.title || meta.name) : "";
     const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
     if (!imdbId) return [];
 
-    const allStreams = [];
+    const email = settings.premiumEmail || "";
+    const password = settings.premiumPassword || "";
+    const result = [];
 
+    // Map content streams concurrently across languages
     await Promise.all(
       allowedLanguages.map(async ([_, langConfig]) => {
+        const sessionCookieStr = await loginAndGetCookies(email, password, langConfig.webCode);
+        let premiumUrlGenerated = false;
+
+        // 1. PRIMARY ROUTE: Direct Authenticated Account Scrape
+        if (sessionCookieStr && movieTitle) {
+          const directId = await queryOfficialMovieId(movieTitle, langConfig.webCode, sessionCookieStr);
+          if (directId) {
+            const dynamicPremiumMp4 = await generateNativePremiumUhdLink(directId, langConfig.webCode, isSeries, sessionCookieStr);
+            if (dynamicPremiumMp4) {
+              premiumUrlGenerated = true;
+              const premiumLayout = `🎦 ${movieTitle}\n⭐ PREMIUM 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ Direct MP4 Container Link | 🔗 ${PROVIDER_NAME}`;
+              result.push({
+                name: `${PROVIDER_NAME} | 1080p UHD | Premium`,
+                title: premiumLayout,
+                url: dynamicPremiumMp4,
+                behaviorHints: { notWebReady: false }
+              });
+            }
+          }
+        }
+
+        // 2. FALLBACK BACKPLANE ROUTE: Asaddon Indexer Scrape
         let rawStreams = [];
         const endpointBase = `${EINTHUSAN_BASE}/${langConfig.path}`;
-
         if (!isSeries) {
           rawStreams = await fetchStreams(`${endpointBase}/stream/movie/${imdbId}.json`);
         } else {
           rawStreams = await fetchStreams(`${endpointBase}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`);
-          if (rawStreams.length === 0) {
-            rawStreams = await fetchStreams(`${endpointBase}/stream/series/${imdbId}:${parseInt(s, 10)}:${parseInt(e, 10)}.json`);
-          }
         }
 
-        rawStreams.forEach((stream) => {
-          allStreams.push({ 
-            ...stream, 
-            langLabel: langConfig.label,
-            langWebCode: langConfig.webCode 
+        for (const item of rawStreams) {
+          if (!item?.url || item.externalUrl || String(item.url).includes("github.com")) continue;
+
+          let baseStreamUrl = isProxyUrl(item.url) ? await resolveProxyUrl(item.url) : item.url;
+          if (!baseStreamUrl) continue;
+
+          // Process the low-quality link string replacement as an auxiliary link option
+          let fallbackUhd = baseStreamUrl.replace("/content/D", "/content/B");
+          fallbackUhd = fallbackUhd.replace(".mp4.m3u8?", ".mp4?");
+
+          const hdLayout = `🎦 ${movieTitle || "Movie"}\n💎 720p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
+          result.push({
+            name: `${PROVIDER_NAME} | 720p HD | ${langConfig.label}`,
+            title: hdLayout,
+            url: baseStreamUrl,
+            behaviorHints: item.behaviorHints ?? {}
           });
-        });
+
+          // Only add standard computed link if premium endpoint creation failed
+          if (!premiumUrlGenerated) {
+            const hdComputedUhdLayout = `🎦 ${movieTitle || "Movie"}\n💎 1080p UHD (Computed) | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
+            result.push({
+              name: `${PROVIDER_NAME} | 1080p UHD | ${langConfig.label}`,
+              title: hdComputedUhdLayout,
+              url: fallbackUhd,
+              behaviorHints: item.behaviorHints ?? {}
+            });
+          }
+        }
       })
     );
 
-    if (allStreams.length === 0) return [];
-
-    const result = [];
-
-    for (const item of allStreams) {
-      if (!item?.url || item.externalUrl || String(item.url).includes("github.com")) continue;
-
-      let baseStreamUrl = isProxyUrl(item.url)
-        ? await resolveProxyUrl(item.url)
-        : item.url;
-
-      if (!baseStreamUrl) continue;
-
-      const uhdStreamUrl = await scrapeOfficialUhdLink(baseStreamUrl, item.langWebCode, isSeries);
-      const lang = item.langLabel; 
-
-      const uhdLayout = `🎦 ${meta.title || meta.name}\n💎 1080p Ultra HD | 🗣️ ${lang}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
-      result.push({
-        name: `${PROVIDER_NAME} | 1080p UHD | ${lang}`,
-        title: uhdLayout,
-        size: uhdLayout,
-        description: uhdLayout,
-        url: uhdStreamUrl,
-        behaviorHints: item.behaviorHints ?? {}
-      });
-
-      const hdLayout = `🎦 ${meta.title || meta.name}\n💎 720p HD | 🗣️ ${lang}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
-      result.push({
-        name: `${PROVIDER_NAME} | 720p HD | ${lang}`,
-        title: hdLayout,
-        size: hdLayout,
-        description: hdLayout,
-        url: baseStreamUrl,
-        behaviorHints: item.behaviorHints ?? {}
-      });
-    }
-
     return result;
   } catch (err) {
-    console.error("Fetch failed:", err);
+    console.error("Scraper execution loop crashed:", err);
     return [];
   }
 }

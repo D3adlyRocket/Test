@@ -216,8 +216,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const allowedLanguages = Object.entries(LANGUAGES).filter(([key]) => settings[key] !== false);
 
     const meta = await getTmdbMeta(tmdbId, isSeries ? "tv" : "movie");
-    // FIXED: Mapped variable name alignment for formatting
     const mediaName = meta ? (meta.title || meta.name) : "Movie";
+    
+    // EXTRACT YEAR: Parse out the 4-digit release year safely from TMDB
+    const releaseDate = meta ? (meta.release_date || meta.first_air_date || "") : "";
+    const mediaYear = releaseDate ? ` - (${releaseDate.substring(0, 4)})` : "";
+
     const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
     if (!imdbId) return [];
 
@@ -274,7 +278,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             }
 
             if (explicitlyAvailable) {
-              const uhdLayout = `🍿 ${mediaName}\n⚡ 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
+              // Appended ${mediaYear} directly after the layout title
+              const uhdLayout = `🍿 ${mediaName}${mediaYear}\n⚡ 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 • Premium) | 🔗 ${PROVIDER_NAME}`;
               result.push({
                 name: `${PROVIDER_NAME} | 1080p UHD | ${langConfig.label}`,
                 title: uhdLayout,
@@ -285,7 +290,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             }
           }
 
-          const hdLayout = `🍿 ${mediaName}\n💎 480p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 Routing) | 🔗 ${PROVIDER_NAME}`;
+          // Appended ${mediaYear} directly after the layout title
+          const hdLayout = `🍿 ${mediaName}${mediaYear}\n💎 480p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 • Standard) | 🔗 ${PROVIDER_NAME}`;
           result.push({
             name: `${PROVIDER_NAME} | 480p HD | ${langConfig.label}`,
             title: hdLayout,

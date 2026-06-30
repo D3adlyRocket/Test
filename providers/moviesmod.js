@@ -17,7 +17,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const titleName = meta.title || meta.name || "Unknown";
     const releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
 
-    // 2. Construct and fetch the stream URL
+    // 2. Construct and fetch the stream URL from CineScrape
     const streamUrl = isSeries 
       ? `${CINESCRAPE_BASE}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
       : `${CINESCRAPE_BASE}/stream/movie/${imdbId}.json`;
@@ -28,7 +28,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const result = [];
 
     data.streams.forEach(item => {
-      // Extract the raw text from the source to scrape details
+      // Get the raw text from CineScrape to extract stream details
       const rawTitle = item.title || item.description || item.name || "";
       const lowerTitle = rawTitle.toLowerCase();
       
@@ -40,7 +40,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       // Extract Language Label and Emoji
       let langLabel = "English";
-      let langEmoji = "🇺🇸";
+      let langEmoji = "🇺🇲"; // Using the flag variant you specified
       if (/hindi|hin|dual/.test(lowerTitle)) {
         langLabel = "Hindi";
         langEmoji = "🇮🇳";
@@ -65,8 +65,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         codecStr = "x264";
       }
 
-      // Build your exact multi-line subheading layout
-      const customSubheading = 
+      // Build your exact custom multi-line layout
+      const customLayout = 
         `🎬 ${titleName} - (${releaseYear})\n` +
         `💎 ${res} | 🔊 ${langLabel} | 💾 ${sizeStr}\n` +
         `🎞️ ${formatStr} | ⚡ ${codecStr}`;
@@ -74,8 +74,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       result.push({
         // Top Header Line
         name: `${PROVIDER_NAME} | ${res} | ${langLabel} ${langEmoji}`,
-        // Subheading Lines (Stremio Mobile reads this for the layout block)
-        description: customSubheading,
+        // Copying to all 3 fields guarantees cross-platform rendering (TV, Mobile, and Web)
+        title: customLayout,
+        size: customLayout,
+        description: customLayout,
         url: item.url,
         behaviorHints: {
           proxyHeaders: {

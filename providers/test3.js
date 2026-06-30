@@ -226,7 +226,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     await Promise.all(
       allowedLanguages.map(async ([_, langConfig]) => {
-        const sessionCookieStr = await loginAndGetCookies(email, password, langWebCode);
+        // FIXED: Replaced unreferenced variable with langConfig.webCode to fix authentication crash
+        const sessionCookieStr = await loginAndGetCookies(email, password, langConfig.webCode);
 
         let rawStreams = [];
         const endpointBase = `${EINTHUSAN_BASE}/${langConfig.path}`;
@@ -256,7 +257,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             tokenString = fallbackParams ? fallbackParams.replace(/&amp;/g, "&") : "";
           }
 
-          // FIX 1: cdn1Url uses track 'D' for working 720p playback, cdn2Url targets 'B' for 1080p UHD
+          // CDN1 forces standard HD file structures (D-Track); CDN2 forces high bitrate UHD structures (B-Track)
           const cdn1Url = `https://cdn1.einthusan.io/etv/content/D${contentId}.mp4?${tokenString}`;
           const cdn2Url = `https://cdn2.einthusan.io/etv/content/B${contentId}.mp4?${tokenString}`;
 
@@ -278,7 +279,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
               name: `${PROVIDER_NAME} | 1080p UHD`,
               title: uhdLayout,
               url: finalUhdUrl,
-              langKey: langConfig.webCode, // Attached for prioritization sorting logic
+              langKey: langConfig.webCode,
               behaviorHints: item.behaviorHints ?? {}
             });
           }
@@ -288,14 +289,14 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             name: `${PROVIDER_NAME} | 720p HD`,
             title: hdLayout,
             url: cdn1Url,
-            langKey: langConfig.webCode, // Attached for prioritization sorting logic
+            langKey: langConfig.webCode,
             behaviorHints: item.behaviorHints ?? {}
           });
         }
       })
     );
 
-    // FIX 2: Explicit language mapping filter sort engine
+    // Language prioritization map engine sorting setup
     return result.sort((a, b) => {
       const indexA = LANGUAGE_ORDER.indexOf(a.langKey);
       const indexB = LANGUAGE_ORDER.indexOf(b.langKey);
@@ -307,7 +308,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         return weightA - weightB;
       }
       
-      // Secondary sort rule: surface 1080p choice above 720p for the same language
       return a.name.includes("1080p") ? -1 : 1;
     });
 

@@ -256,25 +256,37 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             tokenString = fallbackParams ? fallbackParams.replace(/&amp;/g, "&") : "";
           }
 
-          // CDN1 forces standard HD file structures (D-Track); CDN2 strictly forces high bitrate UHD structures (B-Track)
           const cdn1Url = `https://cdn1.einthusan.io/etv/content/D${contentId}.mp4?${tokenString}`;
           const cdn2Url = `https://cdn2.einthusan.io/etv/content/B${contentId}.mp4?${tokenString}`;
 
           const isHindi = langConfig.webCode === "hindi";
 
           if (isHindi) {
-            // Locked on cdn2Url with track B for 1080p UHD execution
-            const uhdLayout = `🎦 ${movieTitle}\n💎 1080p Ultra HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
-            result.push({
-              name: `${PROVIDER_NAME} | 1080p UHD`,
-              title: uhdLayout,
-              url: cdn2Url,
-              langKey: langConfig.webCode,
-              behaviorHints: item.behaviorHints ?? {}
-            });
+            let explicitlyAvailable = false;
+            try {
+              // Fire a super quick verification request directly at the CDN2 'B' file route
+              const validationRes = await fetch(cdn2Url, { method: "HEAD", headers: DEFAULT_HEADERS });
+              if (validationRes.ok) {
+                explicitlyAvailable = true;
+              }
+            } catch (err) {
+              explicitlyAvailable = false;
+            }
+
+            // FILTER: Only display the 1080p choice if the CDN server confirmed the file actively exists
+            if (explicitlyAvailable) {
+              const uhdLayout = `🎦 ${movieTitle}\n💎 1080p Ultra HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
+              result.push({
+                name: `${PROVIDER_NAME} | 1080p UHD`,
+                title: uhdLayout,
+                url: cdn2Url,
+                langKey: langConfig.webCode,
+                behaviorHints: item.behaviorHints ?? {}
+              });
+            }
           }
 
-          // Standard HD Choice on cdn1Url with track D
+          // Standard 720p fallback choice using Track D is always added
           const hdLayout = `🎦 ${movieTitle}\n💎 720p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 Routing) | 🔗 ${PROVIDER_NAME}`;
           result.push({
             name: `${PROVIDER_NAME} | 720p HD`,
@@ -287,7 +299,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       })
     );
 
-    // Sort by language precedence, keeping 1080p choice sorted above 720p
+    // Sort engine maps language categories and resolves 1080p precedence
     return result.sort((a, b) => {
       const indexA = LANGUAGE_ORDER.indexOf(a.langKey);
       const indexB = LANGUAGE_ORDER.indexOf(b.langKey);

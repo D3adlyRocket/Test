@@ -274,11 +274,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             }
 
             if (explicitlyAvailable) {
-              // 1. Cleaned 1080p Ultra HD stream layout mapping
-              const uhdLayout = `🍿 ${mediaName}${mediaYear}\n⚡ 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 • Premium)`;
+              // 1. 1080p Ultra HD layout template mapping
+              const uhdLayout = `🎦 ${mediaName}${mediaYear}\n💎 1080p | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
               result.push({
-                name: `🍿 ${PROVIDER_NAME}`,                
-                title: uhdLayout,                         
+                name: `${PROVIDER_NAME} | 1080p | ${langConfig.label}`,                
+                title: uhdLayout,
+                size: uhdLayout,
+                description: uhdLayout,
                 url: cdn2Url,
                 langKey: langConfig.webCode,
                 behaviorHints: item.behaviorHints ?? {}
@@ -286,11 +288,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             }
           }
 
-          // 2. Original 480p fallback layout mapping (Available for all allowed languages)
-          const hdLayout = `🍿 ${mediaName}${mediaYear}\n💎 480p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 • Standard)`;
+          // 2. Original fallback Choice layout template mapping
+          const hdLayout = `🎦 ${mediaName}${mediaYear}\n💎 480p | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
           result.push({
-            name: `💎 ${PROVIDER_NAME}`,                 
-            title: hdLayout,                          
+            name: `${PROVIDER_NAME} | 480p | ${langConfig.label}`,                 
+            title: hdLayout,
+            size: hdLayout,
+            description: hdLayout,
             url: cdn1Url,
             langKey: langConfig.webCode,
             behaviorHints: item.behaviorHints ?? {}
@@ -310,7 +314,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         return weightA - weightB;
       }
       
-      return a.title.includes("1080p") ? -1 : 1;
+      return a.name.includes("1080p") ? -1 : 1;
     });
 
   } catch (err) {

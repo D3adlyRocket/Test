@@ -1,7 +1,7 @@
 "use strict";
 
 const PROVIDER_NAME = "MovieBox";
-const CINESCRAPE_BASE = "https://cinescrape-w9wl.onrender.com/eyJyZXNvbHV0aW9uIjoiMTA4MHAiLCJsYW5ndWFnZSI6Im9yaWciLCJsYXlvdXQiOiJ0b3JyZW50aW8ifQ";
+const CINESCRAPE_BASE = "https://cinescrape-w9wl.onrender.com/eyJyZXNvbHV0aW9uIjoiMTA4MHAiLCJsYW5ndWFnZSI6ImFsbCIsImxheW91dCI6ImJhZGdlcyJ9";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -14,7 +14,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
     if (!imdbId) return [];
 
-    // 2. Construct the Stremio standard stream URL
+    // 2. Construct the Stremio standard stream URL using the "all" languages configuration
     const streamUrl = isSeries 
       ? `${CINESCRAPE_BASE}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
       : `${CINESCRAPE_BASE}/stream/movie/${imdbId}.json`;
@@ -26,7 +26,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const result = [];
     const grouped = {};
 
-    // 4. Group by resolution (and language if present in the title)
+    // 4. Group by resolution and extract languages
     data.streams.forEach(item => {
       const title = (item.title || item.name || "").toLowerCase();
       
@@ -36,17 +36,20 @@ async function getStreams(tmdbId, mediaType, season, episode) {
                   /720/.test(title)  ? "720p"  : 
                   /480/.test(title)  ? "480p"  : "360p";
 
-      // Detect language from title if available, otherwise default to Multi/Unknown
+      // Separate English, Hindi, or fallback to Multi
       let lang = "Multi 🌐";
-      if (/hindi|hin/.test(title)) lang = "Hindi 🇮🇳";
-      else if (/english|eng/.test(title)) lang = "English 🇺🇸";
+      if (/hindi|hin|dual/.test(title)) {
+        lang = "Hindi 🇮🇳";
+      } else if (/english|eng/.test(title)) {
+        lang = "English 🇺🇸";
+      }
 
       const key = `${res}-${lang}`;
       if (!grouped[key]) grouped[key] = [];
       grouped[key].push(item);
     });
 
-    // 5. Build the final output objects
+    // 5. Build final UI layout items split by language
     Object.entries(grouped).forEach(([key, items]) => {
       const [res, lang] = key.split("-");
       items.forEach(item => {

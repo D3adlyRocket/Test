@@ -277,7 +277,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             if (explicitlyAvailable) {
               const uhdLayout = `🎦 ${mediaName}\n⚡ 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
               result.push({
-                name: `${PROVIDER_NAME} | 1080p UHD`,
+                name: `${PROVIDER_NAME} | 1080p UHD | ${lang}`,
                 title: uhdLayout,
                 url: cdn2Url,
                 langKey: langConfig.webCode,
@@ -289,7 +289,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           // Standard 720p fallback choice using Track D is always added
           const hdLayout = `🎦 ${mediaName}\n💎 480p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 Routing) | 🔗 ${PROVIDER_NAME}`;
           result.push({
-            name: `${PROVIDER_NAME} | 480p HD`,
+            name: `${PROVIDER_NAME} | 480p HD | ${lang}`,
             title: hdLayout,
             url: cdn1Url,
             langKey: langConfig.webCode,

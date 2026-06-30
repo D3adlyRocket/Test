@@ -9,7 +9,7 @@ async function onSettings() {
         { type: "toggle", key: "langTelugu", label: "Enable Telugu 🇮🇳", defaultValue: true },
         { type: "toggle", key: "langMalayalam", label: "Enable Malayalam 🇮🇳", defaultValue: true },
         { type: "toggle", key: "langKannada", label: "Enable Kannada 🇮🇳", defaultValue: true },
-        { type: "toggle", key: "langBengali", label: "Enable Bengali 🇮🇳", defaultValue: true }
+        { type: "toggle", key: "langBengali", label: "Enable Bengali 🇧🇩", defaultValue: true }
     ];
 }
 

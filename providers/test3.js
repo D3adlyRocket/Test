@@ -125,34 +125,9 @@ async function loginAndGetCookies(email, password, langWebCode) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// DIRECT EINTHUSAN SEARCH PARSER (PREMIUM BYPASS)
+// AUTHENTICATED REAL-TIME TOKEN EXTRACTION ENGINE
 // ─────────────────────────────────────────────────────────────
-async function queryOfficialMovieId(title, langWebCode, cookieStr) {
-  try {
-    const searchUrl = `https://einthusan.tv/movie/results/?find=Search&lang=${langWebCode}&query=${encodeURIComponent(title)}`;
-    const headers = { ...DEFAULT_HEADERS };
-    if (cookieStr) headers["Cookie"] = cookieStr;
-
-    const res = await fetch(searchUrl, { headers });
-    if (!res.ok) return null;
-    const html = await res.text();
-
-    // Pull directly from site watch layout structure expressions
-    const watchRegex = /\/(?:premium\/)?movie\/watch\/([a-zA-Z0-9]+)\//g;
-    const matches = [...html.matchAll(watchRegex)];
-    if (matches && matches.length > 0) {
-      return matches[0][1]; // Returns clean Alphanumeric site ID
-    }
-  } catch (e) {
-    console.error("Direct site search translation failed:", e);
-  }
-  return null;
-}
-
-// ─────────────────────────────────────────────────────────────
-// PREMIUM TOKEN EXTRACTOR & CLEAN CONTAINER LINK COMPILER
-// ─────────────────────────────────────────────────────────────
-async function generateNativePremiumUhdLink(contentId, langWebCode, isSeries, cookieStr) {
+async function scrapePremiumTokens(contentId, langWebCode, isSeries, cookieStr) {
   try {
     const typePath = isSeries ? "serial" : "movie";
     const watchPageUrl = `https://einthusan.tv/${cookieStr ? 'premium/' : ''}${typePath}/watch/${contentId}/?lang=${langWebCode || "hindi"}&uhd=true`;
@@ -165,28 +140,23 @@ async function generateNativePremiumUhdLink(contentId, langWebCode, isSeries, co
 
     const html = await response.text();
     
-    // Pattern 1: data-m3u8 parsing injection lookup
+    // Pattern 1: Parse from standard attribute injection arrays
     const m3u8AttrRegex = /data-m3u8=["']([^"']*\.mp4(?:\.m3u8)?\?[^"']+)["']/;
     const m3u8Match = html.match(m3u8AttrRegex);
-    
     if (m3u8Match && m3u8Match[1]) {
-      let tokenParameters = m3u8Match[1].replace(/&amp;/g, "&");
-      tokenParameters = tokenParameters.replace(/\/content\/[DB]/, "/content/B");
-      tokenParameters = tokenParameters.replace(".mp4.m3u8?", ".mp4?");
-      if (!tokenParameters.startsWith("/")) tokenParameters = "/etv/content/" + tokenParameters;
-      return `https://cdn1.einthusan.io${tokenParameters}`;
+      const sanitized = m3u8Match[1].replace(/&amp;/g, "&");
+      const paramMatch = sanitized.match(/[?&](e=\d+&md5=[a-zA-Z0-9_=-]+)/);
+      if (paramMatch) return paramMatch[1];
     }
     
-    // Pattern 2: Global structural token expression capture
-    const anyTokenRegex = /content\/[DB][^.]+\.mp4(?:\.m3u8)?\?e=(\d+)&amp;md5=([a-zA-Z0-9_=-]+)/;
+    // Pattern 2: Global text string signature capture
+    const anyTokenRegex = /content\/[DB][^.]+\.mp4(?:\.m3u8)?\?(e=\d+&amp;md5=[a-zA-Z0-9_=-]+)/;
     const generalMatch = html.match(anyTokenRegex);
     if (generalMatch) {
-      const freshExpiry = generalMatch[1];
-      const freshMd5 = generalMatch[2];
-      return `https://cdn1.einthusan.io/etv/content/B${contentId}.mp4?e=${freshExpiry}&md5=${freshMd5}`;
+      return generalMatch[1].replace(/&amp;/g, "&");
     }
   } catch (err) {
-    console.error("Premium layout compilation error:", err);
+    console.error("Token structural parsing error:", err);
   }
   return null;
 }
@@ -239,7 +209,7 @@ async function fetchStreams(url) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// STREAM RESOLVER CONTROLLER
+// MASTER ROUTER & STREAM GENERATOR
 // ─────────────────────────────────────────────────────────────
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === "tv" || mediaType === "series" || season != null || episode != null;
@@ -251,7 +221,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const allowedLanguages = Object.entries(LANGUAGES).filter(([key]) => settings[key] !== false);
 
     const meta = await getTmdbMeta(tmdbId, isSeries ? "tv" : "movie");
-    const movieTitle = meta ? (meta.title || meta.name) : "";
+    const movieTitle = meta ? (meta.title || meta.name) : "Movie";
     const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
     if (!imdbId) return [];
 
@@ -259,31 +229,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const password = settings.premiumPassword || "";
     const result = [];
 
-    // Map content streams concurrently across languages
     await Promise.all(
       allowedLanguages.map(async ([_, langConfig]) => {
         const sessionCookieStr = await loginAndGetCookies(email, password, langConfig.webCode);
-        let premiumUrlGenerated = false;
 
-        // 1. PRIMARY ROUTE: Direct Authenticated Account Scrape
-        if (sessionCookieStr && movieTitle) {
-          const directId = await queryOfficialMovieId(movieTitle, langConfig.webCode, sessionCookieStr);
-          if (directId) {
-            const dynamicPremiumMp4 = await generateNativePremiumUhdLink(directId, langConfig.webCode, isSeries, sessionCookieStr);
-            if (dynamicPremiumMp4) {
-              premiumUrlGenerated = true;
-              const premiumLayout = `🎦 ${movieTitle}\n⭐ PREMIUM 1080p UHD | 🗣️ ${langConfig.label}\n🎞️ Direct MP4 Container Link | 🔗 ${PROVIDER_NAME}`;
-              result.push({
-                name: `${PROVIDER_NAME} | 1080p UHD | Premium`,
-                title: premiumLayout,
-                url: dynamicPremiumMp4,
-                behaviorHints: { notWebReady: false }
-              });
-            }
-          }
-        }
-
-        // 2. FALLBACK BACKPLANE ROUTE: Asaddon Indexer Scrape
         let rawStreams = [];
         const endpointBase = `${EINTHUSAN_BASE}/${langConfig.path}`;
         if (!isSeries) {
@@ -298,35 +247,63 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           let baseStreamUrl = isProxyUrl(item.url) ? await resolveProxyUrl(item.url) : item.url;
           if (!baseStreamUrl) continue;
 
-          // Process the low-quality link string replacement as an auxiliary link option
-          let fallbackUhd = baseStreamUrl.replace("/content/D", "/content/B");
-          fallbackUhd = fallbackUhd.replace(".mp4.m3u8?", ".mp4?");
+          // Extract the native alphanumeric media source ID directly from the stream url path safely
+          const idMatch = baseStreamUrl.match(/\/content\/[DB]([^.]+)\.mp4/);
+          if (!idMatch) continue;
+          const contentId = idMatch[1];
 
-          const hdLayout = `🎦 ${movieTitle || "Movie"}\n💎 720p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
+          let tokenString = "";
+          if (sessionCookieStr) {
+            tokenString = await scrapePremiumTokens(contentId, langConfig.webCode, isSeries, sessionCookieStr);
+          }
+
+          // If no fresh token string is found (or no login), parse fallback parameters out of the standard URL template
+          if (!tokenString) {
+            const fallbackParams = baseStreamUrl.split("?")[1];
+            tokenString = fallbackParams ? fallbackParams.replace(/&amp;/g, "&") : "";
+          }
+
+          // Setup CDN Endpoints based on your requirements
+          // CDN1 forces standard HD file structures; CDN2 forces high bitrate UHD file structures
+          const cdn1Url = `https://cdn1.einthusan.io/etv/content/B${contentId}.mp4?${tokenString}`;
+          const cdn2Url = `https://cdn2.einthusan.io/etv/content/B${contentId}.mp4?${tokenString}`;
+
+          // Automatic Fallback Check: Test if the server serves the UHD route on CDN2
+          let finalUhdUrl = cdn2Url;
+          try {
+            const testRes = await fetch(cdn2Url, { method: 'HEAD', headers: DEFAULT_HEADERS });
+            if (!testRes.ok) {
+              // If CDN2 (UHD) returns a 404 or fails, seamlessly fall back to CDN1 (HD)
+              finalUhdUrl = cdn1Url;
+            }
+          } catch (e) {
+            finalUhdUrl = cdn1Url; 
+          }
+
+          // Option A: Premium 1080p UHD Stream Layout
+          const uhdLayout = `🎦 ${movieTitle}\n💎 1080p Ultra HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN2 Routing) | 🔗 ${PROVIDER_NAME}`;
           result.push({
-            name: `${PROVIDER_NAME} | 720p HD | ${langConfig.label}`,
-            title: hdLayout,
-            url: baseStreamUrl,
+            name: `${PROVIDER_NAME} | 1080p UHD`,
+            title: uhdLayout,
+            url: finalUhdUrl,
             behaviorHints: item.behaviorHints ?? {}
           });
 
-          // Only add standard computed link if premium endpoint creation failed
-          if (!premiumUrlGenerated) {
-            const hdComputedUhdLayout = `🎦 ${movieTitle || "Movie"}\n💎 1080p UHD (Computed) | 🗣️ ${langConfig.label}\n🎞️ MP4 | 🔗 ${PROVIDER_NAME}`;
-            result.push({
-              name: `${PROVIDER_NAME} | 1080p UHD | ${langConfig.label}`,
-              title: hdComputedUhdLayout,
-              url: fallbackUhd,
-              behaviorHints: item.behaviorHints ?? {}
-            });
-          }
+          // Option B: Premium 720p HD Stream Layout
+          const hdLayout = `🎦 ${movieTitle}\n💎 720p HD | 🗣️ ${langConfig.label}\n🎞️ MP4 (CDN1 Routing) | 🔗 ${PROVIDER_NAME}`;
+          result.push({
+            name: `${PROVIDER_NAME} | 720p HD`,
+            title: hdLayout,
+            url: cdn1Url,
+            behaviorHints: item.behaviorHints ?? {}
+          });
         }
       })
     );
 
     return result;
   } catch (err) {
-    console.error("Scraper execution loop crashed:", err);
+    console.error("Global processing failure context:", err);
     return [];
   }
 }

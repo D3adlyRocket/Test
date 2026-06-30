@@ -17,7 +17,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const titleName = meta.title || meta.name || "Movie/Show";
     const releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
 
-    // 2. Construct and fetch the stream URL from CineScrape
+    // 2. Fetch the stream data from CineScrape
     const streamUrl = isSeries 
       ? `${CINESCRAPE_BASE}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
       : `${CINESCRAPE_BASE}/stream/movie/${imdbId}.json`;
@@ -25,71 +25,72 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const data = await fetch(streamUrl).then(r => r.json());
     if (!data?.streams || data.streams.length === 0) return [];
 
-    const result = [];
+    const allStreams = [];
 
-    data.streams.forEach(item => {
-      // Build string out of all possible source locations to make extraction foolproof
-      const rawTitle = `${item.title || ''} ${item.description || ''} ${item.name || ''}`;
-      const lowerTitle = rawTitle.toLowerCase();
+    // 3. Map language tags directly from the stream elements like the original script
+    data.streams.forEach(s => {
+      const titleText = (s.title || s.description || "").toLowerCase();
+      let detectedLang = "English 🇺🇲";
       
-      // Extract Resolution safely
-      const res = /2160|4k/.test(lowerTitle) ? "2160p" : 
-                  /1080/.test(lowerTitle) ? "1080p" : 
-                  /720/.test(lowerTitle)  ? "720p"  : 
-                  /480/.test(lowerTitle)  ? "480p"  : "1080p";
-
-      // Extract Language Label and Emoji
-      let langLabel = "English";
-      let langEmoji = "🇺🇲";
-      if (/hindi|hin|dual/.test(lowerTitle)) {
-        langLabel = "Hindi";
-        langEmoji = "🇮🇳";
-      } else if (/multi|🌐/.test(lowerTitle)) {
-        langLabel = "Multi";
-        langEmoji = "🌐";
+      if (/hindi|hin|dual/.test(titleText)) {
+        detectedLang = "Hindi 🇮🇳";
+      } else if (/multi|🌐/.test(titleText)) {
+        detectedLang = "Multi 🌐";
       }
 
-      // Extract Size (looks for patterns like 1.99 GB, 1021 MB)
-      const sizeMatch = rawTitle.match(/(\d+(?:\.\d+)?\s*(?:GB|MB|gb|mb))/i);
-      const sizeStr = sizeMatch ? sizeMatch[1] : "1.99 GB"; 
+      allStreams.push({ ...s, lang: detectedLang });
+    });
 
-      // Extract Format (MKV, MP4, etc.)
-      const formatMatch = lowerTitle.match(/\b(mkv|mp4|avi|m4v)\b/);
-      const formatStr = formatMatch ? formatMatch[1].toUpperCase() : "MKV";
+    const result = [];
+    const grouped = {};
 
-      // Extract Codec (x265, x264, h264, hevc)
-      let codecStr = "x264";
-      if (/x265|hevc|h265/.test(lowerTitle)) {
-        codecStr = "x265";
-      } else if (/x264|h264/.test(lowerTitle)) {
-        codecStr = "x264";
-      }
+    // 4. Run the exact grouping routine from your original script
+    allStreams.forEach(item => {
+      const title = (item.title || "").toLowerCase();
+      const res = /2160|4k/.test(title) ? "2160p" : 
+                  /1080/.test(title) ? "1080p" : 
+                  /720/.test(title)  ? "720p"  : 
+                  /480/.test(title)  ? "480p"  : "1080p";
+      
+      const key = `${res}-${item.lang}`;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(item);
+    });
 
-      // Build your exact custom layout
-      const customLayout = 
-        `🎬 ${titleName} - (${releaseYear})\n` +
-        `💎 ${res} | 🔊 ${langLabel} | 💾 ${sizeStr}\n` +
-        `🎞️ ${formatStr} | ⚡ ${codecStr}`;
+    // 5. Generate final result blocks matching your exact structural requirements
+    Object.entries(grouped).forEach(([key, items]) => {
+      const [res, lang] = key.split("-");
+      
+      items.forEach(item => {
+        const rawText = (item.title || item.description || "").toLowerCase();
 
-      // Single line version specifically optimized for mobile's rendering limits
-      const mobileSubheading = `🎬 ${titleName} (${releaseYear}) • 💎 ${res} | 🔊 ${langLabel} | 💾 ${sizeStr} • 🎞️ ${formatStr} | ⚡ ${codecStr}`;
+        // Safe fallback parsers to handle CineScrape's badge structure layout
+        const sizeMatch = item.title ? item.title.match(/(\d+(?:\.\d+)?\s*(?:GB|MB))/i) : null;
+        const sizeStr = sizeMatch ? sizeMatch[1] : "1.99 GB";
 
-      result.push({
-        // Top Header Line
-        name: `${PROVIDER_NAME} | ${res} | ${langLabel} ${langEmoji}`,
-        // TV Layout fields
-        title: customLayout,
-        description: customLayout,
-        url: item.url,
-        behaviorHints: {
-          // BingeGroup forces Stremio mobile UI engine to print this text block underneath the header
-          bingeGroup: mobileSubheading,
-          proxyHeaders: {
-            request: {
-              "Referer": "https://cinescrape-w9wl.onrender.com/"
+        const codecStr = /x265|hevc|h265/.test(rawText) ? "x265" : "x264";
+        const formatStr = /\b(mp4|avi|m4v)\b/.test(rawText) ? "MP4" : "MKV";
+
+        // Your requested multi-line layout template
+        const fullLayout = 
+          `🎬 ${titleName} - (${releaseYear})\n` +
+          `💎 ${res} | 🔊 ${lang.replace(/[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD00-\uDFFF]/g, '').trim()} | 💾 ${sizeStr}\n` +
+          `🎞️ ${formatStr} | ⚡ ${codecStr}`;
+
+        result.push({
+          name: `${PROVIDER_NAME} | ${res} | ${lang}`,
+          title: fullLayout,
+          size: fullLayout,
+          description: fullLayout,
+          url: item.url,
+          behaviorHints: {
+            proxyHeaders: {
+              request: {
+                "Referer": "https://cinescrape-w9wl.onrender.com/"
+              }
             }
           }
-        }
+        });
       });
     });
 

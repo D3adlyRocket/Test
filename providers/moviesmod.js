@@ -107,7 +107,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           behaviorHints: {
             proxyHeaders: {
               request: {
-                "Referer": "https://cinescrape-w9wl.onrender.com/"
+                "Referer": "https://pengu.uk"
               }
             }
           }

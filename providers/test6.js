@@ -1,7 +1,7 @@
 /**
  * OneTouchTV Provider for Nuvio
- * * Overhauled to use direct HTML component string matching 
- * and structural query parsing as observed via DevTools network logs.
+ * * Overhauled with an aggressive double-pass regex extractor 
+ * to capture deep query-string variables inside injected frames.
  */
 const CryptoJS = require('crypto-js');
 
@@ -16,7 +16,7 @@ const TMDB_BASE = "https://api.themoviedb.org/3";
 async function fetchRawHTML(path) {
     const cleanPath = path.startsWith('/web') ? path : `/web${path}`;
     const url = path.startsWith('http') ? path : `${MAIN_URL}${cleanPath}`;
-    console.log(`[OneTouchTV] Fetching Source HTML: ${url}`);
+    console.log(`[OneTouchTV] Fetching Source: ${url}`);
     
     const response = await fetch(url, {
         headers: {
@@ -41,102 +41,115 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         if (!mediaInfo) {
             mediaInfo = { title: tmdbId, year: null, isTv: mediaType === "tv" || mediaType === "series" };
         }
-        console.log(`[OneTouchTV] Target: ${mediaInfo.title}`);
+        console.log(`[OneTouchTV] Target Title: ${mediaInfo.title}`);
 
-        // 1. Fetch Search Content Page
+        // Step 1: Query the Search Layer
         const searchHtml = await fetchRawHTML(`/vod/search?keyword=${encodeURIComponent(mediaInfo.title)}`);
         
-        // Target structural item extraction paths via regex matching
-        const entryRegex = /\/vod\/([^\s"'<>]+)/g;
+        // Dynamic target path match extraction
+        const entryRegex = /\/vod\/([0-9a-zA-D-]+)/g;
         let match;
         let targetSlug = null;
         
-        while ((match = entryRegex.exec(searchHtml)) !== null) {
-            if (match[1].includes(mediaInfo.title.toLowerCase().replace(/[^a-z0-9]/g, '-'))) {
-                targetSlug = match[1];
-                break;
-            }
-        }
+        // Attempt to clean title normalization lookup matching the slug formats
+        const cleanTitleSlug = mediaInfo.title.toLowerCase().replace(/[^a-z0-9]/g, '-');
+        const broadMatches = searchHtml.match(/\/vod\/([0-9]+-[^\s"'<>]+)/g);
         
-        if (!targetSlug && match) {
-            const cleanMatches = searchHtml.match(/\/vod\/[^\s"'<>]+/g);
-            if (cleanMatches && cleanMatches.length > 0) {
-                targetSlug = cleanMatches[0].replace('/vod/', '');
-            }
+        if (broadMatches && broadMatches.length > 0) {
+            // Priority match against exact name string configurations
+            const ideal = broadMatches.find(m => m.toLowerCase().includes(cleanTitleSlug));
+            targetSlug = ideal ? ideal.replace('/vod/', '') : broadMatches[0].replace('/vod/', '');
         }
 
         if (!targetSlug) {
-            console.log("[OneTouchTV] Failed to resolve details path reference.");
+            console.log("[OneTouchTV] Could not resolve matching content path routing.");
             return [];
         }
+        console.log(`[OneTouchTV] Targeted Route Slug: ${targetSlug}`);
 
-        // 2. Fetch playback index reference target 
+        // Step 2: Grab layout page context
         const targetEpNum = (mediaType === "movie" || !mediaInfo.isTv) ? "1" : episode;
         const episodePath = `/vod/${targetSlug}/episode/${targetEpNum}`;
         const epPageHtml = await fetchRawHTML(episodePath);
 
-        // 3. Locate the embedded player frame injection query components
-        // Matches the target structure extracted from DevTools log payload attributes
-        const fileRegex = /["']?file["']?\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i;
-        const iframeRegex = /iframe[^>]+src="([^"]+player\.html[^"]+)"/i;
-        
+        // Step 3: Run the Extraction Engine against the iframe properties
         let streamUrl = null;
-        let subtitleData = null;
+        let rawSubtitles = null;
 
-        const iframeMatch = epPageHtml.match(iframeRegex);
+        // Matches 'src="...player.html?...file=..."' attributes dynamically
+        const iframeSrcRegex = /src=["']([^"']*player\.html[^"']*)["']/i;
+        const iframeMatch = epPageHtml.match(iframeSrcRegex);
+
         if (iframeMatch) {
-            const playerUrlString = iframeMatch[1];
-            console.log(`[OneTouchTV] Found target web player: ${playerUrlString}`);
+            const fullPlayerUrl = iframeMatch[1];
+            console.log(`[OneTouchTV] Target Frame Discovered: ${fullPlayerUrl}`);
             
-            const urlParams = new URLSearchParams(playerUrlString.split('?')[1]);
-            streamUrl = urlParams.get('file');
-            subtitleData = urlParams.get('subtitle');
-        } else {
-            const fileMatch = epPageHtml.match(fileRegex);
-            if (fileMatch) {
-                streamUrl = fileMatch[1];
+            // Extract attributes out of the raw URL Query segment
+            const queryPart = fullPlayerUrl.split('?')[1];
+            if (queryPart) {
+                // Manual safe split regex decoding to bypass standard engine mutations
+                const fileParamMatch = queryPart.match(/(?:^|&)file=([^&]*)/);
+                const subParamMatch = queryPart.match(/(?:^|&)subtitle=([^&]*)/);
+                
+                if (fileParamMatch) {
+                    streamUrl = decodeURIComponent(fileParamMatch[1]);
+                }
+                if (subParamMatch) {
+                    rawSubtitles = decodeURIComponent(subParamMatch[1]);
+                }
+            }
+        }
+
+        // Secondary fallback search if the engine renders direct parameters inside structural scripts
+        if (!streamUrl) {
+            const rawUrlMatch = epPageHtml.match(/["']?file["']?\s*:\s*["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i);
+            if (rawUrlMatch) {
+                streamUrl = rawUrlMatch[1];
             }
         }
 
         if (!streamUrl) {
-            console.log("[OneTouchTV] Streaming file URL pointer not found inside current HTML layer.");
+            console.log("[OneTouchTV] Stream URL was not found within current page elements.");
             return [];
         }
 
-        // 4. Construct Nuvio stream object mappings
+        console.log(`[OneTouchTV] Found Stream URL: ${streamUrl}`);
+
+        // Step 4: Map parameters to Nuvio Stream format rules
         const streams = [{
-            name: `\uD83D\uDCFA OneTouch | Direct Server`,
-            title: `${mediaInfo.title}${mediaInfo.isTv ? ` E${episode}` : ""} (${mediaInfo.year || 'N/A'})\n\uD83D\uDCCC Auto Quality \xB7 HLS`,
+            name: `\uD83D\uDCFA OneTouch | Direct CDN`,
+            title: `${mediaInfo.title}${mediaInfo.isTv ? ` E${episode}` : ""} (${mediaInfo.year || 'N/A'})\n\uD83D\uDCCC Auto Quality \xB7 HLS Stream`,
             url: streamUrl,
             quality: "1080p",
             headers: { 
-                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K)", 
+                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36", 
                 "Referer": "https://s1.devcorp.me/",
                 "Origin": "https://s1.devcorp.me"
             }
         }];
 
-        // Assign subtitles if present within player params
-        if (subtitleData) {
+        // Step 5: Handle embedded subtitle array extraction safely
+        if (rawSubtitles) {
             try {
-                const parsedSubs = JSON.parse(decodeURIComponent(subtitleData));
+                // Handles JSON structured string parameters
+                const parsedSubs = JSON.parse(rawSubtitles);
                 if (Array.isArray(parsedSubs)) {
                     streams[0].subtitles = parsedSubs.map(sub => ({
-                        label: sub.name || "Unknown Language",
+                        label: sub.name || "Unknown Track",
                         url: sub.file
-                    }));
+                    })).filter(s => s.url);
                 }
             } catch (e) {
-                if (subtitleData.startsWith('http')) {
-                    streams[0].subtitles = [{ label: "English", url: decodeURIComponent(subtitleData) }];
+                // If it is passed as a single standalone direct file path reference
+                if (rawSubtitles.startsWith('http')) {
+                    streams[0].subtitles = [{ label: "English Subtitle", url: rawSubtitles }];
                 }
             }
         }
 
-        console.log(`[OneTouchTV] Successfully compiled stream targets from web layout.`);
         return streams;
     } catch (e) {
-        console.error(`[OneTouchTV] Global Parser Failure: ${e.message}`);
+        console.error(`[OneTouchTV] Extraction Engine Error: ${e.message}`);
         return [];
     }
 }

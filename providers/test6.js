@@ -1,86 +1,37 @@
 /**
  * OneTouchTV Provider for Nuvio
- * * Features:
- * - Asian Drama & Anime specialist.
- * - Secure AES-256-CBC Decryption (Updated Cipher Handling).
- * - Full Search & Detail support updated via network capture rules.
- * - Smart ID Resolver (Support for both Android TV and Mobile IMDB IDs).
+ * * Overhauled to use direct HTML component string matching 
+ * and structural query parsing as observed via DevTools network logs.
  */
 const CryptoJS = require('crypto-js');
 
 // --- Configuration ---
 const TMDB_API_KEY = process.env.TMDB_API_KEY || "439c478a771f35c05022f9feabcca01c";
-// FIXED: Restored to api3 as verified by your Network DevTools capture
 const MAIN_URL = "https://api3.devcorp.me"; 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
-// Verified Security Keys
-const AES_KEY = CryptoJS.enc.Utf8.parse("im72charPasswordofdInitVectorStm");
-const AES_IV = CryptoJS.enc.Utf8.parse("im72charPassword");
-
 /**
- * 1. Security Layer: Decryption
+ * 1. Networking Layer
  */
-function decryptOneTouch(input) {
-    try {
-        if (!input || typeof input !== 'string') return null;
-
-        let normalized = input
-            .replace(/-_\./g, "/")
-            .replace(/@/g, "+")
-            .replace(/\s+/g, "");
-
-        const pad = normalized.length % 4;
-        if (pad !== 0) {
-            normalized += "=".repeat(4 - pad);
-        }
-
-        const ciphertextParams = CryptoJS.lib.CipherParams.create({
-            ciphertext: CryptoJS.enc.Base64.parse(normalized)
-        });
-
-        const decrypted = CryptoJS.AES.decrypt(ciphertextParams, AES_KEY, {
-            iv: AES_IV,
-            mode: CryptoJS.mode.CBC,
-            padding: CryptoJS.pad.Pkcs7
-        });
-
-        const rawText = decrypted.toString(CryptoJS.enc.Utf8);
-        if (!rawText) throw new Error("Empty decryption result string");
-
-        const json = JSON.parse(rawText);
-        return json.result || json;
-    } catch (e) {
-        console.error(`[OneTouchTV] Decryption Error: ${e.message}`);
-        return null;
-    }
-}
-
-/**
- * 2. Networking Layer
- */
-async function fetchEncrypted(path) {
-    // FIXED: Prepends /web to the endpoint path if it isn't already absolute
+async function fetchRawHTML(path) {
     const cleanPath = path.startsWith('/web') ? path : `/web${path}`;
     const url = path.startsWith('http') ? path : `${MAIN_URL}${cleanPath}`;
-    console.log(`[OneTouchTV] Requesting API: ${url}`);
+    console.log(`[OneTouchTV] Fetching Source HTML: ${url}`);
     
     const response = await fetch(url, {
         headers: {
             "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
-            // FIXED: Set to match the precise security origins from your network tab
             "Referer": "https://onetouchtv.xyz/",
             "Origin": "https://onetouchtv.xyz"
         }
     });
 
     if (!response.ok) throw new Error(`HTTP Error: ${response.status}`);
-    const encryptedData = await response.text();
-    return decryptOneTouch(encryptedData);
+    return await response.text();
 }
 
 /**
- * 3. Main Nuvio Interface
+ * 2. Main Nuvio Interface
  */
 async function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
     try {
@@ -88,86 +39,104 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
         let mediaInfo = await resolveMediaInfo(tmdbId, mediaType);
         if (!mediaInfo) {
-            console.log("[OneTouchTV] TMDB resolution skipped or failed. Using fallback.");
             mediaInfo = { title: tmdbId, year: null, isTv: mediaType === "tv" || mediaType === "series" };
         }
-        console.log(`[OneTouchTV] Target: ${mediaInfo.title} (${mediaInfo.year || 'N/A'})`);
+        console.log(`[OneTouchTV] Target: ${mediaInfo.title}`);
 
-        // Hits /web/vod/search automatically through fetchEncrypted wrapper
-        const searchResults = await fetchEncrypted(`/vod/search?keyword=${encodeURIComponent(mediaInfo.title)}`);
-        if (!searchResults || !Array.isArray(searchResults)) {
-            console.log("[OneTouchTV] No search results found.");
-            return [];
-        }
-
-        const match = searchResults.find(r => calculateSimilarity(r.title, mediaInfo.title) > 0.75);
-        if (!match) {
-            console.log("[OneTouchTV] No suitable title match found in search results.");
-            return [];
-        }
-        console.log(`[OneTouchTV] Hit Found: ${match.title} (ID: ${match.id})`);
-
-        // Hits /web/vod/{id}/detail
-        const details = await fetchEncrypted(`/vod/${match.id}/detail`);
-        if (!details || !details.episodes) {
-            console.log("[OneTouchTV] Could not retrieve media details or episodes.");
-            return [];
-        }
-
-        let targetEpisode = null;
-        if (mediaType === "movie" || !mediaInfo.isTv) {
-            targetEpisode = details.episodes[0];
-        } else {
-            targetEpisode = details.episodes.find(ep => {
-                const epNum = parseInt(ep.episode.replace(/\D/g, ''));
-                return epNum === parseInt(episode);
-            });
-        }
-
-        if (!targetEpisode) {
-            console.log(`[OneTouchTV] Episode ${episode} not found in the list.`);
-            return [];
-        }
-        console.log(`[OneTouchTV] Resolved Episode: ${targetEpisode.episode}`);
-
-        // Hits /web/vod/{id}/episode/{playId}
-        const targetId = targetEpisode.identifier || match.id;
-        const playId = targetEpisode.playId || targetEpisode.id;
-        const sourcesData = await fetchEncrypted(`/vod/${targetId}/episode/${playId}`);
+        // 1. Fetch Search Content Page
+        const searchHtml = await fetchRawHTML(`/vod/search?keyword=${encodeURIComponent(mediaInfo.title)}`);
         
-        if (!sourcesData || !sourcesData.sources) {
-            console.log("[OneTouchTV] No streaming sources found for this episode.");
+        // Target structural item extraction paths via regex matching
+        const entryRegex = /\/vod\/([^\s"'<>]+)/g;
+        let match;
+        let targetSlug = null;
+        
+        while ((match = entryRegex.exec(searchHtml)) !== null) {
+            if (match[1].includes(mediaInfo.title.toLowerCase().replace(/[^a-z0-9]/g, '-'))) {
+                targetSlug = match[1];
+                break;
+            }
+        }
+        
+        if (!targetSlug && match) {
+            const cleanMatches = searchHtml.match(/\/vod\/[^\s"'<>]+/g);
+            if (cleanMatches && cleanMatches.length > 0) {
+                targetSlug = cleanMatches[0].replace('/vod/', '');
+            }
+        }
+
+        if (!targetSlug) {
+            console.log("[OneTouchTV] Failed to resolve details path reference.");
             return [];
         }
 
-        const streams = [];
-        sourcesData.sources.forEach(src => {
-            if (!src.url) return;
-            const quality = normalizeQuality(src.quality);
-            streams.push({
-                name: `\uD83D\uDCFA OneTouch | ${src.name || "Server"}`,
-                title: `${mediaInfo.title}${mediaInfo.isTv ? ` E${episode}` : ""} (${mediaInfo.year || 'N/A'})\n\uD83D\uDCCC ${quality} \xB7 ${src.type === "hls" ? "HLS" : "MP4"}`,
-                url: src.url,
-                quality: quality,
-                headers: src.headers || { 
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 
-                    "Referer": "https://onetouchtv.xyz/" 
-                }
-            });
-        });
+        // 2. Fetch playback index reference target 
+        const targetEpNum = (mediaType === "movie" || !mediaInfo.isTv) ? "1" : episode;
+        const episodePath = `/vod/${targetSlug}/episode/${targetEpNum}`;
+        const epPageHtml = await fetchRawHTML(episodePath);
 
-        const subtitles = (sourcesData.tracks || []).map(t => ({ 
-            label: t.name || "Unknown", 
-            url: t.file 
-        })).filter(t => t.url);
+        // 3. Locate the embedded player frame injection query components
+        // Matches the target structure extracted from DevTools log payload attributes
+        const fileRegex = /["']?file["']?\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i;
+        const iframeRegex = /iframe[^>]+src="([^"]+player\.html[^"]+)"/i;
+        
+        let streamUrl = null;
+        let subtitleData = null;
 
-        if (subtitles.length > 0) {
-            streams.forEach(s => s.subtitles = subtitles);
+        const iframeMatch = epPageHtml.match(iframeRegex);
+        if (iframeMatch) {
+            const playerUrlString = iframeMatch[1];
+            console.log(`[OneTouchTV] Found target web player: ${playerUrlString}`);
+            
+            const urlParams = new URLSearchParams(playerUrlString.split('?')[1]);
+            streamUrl = urlParams.get('file');
+            subtitleData = urlParams.get('subtitle');
+        } else {
+            const fileMatch = epPageHtml.match(fileRegex);
+            if (fileMatch) {
+                streamUrl = fileMatch[1];
+            }
         }
 
-        return streams.sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0));
+        if (!streamUrl) {
+            console.log("[OneTouchTV] Streaming file URL pointer not found inside current HTML layer.");
+            return [];
+        }
+
+        // 4. Construct Nuvio stream object mappings
+        const streams = [{
+            name: `\uD83D\uDCFA OneTouch | Direct Server`,
+            title: `${mediaInfo.title}${mediaInfo.isTv ? ` E${episode}` : ""} (${mediaInfo.year || 'N/A'})\n\uD83D\uDCCC Auto Quality \xB7 HLS`,
+            url: streamUrl,
+            quality: "1080p",
+            headers: { 
+                "User-Agent": "Mozilla/5.0 (Linux; Android 10; K)", 
+                "Referer": "https://s1.devcorp.me/",
+                "Origin": "https://s1.devcorp.me"
+            }
+        }];
+
+        // Assign subtitles if present within player params
+        if (subtitleData) {
+            try {
+                const parsedSubs = JSON.parse(decodeURIComponent(subtitleData));
+                if (Array.isArray(parsedSubs)) {
+                    streams[0].subtitles = parsedSubs.map(sub => ({
+                        label: sub.name || "Unknown Language",
+                        url: sub.file
+                    }));
+                }
+            } catch (e) {
+                if (subtitleData.startsWith('http')) {
+                    streams[0].subtitles = [{ label: "English", url: decodeURIComponent(subtitleData) }];
+                }
+            }
+        }
+
+        console.log(`[OneTouchTV] Successfully compiled stream targets from web layout.`);
+        return streams;
     } catch (e) {
-        console.error(`[OneTouchTV] Global Error: ${e.message}`);
+        console.error(`[OneTouchTV] Global Parser Failure: ${e.message}`);
         return [];
     }
 }
@@ -187,7 +156,6 @@ async function resolveMediaInfo(id, type) {
             const res = await fetch(findUrl);
             const data = await res.json();
             const results = (tmdbType === "tv") ? data.tv_results : data.movie_results;
-            
             if (results && results.length > 0) {
                 const item = results[0];
                 return {
@@ -211,31 +179,9 @@ async function resolveMediaInfo(id, type) {
             }
         }
     } catch (e) {
-        console.error(`[OneTouchTV] TMDB Smart Resolver Error: ${e.message}`);
+         console.error(`[OneTouchTV] TMDB Error: ${e.message}`);
     }
     return null;
-}
-
-function calculateSimilarity(s1, s2) {
-    if (!s1 || !s2) return 0;
-    const a = s1.toLowerCase().trim();
-    const b = s2.toLowerCase().trim();
-    if (a === b) return 1.0;
-    if (a.includes(b) || b.includes(a)) return 0.9;
-    
-    const words1 = a.split(/\s+/);
-    const words2 = b.split(/\s+/);
-    const intersection = words1.filter(w => words2.includes(w));
-    return intersection.length / Math.max(words1.length, words2.length);
-}
-
-function normalizeQuality(q) {
-    if (!q) return "720p";
-    const str = q.toString().toLowerCase();
-    if (str.includes("1080")) return "1080p";
-    if (str.includes("720")) return "720p";
-    if (str.includes("480")) return "480p";
-    return "720p";
 }
 
 module.exports = { getStreams };

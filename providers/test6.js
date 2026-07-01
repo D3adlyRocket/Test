@@ -1,49 +1,40 @@
 /**
  * OneTouchTV Provider for Nuvio
- * 
- * Features:
+ * * Features:
  * - Asian Drama & Anime specialist.
  * - Secure AES-256-CBC Decryption (Updated Cipher Handling).
- * - High-quality Metadata (Cast, Recommendations).
- * - Full Search & Detail support.
+ * - Full Search & Detail support updated via network capture rules.
  * - Smart ID Resolver (Support for both Android TV and Mobile IMDB IDs).
- * 
- * Updated using the latest repo changes.
  */
 const CryptoJS = require('crypto-js');
 
 // --- Configuration ---
 const TMDB_API_KEY = process.env.TMDB_API_KEY || "439c478a771f35c05022f9feabcca01c";
-// UPDATED: Main API base changed to the latest load balancer domain
-const MAIN_URL = "https://api.devcorp.me"; 
+// FIXED: Restored to api3 as verified by your Network DevTools capture
+const MAIN_URL = "https://api3.devcorp.me"; 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
-// Verified Security Keys (Properly mapped from original bytecode streams)
+// Verified Security Keys
 const AES_KEY = CryptoJS.enc.Utf8.parse("im72charPasswordofdInitVectorStm");
 const AES_IV = CryptoJS.enc.Utf8.parse("im72charPassword");
 
 /**
  * 1. Security Layer: Decryption
- * Replicates the custom alphabet normalization and precise AES-256-CBC string decoding.
  */
 function decryptOneTouch(input) {
     try {
         if (!input || typeof input !== 'string') return null;
 
-        // Step A: Normalize Custom Alphabet (Bypass mechanisms)
         let normalized = input
             .replace(/-_\./g, "/")
             .replace(/@/g, "+")
             .replace(/\s+/g, "");
 
-        // Step B: Ensure Correct Base64 Padding
         const pad = normalized.length % 4;
         if (pad !== 0) {
             normalized += "=".repeat(4 - pad);
         }
 
-        // Step C: Perform AES Decryption using explicit Base64 CipherText conversion
-        // FIXED: Re-wrapping normalized base64 directly into a CipherParams structure prevents empty returns
         const ciphertextParams = CryptoJS.lib.CipherParams.create({
             ciphertext: CryptoJS.enc.Base64.parse(normalized)
         });
@@ -54,13 +45,10 @@ function decryptOneTouch(input) {
             padding: CryptoJS.pad.Pkcs7
         });
 
-        // Step D: Parse the resulting UTF-8 JSON
         const rawText = decrypted.toString(CryptoJS.enc.Utf8);
         if (!rawText) throw new Error("Empty decryption result string");
 
         const json = JSON.parse(rawText);
-        
-        // Return inner result block payload
         return json.result || json;
     } catch (e) {
         console.error(`[OneTouchTV] Decryption Error: ${e.message}`);
@@ -72,12 +60,15 @@ function decryptOneTouch(input) {
  * 2. Networking Layer
  */
 async function fetchEncrypted(path) {
-    const url = path.startsWith('http') ? path : `${MAIN_URL}${path}`;
+    // FIXED: Prepends /web to the endpoint path if it isn't already absolute
+    const cleanPath = path.startsWith('/web') ? path : `/web${path}`;
+    const url = path.startsWith('http') ? path : `${MAIN_URL}${cleanPath}`;
     console.log(`[OneTouchTV] Requesting API: ${url}`);
     
     const response = await fetch(url, {
         headers: {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36",
+            // FIXED: Set to match the precise security origins from your network tab
             "Referer": "https://onetouchtv.xyz/",
             "Origin": "https://onetouchtv.xyz"
         }
@@ -95,7 +86,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
     try {
         console.log(`[OneTouchTV] Request: ID=${tmdbId}, Type=${mediaType}, S=${season}, E=${episode}`);
 
-        // 1. Resolve Metadata with Smart ID Resolver (TV & Mobile Support)
         let mediaInfo = await resolveMediaInfo(tmdbId, mediaType);
         if (!mediaInfo) {
             console.log("[OneTouchTV] TMDB resolution skipped or failed. Using fallback.");
@@ -103,14 +93,13 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         }
         console.log(`[OneTouchTV] Target: ${mediaInfo.title} (${mediaInfo.year || 'N/A'})`);
 
-        // 2. Search for the content on OneTouchTV
+        // Hits /web/vod/search automatically through fetchEncrypted wrapper
         const searchResults = await fetchEncrypted(`/vod/search?keyword=${encodeURIComponent(mediaInfo.title)}`);
         if (!searchResults || !Array.isArray(searchResults)) {
             console.log("[OneTouchTV] No search results found.");
             return [];
         }
 
-        // 3. Find the best title match (Scoring logic)
         const match = searchResults.find(r => calculateSimilarity(r.title, mediaInfo.title) > 0.75);
         if (!match) {
             console.log("[OneTouchTV] No suitable title match found in search results.");
@@ -118,19 +107,17 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
         }
         console.log(`[OneTouchTV] Hit Found: ${match.title} (ID: ${match.id})`);
 
-        // 4. Load Media Details (to get episode list)
+        // Hits /web/vod/{id}/detail
         const details = await fetchEncrypted(`/vod/${match.id}/detail`);
         if (!details || !details.episodes) {
             console.log("[OneTouchTV] Could not retrieve media details or episodes.");
             return [];
         }
 
-        // 5. Locate the specific episode
         let targetEpisode = null;
         if (mediaType === "movie" || !mediaInfo.isTv) {
             targetEpisode = details.episodes[0];
         } else {
-            // Find episode by absolute episode number (Standard behavior for Asian Dramas/Anime streams)
             targetEpisode = details.episodes.find(ep => {
                 const epNum = parseInt(ep.episode.replace(/\D/g, ''));
                 return epNum === parseInt(episode);
@@ -141,9 +128,9 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             console.log(`[OneTouchTV] Episode ${episode} not found in the list.`);
             return [];
         }
-        console.log(`[OneTouchTV] Resolved Episode: ${targetEpisode.episode} (PlayID: ${targetEpisode.playId || targetEpisode.id})`);
+        console.log(`[OneTouchTV] Resolved Episode: ${targetEpisode.episode}`);
 
-        // 6. Generate Playback Links
+        // Hits /web/vod/{id}/episode/{playId}
         const targetId = targetEpisode.identifier || match.id;
         const playId = targetEpisode.playId || targetEpisode.id;
         const sourcesData = await fetchEncrypted(`/vod/${targetId}/episode/${playId}`);
@@ -153,26 +140,22 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
             return [];
         }
 
-        // 7. Format into Nuvio Stream Objects
         const streams = [];
-
-        // Process Video Sources
         sourcesData.sources.forEach(src => {
             if (!src.url) return;
             const quality = normalizeQuality(src.quality);
             streams.push({
                 name: `\uD83D\uDCFA OneTouch | ${src.name || "Server"}`,
-                title: `${mediaInfo.title}${mediaInfo.isTv ? ` E${episode}` : ""} (${mediaInfo.year || 'N/A'})\n\uD83D\uDCCC ${quality} \xB7 ${src.type === "hls" ? "HLS" : "MP4"}\nby Kabir \xB7 OneTouch Port`,
+                title: `${mediaInfo.title}${mediaInfo.isTv ? ` E${episode}` : ""} (${mediaInfo.year || 'N/A'})\n\uD83D\uDCCC ${quality} \xB7 ${src.type === "hls" ? "HLS" : "MP4"}`,
                 url: src.url,
                 quality: quality,
                 headers: src.headers || { 
                     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", 
-                    "Referer": "https://api.devcorp.me/" 
+                    "Referer": "https://onetouchtv.xyz/" 
                 }
             });
         });
 
-        // Add Subtitles to each stream if present
         const subtitles = (sourcesData.tracks || []).map(t => ({ 
             label: t.name || "Unknown", 
             url: t.file 
@@ -180,10 +163,8 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 
         if (subtitles.length > 0) {
             streams.forEach(s => s.subtitles = subtitles);
-            console.log(`[OneTouchTV] Attached ${subtitles.length} subtitle tracks.`);
         }
 
-        console.log(`[OneTouchTV] Successfully retrieved ${streams.length} stream(s).`);
         return streams.sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0));
     } catch (e) {
         console.error(`[OneTouchTV] Global Error: ${e.message}`);
@@ -194,10 +175,6 @@ async function getStreams(tmdbId, mediaType = "movie", season = null, episode = 
 /**
  * --- Utilities ---
  */
-
-/**
- * Smart ID Resolver: Handles Numeric IDs (TV) and tt... IDs (Mobile)
- */
 async function resolveMediaInfo(id, type) {
     const idStr = id.toString();
     const isImdb = idStr.startsWith("tt");
@@ -206,7 +183,6 @@ async function resolveMediaInfo(id, type) {
 
     try {
         if (isImdb) {
-            console.log(`[OneTouchTV] Mobile ID detected (${idStr}). Translating via TMDB...`);
             const findUrl = `${TMDB_BASE}/find/${idStr}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
             const res = await fetch(findUrl);
             const data = await res.json();

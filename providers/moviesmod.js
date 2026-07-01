@@ -10,7 +10,7 @@ async function onSettings() {
 }
 
 const PROVIDER_NAME = "MovieBox";
-const CINESCRAPE_BASE = "https://cinescrape-w9wl.onrender.com/eyJyZXNvbHV0aW9uIjoiMTA4MHAiLCJsYW5ndWFnZSI6ImFsbCIsImxheW91dCI6ImJhZGdlcyJ9";
+const CINESCRAPE_BASE = "https://pengu.uk/%7B%22source_moviebox%22%3A%22on%22%2C%22res_1080%22%3A%22on%22%2C%22audio_english%22%3A%22on%22%2C%22audio_spanish%22%3A%22off%22%2C%22audio_hindi%22%3A%22on%22%2C%22audio_tamil%22%3A%22off%22%2C%22audio_telugu%22%3A%22off%22%2C%22audio_french%22%3A%22off%22%2C%22audio_german%22%3A%22off%22%2C%22audio_italian%22%3A%22off%22%2C%22audio_portuguese%22%3A%22off%22%2C%22audio_japanese%22%3A%22off%22%2C%22audio_korean%22%3A%22off%22%2C%22audio_russian%22%3A%22off%22%2C%22audio_chinese%22%3A%22off%22%2C%22audio_arabic%22%3A%22off%22%2C%22audio_turkish%22%3A%22off%22%2C%22audio_polish%22%3A%22off%22%2C%22audio_dutch%22%3A%22off%22%2C%22audio_greek%22%3A%22off%22%2C%22audio_hebrew%22%3A%22off%22%2C%22audio_thai%22%3A%22off%22%2C%22audio_vietnamese%22%3A%22off%22%2C%22audio_malayalam%22%3A%22off%22%2C%22audio_bengali%22%3A%22off%22%2C%22audio_urdu%22%3A%22off%22%2C%22audio_swedish%22%3A%22off%22%2C%22audio_finnish%22%3A%22off%22%2C%22audio_danish%22%3A%22off%22%2C%22audio_norwegian%22%3A%22off%22%7D/manifest.json";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 async function getStreams(tmdbId, mediaType, season, episode) {

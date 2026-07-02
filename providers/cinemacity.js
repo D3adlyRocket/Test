@@ -25,83 +25,42 @@ function buildMagnet(infoHash) {
 }
 
 // ======================================
-// ADVANCED METADATA PARSER & STREAM BUILDER
+// METADATA PARSER (DESIGNED FOR YOUR UI LAYOUT)
 // ======================================
 function buildStream(stream, infoHash) {
     const rawTitle = stream.title || "";
     
-    // 1. Extract Seeders
+    // 1. Cleanly isolate the Raw Filename (Full Release Title)
+    // Torrentio usually splits the title line with newlines '\n'. The first line is typically the filename.
+    const fullTitle = rawTitle.split("\n")[0].trim();
+
+    // 2. Extract Seeders
     const seeders = rawTitle.match(/👤\s*(\d+)/)?.[1] || "?";
     
-    // 2. Extract File Size (e.g., 3.14 GB or 850 MB)
+    // 3. Extract File Size
     const sizeMatch = rawTitle.match(/([0-9.]+ ?[GM]B)/i);
     const fileSize = sizeMatch ? sizeMatch[1] : "Unknown Size";
 
     const cleanTitle = rawTitle.toUpperCase();
 
-    // 3. Extract Quality/Resolution
+    // 4. Extract Quality/Resolution for the Header
     let resolution = "SD";
-    if (cleanTitle.includes("2160P") || cleanTitle.includes("4K")) resolution = "4K Ultra HD";
-    else if (cleanTitle.includes("1080P")) resolution = "1080p Full HD";
-    else if (cleanTitle.includes("720P")) resolution = "720p HD";
+    if (cleanTitle.includes("2160P") || cleanTitle.includes("4K")) resolution = "4K";
+    else if (cleanTitle.includes("1080P")) resolution = "1080p";
+    else if (cleanTitle.includes("720P")) resolution = "720p";
     else if (cleanTitle.includes("480P")) resolution = "480p";
-
-    // 4. Extract Source Type
-    let source = "WEB-DL";
-    if (cleanTitle.includes("BLURAY") || cleanTitle.includes("BDRIP")) source = "Blu-ray";
-    else if (cleanTitle.includes("REMUX")) source = "Remux (Lossless)";
-    else if (cleanTitle.includes("WEBRIP")) source = "WEBRip";
-
-    // 5. Extract Video Codec
-    let videoCodec = "H.264";
-    if (cleanTitle.includes("HEVC") || cleanTitle.includes("X265") || cleanTitle.includes("H265")) videoCodec = "HEVC / x265";
-    else if (cleanTitle.includes("X264") || cleanTitle.includes("H264")) videoCodec = "AVC / x264";
-    else if (cleanTitle.includes("AV1")) videoCodec = "AV1";
-
-    // 6. Extract HDR / Color Info
-    let hdrInfo = "SDR (Standard)";
-    if (cleanTitle.includes("DV") || cleanTitle.includes("DOLBY VISION")) hdrInfo = "Dolby Vision 🕶️";
-    else if (cleanTitle.includes("HDR10+")) hdrInfo = "HDR10+ ✨";
-    else if (cleanTitle.includes("HDR10")) hdrInfo = "HDR10 🌈";
-    else if (cleanTitle.includes("HDR")) hdrInfo = "HDR 🌈";
-
-    // 7. Extract Audio Profile (Dolby, DDP5.1, Atmos, etc.)
-    let audioInfo = "Stereo 2.0";
-    if (cleanTitle.includes("ATMOS")) audioInfo = "Dolby Atmos 🔊";
-    else if (cleanTitle.includes("DDP7.1") || cleanTitle.includes("DD+7.1")) audioInfo = "Dolby Digital Plus 7.1 🎧";
-    else if (cleanTitle.includes("DDP5.1") || cleanTitle.includes("DD+5.1")) audioInfo = "Dolby Digital Plus 5.1 🎬";
-    else if (cleanTitle.includes("DD5.1") || cleanTitle.includes("AC3") || cleanTitle.includes("5.1")) audioInfo = "Dolby Digital 5.1 🍿";
-    else if (cleanTitle.includes("DTS-HD")) audioInfo = "DTS-HD Master Audio 🎸";
-    else if (cleanTitle.includes("TRUEHD")) audioInfo = "Dolby TrueHD 🎹";
-
-    // 8. Extract Language
-    let language = "English 🇬🇧";
-    if (cleanTitle.includes("DUAL") || cleanTitle.includes("DUAL-AUDIO")) language = "Dual Audio 🌐";
-    else if (cleanTitle.includes("MULTI") || cleanTitle.includes("MULTILANG")) language = "Multi-Language 🌍";
-    else if (cleanTitle.includes("HINDI")) language = "Hindi 🇮🇳";
-    else if (cleanTitle.includes("SPANISH") || cleanTitle.includes("ESP")) language = "Spanish 🇪🇸";
 
     const magnet = buildMagnet(infoHash);
 
+    // 5. Structure the return strictly into your layout requirements
     return {
         url: magnet,
         quality: resolution,
-        // Raw structured object for your frontend subheadings/badges
-        metadata: {
-            resolution,
-            source,
-            fileSize,
-            videoCodec,
-            hdrInfo,
-            audioInfo,
-            language,
-            seeders
-        },
-        // Pre-formatted multi-line title block utilizing your requested emojis
-        title: `Torrentio | 🎬 ${resolution} (${source})\n` +
-               `📦 Size: ${fileSize} | 👥 Seeders: ${seeders}\n` +
-               `📹 Video: ${videoCodec} | ${hdrInfo}\n` +
-               `🔊 Audio: ${audioInfo} | 🌐 Lang: ${language}`
+        
+        // Exact layout mappings for your UI strings
+        header: `Torrentio | 👤 ${seeders} | ${resolution}`,
+        subheadingLine1: `🎬 ${fullTitle}`,
+        subheadingLine2: `👥 ${seeders} | 💾 ${fileSize} | ⚙️ Torrentio`
     };
 }
 
@@ -138,16 +97,15 @@ async function invokeTorrentio(imdbId, season, episode) {
         }
 
         const streams = [];
-        // Extract up to 15 streams
         for (const stream of json.streams.slice(0, 15)) {
             try {
                 if (!stream.infoHash) continue;
                 
-                // Construct the structured stream data block using our advanced extractor
+                // Process stream into your UI variables
                 const formattedStream = buildStream(stream, stream.infoHash);
                 streams.push(formattedStream);
             } catch (e) {
-                // Skip malformed individual streams
+                // Ignore individual parsing failures safely
             }
         }
         return streams;
@@ -164,10 +122,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     try {
         const imdbId = await getImdbId(tmdbId, mediaType);
         if (!imdbId) {
-            console.log("[TORRA] No IMDB ID found via TMDB");
+            console.log("[TORRA] No IMDB ID found");
             return [];
         }
-        console.log("[TORRA IMDB]", imdbId);
 
         const streams = await invokeTorrentio(
             imdbId,

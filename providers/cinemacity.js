@@ -1,172 +1,197 @@
 "use strict";
 
-// ─── Constants ──────────────────────────────────────────────────────
-var SOURCE_NAME = "VidCore";
-var VIDCORE_BASE = "https://vidcore.net";
-var TAG = "VidCore";
-var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36";
-var ENC_DEC_API = "https://enc-dec.app/api";
-
-// ─── HTTP Helpers (Pure Promises for Hermes) ────────────────────────
-function httpGet(url, customHeaders) {
-    var headers = customHeaders || {
-        "User-Agent": UA,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
+const __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    const fulfilled = (value) => {
+      try { step(generator.next(value)); } catch (e) { reject(e); }
     };
-    // Uses standard fetch which is fully injected in Nuvio
-    return fetch(url, { method: "GET", headers: headers })
-        .then(function (res) {
-            if (!res.ok) throw new Error("HTTP status " + res.status);
-            return res.text();
-        });
-}
+    const rejected = (value) => {
+      try { step(generator.throw(value)); } catch (e) { reject(e); }
+    };
+    const step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
 
-// ─── Data Extraction & URL Helpers ─────────────────────────────────
-function safeJsonParse(str) {
-    if (!str || typeof str !== "string") return null;
-    try { return JSON.parse(str); } catch (_) { return null; }
-}
+// Updated to your new URL base (stripped /manifest.json from the end for endpoint building)
+const SOOTIO_API = "https://sootiofortheweebs.midnightignite.me/%7B%22DebridServices%22%3A%5B%7B%22provider%22%3A%22httpstreaming%22%2C%22http4khdhub%22%3Afalse%2C%22httpHDHub4u%22%3Afalse%2C%22httpUHDMovies%22%3Afalse%2C%22httpMoviesDrive%22%3Afalse%2C%22httpMKVCinemas%22%3Atrue%2C%22httpMkvDrama%22%3Atrue%2C%22httpMalluMv%22%3Afalse%2C%22httpCineDoze%22%3Atrue%2C%22httpXDMovies%22%3Atrue%2C%22httpVixSrc%22%3Afalse%2C%22httpNetflixMirror%22%3Afalse%2C%22httpMoviesMod%22%3Atrue%2C%22httpMoviesLeech%22%3Atrue%2C%22httpAnimeFlix%22%3Afalse%2C%22enableProxy%22%3Afalse%2C%22proxyUrl%22%3A%22%22%2C%22proxyPassword%22%3A%22%22%7D%5D%2C%22Languages%22%3A%5B%5D%2C%22Resolutions%22%3A%5B%222160p%22%2C%221080p%22%5D%2C%22Scrapers%22%3A%5B%22jackett%22%2C%221337x%22%2C%22btdig%22%2C%22bitmagnet%22%2C%22knaben%22%2C%22extto%22%2C%22torrentdownload%22%5D%2C%22IndexerScrapers%22%3A%5B%22zilean%22%2C%22comet%22%2C%22stremthru%22%5D%2C%22ScrapersConfigured%22%3Atrue%2C%22minSize%22%3A0%2C%22maxSize%22%3A200%2C%22ShowCatalog%22%3Atrue%2C%22ProxyApplyAll%22%3Afalse%2C%22DebridProvider%22%3A%22httpstreaming%22%7D";
+const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
-function qualityLabel(h) {
-    if (h >= 2160) return "2160p";
-    if (h >= 1440) return "1440p";
-    if (h >= 1080) return "1080p";
-    if (h >= 720) return "720p";
-    if (h >= 480) return "480p";
-    return h ? h + "p" : "1080p"; // default fallback
-}
+const HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+};
 
-function resolveRelativeUrl(baseUrl, relativePath) {
-    if (!baseUrl) return relativePath;
-    if (relativePath.indexOf("//") === 0) return "https:" + relativePath;
-    if (relativePath.indexOf("/") === 0) {
-        var om = baseUrl.match(/^(https?:\/\/[^/]+)/);
-        return (om ? om[1] : "") + relativePath;
+const pad2 = (n) => String(Number.parseInt(n ?? 0, 10) || 0).padStart(2, "0");
+
+const cleanText = (str) =>
+  String(str ?? "")
+    .replace(/[\u{1F300}-\u{1F9FF}]|[\u{2600}-\u{26FF}]/gu, "")
+    .trim();
+
+const extractQuality = (titleText) => {
+  const match = String(titleText ?? "").match(/(\d{3,4}p)/i);
+  return match?.[0] ?? "Unknown";
+};
+
+const extractLanguage = (cleanedTitle) => {
+  const langMatch = String(cleanedTitle ?? "").match(/\(([^)]+)\)/);
+  if (!langMatch) return "Default";
+  const raw = langMatch[1].trim();
+  return raw.toLowerCase() === ""
+    ? "Default"
+    : raw.charAt(0).toUpperCase() + raw.slice(1).toLowerCase();
+};
+
+const isProxyUrl = (url) =>
+  String(url ?? "").includes("workers.dev") || /[?&]url=/.test(String(url ?? ""));
+
+function getImdbId(tmdbId, mediaType) {
+  return __async(this, null, function* () {
+    const type = mediaType === "tv" ? "tv" : "movie";
+    const url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+    try {
+      const response = yield fetch(url);
+      if (!response.ok) return null;
+      const data = yield response.json();
+      return data?.external_ids?.imdb_id ?? null;
+    } catch {
+      return null;
     }
-    var idx = baseUrl.lastIndexOf("/");
-    if (idx <= 8) return baseUrl + "/" + relativePath;
-    return baseUrl.substring(0, idx + 1) + relativePath;
+  });
 }
 
-function isValidStreamUrl(url) {
-    if (!url || typeof url !== "string") return false;
-    return url.indexOf("https://") === 0 || url.indexOf("http://") === 0;
-}
-
-// ─── M3U8 Master Parser ───────────────────────────────────────────
-function parseM3U8Master(playlistUrl, referer) {
-    var headers = { "User-Agent": UA, "Accept": "*/*", "Referer": referer || VIDCORE_BASE + "/" };
-    
-    return httpGet(playlistUrl, headers)
-        .then(function (content) {
-            if (!content || content.indexOf("#EXTM3U") === -1 || content.indexOf("#EXT-X-STREAM-INF:") === -1) {
-                return [{ url: playlistUrl, quality: "1080p" }];
-            }
-
-            var lines = content.split("\n");
-            var variants = [];
-
-            for (var li = 0; li < lines.length; li++) {
-                var line = lines[li];
-                if (line.indexOf("#EXT-X-STREAM-INF:") !== -1) {
-                    var resMatch = line.match(/RESOLUTION=\d+x(\d+)/i);
-                    var height = resMatch ? parseInt(resMatch[1], 10) : 0;
-
-                    for (var ni = li + 1; ni < lines.length; ni++) {
-                        var urlPart = lines[ni].trim();
-                        if (urlPart && urlPart.indexOf("#") !== 0) {
-                            variants.push({
-                                url: urlPart.indexOf("http") === 0 ? urlPart : resolveRelativeUrl(playlistUrl, urlPart),
-                                quality: qualityLabel(height)
-                            });
-                            break;
-                        }
-                    }
-                }
-            }
-            return variants.length ? variants : [{ url: playlistUrl, quality: "1080p" }];
-        })
-        .catch(function () {
-            return [{ url: playlistUrl, quality: "1080p" }];
-        });
-}
-
-// ─── Parsing Fallbacks & RSC Scripts ──────────────────────────────
-function extractM3U8FromScripts(html) {
-    if (!html) return [];
-    var results = [];
-    var seen = {};
-    
-    var directRegex = /https?:\/\/[^"'\s<>]+\.(?:m3u8|mp4)[^"'\s<>]*/gi;
-    var match;
-    while ((match = directRegex.exec(html)) !== null) {
-        var u = match[0].trim();
-        if (!seen[u]) { seen[u] = true; results.push(u); }
+function resolveProxyUrl(url) {
+  return __async(this, null, function* () {
+    try {
+      const response = yield fetch(url, {
+        redirect: "follow",
+        headers: { ...HEADERS, "Referer": url },
+      });
+      const finalUrl = response.url;
+      if ([".m3u8", ".mp4", ".mkv"].some((ext) => finalUrl.includes(ext))) {
+        return finalUrl;
+      }
+      const contentType = response.headers.get("content-type") ?? "";
+      if (contentType.includes("text/plain")) {
+        const text = yield response.text();
+        return text.trim() || null;
+      }
+      if (contentType.includes("application/json")) {
+        const data = yield response.json();
+        return data?.url ?? data?.stream ?? data?.src ?? null;
+      }
+      return finalUrl || null;
+    } catch {
+      return null;
     }
-    return results;
+  });
 }
 
-// ─── Core Nuvio Hook Entrypoint ────────────────────────────────────
+const detectStreamType = (url) => {
+  if (!url)
+    return "video";
+  const lower = String(url).toLowerCase().split("?")[0];
+  return lower.includes(".m3u8") ? "m3u8" : "video";
+};
+
+function buildStream(item) {
+  return __async(this, null, function* () {
+    if (!item?.url || item.externalUrl) return null;
+    if (String(item.url).includes("github.com")) return null;
+
+    const cleanedTitle = cleanText(item.title);
+    const quality = extractQuality(cleanedTitle);
+    const language = extractLanguage(cleanedTitle);
+
+    const headers = {
+      ...(item.behaviorHints?.proxyHeaders?.request ?? {}),
+      ...(item.behaviorHints?.headers ?? {}),
+    };
+
+    const streamUrl = isProxyUrl(item.url)
+      ? yield resolveProxyUrl(item.url)
+      : item.url;
+
+    if (!streamUrl) return null;
+
+    // Updated provider label to Sootio
+    const nameParts = ["Sootio."];
+    if (language !== "Default") nameParts.push(language);
+
+    return {
+      name: nameParts.join(" • "),
+      title: quality,
+      url: streamUrl,
+      quality: quality !== "Unknown" ? quality : "Multi-Res", 
+      ...(Object.keys(headers).length > 0 ? { headers } : {}),
+      provider: "Sootio",
+    };
+  });
+}
+
+function parseStreams(data) {
+  return __async(this, null, function* () {
+    if (!Array.isArray(data?.streams) || data.streams.length === 0) return [];
+
+    const validItems = data.streams.filter((item) => {
+      const cleanedTitle = cleanText(item?.title);
+      if (!cleanedTitle.toLowerCase().includes("")) return false;
+      if (typeof item?.url !== "string" || !item.url.startsWith("https")) return false;
+
+      const innerMatch = item.url.match(/[?&]url=(https?:\/\/[^&]+)/);
+      return !innerMatch || innerMatch[1].startsWith("https");
+    });
+
+    const streams = yield Promise.all(validItems.map(buildStream));
+    return streams.filter(Boolean);
+  });
+}
+
+function fetchStreams(url) {
+  return __async(this, null, function* () {
+    try {
+      const response = yield fetch(url);
+      if (!response.ok) return [];
+      const data = yield response.json();
+      return yield parseStreams(data);
+    } catch {
+      return [];
+    }
+  });
+}
+
+function fetchFirstValid(urls) {
+  return __async(this, null, function* () {
+    for (const url of urls) {
+      const streams = yield fetchStreams(url);
+      if (streams.length > 0) return streams;
+    }
+    return [];
+  });
+}
+
 function getStreams(tmdbId, mediaType, season, episode) {
-    var type = (mediaType === "tv" || mediaType === "series") ? "tv" : "movie";
-    var s = season || 1;
-    var ep = episode || 1;
-    
-    var streamsOutput = [];
+  return __async(this, null, function* () {
+    const isSeries = mediaType === "tv" || season != null || episode != null;
+    const s = season ?? 1;
+    const e = episode ?? 1;
 
-    // Route 1: Try endpoint API Probing
-    var apiUrl = type === "tv" 
-        ? VIDCORE_BASE + "/api/tv/" + tmdbId + "/" + s + "/" + ep
-        : VIDCORE_BASE + "/api/movie/" + tmdbId;
+    try {
+      const imdbId = yield getImdbId(tmdbId, isSeries ? "tv" : "movie");
+      if (!imdbId) return [];
 
-    return httpGet(apiUrl)
-        .then(function (resp) {
-            var data = safeJsonParse(resp);
-            if (data && data.url) return data.url;
-            throw new Error("No direct API stream tracking URL");
-        })
-        .catch(function () {
-            // Route 2 Fallback: Scrape the HTML Embed Page directly
-            var embedUrl = type === "tv"
-                ? VIDCORE_BASE + "/tv/" + tmdbId + "/" + s + "/" + ep
-                : VIDCORE_BASE + "/movie/" + tmdbId;
-            return httpGet(embedUrl).then(function (html) {
-                var found = extractM3U8FromScripts(html);
-                if (found.length > 0) return found[0];
-                
-                // Route 3 Fallback: Try proxy resolver endpoint
-                var proxyUrl = type === "tv"
-                    ? ENC_DEC_API + "/vidcore/tv/" + tmdbId + "/" + s + "/" + ep
-                    : ENC_DEC_API + "/vidcore/movie/" + tmdbId;
-                return httpGet(proxyUrl).then(function (pResp) {
-                    var pData = safeJsonParse(pResp);
-                    if (pData && pData.url) return pData.url;
-                    throw new Error("All scrapers exhausted");
-                });
-            });
-        })
-        .then(function (finalStreamUrl) {
-            if (!isValidStreamUrl(finalStreamUrl)) return [];
-            
-            // Expand master manifests into individual stream tracks for Nuvio
-            return parseM3U8Master(finalStreamUrl, VIDCORE_BASE + "/");
-        })
-        .then(function (variants) {
-            return variants.map(function (v) {
-                return {
-                    name: SOURCE_NAME,
-                    title: "VidCore Server (" + v.quality + ")",
-                    url: v.url,
-                    quality: v.quality
-                };
-            });
-        })
-        .catch(function (err) {
-            console.error("[" + TAG + "] Error parsing targets: ", err.message);
-            return []; // Always fallback cleanly to an empty stream array
-        });
+      if (!isSeries) {
+        return yield fetchStreams(`${SOOTIO_API}/stream/movie/${imdbId}.json`);
+      }
+
+      return yield fetchFirstValid([
+        `${SOOTIO_API}/stream/series/${imdbId}:${pad2(s)}:${pad2(e)}.json`,
+        `${SOOTIO_API}/stream/series/${imdbId}:${parseInt(s, 10) || 1}:${parseInt(e, 10) || 1}.json`,
+      ]);
+    } catch {
+      return [];
+    }
+  });
 }
 
-// Export the precise function Nuvio checks for out of the box
-module.exports = { getStreams: getStreams };
+module.exports = { getStreams };

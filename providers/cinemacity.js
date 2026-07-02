@@ -25,42 +25,86 @@ function buildMagnet(infoHash) {
 }
 
 // ======================================
-// METADATA PARSER (DESIGNED FOR YOUR UI LAYOUT)
+// METADATA PARSER MATCHING 1000144764.JPG
 // ======================================
 function buildStream(stream, infoHash) {
     const rawTitle = stream.title || "";
-    
-    // 1. Cleanly isolate the Raw Filename (Full Release Title)
-    // Torrentio usually splits the title line with newlines '\n'. The first line is typically the filename.
-    const fullTitle = rawTitle.split("\n")[0].trim();
+    const cleanTitle = rawTitle.toUpperCase();
 
-    // 2. Extract Seeders
+    // 1. Extract Seeders
     const seeders = rawTitle.match(/👤\s*(\d+)/)?.[1] || "?";
     
-    // 3. Extract File Size
+    // 2. Extract File Size
     const sizeMatch = rawTitle.match(/([0-9.]+ ?[GM]B)/i);
     const fileSize = sizeMatch ? sizeMatch[1] : "Unknown Size";
 
-    const cleanTitle = rawTitle.toUpperCase();
+    // 3. Extract Quality / Resolution Display Name
+    let resolutionDisplay = "SD Quality";
+    let pureResolution = "SD";
+    if (cleanTitle.includes("2160P") || cleanTitle.includes("4K")) {
+        resolutionDisplay = "4K Ultra HD";
+        pureResolution = "4K Ultra HD";
+    } else if (cleanTitle.includes("1080P")) {
+        resolutionDisplay = "1080p Full HD";
+        pureResolution = "1080p Full HD";
+    } else if (cleanTitle.includes("720P")) {
+        resolutionDisplay = "720p HD";
+        pureResolution = "720p HD";
+    } else if (cleanTitle.includes("480P")) {
+        resolutionDisplay = "480p";
+        pureResolution = "480p";
+    }
 
-    // 4. Extract Quality/Resolution for the Header
-    let resolution = "SD";
-    if (cleanTitle.includes("2160P") || cleanTitle.includes("4K")) resolution = "4K";
-    else if (cleanTitle.includes("1080P")) resolution = "1080p";
-    else if (cleanTitle.includes("720P")) resolution = "720p";
-    else if (cleanTitle.includes("480P")) resolution = "480p";
+    // 4. Extract Source Type
+    let source = "(WEB-DL)";
+    if (cleanTitle.includes("BLURAY") || cleanTitle.includes("BDRIP")) source = "(Blu-ray)";
+    else if (cleanTitle.includes("REMUX")) source = "(Remux)";
+    else if (cleanTitle.includes("WEBRIP")) source = "(WEBRip)";
+
+    // 5. Extract Video Codec
+    let videoCodec = "H.264";
+    if (cleanTitle.includes("HEVC") || cleanTitle.includes("X265") || cleanTitle.includes("H265")) videoCodec = "HEVC / x265";
+    else if (cleanTitle.includes("X264") || cleanTitle.includes("H264")) videoCodec = "AVC / x264";
+    else if (cleanTitle.includes("AV1")) videoCodec = "AV1";
+
+    // 6. Extract HDR / Color Info
+    let hdrInfo = "SDR (Standard)";
+    if (cleanTitle.includes("DV") || cleanTitle.includes("DOLBY VISION")) hdrInfo = "Dolby Vision 🕶️";
+    else if (cleanTitle.includes("HDR10+")) hdrInfo = "HDR10+ ✨";
+    else if (cleanTitle.includes("HDR10")) hdrInfo = "HDR10 🌈";
+    else if (cleanTitle.includes("HDR")) hdrInfo = "HDR 🌈";
+
+    // 7. Extract Audio Profile
+    let audioInfo = "Stereo 2.0";
+    if (cleanTitle.includes("ATMOS")) audioInfo = "Dolby Atmos 🔊";
+    else if (cleanTitle.includes("DDP7.1") || cleanTitle.includes("DD+7.1")) audioInfo = "Dolby Digital Plus 7.1 🎧";
+    else if (cleanTitle.includes("DDP5.1") || cleanTitle.includes("DD+5.1")) audioInfo = "Dolby Digital Plus 5.1 🎬";
+    else if (cleanTitle.includes("DD5.1") || cleanTitle.includes("AC3") || cleanTitle.includes("5.1")) audioInfo = "Dolby Digital 5.1 🍿";
+    else if (cleanTitle.includes("DTS-HD")) audioInfo = "DTS-HD Master Audio 🎸";
+    else if (cleanTitle.includes("TRUEHD")) audioInfo = "Dolby TrueHD 🎹";
+
+    // 8. Extract Language
+    let language = "English 🇬🇧";
+    if (cleanTitle.includes("DUAL") || cleanTitle.includes("DUAL-AUDIO")) language = "Dual Audio 🌐";
+    else if (cleanTitle.includes("MULTI") || cleanTitle.includes("MULTILANG")) language = "Multi-Language 🌍";
+    else if (cleanTitle.includes("HINDI")) language = "Hindi 🇮🇳";
+    else if (cleanTitle.includes("SPANISH") || cleanTitle.includes("ESP")) language = "Spanish 🇪🇸";
 
     const magnet = buildMagnet(infoHash);
 
-    // 5. Structure the return strictly into your layout requirements
     return {
         url: magnet,
-        quality: resolution,
+        quality: pureResolution,
         
-        // Exact layout mappings for your UI strings
-        header: `Torrentio | 👤 ${seeders} | ${resolution}`,
-        subheadingLine1: `🎬 ${fullTitle}`,
-        subheadingLine2: `👥 ${seeders} | 💾 ${fileSize} | ⚙️ Torrentio`
+        // Exact 1:1 mapping variables to print out line-by-line in your UI cards
+        uiLines: {
+            line1: `Torrentio | 🎬 ${resolutionDisplay}`,
+            line2: `${source}`,
+            line3: `📦 Size: ${fileSize} | 👥 Seeders: ${seeders}`,
+            line4: `📹 Video: ${videoCodec} | ${hdrInfo}`,
+            line5: `🔊 Audio: ${audioInfo} | 🌐 Lang: ${language}`,
+            bottomBadge: `${pureResolution}`
+        }
     };
 }
 
@@ -101,12 +145,9 @@ async function invokeTorrentio(imdbId, season, episode) {
             try {
                 if (!stream.infoHash) continue;
                 
-                // Process stream into your UI variables
                 const formattedStream = buildStream(stream, stream.infoHash);
                 streams.push(formattedStream);
-            } catch (e) {
-                // Ignore individual parsing failures safely
-            }
+            } catch (e) {}
         }
         return streams;
     } catch (e) {
@@ -121,10 +162,7 @@ async function invokeTorrentio(imdbId, season, episode) {
 async function getStreams(tmdbId, mediaType, season, episode) {
     try {
         const imdbId = await getImdbId(tmdbId, mediaType);
-        if (!imdbId) {
-            console.log("[TORRA] No IMDB ID found");
-            return [];
-        }
+        if (!imdbId) return [];
 
         const streams = await invokeTorrentio(
             imdbId,
@@ -133,7 +171,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         );
         return streams;
     } catch (e) {
-        console.log("[TORRA FATAL]", e);
         return [];
     }
 }

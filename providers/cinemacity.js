@@ -315,7 +315,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         const data = await extractHLS(streamUrl, srv.domain);
         
         if (data) {
-          const matchedQuality = (data.quality || "1080p").toUpperCase();
+          const matchedQuality = (data.quality || "1080p").toLowerCase();
           
           // Generate your conditional Line 3 dynamic strings explicitly
           const displayLang = type === "sub" ? "🇯🇵 Japanese" : "🇺🇲 English";
@@ -328,7 +328,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           // CUSTOM MULTI-LINE MOBILE COMPATIBLE PRESENTATION
           // ==========================================
           // Top bold header title card
-          const headerText = `${PROVIDER_NAME} | ${matchedQuality} | (${cleanLangHeader})`;
+          const headerText = `${PROVIDER_NAME} | ${matchedQuality} | ${cleanLangHeader}`;
 
           // Subheading Line 1
           const line1 = `🎦 ${metaDetails.title} - (${metaDetails.year})`;
@@ -338,10 +338,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             ? `🎬 Movie Presentation`
             : `🎬 S${season || 1} E${episode || 1} - ${metaDetails.epTitle}`;
 
-          // Subheading Line 3 (Refactored String Structure)
+          // Subheading Line 3 
           const line3 = `✨ ${matchedQuality} | ${displayLang} • 🗣️ ${displayAudioType}`;
 
-          // Subheading Line 4 (Updated duration icon to ⏳)
+          // Subheading Line 4 
           const line4 = `⚡ ${formatType} | ⏳ ${metaDetails.duration} | 🔗 ${srv.id}`;
 
           const fullLayout = `${line1}\n${line2}\n${line3}\n${line4}`;

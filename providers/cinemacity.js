@@ -319,8 +319,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           
           // Generate your conditional Line 3 dynamic strings explicitly
           const displayLang = type === "sub" ? "🇯🇵 Japanese" : "🇺🇲 English";
-          const displayAudioType = type === "sub" ? "Sub" : "Dub";
-          const cleanLangHeader = type === "sub" ? "ORIGINAL SUB" : "ENGLISH DUB";
+          const displayAudioType = type === "sub" ? "SUB" : "DUB";
+          const cleanLangHeader = type === "sub" ? "Japanese (SUB)" : "English (DUB)";
           
           const formatType = data.url.includes(".m3u8") ? "HLS" : "M3U8";
 
@@ -330,7 +330,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           // Top bold header title card
           const headerText = `${PROVIDER_NAME} | ${matchedQuality} | (${cleanLangHeader})`;
 
-          // Subheading Line 1 (Updated icon to 🎦)
+          // Subheading Line 1
           const line1 = `🎦 ${metaDetails.title} - (${metaDetails.year})`;
 
           // Subheading Line 2
@@ -339,10 +339,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             : `🎬 S${season || 1} E${episode || 1} - ${metaDetails.epTitle}`;
 
           // Subheading Line 3 (Refactored String Structure)
-          const line3 = `${matchedQuality} | ${displayLang} | 🗣️ ${displayAudioType}`;
+          const line3 = `✨ ${matchedQuality} | ${displayLang} • 🗣️ ${displayAudioType}`;
 
           // Subheading Line 4 (Updated duration icon to ⏳)
-          const line4 = `${formatType} | ⏳ ${metaDetails.duration} | 🔗 ${srv.id}`;
+          const line4 = `⚡ ${formatType} | ⏳ ${metaDetails.duration} | 🔗 ${srv.id}`;
 
           const fullLayout = `${line1}\n${line2}\n${line3}\n${line4}`;
 

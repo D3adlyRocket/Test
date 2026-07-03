@@ -1,315 +1,376 @@
-/**
- * watchanimeworld - Built from src/watchanimeworld/
- * Generated: 2026-07-03T13:30:07.967Z
- */
-var __create = Object.create;
-var __defProp = Object.defineProperty;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
-};
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
+"use strict";
 
-// src/watchanimeworld/http.js
-var BASE_URL = "https://watchanimeworld.net";
-var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-  "Accept-Language": "en-US,en;q=0.9",
-  "Referer": BASE_URL + "/",
-  "X-Requested-With": "XMLHttpRequest"
-};
-function fetchText(url, extra) {
-  return __async(this, null, function* () {
-    var opts = Object.assign({ headers: Object.assign({}, HEADERS) }, extra || {});
-    if (extra && extra.headers) {
-      Object.assign(opts.headers, extra.headers);
-    }
-    console.log("[watchanimeworld] GET " + url);
-    var res = yield fetch(url, opts);
-    if (!res.ok) {
-      throw new Error("HTTP " + res.status + " for " + url);
-    }
-    return yield res.text();
-  });
-}
-function fetchPage(path, extra) {
-  return fetchText(BASE_URL + path, extra);
-}
+const PROVIDER_NAME = "AnikotoTV"; 
+const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c"; 
+const TVDB_API_KEY = "777140fb-de92-440a-aec2-95eb51e2d7ab"; 
 
-// src/watchanimeworld/extractor.js
-var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
-var SEL_SEARCH_RESULT_LINK = ".search-results a, .result-item a, .post-item a";
-var SEL_SEARCH_RESULT_TITLE = "h2, h3, .title, .post-title";
-var SEL_EPISODE_LINK = ".ep-list > a, .episode-list a, .episodes a, .listing a";
-var SEL_VIDEO_SRC_DIRECT = "#player source, video source";
-var ATTR_VIDEO_SRC_DIRECT = "src";
-var SEL_PLAYER_EMBED = "#player";
-var ATTR_PLAYER_EMBED = "data-src";
-var SEL_IFRAME = "iframe.embed-player, iframe.video-player, .video iframe";
-var SEL_QUALITY_BADGE = ".quality-badge, .server-quality, .label-quality";
-function searchUrl(query) {
-  return "/search/" + encodeURIComponent(query);
-}
-function episodeUrl(slug, season, episode) {
-  if (season && season > 1) {
-    return "/" + slug + "/season-" + season + "-episode-" + episode;
+const MOBILE_UAS = [ 
+  "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36", 
+  "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36", 
+  "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36", 
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1" 
+]; 
+
+function getHeaders(extra) { 
+  var ua = MOBILE_UAS[Math.floor(Math.random() * MOBILE_UAS.length)]; 
+  var h = { "User-Agent": ua, "Accept-Language": "en-US,en;q=0.9" }; 
+  if (extra) { for (var k in extra) { h[k] = extra[k]; } } 
+  return h; 
+} 
+
+var _tvdbToken = null; 
+async function getTvdbToken() { 
+  if (_tvdbToken) return _tvdbToken; 
+  try { 
+    var res = await fetch("https://api4.thetvdb.com/v4/login", { 
+      method: "POST", 
+      headers: { "Content-Type": "application/json" }, 
+      body: JSON.stringify({ apikey: TVDB_API_KEY }) 
+    }); 
+    if (res.ok) { 
+      var data = await res.json(); 
+      if (data && data.data && data.data.token) _tvdbToken = data.data.token; 
+    } 
+  } catch (e) {} 
+  return _tvdbToken; 
+} 
+
+// Enhanced TMDB Context Fetcher to pull Years & Episode Titles
+async function getTMDBDetails(tmdbId, mediaType, season, episode) {
+  const type = (mediaType === 'tv' || mediaType === 'series') ? 'tv' : 'movie';
+  let url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+  
+  if (String(tmdbId).startsWith("tt")) {
+    url = `https://api.themoviedb.org/3/find/${tmdbId}?external_source=imdb_id&api_key=${TMDB_API_KEY}`;
   }
-  return "/" + slug + "-episode-" + episode;
-}
-function parseQuality(raw) {
-  if (!raw)
-    return null;
-  var match = raw.match(/\b(4K|2160p|1080p|720p|480p|360p|CAM|HD|SD|FHD)\b/i);
-  return match ? match[1].toUpperCase() : null;
-}
-function extractUrlFromScripts(html) {
-  var patterns = [
-    /["'](https?:\/\/[^\s"']+\.(m3u8|mp4))["']/i,
-    /file\s*:\s*["'](https?:\/\/[^\s"']+)["']/i,
-    /source\s*:\s*["'](https?:\/\/[^\s"']+)["']/i,
-    /video_url\s*=\s*["'](https?:\/\/[^\s"']+)["']/i,
-    /data-url\s*=\s*["'](https?:\/\/[^\s"']+)["']/i
-  ];
-  for (var i = 0; i < patterns.length; i++) {
-    var m = html.match(patterns[i]);
-    if (m)
-      return m[1];
-  }
-  return null;
-}
-function extractFromIframe($) {
-  var src = $(SEL_IFRAME).attr("src");
-  if (src) {
-    if (src.startsWith("/")) {
-      src = BASE_URL + src;
+
+  try {
+    const res = await fetch(url, { headers: getHeaders() });
+    if (!res.ok) return { title: "Anime Title", year: "2026", epTitle: `Episode ${episode}` };
+    const data = await res.json();
+    
+    let target = data;
+    if (String(tmdbId).startsWith("tt")) {
+      target = type === 'tv' ? data.tv_results?.[0] : data.movie_results?.[0];
     }
-    return src;
-  }
-  return null;
-}
-function searchAnime(title) {
-  return __async(this, null, function* () {
-    var html = yield fetchPage(searchUrl(title));
-    var $ = import_cheerio_without_node_native.default.load(html);
-    var result = null;
-    $(SEL_SEARCH_RESULT_LINK).each(function() {
-      var el = $(this);
-      var link = el.attr("href") || "";
-      var name = el.find(SEL_SEARCH_RESULT_TITLE).text().trim() || el.text().trim();
-      if (!name)
-        return;
-      var normalisedName = name.toLowerCase();
-      var normalisedQuery = title.toLowerCase();
-      if (normalisedName.indexOf(normalisedQuery) !== -1 || normalisedQuery.indexOf(normalisedName.split(/[:\-(]/)[0].trim()) !== -1) {
-        result = {
-          slug: link.replace(/^\/|\/$/g, "").split("/").pop(),
-          title: name,
-          detailUrl: link.startsWith("http") ? link : BASE_URL + link
-        };
-        return false;
-      }
-    });
-    if (!result) {
-      console.log('[watchanimeworld] No search result matched "' + title + '"');
-    }
-    return result;
-  });
-}
-function resolveEpisodePage(detailUrl, season, episode) {
-  return __async(this, null, function* () {
-    var html = yield fetchText(detailUrl);
-    var $ = import_cheerio_without_node_native.default.load(html);
-    var slug = detailUrl.replace(BASE_URL, "").replace(/^\/|\/$/g, "").split("/")[0];
-    var constructed = episodeUrl(slug, season, episode);
-    console.log("[watchanimeworld] Trying constructed URL: " + constructed);
-    var found = false;
-    $(SEL_EPISODE_LINK).each(function() {
-      var href = $(this).attr("href") || "";
-      var epNum = String(episode);
-      if (href.indexOf(epNum) !== -1) {
-        found = true;
-        constructed = href.startsWith("http") ? href : BASE_URL + href;
-        return false;
-      }
-    });
-    if (!found) {
-      console.log("[watchanimeworld] Episode " + episode + " not found in listing, falling back to constructed URL: " + constructed);
-    }
-    return BASE_URL + constructed;
-  });
-}
-function extractStreamsFromPage(episodePageUrl) {
-  return __async(this, null, function* () {
-    var html = yield fetchText(episodePageUrl);
-    var $ = import_cheerio_without_node_native.default.load(html);
-    var streams = [];
-    var directSrc = $(SEL_VIDEO_SRC_DIRECT).attr(ATTR_VIDEO_SRC_DIRECT);
-    if (directSrc) {
-      var quality = parseQuality($(SEL_QUALITY_BADGE).first().text()) || "AUTO";
-      streams.push({
-        name: "watchanimeworld",
-        title: quality + " \u2014 Direct",
-        url: directSrc,
-        quality,
-        headers: HEADERS
-      });
-    }
-    if (streams.length === 0) {
-      var embedSrc = $(SEL_PLAYER_EMBED).attr(ATTR_PLAYER_EMBED);
-      if (embedSrc) {
-        var qualityB = parseQuality($(SEL_QUALITY_BADGE).first().text()) || "AUTO";
-        streams.push({
-          name: "watchanimeworld",
-          title: qualityB + " \u2014 Embed",
-          url: embedSrc,
-          quality: qualityB,
-          headers: HEADERS
-        });
-      }
-    }
-    if (streams.length === 0) {
-      var iframeUrl = extractFromIframe($);
-      if (iframeUrl) {
-        streams.push({
-          name: "watchanimeworld",
-          title: "Embed Player",
-          url: iframeUrl,
-          quality: "AUTO",
-          headers: HEADERS
-        });
-      }
-    }
-    if (streams.length === 0) {
-      var scriptUrl = extractUrlFromScripts(html);
-      if (scriptUrl) {
-        var inferredQuality = "AUTO";
-        if (scriptUrl.indexOf(".m3u8") !== -1) {
-          inferredQuality = "AUTO";
+    if (!target) return { title: "Anime Title", year: "2026", epTitle: `Episode ${episode}` };
+
+    const title = type === 'tv' ? target.name : target.title;
+    const dateStr = target.release_date || target.first_air_date || "";
+    const year = dateStr ? dateStr.split("-")[0] : "2026";
+    
+    let epTitle = `Episode ${episode}`;
+    let duration = "24 min";
+    
+    // Grab single runtime and fallback episode descriptions cleanly
+    if (type === 'tv' && target.id && season && episode) {
+      try {
+        const epUrl = `https://api.themoviedb.org/3/tv/${target.id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
+        const epRes = await fetch(epUrl, { headers: getHeaders() });
+        if (epRes.ok) {
+          const epData = await epRes.json();
+          if (epData.name) epTitle = epData.name;
+          if (epData.runtime) duration = `${epData.runtime} min`;
         }
-        streams.push({
-          name: "watchanimeworld",
-          title: inferredQuality + " \u2014 Script Extract",
-          url: scriptUrl,
-          quality: inferredQuality,
-          headers: HEADERS
-        });
+      } catch (e) {}
+    } else if (type === 'movie' && target.runtime) {
+      duration = `${target.runtime} min`;
+    }
+
+    return { title, year, epTitle, duration };
+  } catch (e) {
+    return { title: "Anime Title", year: "2026", epTitle: `Episode ${episode}`, duration: "24 min" };
+  }
+}
+
+async function getTMDBTitle(tmdbId, mediaType) {
+  const data = await getTMDBDetails(tmdbId, mediaType);
+  return { title: data.title, numericId: tmdbId };
+}
+
+async function getTMDBSeasonName(tmdbId, season) {
+  const url = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}?api_key=${TMDB_API_KEY}`;
+  try {
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      return data.name;
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function aniListBridge(title) {
+  const query = ` query ($search: String) { Media (search: $search, type: ANIME) { id idMal } } `;
+  try {
+    const res = await fetch("https://graphql.anilist.co", {
+      method: "POST",
+      headers: Object.assign(getHeaders(), { "Content-Type": "application/json", "Accept": "application/json" }),
+      body: JSON.stringify({ query: query, variables: { search: title } })
+    });
+    const data = await res.json();
+    if (data && data.data && data.data.Media) {
+      return { malId: data.data.Media.idMal, aniId: data.data.Media.id, absEp: null };
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function getMalId(tmdbId, mediaType, season, episode) {
+  try {
+    let url = `https://arm.haglund.dev/api/v2/tmdb?id=${tmdbId}`;
+    if (mediaType === 'tv' || mediaType === 'series') url += `&s=${season}&e=${episode}`;
+    const res = await fetch(url);
+    if (res.ok) {
+      const data = await res.json();
+      if (data.mal || data.mal_id || data.anilist || data.ani_id) {
+        return { malId: data.mal || data.mal_id, aniId: data.anilist || data.ani_id, absEp: data.episode || episode };
       }
     }
-    if (streams.length === 0) {
-      console.log("[watchanimeworld] No streams found on: " + episodePageUrl);
+  } catch (e) {}
+
+  const tmdbData = await getTMDBTitle(tmdbId, mediaType);
+  let searchTitle = tmdbData.title;
+  const numericTmdbId = tmdbData.numericId;
+  if (searchTitle) {
+    let originalSearchTitle = searchTitle;
+    if ((mediaType === 'tv' || mediaType === 'series') && season > 1 && numericTmdbId) {
+      const seasonName = await getTMDBSeasonName(numericTmdbId, season);
+      if (seasonName) {
+        if (seasonName.toLowerCase().includes(searchTitle.toLowerCase())) {
+          searchTitle = seasonName;
+        } else {
+          searchTitle = `${searchTitle} ${seasonName}`;
+        }
+      } else {
+        searchTitle = `${searchTitle} Season ${season}`;
+      }
+    }
+    let mapping = await aniListBridge(searchTitle);
+    let usedFallback = false;
+    if ((!mapping || (mapping && !mapping.malId)) && searchTitle !== originalSearchTitle) {
+      mapping = await aniListBridge(originalSearchTitle);
+      usedFallback = true;
+    }
+    if (mapping) {
+      mapping.absEp = episode;
+      mapping.usedFallback = usedFallback;
+      mapping.name = tmdbData.title;
+      return mapping;
+    }
+  }
+  return null;
+}
+
+async function extractHLS(embedUrl, domain) {
+  try {
+    const hdrs = Object.assign(getHeaders(), { "Referer": `https://${domain}/` });
+    const res = await fetch(embedUrl, { headers: hdrs });
+    if (!res.ok) return null;
+    const html = await res.text();
+    let match = html.match(/data-id="(\d+)"/);
+    if (!match) {
+      const iframeMatch = html.match(/<iframe[^>]*src="([^"]+)"/);
+      if (iframeMatch) {
+        const iframeUrl = iframeMatch[1].startsWith('http') ? iframeMatch[1] : `https://${domain}${iframeMatch[1]}`;
+        const iframeRes = await fetch(iframeUrl, { headers: hdrs });
+        if (iframeRes.ok) {
+          const iframeHtml = await iframeRes.text();
+          match = iframeHtml.match(/data-id="(\d+)"/);
+        }
+      }
+    }
+    if (!match) return null;
+    const dataId = match[1];
+    const sourceUrl = `https://${domain}/stream/getSources?id=${dataId}`;
+    const sourceRes = await fetch(sourceUrl, { headers: Object.assign(getHeaders(), { "X-Requested-With": "XMLHttpRequest", "Referer": embedUrl }) });
+    if (!sourceRes.ok) return null;
+    const json = await sourceRes.json();
+    if (json.sources && json.sources.file) {
+      const subtitles = [];
+      if (json.tracks) {
+        for (const track of json.tracks) {
+          if (track.kind === "captions" || track.kind === "subtitles") {
+            subtitles.push({ id: track.label || track.file || "Unknown", url: track.file, language: 'eng' });
+          }
+        }
+      }
+      var quality = "1080p";
+      try {
+        const m3u8Res = await fetch(json.sources.file, { headers: { "Referer": `https://${domain}/` } });
+        if (m3u8Res.ok) {
+          const m3u8Text = await m3u8Res.text();
+          var qMatch = m3u8Text.match(/RESOLUTION=\d+x(\d+)/);
+          if (qMatch) quality = qMatch[1] + "p";
+        }
+      } catch (e) {}
+      return { url: json.sources.file, quality: quality, subtitles: subtitles, headers: { "Referer": `https://${domain}/`, "Origin": `https://${domain}` } };
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function fetchJson(url, options = {}) {
+  const res = await fetch(url, options);
+  if (!res.ok) return null;
+  return await res.json();
+}
+
+async function getAbsoluteEpisode(tmdbId, mediaType, season, episode, seriesName) {
+  if (mediaType === 'movie') return 1;
+  let absEp = episode;
+  let imdbId = null;
+  let tvdbId = null;
+  try {
+    const extRes = await fetchJson(`https://api.themoviedb.org/3/tv/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`);
+    if (extRes) {
+      imdbId = extRes.imdb_id;
+      tvdbId = extRes.tvdb_id;
+    }
+  } catch (e) {}
+  if (!tvdbId && seriesName) {
+    try {
+      const tvdbToken = await getTvdbToken();
+      if (tvdbToken) {
+        const searchRes = await fetchJson(`https://api4.thetvdb.com/v4/search?query=${encodeURIComponent(seriesName)}`, { headers: { 'Authorization': 'Bearer ' + tvdbToken } });
+        if (searchRes && searchRes.data) {
+          const match = searchRes.data.find(s => s.type === 'series');
+          if (match) {
+            const idStr = match.id || match.tvdb_id;
+            if (idStr) tvdbId = parseInt(String(idStr).replace(/^series-/, ''), 10);
+          }
+        }
+      }
+    } catch (e) {}
+  }
+  if (tvdbId) {
+    try {
+      const tvdbToken = await getTvdbToken();
+      if (tvdbToken) {
+        const epRes = await fetchJson(`https://api4.thetvdb.com/v4/series/${tvdbId}/episodes/default?season=${season}`, { headers: { 'Authorization': 'Bearer ' + tvdbToken } });
+        if (epRes && epRes.data && epRes.data.episodes) {
+          const matchedEp = epRes.data.episodes.find(e => e.seasonNumber == season && e.number == episode);
+          if (matchedEp && matchedEp.absoluteNumber) return matchedEp.absoluteNumber;
+        }
+      }
+    } catch(e) {}
+  }
+  if (imdbId) {
+    try {
+      const cineUrl = `https://aiometadata.elfhosted.com/stremio/80d082c4-6e99-4c97-a67d-3d9e242685ce/meta/series/${imdbId}.json`;
+      const cineRes = await fetch(cineUrl);
+      if (cineRes.ok) {
+        const txt = await cineRes.text();
+        let previousSeasonsCount = 0;
+        let foundSeasons = false;
+        const regex = /"season"\s*:\s*(\d+)/g;
+        let match;
+        while ((match = regex.exec(txt)) !== null) {
+          foundSeasons = true;
+          const s = parseInt(match[1]);
+          if (s > 0 && s < season) previousSeasonsCount++;
+        }
+        if (foundSeasons) return previousSeasonsCount + episode;
+      }
+    } catch(e) {}
+  }
+  try {
+    const tmdbUrl = `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const res = await fetchJson(tmdbUrl, {});
+    if (res && res.seasons) {
+      let calculatedAbs = 0;
+      const validSeasons = res.seasons.filter(s => s.season_number > 0 && s.season_number < season);
+      for (let s of validSeasons) { calculatedAbs += s.episode_count; }
+      calculatedAbs += episode;
+      return calculatedAbs;
+    }
+  } catch (e) {}
+  return absEp;
+}
+
+// ======================================
+// MAIN PROCESSING PRESENTATION LAYER
+// ======================================
+async function getStreams(tmdbId, mediaType, season, episode) {
+  try {
+    const mapping = await getMalId(tmdbId, mediaType, season, episode);
+    if (!mapping || (!mapping.malId && !mapping.aniId)) return [];
+
+    const isMal = !!mapping.malId;
+    const targetId = isMal ? mapping.malId : mapping.aniId;
+    const idType = isMal ? 'mal' : 'ani';
+    
+    let epNum = mediaType === 'movie' ? 1 : mapping.absEp;
+    if (mediaType !== 'movie' && mapping.usedFallback && season > 1) {
+      epNum = await getAbsoluteEpisode(tmdbId, mediaType, season, episode, mapping.name);
+    }
+
+    // Single-hit request gathering core TMDB values for presentation consistency
+    const metaDetails = await getTMDBDetails(tmdbId, mediaType, season, episode);
+
+    const streams = [];
+    const domains = [ { id: "Vidstream", domain: "megaplay.buzz" } ];
+
+    for (const srv of domains) {
+      const fetchTypes = ['sub', 'dub'];
+      for (const type of fetchTypes) {
+        const streamUrl = `https://${srv.domain}/stream/${idType}/${targetId}/${epNum}/${type}`;
+        const data = await extractHLS(streamUrl, srv.domain);
+        
+        if (data) {
+          const matchedQuality = (data.quality || "1080p").toUpperCase();
+          const cleanLang = type === "sub" ? "Original SUB" : "English DUB";
+          
+          // Determine structure container types (M3U8 vs MP4)
+          const formatType = data.url.includes(".m3u8") ? "M3U8" : "MKV";
+
+          // ==========================================
+          // DYNAMIC CROSS-PLATFORM LAYOUT PRESENTATION
+          // ==========================================
+          // Header Configuration
+          const headerText = `${PROVIDER_NAME} | ${matchedQuality} | (${cleanLang})`;
+
+          // Subheading Line 1
+          const line1 = `🎞️ ${metaDetails.title} - (${metaDetails.year})`;
+
+          // Subheading Line 2
+          const line2 = mediaType === 'movie' 
+            ? `🎬 Movie Presentation`
+            : `🎬 S${season || 1} E${episode || 1} - ${metaDetails.epTitle}`;
+
+          // Subheading Line 3
+          const line3 = `✨ ${matchedQuality} | 🗣️ ${cleanLang}`;
+
+          // Subheading Line 4
+          const line4 = `📦 ${formatType} | ⏱️ ${metaDetails.duration} | 🔗 ${srv.id}`;
+
+          // Pack compiled elements across all standard description properties
+          const fullLayout = `${line1}\n${line2}\n${line3}\n${line4}`;
+
+          streams.push({
+            name: headerText,
+            title: fullLayout,
+            size: fullLayout, // Enforces cross-device presentation compatibility on mobile layout views
+            description: fullLayout,
+            url: data.url,
+            subtitles: data.subtitles,
+            headers: data.headers
+          });
+        }
+      }
     }
     return streams;
-  });
-}
-function extractStreams(title, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    var searchResult = yield searchAnime(title);
-    if (!searchResult) {
-      console.log("[watchanimeworld] Search returned no results for: " + title);
-      return [];
-    }
-    console.log("[watchanimeworld] Found: " + searchResult.title + " \u2192 " + searchResult.detailUrl);
-    if (mediaType === "movie") {
-      return yield extractStreamsFromPage(searchResult.detailUrl);
-    }
-    if (episode == null) {
-      console.log("[watchanimeworld] No episode specified for TV media");
-      return [];
-    }
-    var epUrl = yield resolveEpisodePage(searchResult.detailUrl, season, episode);
-    return yield extractStreamsFromPage(epUrl);
-  });
+  } catch (e) {
+    return [];
+  }
 }
 
-// src/watchanimeworld/index.js
-var import_cheerio_without_node_native2 = __toESM(require("cheerio-without-node-native"));
-var TMDB_API = "https://api.themoviedb.org/3";
-var TMDB_KEY = "";
-function resolveTitle(tmdbId, mediaType) {
-  return __async(this, null, function* () {
-    if (TMDB_KEY) {
-      try {
-        var endpoint = mediaType === "movie" ? "movie" : "tv";
-        var url = TMDB_API + "/" + endpoint + "/" + tmdbId + "?api_key=" + TMDB_KEY + "&language=en-US";
-        var json = JSON.parse(yield fetchText(url));
-        return json.title || json.name || "";
-      } catch (e) {
-        console.log("[watchanimeworld] TMDB lookup failed: " + e.message);
-      }
-    }
-    try {
-      var typePath = mediaType === "movie" ? "movie" : "tv";
-      var pageUrl = "https://www.themoviedb.org/" + typePath + "/" + tmdbId;
-      var html = yield fetchText(pageUrl, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/125.0.0.0 Safari/537.36",
-          "Accept-Language": "en-US,en;q=0.9"
-        }
-      });
-      var $ = import_cheerio_without_node_native2.default.load(html);
-      var title = $("h2 a").text().trim() || $("h1").text().trim() || $("title").text().trim().split(" | ")[0].split(" \u2014 ")[0];
-      if (title)
-        return title;
-    } catch (e) {
-      console.log("[watchanimeworld] TMDB page scrape failed: " + e.message);
-    }
-    console.log("[watchanimeworld] Could not resolve title for TMDB " + tmdbId);
-    return "";
-  });
+async function search(args) { return []; }
+async function getCatalog(args) { return []; }
+async function getItemDetails(args) { return []; }
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams, search, getCatalog, getItemDetails };
+} else {
+  global.getStreams = getStreams;
 }
-function getStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    try {
-      console.log("[watchanimeworld] Request: " + mediaType + " / " + tmdbId + " / S" + (season || "?") + "E" + (episode || "?"));
-      var title = yield resolveTitle(tmdbId, mediaType);
-      if (!title) {
-        console.log("[watchanimeworld] Aborting \u2014 could not resolve title");
-        return [];
-      }
-      console.log("[watchanimeworld] Resolved title: " + title);
-      var streams = yield extractStreams(title, mediaType, season, episode);
-      console.log("[watchanimeworld] Returning " + streams.length + " stream(s)");
-      return streams;
-    } catch (error) {
-      console.error("[watchanimeworld] Fatal: " + error.message);
-      return [];
-    }
-  });
-}
-module.exports = { getStreams };

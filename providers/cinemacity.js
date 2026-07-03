@@ -35,7 +35,6 @@ async function getTvdbToken() {
   return _tvdbToken; 
 } 
 
-// Enhanced TMDB Context Fetcher to pull Years & Episode Titles
 async function getTMDBDetails(tmdbId, mediaType, season, episode) {
   const type = (mediaType === 'tv' || mediaType === 'series') ? 'tv' : 'movie';
   let url = `https://api.themoviedb.org/3/${type}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
@@ -46,14 +45,14 @@ async function getTMDBDetails(tmdbId, mediaType, season, episode) {
 
   try {
     const res = await fetch(url, { headers: getHeaders() });
-    if (!res.ok) return { title: "Anime Title", year: "2026", epTitle: `Episode ${episode}` };
+    if (!res.ok) return { title: "Anime Title", year: "2026", epTitle: `Episode ${episode}`, duration: "24 min" };
     const data = await res.json();
     
     let target = data;
     if (String(tmdbId).startsWith("tt")) {
       target = type === 'tv' ? data.tv_results?.[0] : data.movie_results?.[0];
     }
-    if (!target) return { title: "Anime Title", year: "2026", epTitle: `Episode ${episode}` };
+    if (!target) return { title: "Anime Title", year: "2026", epTitle: `Episode ${episode}`, duration: "24 min" };
 
     const title = type === 'tv' ? target.name : target.title;
     const dateStr = target.release_date || target.first_air_date || "";
@@ -62,7 +61,6 @@ async function getTMDBDetails(tmdbId, mediaType, season, episode) {
     let epTitle = `Episode ${episode}`;
     let duration = "24 min";
     
-    // Grab single runtime and fallback episode descriptions cleanly
     if (type === 'tv' && target.id && season && episode) {
       try {
         const epUrl = `https://api.themoviedb.org/3/tv/${target.id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
@@ -305,7 +303,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       epNum = await getAbsoluteEpisode(tmdbId, mediaType, season, episode, mapping.name);
     }
 
-    // Single-hit request gathering core TMDB values for presentation consistency
     const metaDetails = await getTMDBDetails(tmdbId, mediaType, season, episode);
 
     const streams = [];
@@ -319,38 +316,40 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         
         if (data) {
           const matchedQuality = (data.quality || "1080p").toUpperCase();
-          const cleanLang = type === "sub" ? "Original SUB" : "English DUB";
           
-          // Determine structure container types (M3U8 vs MP4)
-          const formatType = data.url.includes(".m3u8") ? "M3U8" : "MKV";
+          // Generate your conditional Line 3 dynamic strings explicitly
+          const displayLang = type === "sub" ? "🇯🇵 Japanese" : "🇺🇲 English";
+          const displayAudioType = type === "sub" ? "Sub" : "Dub";
+          const cleanLangHeader = type === "sub" ? "ORIGINAL SUB" : "ENGLISH DUB";
+          
+          const formatType = data.url.includes(".m3u8") ? "HLS" : "M3U8";
 
           // ==========================================
-          // DYNAMIC CROSS-PLATFORM LAYOUT PRESENTATION
+          // CUSTOM MULTI-LINE MOBILE COMPATIBLE PRESENTATION
           // ==========================================
-          // Header Configuration
-          const headerText = `${PROVIDER_NAME} | ${matchedQuality} | (${cleanLang})`;
+          // Top bold header title card
+          const headerText = `${PROVIDER_NAME} | ${matchedQuality} | (${cleanLangHeader})`;
 
-          // Subheading Line 1
-          const line1 = `🎞️ ${metaDetails.title} - (${metaDetails.year})`;
+          // Subheading Line 1 (Updated icon to 🎦)
+          const line1 = `🎦 ${metaDetails.title} - (${metaDetails.year})`;
 
           // Subheading Line 2
           const line2 = mediaType === 'movie' 
             ? `🎬 Movie Presentation`
             : `🎬 S${season || 1} E${episode || 1} - ${metaDetails.epTitle}`;
 
-          // Subheading Line 3
-          const line3 = `✨ ${matchedQuality} | 🗣️ ${cleanLang}`;
+          // Subheading Line 3 (Refactored String Structure)
+          const line3 = `${matchedQuality} | ${displayLang} | 🗣️ ${displayAudioType}`;
 
-          // Subheading Line 4
-          const line4 = `📦 ${formatType} | ⏱️ ${metaDetails.duration} | 🔗 ${srv.id}`;
+          // Subheading Line 4 (Updated duration icon to ⏳)
+          const line4 = `${formatType} | ⏳ ${metaDetails.duration} | 🔗 ${srv.id}`;
 
-          // Pack compiled elements across all standard description properties
           const fullLayout = `${line1}\n${line2}\n${line3}\n${line4}`;
 
           streams.push({
             name: headerText,
             title: fullLayout,
-            size: fullLayout, // Enforces cross-device presentation compatibility on mobile layout views
+            size: fullLayout, 
             description: fullLayout,
             url: data.url,
             subtitles: data.subtitles,

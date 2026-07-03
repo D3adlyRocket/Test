@@ -342,7 +342,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           const line3 = `✨ ${matchedQuality} | ${displayLang} • 🗣️ ${displayAudioType}`;
 
           // Subheading Line 4 
-          const line4 = `⚡ ${formatType} | ⏳ ${metaDetails.duration} | 🔗 ${srv.id}`;
+          const line4 = `🔗 ${srv.id} | ⏳ ${metaDetails.duration} | ⚡ ${formatType}`;
 
           const fullLayout = `${line1}\n${line2}\n${line3}\n${line4}`;
 

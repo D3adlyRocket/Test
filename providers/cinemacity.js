@@ -336,7 +336,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           // Subheading Line 2
           const line2 = mediaType === 'movie' 
             ? `🎬 Movie Presentation`
-            : `🎬 S${season || 1} E${episode || 1} - ${metaDetails.epTitle}`;
+            : `🎬 S${season || 1}E${episode || 1} - ${metaDetails.epTitle}`;
 
           // Subheading Line 3 
           const line3 = `✨ ${matchedQuality} | ${displayLang} • 🗣️ ${displayAudioType}`;

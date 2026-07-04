@@ -283,7 +283,6 @@ function rcpGrabber(html) {
   return match[1];
 }
 
-// Cleans out the trailing domain name and any nested source years to prevent doubling up
 function cleanTitleString(rawTitle) {
   if (!rawTitle) return { title: "VidSrc Media", year: "2026" };
   var clean = rawTitle.replace(/\s*-\s*VidSrc\.me$/i, "").trim();
@@ -296,15 +295,18 @@ function cleanTitleString(rawTitle) {
   return { title: clean, year: year };
 }
 
-// Dynamic metadata resolver via TMDB layout pipeline
+// Fixed TMDB runtime scraper formatting
 function fetchTMDBMetadata(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
-      var apiKey = "844421298d0945744006c3da09a96e44"; // Shared public fallback context key
+      var apiKey = "844421298d0945744006c3da09a96e44";
+      var parsedId = parseInt(String(tmdbId).replace(/\D/g, ""), 10);
+      if (isNaN(parsedId)) return "N/A";
+
       var isMovie = mediaType === "movie";
       var url = isMovie 
-        ? "https://api.themoviedb.org/3/movie/" + tmdbId + "?api_key=" + apiKey
-        : "https://api.themoviedb.org/3/tv/" + tmdbId + "/season/" + (season || 1) + "/episode/" + (episode || 1) + "?api_key=" + apiKey;
+        ? "https://api.themoviedb.org/3/movie/" + parsedId + "?api_key=" + apiKey
+        : "https://api.themoviedb.org/3/tv/" + parsedId + "/season/" + (season || 1) + "/episode/" + (episode || 1) + "?api_key=" + apiKey;
         
       var res = yield safeFetch(url, {}, 4e3);
       var data = yield res.json();
@@ -335,7 +337,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
       var url = isMovie ? "https://vidsrc.me/embed/" + tmdbId : "https://vidsrc.me/embed/" + tmdbId + "/" + (season || 1) + "-" + (episode || 1);
       console.log("[VidSrc.me] Fetching embed page: " + url);
       
-      // Fire parallel requests for speed optimization
       var embedPromise = safeFetch(url, {}, 8e3);
       var durationPromise = fetchTMDBMetadata(tmdbId, mediaType, season, episode);
       
@@ -399,21 +400,18 @@ function getStreams(tmdbId, mediaType, season, episode) {
                 } else if (variantUrl.includes("/1080/") || variantUrl.includes("1080p")) {
                   quality = "1080p";
                 }
-                var displayQuality = quality.toLowerCase(); // Keeps the 'p' lowercase as requested
+                var displayQuality = quality.toLowerCase(); 
 
-                // Format Server Label
                 var rawServerNum = element.name.replace(/\D+/g, "");
                 var serverLabel = rawServerNum ? "Server " + rawServerNum : "Server " + (i + 1);
                 if (variants.length > 1) {
                   serverLabel += " (Variant " + (v + 1) + ")";
                 }
 
-                // Extension Format Profiler
                 var fileFormat = "MKV";
                 if (variantUrl.includes(".m3u8")) fileFormat = "M3U8";
                 else if (variantUrl.includes(".mp4")) fileFormat = "MP4";
 
-                // Layout Presentation Mappings
                 var headerText = `VidSrc | ${displayQuality} | Original-Audio`;
                 
                 var epContext = (!isMovie && season && episode) ? ` S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}` : "";

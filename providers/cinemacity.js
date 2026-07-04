@@ -283,9 +283,49 @@ function rcpGrabber(html) {
   return match[1];
 }
 
+// Cleans out the trailing domain name and any nested source years to prevent doubling up
 function cleanTitleString(rawTitle) {
-  if (!rawTitle) return "VidSrc Media";
-  return rawTitle.replace(/\s*-\s*VidSrc\.me$/i, "").trim();
+  if (!rawTitle) return { title: "VidSrc Media", year: "2026" };
+  var clean = rawTitle.replace(/\s*-\s*VidSrc\.me$/i, "").trim();
+  var yearMatch = clean.match(/\s*\((\d{4})\)$/);
+  var year = "2026";
+  if (yearMatch) {
+    year = yearMatch[1];
+    clean = clean.replace(/\s*\(\d{4}\)$/, "").trim();
+  }
+  return { title: clean, year: year };
+}
+
+// Dynamic metadata resolver via TMDB layout pipeline
+function fetchTMDBMetadata(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      var apiKey = "844421298d0945744006c3da09a96e44"; // Shared public fallback context key
+      var isMovie = mediaType === "movie";
+      var url = isMovie 
+        ? "https://api.themoviedb.org/3/movie/" + tmdbId + "?api_key=" + apiKey
+        : "https://api.themoviedb.org/3/tv/" + tmdbId + "/season/" + (season || 1) + "/episode/" + (episode || 1) + "?api_key=" + apiKey;
+        
+      var res = yield safeFetch(url, {}, 4e3);
+      var data = yield res.json();
+      
+      var runtime = 0;
+      if (isMovie) {
+        runtime = data.runtime || 0;
+      } else {
+        runtime = data.runtime || (data.still_path ? 45 : 0); 
+      }
+      
+      if (runtime > 0) {
+        var h = Math.floor(runtime / 60);
+        var m = runtime % 60;
+        return h > 0 ? h + "h " + m + "m" : m + "m";
+      }
+      return "N/A";
+    } catch (e) {
+      return "N/A";
+    }
+  });
 }
 
 function getStreams(tmdbId, mediaType, season, episode) {
@@ -294,12 +334,21 @@ function getStreams(tmdbId, mediaType, season, episode) {
       var isMovie = mediaType === "movie";
       var url = isMovie ? "https://vidsrc.me/embed/" + tmdbId : "https://vidsrc.me/embed/" + tmdbId + "/" + (season || 1) + "-" + (episode || 1);
       console.log("[VidSrc.me] Fetching embed page: " + url);
-      var embed = yield safeFetch(url, {}, 8e3);
+      
+      // Fire parallel requests for speed optimization
+      var embedPromise = safeFetch(url, {}, 8e3);
+      var durationPromise = fetchTMDBMetadata(tmdbId, mediaType, season, episode);
+      
+      var embed = yield embedPromise;
       var embedResp = yield embed.text();
+      var durationStr = yield durationPromise;
+      
       var meta = serversLoad(embedResp);
       var servers = meta.servers;
       
-      var displayTitle = cleanTitleString(meta.title);
+      var metaClean = cleanTitleString(meta.title);
+      var displayTitle = metaClean.title;
+      var releaseYear = metaClean.year;
       
       console.log("[VidSrc.me] Parsed servers: " + servers.length);
       var streams = [];
@@ -350,7 +399,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
                 } else if (variantUrl.includes("/1080/") || variantUrl.includes("1080p")) {
                   quality = "1080p";
                 }
-                var displayQuality = quality.toUpperCase();
+                var displayQuality = quality.toLowerCase(); // Keeps the 'p' lowercase as requested
 
                 // Format Server Label
                 var rawServerNum = element.name.replace(/\D+/g, "");
@@ -368,10 +417,10 @@ function getStreams(tmdbId, mediaType, season, episode) {
                 var headerText = `VidSrc | ${displayQuality} | Original-Audio`;
                 
                 var epContext = (!isMovie && season && episode) ? ` S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}` : "";
-                var line1 = `📽️ ${displayTitle}${epContext} - (2026)`;
+                var line1 = `📽️ ${displayTitle}${epContext} - (${releaseYear})`;
                 var line2 = `⭐ ${displayQuality} | 🌍 Original-Audio | 🎧 AAC`;
-                var line3 = `🎞️ ${fileFormat} | 🎥 x264 | ⏳ Duration`;
-                var line4 = `📁 ${serverLabel}`;
+                var line3 = `🎞️ ${fileFormat} | 🎥 x264 | ⏳ ${durationStr}`;
+                var line4 = `📎 ${serverLabel}`;
 
                 var layoutContext = `${line1}\n${line2}\n${line3}\n${line4}`;
 
@@ -381,8 +430,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
                   size: layoutContext,
                   description: layoutContext,
                   url: variantUrl,
-                  quality: "",     // Block quality layout app injection tricks
-                  language: "",    // Prevent trailing engine tag line injection
+                  quality: "",     
+                  language: "",    
                   headers: {},
                   subtitles: [],
                   provider: "vidsrcme"

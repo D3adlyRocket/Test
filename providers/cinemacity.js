@@ -11,7 +11,7 @@ var __async = (__this, __arguments, generator) => { return new Promise((resolve,
 var HEADERS = { "Accept": "*/*", "Origin": "https://lordflix.org", "Referer": "https://lordflix.org/", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36" }; 
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c"; 
 var TMDB_BASE_URL = "https://api.themoviedb.org/3"; 
-var LORDFLIX_API = "https://snowhouse.lordflix.club/challenge"; 
+var LORDFLIX_API = "https://snowhouse.lordflix.club"; 
 var MULTI_DECRYPT_API = "https://enc-dec.app/api"; 
 
 // src/lordflix/utils.js 
@@ -91,18 +91,22 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
             let discoveredLordflixId = null; 
             yield Promise.all(SERVERS.map((server) => __async(this, null, function* () { 
                 try { 
-                    // Fixed: Added '/challenge' routing per network log requirement
+                    // Fixed: Updated structure to point cleanly to /challenge and encode cleanly for GitHub repository specification
                     let serverUrl = `${LORDFLIX_API}/challenge?title=${titleEnc}&type=${typeParam}&year=${info.year || ""}&imdb=${info.imdbId}&tmdb=${tmdbId}&server=${server}`; 
                     if (mediaType === "tv") serverUrl += `&season=${seasonNum}&episode=${episodeNum}`; 
-                    const encBridgeUrl = `${MULTI_DECRYPT_API}/enc-lordflix?url=${encodeQuote(serverUrl)}`; 
+                    
+                    const encBridgeUrl = `${MULTI_DECRYPT_API}/enc-lordflix?url=${encodeURIComponent(serverUrl)}`; 
                     const encBridgeJson = yield fetchJson(encBridgeUrl); 
                     if (!encBridgeJson || encBridgeJson.status !== 200 || !encBridgeJson.result) return; 
+                    
                     const proxyEncUrl = encBridgeJson.result.url; 
                     const signature = encBridgeJson.result.sign; 
                     if (!proxyEncUrl || !signature) return; 
+                    
                     const remoteEncData = yield fetchText(proxyEncUrl); 
                     const decResponse = yield fetch(`${MULTI_DECRYPT_API}/dec-lordflix`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: remoteEncData, sign: signature }) }); 
                     if (!decResponse.ok) return; 
+                    
                     const finalJson = yield decResponse.json(); 
                     if (!finalJson || finalJson.status !== 200 || !finalJson.result || finalJson.result.error) return; 
                     if (finalJson.result.id || finalJson.result.mid) { discoveredLordflixId = finalJson.result.id || finalJson.result.mid; } 
@@ -113,13 +117,12 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
                         const quality = "1080P"; 
                         const audioTag = "Multi-Audio"; 
                         const finalName = `🟣 LordFlix | ${quality} | ${audioTag}`; 
-                        const displayTitle = mediaType === "tv" ? `${info.title} - S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}${info.year ? ` (${info.year})` : ""}` : `${info.title}${info.year ? ` (${info.year})` : ""}`; 
+                        const displayTitle = mediaType === "tv" ? `${info.title} - S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')} ${info.year ? ` (${info.year})` : ""}` : `${info.title}${info.year ? ` (${info.year})` : ""}`; 
                         streams.push({ name: finalName, title: displayTitle, url: topStream.playlist, quality: quality, type: "m3u8", headers: HEADERS, _meta: { isCustom: true, title: displayTitle, quality: quality, audio: audioTag, server: `[Server: ${server}]`, format: "M3U8 / HLS", codec: "x264", runtime: info.runtime } }); 
                     } 
                 } catch (e) { } 
             }))); 
             if (discoveredLordflixId && uiToken) { 
-                // Fixed: Passed info.runtime context here to prevent internal reference error
                 const directFebBoxStreams = yield extractFebBoxShare(discoveredLordflixId, mediaType, seasonNum, episodeNum, uiToken, info.runtime); 
                 if (directFebBoxStreams.length > 0) { streams.push(...directFebBoxStreams); } 
             } 

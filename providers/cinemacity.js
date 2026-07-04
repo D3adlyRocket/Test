@@ -44,7 +44,7 @@ var __async = (__this, __arguments, generator) => {
 };
 
 // src/vidlink/constants.js
-var VIDLINK_API = "https://vidlink.pro";
+var VIDLINK_API = "https://vidlink.pro/api/b";
 var DECRYPT_API = "https://enc-dec.app/api";
 var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var HEADERS = {

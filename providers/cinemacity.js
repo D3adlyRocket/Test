@@ -378,7 +378,7 @@ function buildStreams(links, mediaInfo) {
                     v >= 720 ? '720p' : v >= 576 ? '576p' : v >= 480 ? '480p' : v >= 360 ? '360p' : 'Unknown';
             }
         }
-        const displayQuality = quality !== 'Unknown' ? quality.toUpperCase() : '1080P';
+        const displayQuality = quality !== 'Unknown' ? quality.toLowerCase() : '1080p';
 
         const rawLang = (optString(link, 'language') || 'en').toLowerCase();
         let displayLang = 'English';

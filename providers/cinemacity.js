@@ -1,330 +1,586 @@
-/**
- * vidlink - Built from src/vidlink/
- * Generated: 2026-05-24T13:07:23.110Z
- * Patched: 2026 - Fixed Decryption Pathing, Quality Filters, & CDN Headers
- */
-var __defProp = Object.defineProperty;
-var __defProps = Object.defineProperties;
-var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
-var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __spreadValues = (a, b) => {
-  for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop))
-      __defNormalProp(a, prop, b[prop]);
-  if (__getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
+// CTGMovies - Nuvio Scraper
+// Conconverted from Wizdier's CloudStream CTGMoviesProvider
+// Source: https://ctgmovies.com with API at https://cockpit.103.109.92.178.nip.io/api/v1
+// Provides movies, TV shows, and anime. Some content requires auth (not supported here).
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Configuration
+// ─────────────────────────────────────────────────────────────────────────────
+
+const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
+const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+
+const MAIN_URL = 'https://ctgmovies.com';
+const DEFAULT_API_BASE = 'https://cockpit.103.109.92.178.nip.io/api/v1';
+
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+    '(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
+
+const AUTH_CONFIG = {
+    token: '',
+    cookie: '',
+};
+
+const WEB_HEADERS = {
+    'User-Agent': UA,
+    'Accept': 'application/json',
+    'Accept-Language': 'en',
+    'Referer': MAIN_URL + '/',
+    'Origin': MAIN_URL,
+};
+
+const STREAM_HEADERS = {
+    'User-Agent': UA,
+    'Accept': 'video/webm,video/ogg,video/*;q=0.9,application/ogg;q=0.7,audio/*;q=0.6,*/*;q=0.5',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'identity',
+    'Referer': MAIN_URL + '/',
+    'Sec-Fetch-Dest': 'video',
+    'Sec-Fetch-Mode': 'no-cors',
+    'Sec-Fetch-Site': 'cross-site',
+    'DNT': '1',
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Utility functions
+// ─────────────────────────────────────────────────────────────────────────────
+
+function encodeUrl(s) {
+    return encodeURIComponent(s || '');
+}
+
+function yearFromDate(date) {
+    if (!date) return null;
+    const m = date.match(/\d{4}/);
+    return m ? parseInt(m[0], 10) : null;
+}
+
+function cleanDisplayTitle(title) {
+    if (!title) return '';
+    return title
+        .replace(/\b(1080p|720p|480p|2160p|4k|web[- ]?dl|webrip|bluray|hdrip|x264|x265|hevc|10bit|dual[- ]?audio|hindi[- ]?dubbed|dubbed|esub)\b/gi, ' ')
+        .replace(/\[[^\]]*\]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function normalizedTitle(title) {
+    return cleanDisplayTitle(title)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+}
+
+function optString(obj, key) {
+    if (!obj || obj[key] == null) return null;
+    let v = obj[key];
+    if (typeof v !== 'string') v = String(v);
+    v = v.trim();
+    if (!v || v === 'null') return null;
+    return v;
+}
+
+function optInt(obj, key) {
+    if (!obj || obj[key] == null) return null;
+    const v = obj[key];
+    if (typeof v === 'number') return v;
+    const parsed = parseInt(String(v), 10);
+    return isNaN(parsed) ? null : parsed;
+}
+
+function resolveMediaUrl(url) {
+    if (!url) return '';
+    if (url.startsWith('//')) return 'https:' + url;
+    if (/^https?:\/\//i.test(url)) return url;
+    if (url.startsWith('/')) return MAIN_URL + url;
+    return url;
+}
+
+function resolveSubtitleUrl(url) {
+    if (!url) return '';
+    if (url.startsWith('//')) return 'https:' + url;
+    if (/^https?:\/\//i.test(url)) return url;
+    if (url.startsWith('/')) return MAIN_URL + url;
+    return MAIN_URL + '/' + url;
+}
+
+function qualityFromUrl(url) {
+    if (!url) return 'Unknown';
+    const m = url.match(/(2160p|1440p|1080p|720p|576p|540p|480p|360p|4k|uhd)/i);
+    if (m) {
+        const v = m[1].toLowerCase();
+        if (v === '4k' || v === 'uhd') return '2160p';
+        return v;
     }
-  return a;
-};
-var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
-
-// src/vidlink/constants.js
-var VIDLINK_API = "https://vidlink.pro/api/b";
-var DECRYPT_API = "https://enc-dec.app/api";
-var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
-var HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-  "Connection": "keep-alive",
-  "Referer": "https://vidlink.pro/",
-  "Origin": "https://vidlink.pro"
-};
-
-// Helpers to calculate automated properties based on file attributes
-function formatBytes(bytes) {
-  if (!bytes || isNaN(bytes)) return "Variable Size";
-  const units = ["B", "KB", "MB", "GB"];
-  let i = 0;
-  while (bytes >= 1024 && i < units.length - 1) {
-    bytes /= 1024;
-    i++;
-  }
-  return `${bytes.toFixed(2)} ${units[i]}`;
+    return 'Unknown';
 }
 
-function calculateCalculatedFallbackSize(quality, durationText) {
-  const mins = parseInt(durationText) || 90;
-  const norm = String(quality || "").toLowerCase();
-  let bitrateKbps = 5200;
-  
-  if (norm.includes("4k") || norm.includes("2160")) bitrateKbps = 16000;
-  else if (norm.includes("1080") || norm.includes("fhd")) bitrateKbps = 5200;
-  else if (norm.includes("720") || norm.includes("hd")) bitrateKbps = 2500;
-  else if (norm.includes("480") || norm.includes("sd")) bitrateKbps = 1200;
+function buildQualityInitials() {
+    const hints = Array.prototype.slice.call(arguments).filter(Boolean);
+    const raw = hints.join(' ').replace(/%20/g, ' ').replace(/_/g, ' ').replace(/-/g, ' ');
+    if (!raw.trim()) return null;
 
-  const dynamicVariance = 0.94 + ((mins % 9) / 100);
-  const calculatedBytes = ((bitrateKbps * dynamicVariance) * 1000 / 8) * (mins * 60);
-  return formatBytes(calculatedBytes);
-}
+    function has(pattern) {
+        return new RegExp(pattern, 'i').test(raw);
+    }
 
-// Dynamic fallback lookup meta agent
-async function getTmdbMetadata(id, type, season, episode) {
-  let fallbackName = "Unknown Title";
-  let fallbackDuration = type === "tv" ? "45 min" : "90 min";
-  
-  try {
-    const endpoint = type === "movie" ? "movie" : "tv";
-    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}`;
-    
-    const response = await fetch(url);
-    if (!response.ok) return { name: fallbackName, year: "N/A", duration: fallbackDuration };
-    const data = await response.json();
+    const parts = [];
+    if (has('\\b3d\\b')) parts.push('3D');
 
-    let duration = fallbackDuration;
-    if (type === "movie" && data.runtime) {
-      duration = `${data.runtime} min`;
-    } else if (type === "tv") {
-      const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
-      const epRes = await fetch(epUrl);
-      if (epRes.ok) {
-        const epData = await epRes.json();
-        if (epData.runtime) duration = `${epData.runtime} min`;
-        else if (data.episode_run_time && data.episode_run_time.length > 0) {
-           duration = `${data.episode_run_time[0]} min`;
+    if (has('\\b(?:4k|2160p|uhd)\\b')) {
+        parts.push('4K');
+    } else {
+        const re = /\b(1080|720|576|540|480|360)p\b/gi;
+        let m;
+        const nums = [];
+        while ((m = re.exec(raw)) !== null) nums.push(parseInt(m[1], 10));
+        const max = Math.max.apply(null, nums.length ? nums : [-Infinity]);
+        if (max !== -Infinity) parts.push(max + 'p');
+    }
+
+    if (!parts.length && has('\\bHD\\b')) parts.push('HD');
+
+    if (!parts.length) {
+        const map = [
+            ['WEB-DL', '\\bweb[- ]?dl\\b'],
+            ['WEBRip', '\\bwebrip\\b'],
+            ['BluRay', '\\b(?:bluray|blu ray|brrip)\\b'],
+            ['HDRip', '\\bhdrip\\b'],
+            ['HEVC', '\\b(?:hevc|x265|h265)\\b'],
+            ['10bit', '\\b10[- ]?bit\\b'],
+        ];
+        for (const [label, pattern] of map) {
+            if (has(pattern)) { parts.push(label); break; }
         }
-      }
     }
+    return parts.length ? parts.join(' ') : null;
+}
+
+function cleanSourceName(s) {
+    if (!s) return '';
+    return s.replace('auto:', '').replace(/:/g, ' ').replace(/-/g, ' ').trim() || s;
+}
+
+function subtitleLabelFromUrl(url) {
+    if (!url) return 'Subtitle';
+    const file = url.split('?')[0].split('/').pop().replace(/%20/g, ' ');
+    const lower = file.toLowerCase();
+    if (lower.includes('bangla') || lower.includes('bengali') || lower.includes('ben')) return 'Bangla';
+    if (lower.includes('english') || lower.includes('eng')) return 'English';
+    if (lower.includes('hindi') || lower.includes('hin')) return 'Hindi';
+    return 'Subtitle';
+}
+
+function formatBytes(bytes) {
+    if (!bytes || bytes === 0) return 'Unknown';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TMDB integration
+// ─────────────────────────────────────────────────────────────────────────────
+
+function getTMDBDetails(tmdbId, mediaType) {
+    const endpoint = mediaType === 'tv' ? 'tv' : 'movie';
+    const url = `${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+
+    return fetch(url, { headers: { 'Accept': 'application/json' }, skipSizeCheck: true })
+        .then(r => {
+            if (!r.ok) throw new Error('TMDB HTTP ' + r.status);
+            return r.json();
+        })
+        .then(data => {
+            const title = mediaType === 'tv' ? data.name : data.title;
+            const releaseDate = mediaType === 'tv' ? data.first_air_date : data.release_date;
+            return {
+                title: title,
+                year: releaseDate ? parseInt(releaseDate.split('-')[0], 10) : null,
+                imdbId: (data.external_ids && data.external_ids.imdb_id) || null,
+            };
+        })
+        .catch(err => {
+            console.error('[CTGMovies] TMDB fetch failed:', err.message);
+            return null;
+        });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CTG API 
+// ─────────────────────────────────────────────────────────────────────────────
+
+function queryString(query) {
+    query = query || {};
+    const params = Object.keys(query)
+        .filter(k => query[k] != null)
+        .map(k => `${encodeUrl(k)}=${encodeUrl(String(query[k]))}`);
+    return params.length ? '?' + params.join('&') : '';
+}
+
+function buildApiUrl(path, query) {
+    const p = path.startsWith('/') ? path : '/' + path;
+    return DEFAULT_API_BASE + p + queryString(query);
+}
+
+function buildSameOriginUrl(path, query) {
+    const p = path.startsWith('/') ? path : '/' + path;
+    return MAIN_URL + '/api/v1' + p + queryString(query);
+}
+
+function apiHeaders() {
+    const h = Object.assign({}, WEB_HEADERS);
+    if (AUTH_CONFIG.token && AUTH_CONFIG.token.trim()) {
+        const token = AUTH_CONFIG.token.trim().replace(/^Bearer\s+/i, '');
+        h['Authorization'] = 'Bearer ' + token;
+        h['x-auth-token'] = token;
+    }
+    if (AUTH_CONFIG.cookie && AUTH_CONFIG.cookie.trim()) {
+        h['Cookie'] = AUTH_CONFIG.cookie.trim();
+    }
+    return h;
+}
+
+function apiGet(path, query) {
+    const primaryUrl = buildApiUrl(path, query);
+    const fallbackUrl = buildSameOriginUrl(path, query);
+    const headers = apiHeaders();
+
+    function tryFetch(url, attempt) {
+        attempt = attempt || 0;
+        return fetch(url, { headers: headers, skipSizeCheck: true })
+            .then(r => {
+                if (r.status >= 500 && r.status < 600 && attempt < 1) {
+                    return new Promise(resolve => setTimeout(resolve, 300))
+                        .then(() => tryFetch(url, attempt + 1));
+                }
+                if (!r.ok) throw new Error('HTTP ' + r.status);
+                return r.text();
+            });
+    }
+
+    return tryFetch(primaryUrl)
+        .catch(() => tryFetch(fallbackUrl))
+        .catch(err => {
+            console.error(`[CTGMovies] apiGet ${path} failed:`, err.message);
+            return null;
+        });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Search & parse
+// ─────────────────────────────────────────────────────────────────────────────
+
+function toSearchItem(obj, kind) {
+    const isMovie = kind === 'movies';
+    const isAnime = kind === 'anime' || (obj.is_anime === true && kind !== 'tv');
+
+    const title = optString(obj, 'title') || optString(obj, 'name') || optString(obj, 'english_title');
+    if (!title) return null;
+
+    const id = optString(obj, 'slug') || optString(obj, 'id') || optString(obj, '_id');
+    if (!id) return null;
+
+    const poster = optString(obj, 'poster_url') || optString(obj, 'cover_url');
+    const year = optInt(obj, 'year')
+        || yearFromDate(optString(obj, 'release_date'))
+        || yearFromDate(optString(obj, 'first_air_date'));
+
+    let type = isMovie ? 'movie' : (isAnime ? 'anime' : 'tv');
+    let url = `${MAIN_URL}/${isMovie ? 'movies' : (isAnime ? 'anime' : 'tv')}/${id}`;
 
     return {
-      name: data.title || data.name || fallbackName,
-      year: (data.release_date || data.first_air_date || "").split("-")[0] || "N/A",
-      duration: duration
+        title: cleanDisplayTitle(title),
+        url: url,
+        kind: kind,
+        id: id,
+        type: type,
+        poster: poster,
+        year: year,
     };
-  } catch (e) {
-    return { name: fallbackName, year: "N/A", duration: fallbackDuration };
-  }
 }
 
-// src/vidlink/utils.js
-function generateM3u8(_0) {
-  return __async(this, arguments, function* (masterUrl, headers = {}) {
+function parseSearchItems(raw, kind) {
+    if (!raw) return [];
+    let trimmed = raw.trim();
+    let arr;
     try {
-      // FIX: If it's a direct MP4 file returned instead of an M3U8 container, skip scanning text entirely
-      if (typeof masterUrl === 'string' && masterUrl.toLowerCase().split('?')[0].endsWith('.mp4')) {
-        return [];
-      }
-
-      console.log(`[M3U8] Parsing master m3u8: ${masterUrl}`);
-      const resp = yield fetch(masterUrl, { headers });
-      const text = yield resp.text();
-      
-      // Safety check if response is not valid M3U8 string syntax
-      if (!text || !text.includes("#EXTM3U")) {
-        return [];
-      }
-
-      const baseUri = masterUrl.substring(0, masterUrl.lastIndexOf("/")) + "/";
-      const results = [];
-      const regex = /#EXT-X-STREAM-INF:.*?RESOLUTION=(\d+x\d+).*?\n([^\n]+)/g;
-      let match;
-      while ((match = regex.exec(text)) !== null) {
-        const height = parseInt(match[1].split("x")[1]);
-        
-        // FIX: Removed strict "height < 720" restriction. This guarantees lower quality versions
-        // and alternative CDN streams are preserved instead of returning completely empty arrays.
-        const res = height + "p";
-        let url = match[2].trim();
-        if (!url.startsWith("http")) {
-          if (url.startsWith("/")) {
-            const root = new URL(masterUrl).origin;
-            url = root + url;
-          } else {
-            url = baseUri + url;
-          }
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+            arr = parsed;
+        } else if (parsed && typeof parsed === 'object') {
+            arr = parsed.movies || parsed.results || parsed.data || [];
+        } else {
+            arr = [];
         }
-        results.push({
-          quality: res,
-          url
-        });
-      }
-      return results;
-    } catch (err) {
-      console.warn(`[M3U8] Error parsing M3U8, returning empty.`, err);
-      return [];
-    }
-  });
-}
-
-// src/vidlink/index.js
-function getStreams(tmdbId, mediaType, season, episode) {
-  return __async(this, null, function* () {
-    console.log(`[Vidlink] Fetching streams for ${mediaType} ${tmdbId}`);
-    try {
-      // FIX 1: Fixed the URL endpoint generation to avoid duplicating /enc-vidlink paths
-      const encUrl = `${DECRYPT_API}?text=${tmdbId}`;
-      const encResp = yield fetch(encUrl);
-      const encJson = yield encResp.json();
-      const encData = encJson.result;
-      if (!encData) {
-        console.log(`[Vidlink] No encrypted ID returned`);
+    } catch (e) {
         return [];
-      }
-      const isMovie = mediaType !== "tv" && season == null;
-      const normType = isMovie ? "movie" : "tv";
-
-      // 1. Core Dynamic Context Metadata Lookup
-      const meta = yield getTmdbMetadata(tmdbId, normType, season, episode);
-
-      const epUrl = isMovie ? `${VIDLINK_API}/api/b/movie/${encData}` : `${VIDLINK_API}/api/b/tv/${encData}/${season}/${episode}`;
-      console.log(`[Vidlink] Fetching playlist from: ${epUrl}`);
-      const epResp = yield fetch(epUrl, { headers: HEADERS });
-      const epJson = yield epResp.json();
-      const playlist = epJson && epJson.stream && epJson.stream.playlist;
-      if (!playlist) {
-        console.log(`[Vidlink] No playlist in response`);
-        return [];
-      }
-
-      const streams = [];
-
-      // Helper function to turn dynamic qualities into the beautiful layout cards
-      const pushFormattedStream = (rawQuality, streamUrl) => {
-         let displayQuality = "1080p FHD";
-         let cleanQuality = "1080P";
-         
-         const qLower = String(rawQuality).toLowerCase();
-         if (qLower.includes("2160") || qLower.includes("4k")) {
-             displayQuality = "4K UHD";
-             cleanQuality = "2160P";
-         } else if (qLower.includes("1080")) {
-             displayQuality = "1080p FHD";
-             cleanQuality = "1080P";
-         } else if (qLower.includes("720")) {
-             displayQuality = "720p HD";
-             cleanQuality = "720P";
-         } else if (qLower.includes("480")) {
-             displayQuality = "480p SD";
-             cleanQuality = "480P";
-         } else if (qLower.includes("360")) {
-             displayQuality = "360p SD";
-             cleanQuality = "360P";
-         } else if (qLower.includes("auto")) {
-             displayQuality = "Auto Dynamic";
-             cleanQuality = "Auto";
-         } else {
-             displayQuality = rawQuality + " Video";
-             cleanQuality = rawQuality.toUpperCase();
-         }
-
-         const calculatedSize = calculateCalculatedFallbackSize(cleanQuality, meta.duration);
-         const mediaLabel = meta.name + (!isMovie ? " S" + season + "E" + episode : "");
-
-         // FIX 2: Check the URL context. If it contains nested JSON header queries (like ?headers=),
-         // extract those parameters to build dynamic custom referers rather than crashing with 403.
-         let activeReferer = `${VIDLINK_API}/`;
-         let activeOrigin = VIDLINK_API;
-         
-         if (streamUrl.includes("headers=")) {
-           try {
-             const urlObj = new URL(streamUrl);
-             const headerParam = urlObj.searchParams.get("headers");
-             if (headerParam) {
-               const parsedJson = JSON.parse(headerParam);
-               if (parsedJson.referer) activeReferer = parsedJson.referer;
-               if (parsedJson.origin) activeOrigin = parsedJson.origin;
-             }
-           } catch(e) {
-             console.warn("[Vidlink] Failed parsing inline URL headers context.");
-           }
-         }
-
-         const headerName = `VidLink | ${displayQuality} | Main Mirror`;
-         
-         const isMp4 = streamUrl.toLowerCase().split('?')[0].endsWith('.mp4');
-         const typeLabel = isMp4 ? "MP4 Direct" : "M3U8";
-
-         const dropdownTitle = 
-             "🎬 " + mediaLabel + " - " + meta.year + "\n" +
-             "⚡ " + cleanQuality + " | 🌍 Original | 💾 " + calculatedSize + "\n" +
-             "🎞️ " + typeLabel + " | ⏱️ " + meta.duration + " | 📌 Main Mirror";
-
-         streams.push({
-            name: headerName,
-            title: dropdownTitle,
-            url: streamUrl,
-            quality: rawQuality,
-            type: isMp4 ? "mp4" : "m3u8",
-            headers: {
-              "User-Agent": HEADERS["User-Agent"],
-              "Referer": activeReferer,
-              "Origin": activeOrigin
-            },
-            provider: "vidlink"
-         });
-      };
-
-      // 2. Add base master profile
-      pushFormattedStream("Auto", playlist);
-
-      // 3. Loop through individual variant qualities returned from the .m3u8 index parser
-      try {
-        const extraStreams = yield generateM3u8(playlist, {
-          "Referer": `${VIDLINK_API}/`,
-          "User-Agent": HEADERS["User-Agent"]
-        });
-        extraStreams.forEach((s) => {
-          pushFormattedStream(s.quality, s.url);
-        });
-      } catch (err) {
-        console.warn(`[Vidlink] Failed to parse extra qualities for ${playlist}`);
-      }
-      
-      console.log(`[Vidlink] Completed parsing process`);
-      return streams.map((s) => __spreadProps(__spreadValues({}, s), { quality: getSortedQuality(s.quality) }));
-    } catch (error) {
-      console.error(`[Vidlink] Error: ${error.message}`);
-      return [];
     }
-  });
+
+    const items = [];
+    for (const obj of arr) {
+        const item = toSearchItem(obj, kind);
+        if (item) items.push(item);
+    }
+    return items;
 }
 
-function getSortedQuality(quality) {
-  if (!quality)
-    return "Auto";
-  const q = quality.toLowerCase();
-  if (q.includes("auto")) {
-    return "Auto";
-  }
-  if (q.includes("2160") || q.includes("4k") || q.includes("uhd")) {
-    return "\u200B" + quality;
-  }
-  if (q.includes("1080") || q.includes("fhd")) {
-    return "\u200B\u200B" + quality;
-  }
-  if (q.includes("720") || q.includes("hd")) {
-    return "\u200B\u200B\u200B" + quality;
-  }
-  if (q.includes("480") || q.includes("sd")) {
-    return "\u200B\u200B\u200B\u200B" + quality;
-  }
-  if (q.includes("360")) {
-    return "\u200B\u200B\u200B\u200B\u200B" + quality;
-  }
-  return "\u200B\u200B\u200B\u200B" + quality;
+function searchCtg(query) {
+    const params = { search: query };
+    const moviesP = apiGet('/movies', params).then(raw => parseSearchItems(raw, 'movies')).catch(() => []);
+    const tvP = apiGet('/tv', params).then(raw => parseSearchItems(raw, 'tv')).catch(() => []);
+    const animeP = apiGet('/anime', params).then(raw => parseSearchItems(raw, 'anime')).catch(() => []);
+
+    return Promise.all([moviesP, tvP, animeP]).then(([m, t, a]) => m.concat(t).concat(a));
 }
 
-module.exports = { getStreams };
+function findBestMatch(mediaInfo, items, mediaType) {
+    if (!items.length) return null;
+
+    const targetNorm = normalizedTitle(mediaInfo.title);
+    const targetYear = mediaInfo.year;
+    let best = null;
+    let bestScore = -1;
+
+    for (const item of items) {
+        const itemNorm = normalizedTitle(item.title);
+        let score = -1;
+
+        if (itemNorm === targetNorm) {
+            score = 100;
+            if (targetYear && item.year === targetYear) score += 50;
+        } else if (itemNorm.includes(targetNorm) && targetNorm.length >= 4) {
+            score = 60;
+            if (targetYear && item.year === targetYear) score += 30;
+        } else if (targetNorm.includes(itemNorm) && itemNorm.length >= 4) {
+            score = 40;
+        }
+
+        if (mediaType === 'tv' && (item.type === 'tv' || item.type === 'anime')) score += 10;
+        if (mediaType === 'movie' && (item.type === 'movie' || item.type === 'anime')) score += 10;
+
+        if (score > bestScore) {
+            bestScore = score;
+            best = item;
+        }
+    }
+
+    return bestScore >= 30 ? best : null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dynamic Stream Presentation Builder
+// ─────────────────────────────────────────────────────────────────────────────
+
+function buildStreams(links, mediaInfo) {
+    const seen = new Set();
+    const out = [];
+
+    links.forEach((link, i) => {
+        if (!link || link.broken === true) return;
+
+        const rawUrl = optString(link, 'url')
+            || optString(link, 'file')
+            || optString(link, 'src')
+            || optString(link, 'link');
+        if (!rawUrl) return;
+
+        const finalUrl = resolveMediaUrl(rawUrl);
+        if (!finalUrl || seen.has(finalUrl)) return;
+        seen.add(finalUrl);
+
+        // Quality Detection
+        let quality = qualityFromUrl(finalUrl);
+        const qualityHint = optString(link, 'quality') || '';
+        if (quality === 'Unknown') {
+            const qMatch = qualityHint.match(/(2160|1440|1080|720|576|540|480|360)p?/i);
+            if (qMatch) {
+                const v = parseInt(qMatch[1], 10);
+                quality = v >= 2160 ? '2160p' : v >= 1440 ? '1440p' : v >= 1080 ? '1080p' :
+                    v >= 720 ? '720p' : v >= 576 ? '576p' : v >= 480 ? '480p' : v >= 360 ? '360p' : 'Unknown';
+            }
+        }
+        const displayQuality = quality !== 'Unknown' ? quality.toUpperCase() : '1080P';
+
+        // Parsing Language & Region
+        const rawLang = (optString(link, 'language') || 'en').toLowerCase();
+        let displayLang = 'English';
+        let regionFlag = '🌍';
+        if (rawLang.includes('hin') || qualityHint.toLowerCase().includes('hindi')) {
+            displayLang = 'Hindi';
+            regionFlag = '🇮🇳';
+        } else if (rawLang.includes('ben') || rawLang.includes('bangla')) {
+            displayLang = 'Bangla';
+            regionFlag = '🇧🇩';
+        } else if (rawLang.includes('eng') || rawLang === 'en') {
+            displayLang = 'English';
+            regionFlag = '🇺🇸';
+        }
+
+        // Parsing Codec Context String
+        const textContext = (finalUrl + ' ' + qualityHint + ' ' + (link.group_source || '')).toLowerCase();
+        let codec = 'x264';
+        if (textContext.includes('x265') || textContext.includes('h265')) codec = 'x265';
+        else if (textContext.includes('hevc')) codec = 'HEVC';
+
+        // Parsing Source Container Properties
+        let sourceContainer = 'WEB-DL';
+        if (textContext.includes('webrip') || textContext.includes('web-rip')) sourceContainer = 'WEB-Rip';
+        else if (textContext.includes('bluray') || textContext.includes('blu-ray')) sourceContainer = 'BluRay';
+        else if (textContext.includes('hdrip')) sourceContainer = 'HDRip';
+
+        // Video format extension parsing
+        let fileFormat = 'MKV';
+        if (finalUrl.includes('.mp4')) fileFormat = 'MP4';
+        else if (finalUrl.includes('.m3u8')) fileFormat = 'M3U8';
+
+        // Size processing
+        const displaySize = optInt(link, 'size_bytes')
+            ? formatBytes(optInt(link, 'size_bytes'))
+            : 'Unknown';
+
+        // Parsing Audio Profile Channels
+        let audioChannels = '2.0 Stereo';
+        if (textContext.includes('5.1') || textContext.includes('dd5.1') || textContext.includes('ac3')) {
+            audioChannels = '5.1 Surround Sound';
+        }
+
+        // Provider/Server Target Node
+        const serverLabel = cleanSourceName(optString(link, 'group_source') || optString(link, 'source_display') || `Server ${i + 1}`);
+
+        // ==========================================
+        // DYNAMIC RENDERING PRESENTATION CUSTOMIZATION
+        // ==========================================
+        
+        // Header Format -> CTGMovies | Quality | Language
+        const headerText = `CTGMovies | ${displayQuality} | ${displayLang}`;
+
+        // Subheading Line 1 -> 🍿 Movies/Series Name - (Year)
+        const line1 = `🍿 ${mediaInfo.title} - (${mediaInfo.year || '2026'})`;
+
+        // Subheading Line 2 -> ⭐ Quality | 🌍 Language | 💾 Size
+        const line2 = `⭐ ${displayQuality} | ${regionFlag} ${displayLang} | 💾 ${displaySize}`;
+
+        // Subheading Line 3 -> 🔖 Format | 🎥 x264 or x265 or HEVC | 🎧 5.1 Surround Sound
+        const line3 = `🔖 ${fileFormat} | 🎥 ${codec} | 🎧 ${audioChannels}`;
+
+        // Subheading Line 4 -> ⛓️‍💥 Provider or Server | ☁️ WEB-DL or WEB-Rip
+        const line4 = `⛓️‍💥 ${serverLabel} | ☁️ ${sourceContainer}`;
+
+        const packedMetadataLayout = `${line1}\n${line2}\n${line3}\n${line4}`;
+
+        const subtitles = [];
+        const subKeys = ['subtitle_tracks', 'subtitles', 'captions', 'tracks'];
+        for (const key of subKeys) {
+            const subs = link[key];
+            if (Array.isArray(subs)) {
+                for (const sub of subs) {
+                    const subUrl = optString(sub, 'url') || optString(sub, 'file') || optString(sub, 'src');
+                    if (!subUrl) continue;
+                    const resolved = resolveSubtitleUrl(subUrl);
+                    if (!resolved || subtitles.some(s => s.url === resolved)) continue;
+                    const lang = optString(sub, 'label') || optString(sub, 'language') || subtitleLabelFromUrl(resolved);
+                    subtitles.push({ url: resolved, lang: lang });
+                }
+            }
+        }
+
+        out.push({
+            name: headerText,
+            title: packedMetadataLayout,
+            size: packedMetadataLayout, 
+            description: packedMetadataLayout,
+            url: finalUrl,
+            quality: quality,
+            language: rawLang,
+            provider: 'CTGMovies',
+            headers: STREAM_HEADERS,
+            subtitles: subtitles.length ? subtitles : undefined,
+        });
+    });
+
+    return out.sort((a, b) => {
+        const order = { '2160p': 5, '1440p': 4, '1080p': 3, '720p': 2, '576p': 1, '540p': 1, '480p': 0, '360p': -1, 'Unknown': -2 };
+        return (order[b.quality] ?? -3) - (order[a.quality] ?? -3);
+    });
+}
+
+function getMovieStreams(item, mediaInfo) {
+    return getDetail(item)
+        .then(obj => {
+            if (!obj || !obj.links) return [];
+            return buildStreams(obj.links, mediaInfo);
+        })
+        .catch(() => []);
+}
+
+function getEpisodeStreams(item, mediaInfo, season, episode) {
+    return getDetail(item)
+        .then(obj => {
+            if (!obj || !obj.episodes) return [];
+            const mergedLinks = [];
+            for (const ep of obj.episodes) {
+                const epNum = optInt(ep, 'episode_number') || optInt(ep, 'absolute_number');
+                const seasonNum = optInt(ep, 'season_number') || 1;
+                if (seasonNum !== season || epNum !== episode) continue;
+
+                const links = ep.links || [];
+                for (const link of links) {
+                    if (link && link.broken !== true) mergedLinks.push(link);
+                }
+            }
+            return buildStreams(mergedLinks, mediaInfo);
+        })
+        .catch(() => []);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Main Entry Points
+// ─────────────────────────────────────────────────────────────────────────────
+
+function scrape(metadata) {
+    const title = metadata && metadata.title;
+    const type = (metadata && metadata.type) || 'movie';
+    const season = metadata && metadata.season;
+    const episode = metadata && metadata.episode;
+    const year = metadata && metadata.year;
+
+    if (!title) return Promise.resolve([]);
+    const mediaInfo = { title: title, year: year || null, imdbId: (metadata && metadata.imdbId) || null };
+
+    return searchCtg(title)
+        .then(items => {
+            if (!items.length) return [];
+            const match = findBestMatch(mediaInfo, items, type);
+            if (!match) return [];
+
+            if (type === 'tv' && season && episode) {
+                // Formatting Title context safely inside episodic queries
+                mediaInfo.title = `${mediaInfo.title} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
+                return getEpisodeStreams(match, mediaInfo, season, episode);
+            }
+            return getMovieStreams(match, mediaInfo);
+        })
+        .catch(() => []);
+}
+
+function getStreams(tmdbId, mediaType = 'movie', season = null, episode = null) {
+    return getTMDBDetails(tmdbId, mediaType)
+        .then(mediaInfo => {
+            if (!mediaInfo || !mediaInfo.title) return [];
+            return scrape({
+                title: mediaInfo.title,
+                year: mediaInfo.year,
+                type: mediaType,
+                season: season,
+                episode: episode,
+                imdbId: mediaInfo.imdbId,
+            });
+        })
+        .catch(() => []);
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { getStreams, scrape };
+}

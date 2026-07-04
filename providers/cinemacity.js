@@ -1,4 +1,4 @@
-/** * lordflix - Built from src/lordflix/ * Generated: 2026-05-10T22:46:01.988Z * Enhanced: Added FebBox Share Extractor logic utilizing uiToken */ 
+/** * lordflix - Built from src/lordflix/ * Generated: 2026-07-04T09:40:00.000Z * Enhanced: Integrates snowhouse backend proxy with layout mappings */ 
 var __defProp = Object.defineProperty; 
 var __getOwnPropSymbols = Object.getOwnPropertySymbols; 
 var __hasOwnProp = Object.prototype.hasOwnProperty; 
@@ -83,57 +83,53 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
             const info = yield getTMDBDetails(tmdbId, mediaType, seasonNum, episodeNum); 
             if (!info.title) return streams; 
 
-            // Corrected Pipeline: Target the centralized server parser route directly
+            // Connect using the working proxy API path layout format
             let requestUrl = `${MULTI_DECRYPT_API}/lordflix?tmdb=${tmdbId}&type=${mediaType}`;
             if (mediaType === "tv") {
                 requestUrl += `&season=${seasonNum}&episode=${episodeNum}`;
             }
 
-            const data = yield fetchJson(requestUrl);
-            if (!data || !Array.isArray(data)) return streams;
+            const data = yield fetchJson(requestUrl).catch(() => null);
+            if (data && Array.isArray(data)) {
+                let discoveredLordflixId = null;
+                for (const item of data) {
+                    if (!item.url) continue;
+                    if (item.id || item.mid) discoveredLordflixId = item.id || item.mid;
 
-            let discoveredLordflixId = null;
+                    const serverName = item.server || "Main Server";
+                    const quality = item.quality || "1080P"; 
+                    const audioTag = "Multi-Audio"; 
+                    const finalName = `🟣 LordFlix | ${quality} | ${audioTag}`; 
+                    
+                    const displayTitle = mediaType === "tv" 
+                        ? `${info.title} - S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}${info.year ? ` (${info.year})` : ""}` 
+                        : `${info.title}${info.year ? ` (${info.year})` : ""}`; 
 
-            for (const item of data) {
-                if (!item.url) continue;
-
-                if (item.id || item.mid) {
-                    discoveredLordflixId = item.id || item.mid;
+                    streams.push({ 
+                        name: finalName, 
+                        title: displayTitle, 
+                        url: item.url, 
+                        quality: quality, 
+                        type: item.url.includes(".m3u8") ? "m3u8" : "mp4", 
+                        headers: item.headers || HEADERS, 
+                        _meta: { 
+                            isCustom: true, 
+                            title: displayTitle, 
+                            quality: quality, 
+                            audio: audioTag, 
+                            server: `[${serverName}]`, 
+                            format: item.url.includes(".m3u8") ? "M3U8 / HLS" : "MP4 / Direct", 
+                            codec: "x264", 
+                            runtime: info.runtime 
+                        } 
+                    }); 
                 }
 
-                const serverName = item.server || "Auto";
-                const quality = item.quality || "1080P"; 
-                const audioTag = "Multi-Audio"; 
-                const finalName = `🟣 LordFlix | ${quality} | ${audioTag}`; 
-                
-                const displayTitle = mediaType === "tv" 
-                    ? `${info.title} - S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}${info.year ? ` (${info.year})` : ""}` 
-                    : `${info.title}${info.year ? ` (${info.year})` : ""}`; 
-
-                streams.push({ 
-                    name: finalName, 
-                    title: displayTitle, 
-                    url: item.url, 
-                    quality: quality, 
-                    type: item.url.includes(".m3u8") ? "m3u8" : "mp4", 
-                    headers: item.headers || HEADERS, 
-                    _meta: { 
-                        isCustom: true, 
-                        title: displayTitle, 
-                        quality: quality, 
-                        audio: audioTag, 
-                        server: `[Server: ${serverName}]`, 
-                        format: item.url.includes(".m3u8") ? "M3U8 / HLS" : "MP4 / Direct", 
-                        codec: "x264", 
-                        runtime: info.runtime 
-                    } 
-                }); 
+                if (discoveredLordflixId && uiToken) { 
+                    const directFebBoxStreams = yield extractFebBoxShare(discoveredLordflixId, mediaType, seasonNum, episodeNum, uiToken, info.runtime); 
+                    if (directFebBoxStreams.length > 0) { streams.push(...directFebBoxStreams); } 
+                } 
             }
-
-            if (discoveredLordflixId && uiToken) { 
-                const directFebBoxStreams = yield extractFebBoxShare(discoveredLordflixId, mediaType, seasonNum, episodeNum, uiToken, info.runtime); 
-                if (directFebBoxStreams.length > 0) { streams.push(...directFebBoxStreams); } 
-            } 
         } catch (err) { 
             console.error(`[Lordflix] Main Error:`, err.message); 
         } 

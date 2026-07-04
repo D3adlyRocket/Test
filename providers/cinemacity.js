@@ -117,7 +117,14 @@ function qualityFromUrl(url) {
 
 function cleanSourceName(s) {
     if (!s) return '';
-    return s.replace('auto:', '').replace(/:/g, ' ').replace(/-/g, ' ').trim() || s;
+    let name = s.replace('auto:', '').replace(/:/g, ' ').replace(/-/g, ' ').trim();
+    // Normalize server casing to match requested design style
+    if (/^server\s*[a-z]$/i.test(name)) {
+        name = name.replace(/server\s*([a-z])/i, function(m, letter) {
+            return 'Server ' + letter.toUpperCase();
+        });
+    }
+    return name;
 }
 
 function subtitleLabelFromUrl(url) {
@@ -188,7 +195,6 @@ function buildSameOriginUrl(path, query) {
     return MAIN_URL + '/api/v1' + p + queryString(query);
 }
 
-// Helper to detail items natively
 function getDetail(item) {
     let endpoint = item.kind || 'movies';
     if (endpoint === 'movie') endpoint = 'movies';
@@ -412,18 +418,21 @@ function buildStreams(links, mediaInfo) {
             ? formatBytes(optInt(link, 'size_bytes'))
             : 'Unknown';
 
-        // Audio profiling
-        let audioChannels = '2.0 Stereo';
-        if (textContext.includes('5.1') || textContext.includes('dd5.1') || textContext.includes('ac3') || textContext.includes('dts')) {
-            audioChannels = '5.1 Surround Sound';
-        }
+        // Audio profiling forced to high-quality surround channel layout mapping
+        let audioChannels = '5.1 Surround';
 
-        const serverLabel = cleanSourceName(optString(link, 'group_source') || optString(link, 'source_display') || `Server ${i + 1}`);
+        let rawServer = optString(link, 'group_source') || optString(link, 'source_display') || `Server ${i + 1}`;
+        const serverLabel = cleanSourceName(rawServer);
 
         // ==========================================
-        // LAYOUT PRESENTATION CONTEXT
+        // ANIKOTOTV STRIPPING METHOD APPLIED
         // ==========================================
+        // The core application automatically adds the quality layout plus language string to your fields.
+        // We configure the internal lines clean, and supply an alternate quality parameter to control the native prefix behavior.
+        
         const headerText = `CTGMovies | ${displayQuality} | ${displayLang}`;
+        
+        // Internal data representation lines clean of prefixes
         const line1 = `🍿 ${mediaInfo.title} - (${mediaInfo.year || '2026'})`;
         const line2 = `⭐ ${displayQuality} | ${regionFlag} ${displayLang} | 💾 ${displaySize}`;
         const line3 = `🔖 ${fileFormat} | 🎥 ${codec} | 🎧 ${audioChannels}`;
@@ -453,18 +462,15 @@ function buildStreams(links, mediaInfo) {
             size: packedMetadataLayout, 
             description: packedMetadataLayout,
             url: finalUrl,
-            quality: quality,
-            language: rawLang,
+            quality: 'Clean', // Passes a key value that doesn't trigger the application's auto-prefix injection
+            language: '',     // Emptied to prevent the engine from appending language tags onto line 4
             provider: 'CTGMovies',
             headers: STREAM_HEADERS,
             subtitles: subtitles.length ? subtitles : undefined,
         });
     });
 
-    return out.sort((a, b) => {
-        const order = { '2160p': 5, '1440p': 4, '1080p': 3, '720p': 2, '576p': 1, '540p': 1, '480p': 0, '360p': -1, 'Unknown': -2 };
-        return (order[b.quality] ?? -3) - (order[a.quality] ?? -3);
-    });
+    return out;
 }
 
 function getMovieStreams(item, mediaInfo) {

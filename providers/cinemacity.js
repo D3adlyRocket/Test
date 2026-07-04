@@ -1,155 +1,285 @@
-/** * lordflix - Built from src/lordflix/ * Generated: 2026-07-04T09:40:00.000Z * Enhanced: Integrates snowhouse backend proxy with layout mappings */ 
-var __defProp = Object.defineProperty; 
-var __getOwnPropSymbols = Object.getOwnPropertySymbols; 
-var __hasOwnProp = Object.prototype.hasOwnProperty; 
-var __propIsEnum = Object.prototype.propertyIsEnumerable; 
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value; 
-var __spreadValues = (a, b) => { for (var prop in b || (b = {})) if (__hasOwnProp.call(b, prop)) __defNormalProp(a, prop, b[prop]); if (__getOwnPropSymbols) for (var prop of __getOwnPropSymbols(b)) { if (__propIsEnum.call(b, prop)) __defNormalProp(a, prop, b[prop]); } return a; }; 
-var __async = (__this, __arguments, generator) => { return new Promise((resolve, reject) => { var fulfilled = (value) => { try { step(generator.next(value)); } catch (e) { reject(e); } }; var rejected = (value) => { try { step(generator.throw(value)); } catch (e) { reject(e); } }; var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected); step((generator = generator.apply(__this, __arguments)).next()); }); }; 
+/**
+ * vidlink - Built from src/vidlink/
+ * Generated: 2026-05-24T13:07:23.110Z
+ */
+var __defProp = Object.defineProperty;
+var __defProps = Object.defineProperties;
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
+var __getOwnPropSymbols = Object.getOwnPropertySymbols;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __propIsEnum = Object.prototype.propertyIsEnumerable;
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+var __spreadValues = (a, b) => {
+  for (var prop in b || (b = {}))
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
+  if (__getOwnPropSymbols)
+    for (var prop of __getOwnPropSymbols(b)) {
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    }
+  return a;
+};
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
+};
 
-// src/lordflix/constants.js 
-var HEADERS = { "Accept": "*/*", "Origin": "https://lordflix.org", "Referer": "https://lordflix.org/", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36" }; 
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c"; 
-var TMDB_BASE_URL = "https://api.themoviedb.org/3"; 
-var MULTI_DECRYPT_API = "https://enc-dec.app/api"; 
+// src/vidlink/constants.js
+var VIDLINK_API = "https://vidlink.pro";
+var DECRYPT_API = "https://enc-dec.app/api/enc-vidlink";
+var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
+var HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+  "Connection": "keep-alive",
+  "Referer": "https://vidlink.pro/",
+  "Origin": "https://vidlink.pro"
+};
 
-// src/lordflix/utils.js 
-function fetchText(_0) { return __async(this, arguments, function* (url, options = {}) { const response = yield fetch(url, __spreadValues({ headers: __spreadValues(__spreadValues({}, HEADERS), options.headers || {}) }, options)); if (!response.ok) throw new Error(`HTTP error ${response.status}`); return yield response.text(); }); } 
-function fetchJson(_0) { return __async(this, arguments, function* (url, options = {}) { const raw = yield fetchText(url, options); return JSON.parse(raw); }); } 
-function getTMDBDetails(tmdbId, mediaType, seasonNum = 1, episodeNum = 1) { return __async(this, null, function* () { var _a, _b; try { const endpoint = mediaType === "tv" ? "tv" : "movie"; const url = `${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`; const response = yield fetch(url, { headers: { "Accept": "application/json" } }); if (!response.ok) throw new Error(`TMDB API error`); const data = yield response.json(); let runtime = data.runtime || 0; if (mediaType === "tv" && tmdbId) { try { const epUrl = `${TMDB_BASE_URL}/tv/${tmdbId}/season/${seasonNum}/episode/${episodeNum}?api_key=${TMDB_API_KEY}`; const epResponse = yield fetch(epUrl, { headers: { "Accept": "application/json" } }); if (epResponse.ok) { const epData = yield epResponse.json(); if (epData.runtime) runtime = epData.runtime; } } catch(e) {} } return { title: mediaType === "tv" ? data.name : data.title, year: ((_a = mediaType === "tv" ? data.first_air_date : data.release_date) == null ? void 0 : _a.split("-")[0]) || null, imdbId: ((_b = data.external_ids) == null ? void 0 : _b.imdb_id) || null, runtime: runtime }; } catch(err) { return { title: null, year: null, imdbId: null, runtime: 0 }; } }); } 
-function getUiToken() { try { if (typeof global !== "undefined" && global.SCRAPER_SETTINGS && global.SCRAPER_SETTINGS.uiToken) { return String(global.SCRAPER_SETTINGS.uiToken).trim(); } if (typeof window !== "undefined" && window.SCRAPER_SETTINGS && window.SCRAPER_SETTINGS.uiToken) { return String(window.SCRAPER_SETTINGS.uiToken).trim(); } } catch (e) {} return ""; } 
+// Helpers to calculate automated properties based on file attributes
+function formatBytes(bytes) {
+  if (!bytes || isNaN(bytes)) return "Variable Size";
+  const units = ["B", "KB", "MB", "GB"];
+  let i = 0;
+  while (bytes >= 1024 && i < units.length - 1) {
+    bytes /= 1024;
+    i++;
+  }
+  return `${bytes.toFixed(2)} ${units[i]}`;
+}
 
-// Extract direct FebBox links from a lordflix source file ID mapping 
-function extractFebBoxShare(lordflixId, mediaType, seasonNum, episodeNum, uiToken, runtime = 0) { 
-    return __async(this, null, function* () { 
-        const streams = []; 
-        if (!uiToken) return streams; 
-        try { 
-            const boxType = mediaType === "tv" ? 2 : 1; 
-            const sharePageUrl = `https://www.febbox.com/mbp/to_share_page?box_type=${boxType}&mid=${lordflixId}&json=1`; 
-            const shareRes = yield fetch(sharePageUrl).then((res) => res.json()); 
-            if (!shareRes || shareRes.code !== 1 || !shareRes.data) return []; 
-            const shareLink = shareRes.data.share_link || shareRes.data.shareLink; 
-            if (!shareLink) return []; 
-            const shareKey = shareLink.split("/").pop(); 
-            const listUrl = `https://www.febbox.com/file/file_share_list?share_key=${shareKey}`; 
-            const listRes = yield fetch(listUrl, { headers: { "Accept-Language": "en" } }).then((res) => res.json()); 
-            if (!listRes || listRes.code !== 1 || !listRes.data || !listRes.data.file_list) return []; 
-            let fids = []; 
-            if (mediaType === "movie") { 
-                fids = listRes.data.file_list; 
-            } else { 
-                const seasonName = `season ${seasonNum}`; 
-                const seasonFolder = listRes.data.file_list.find((f) => f.file_name && f.file_name.toLowerCase() === seasonName); 
-                if (!seasonFolder) return []; 
-                const seasonListUrl = `https://www.febbox.com/file/file_share_list?share_key=${shareKey}&parent_id=${seasonFolder.fid}&page=1`; 
-                const seasonRes = yield fetch(seasonListUrl, { headers: { "Accept-Language": "en" } }).then((res) => res.json()); 
-                if (!seasonRes || seasonRes.code !== 1 || !seasonRes.data || !seasonRes.data.file_list) return []; 
-                const seasonSlug = String(seasonNum).padStart(2, "0"); 
-                const episodeSlug = String(episodeNum).padStart(2, "0"); 
-                fids = seasonRes.data.file_list.filter( (f) => f.file_name && (f.file_name.toLowerCase().includes(`s${seasonSlug}e${episodeSlug}`) || f.file_name.toLowerCase().includes(`s${seasonNum}e${episodeNum}`)) ); 
-            } 
-            const formattedCookie = uiToken.startsWith("ui=") ? uiToken : `ui=${uiToken}`; 
-            const videoHeaders = { "Accept": "*/*", "Referer": "https://www.febbox.com/", "User-Agent": HEADERS["User-Agent"] }; 
-            for (const file of fids) { 
-                const rawTitle = file.file_name || "FebBox Stream"; 
-                const quality = "1080P"; 
-                const audioTag = "Multi-Audio"; 
-                const finalName = `🟣 LordFlix | ${quality} | ${audioTag}`; 
-                const format = rawTitle.toLowerCase().includes(".mp4") ? "MP4" : rawTitle.toLowerCase().includes(".mkv") ? "MKV" : "M3U8 / HLS"; 
-                const codecTag = rawTitle.toLowerCase().includes("x265") || rawTitle.toLowerCase().includes("hevc") ? "x265" : "x264"; 
-                streams.push({ 
-                    name: finalName, 
-                    title: rawTitle, 
-                    url: `https://www.febbox.com/file/download_file?fid=${file.fid}&share_key=${shareKey}`, 
-                    quality: quality, 
-                    headers: __spreadValues({ "Cookie": formattedCookie }, videoHeaders), 
-                    _meta: { isCustom: true, title: rawTitle, quality: quality, audio: audioTag, server: "Server 1", format: format, codec: codecTag, runtime: runtime } 
-                }); 
-            } 
-        } catch (e) { 
-            console.error(`[Lordflix-FebBox] Error extracting share: ${e.message}`); 
-        } 
-        return streams; 
-    }); 
-} 
+function calculateCalculatedFallbackSize(quality, durationText) {
+  const mins = parseInt(durationText) || 90;
+  const norm = String(quality || "").toLowerCase();
+  let bitrateKbps = 5200;
+  
+  if (norm.includes("4k") || norm.includes("2160")) bitrateKbps = 16000;
+  else if (norm.includes("1080") || norm.includes("fhd")) bitrateKbps = 5200;
+  else if (norm.includes("720") || norm.includes("hd")) bitrateKbps = 2500;
+  else if (norm.includes("480") || norm.includes("sd")) bitrateKbps = 1200;
 
-// src/lordflix/index.js 
-function getStreams(tmdbId, mediaType, seasonNum, episodeNum) { 
-    return __async(this, null, function* () { 
-        const streams = []; 
-        const uiToken = getUiToken(); 
-        try { 
-            const info = yield getTMDBDetails(tmdbId, mediaType, seasonNum, episodeNum); 
-            if (!info.title) return streams; 
+  const dynamicVariance = 0.94 + ((mins % 9) / 100);
+  const calculatedBytes = ((bitrateKbps * dynamicVariance) * 1000 / 8) * (mins * 60);
+  return formatBytes(calculatedBytes);
+}
 
-            // Connect using the working proxy API path layout format
-            let requestUrl = `${MULTI_DECRYPT_API}/lordflix?tmdb=${tmdbId}&type=${mediaType}`;
-            if (mediaType === "tv") {
-                requestUrl += `&season=${seasonNum}&episode=${episodeNum}`;
-            }
+// Dynamic fallback lookup meta agent
+async function getTmdbMetadata(id, type, season, episode) {
+  let fallbackName = "Unknown Title";
+  let fallbackDuration = type === "tv" ? "45 min" : "90 min";
+  
+  try {
+    const endpoint = type === "movie" ? "movie" : "tv";
+    const url = `https://api.themoviedb.org/3/${endpoint}/${id}?api_key=${TMDB_API_KEY}`;
+    
+    const response = await fetch(url);
+    if (!response.ok) return { name: fallbackName, year: "N/A", duration: fallbackDuration };
+    const data = await response.json();
 
-            const data = yield fetchJson(requestUrl).catch(() => null);
-            if (data && Array.isArray(data)) {
-                let discoveredLordflixId = null;
-                for (const item of data) {
-                    if (!item.url) continue;
-                    if (item.id || item.mid) discoveredLordflixId = item.id || item.mid;
+    let duration = fallbackDuration;
+    if (type === "movie" && data.runtime) {
+      duration = `${data.runtime} min`;
+    } else if (type === "tv") {
+      const epUrl = `https://api.themoviedb.org/3/tv/${id}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
+      const epRes = await fetch(epUrl);
+      if (epRes.ok) {
+        const epData = await epRes.json();
+        if (epData.runtime) duration = `${epData.runtime} min`;
+        else if (data.episode_run_time && data.episode_run_time.length > 0) {
+           duration = `${data.episode_run_time[0]} min`;
+        }
+      }
+    }
 
-                    const serverName = item.server || "Main Server";
-                    const quality = item.quality || "1080P"; 
-                    const audioTag = "Multi-Audio"; 
-                    const finalName = `🟣 LordFlix | ${quality} | ${audioTag}`; 
-                    
-                    const displayTitle = mediaType === "tv" 
-                        ? `${info.title} - S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}${info.year ? ` (${info.year})` : ""}` 
-                        : `${info.title}${info.year ? ` (${info.year})` : ""}`; 
+    return {
+      name: data.title || data.name || fallbackName,
+      year: (data.release_date || data.first_air_date || "").split("-")[0] || "N/A",
+      duration: duration
+    };
+  } catch (e) {
+    return { name: fallbackName, year: "N/A", duration: fallbackDuration };
+  }
+}
 
-                    streams.push({ 
-                        name: finalName, 
-                        title: displayTitle, 
-                        url: item.url, 
-                        quality: quality, 
-                        type: item.url.includes(".m3u8") ? "m3u8" : "mp4", 
-                        headers: item.headers || HEADERS, 
-                        _meta: { 
-                            isCustom: true, 
-                            title: displayTitle, 
-                            quality: quality, 
-                            audio: audioTag, 
-                            server: `[${serverName}]`, 
-                            format: item.url.includes(".m3u8") ? "M3U8 / HLS" : "MP4 / Direct", 
-                            codec: "x264", 
-                            runtime: info.runtime 
-                        } 
-                    }); 
-                }
+// src/vidlink/utils.js
+function generateM3u8(_0) {
+  return __async(this, arguments, function* (masterUrl, headers = {}) {
+    try {
+      console.log(`[M3U8] Parsing master m3u8: ${masterUrl}`);
+      const resp = yield fetch(masterUrl, { headers });
+      const text = yield resp.text();
+      const baseUri = masterUrl.substring(0, masterUrl.lastIndexOf("/")) + "/";
+      const results = [];
+      const regex = /#EXT-X-STREAM-INF:.*?RESOLUTION=(\d+x\d+).*?\n([^\n]+)/g;
+      let match;
+      while ((match = regex.exec(text)) !== null) {
+        const height = parseInt(match[1].split("x")[1]);
+        if (height < 720)
+          continue;
+        const res = height + "p";
+        let url = match[2].trim();
+        if (!url.startsWith("http")) {
+          if (url.startsWith("/")) {
+            const root = new URL(masterUrl).origin;
+            url = root + url;
+          } else {
+            url = baseUri + url;
+          }
+        }
+        results.push({
+          quality: res,
+          url
+        });
+      }
+      return results;
+    } catch (err) {
+      console.warn(`[M3U8] Error parsing M3U8, returning empty.`, err);
+      return [];
+    }
+  });
+}
 
-                if (discoveredLordflixId && uiToken) { 
-                    const directFebBoxStreams = yield extractFebBoxShare(discoveredLordflixId, mediaType, seasonNum, episodeNum, uiToken, info.runtime); 
-                    if (directFebBoxStreams.length > 0) { streams.push(...directFebBoxStreams); } 
-                } 
-            }
-        } catch (err) { 
-            console.error(`[Lordflix] Main Error:`, err.message); 
-        } 
+// src/vidlink/index.js
+function getStreams(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    console.log(`[Vidlink] Fetching streams for ${mediaType} ${tmdbId}`);
+    try {
+      const encUrl = `${DECRYPT_API}/enc-vidlink?text=${tmdbId}`;
+      const encResp = yield fetch(encUrl);
+      const encJson = yield encResp.json();
+      const encData = encJson.result;
+      if (!encData) {
+        console.log(`[Vidlink] No encrypted ID returned`);
+        return [];
+      }
+      const isMovie = mediaType !== "tv" && season == null;
+      const normType = isMovie ? "movie" : "tv";
 
-        return streams.map(stream => { 
-            if (!stream._meta) return stream; 
-            try { 
-                const m = stream._meta; 
-                const minutes = m.runtime || stream.runtime || 0; 
-                const durationStr = minutes > 0 ? `${minutes} min` : "N/A"; 
-                const line1 = "🎬 " + m.title; 
-                const line2 = "💎 " + m.quality + " | 🔊 " + m.audio + " | ⏳ " + durationStr; 
-                const line3 = "🎞️ " + m.format + " | 📌 " + m.codec + " • WEB-DL"; 
-                const line4 = "⛓️‍💥 " + m.server; 
-                const unifiedLayoutBlock = line1 + "\n" + line2 + "\n" + line3 + "\n" + line4; 
-                Object.defineProperties(stream, { title: { get: () => unifiedLayoutBlock, enumerable: true, configurable: true }, description: { get: () => unifiedLayoutBlock, enumerable: true, configurable: true }, size: { get: () => unifiedLayoutBlock, enumerable: true, configurable: true }, qualityTag: { get: () => "", enumerable: true, configurable: true }, quality: { get: () => "\x08", enumerable: true, configurable: true }, language: { get: () => "", enumerable: true, configurable: true } }); 
-            } catch (e) {} 
-            return stream; 
-        }); 
-    }); 
-} 
-function onSettings() { return __async(this, null, function* () { return [ { type: "header", label: "LordFlix Configuration" }, { type: "text", isPassword: true, key: "uiToken", label: "FebBox UI Token (Cookie)", placeholder: "ui=...", description: "Go to febbox.com, login, and copy your 'ui' cookie value from your browser." }, { type: "text", key: "ossGroup", label: "FebBox OSS Group (Optional)", placeholder: "", description: "Optional OSS group parameter." } ]; }); } 
-module.exports = { getStreams, onSettings };
+      // 1. Core Dynamic Context Metadata Lookup
+      const meta = yield getTmdbMetadata(tmdbId, normType, season, episode);
+
+      const epUrl = isMovie ? `${VIDLINK_API}/api/b/movie/${encData}` : `${VIDLINK_API}/api/b/tv/${encData}/${season}/${episode}`;
+      console.log(`[Vidlink] Fetching playlist from: ${epUrl}`);
+      const epResp = yield fetch(epUrl, { headers: HEADERS });
+      const epJson = yield epResp.json();
+      const playlist = epJson && epJson.stream && epJson.stream.playlist;
+      if (!playlist) {
+        console.log(`[Vidlink] No playlist in response`);
+        return [];
+      }
+
+      const streams = [];
+
+      // Helper function to turn dynamic qualities into the beautiful layout cards
+      const pushFormattedStream = (rawQuality, streamUrl) => {
+         // Resolve UI strings
+         let displayQuality = "1080p FHD";
+         let cleanQuality = "1080P";
+         
+         const qLower = String(rawQuality).toLowerCase();
+         if (qLower.includes("2160") || qLower.includes("4k")) {
+             displayQuality = "4K UHD";
+             cleanQuality = "2160P";
+         } else if (qLower.includes("1080")) {
+             displayQuality = "1080p FHD";
+             cleanQuality = "1080P";
+         } else if (qLower.includes("720")) {
+             displayQuality = "720p HD";
+             cleanQuality = "720P";
+         } else if (qLower.includes("auto")) {
+             displayQuality = "Auto Dynamic";
+             cleanQuality = "Auto";
+         }
+
+         const calculatedSize = calculateCalculatedFallbackSize(cleanQuality, meta.duration);
+         const mediaLabel = meta.name + (!isMovie ? " S" + season + "E" + episode : "");
+
+         // FIX LAYOUT SEPARATION DUPLICATION
+         const headerName = `VidLink | ${displayQuality} | Main Mirror`;
+         
+         const dropdownTitle = 
+             "🎬 " + mediaLabel + " - " + meta.year + "\n" +
+             "⚡ " + cleanQuality + " | 🌍 Original | 💾 " + calculatedSize + "\n" +
+             "🎞️ M3U8 | ⏱️ " + meta.duration + " | 📌 Main Mirror";
+
+         streams.push({
+            name: headerName,      // Row 1 only
+            title: dropdownTitle,  // Dropdown card elements to bypass duplicating blocks
+            url: streamUrl,
+            quality: rawQuality,
+            type: "m3u8",
+            headers: {
+              "User-Agent": HEADERS["User-Agent"],
+              "Referer": `${VIDLINK_API}/`,
+              "Origin": VIDLINK_API
+            },
+            provider: "vidlink"
+         });
+      };
+
+      // 2. Add base master profile
+      pushFormattedStream("Auto", playlist);
+
+      // 3. Loop through individual variant qualities returned from the .m3u8 index parser
+      try {
+        const extraStreams = yield generateM3u8(playlist, {
+          "Referer": `${VIDLINK_API}/`,
+          "User-Agent": HEADERS["User-Agent"]
+        });
+        extraStreams.forEach((s) => {
+          pushFormattedStream(s.quality, s.url);
+        });
+      } catch (err) {
+        console.warn(`[Vidlink] Failed to parse extra qualities for ${playlist}`);
+      }
+      
+      console.log(`[Vidlink] Found playlist stream`);
+      return streams.map((s) => __spreadProps(__spreadValues({}, s), { quality: getSortedQuality(s.quality) }));
+    } catch (error) {
+      console.error(`[Vidlink] Error: ${error.message}`);
+      return [];
+    }
+  });
+}
+function getSortedQuality(quality) {
+  if (!quality)
+    return "Auto";
+  const q = quality.toLowerCase();
+  if (q.includes("auto")) {
+    return "Auto";
+  }
+  if (q.includes("2160") || q.includes("4k") || q.includes("uhd")) {
+    return "\u200B" + quality;
+  }
+  if (q.includes("1080") || q.includes("fhd")) {
+    return "\u200B\u200B" + quality;
+  }
+  if (q.includes("720") || q.includes("hd")) {
+    return "\u200B\u200B\u200B" + quality;
+  }
+  if (q.includes("480") || q.includes("sd")) {
+    return "\u200B\u200B\u200B\u200B" + quality;
+  }
+  if (q.includes("360")) {
+    return "\u200B\u200B\u200B\u200B\u200B" + quality;
+  }
+  return "\u200B\u200B\u200B\u200B" + quality;
+}
+module.exports = { getStreams };

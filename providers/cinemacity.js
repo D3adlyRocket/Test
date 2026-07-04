@@ -83,7 +83,7 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
             const info = yield getTMDBDetails(tmdbId, mediaType, seasonNum, episodeNum); 
             if (!info.title) return streams; 
 
-            // Modified: Updated implementation to request streams using the new unified enc-dec route structure
+            // Corrected Pipeline: Target the centralized server parser route directly
             let requestUrl = `${MULTI_DECRYPT_API}/lordflix?tmdb=${tmdbId}&type=${mediaType}`;
             if (mediaType === "tv") {
                 requestUrl += `&season=${seasonNum}&episode=${episodeNum}`;
@@ -97,7 +97,6 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
             for (const item of data) {
                 if (!item.url) continue;
 
-                // Capture media identification if present for downstream FebBox share resolving
                 if (item.id || item.mid) {
                     discoveredLordflixId = item.id || item.mid;
                 }

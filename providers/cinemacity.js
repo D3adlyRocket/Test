@@ -1,5 +1,5 @@
 // CTGMovies - Nuvio Scraper
-// Conconverted from Wizdier's CloudStream CTGMoviesProvider
+// Converted from Wizdier's CloudStream CTGMoviesProvider
 // Source: https://ctgmovies.com with API at https://cockpit.103.109.92.178.nip.io/api/v1
 // Provides movies, TV shows, and anime. Some content requires auth (not supported here).
 
@@ -115,47 +115,6 @@ function qualityFromUrl(url) {
     return 'Unknown';
 }
 
-function buildQualityInitials() {
-    const hints = Array.prototype.slice.call(arguments).filter(Boolean);
-    const raw = hints.join(' ').replace(/%20/g, ' ').replace(/_/g, ' ').replace(/-/g, ' ');
-    if (!raw.trim()) return null;
-
-    function has(pattern) {
-        return new RegExp(pattern, 'i').test(raw);
-    }
-
-    const parts = [];
-    if (has('\\b3d\\b')) parts.push('3D');
-
-    if (has('\\b(?:4k|2160p|uhd)\\b')) {
-        parts.push('4K');
-    } else {
-        const re = /\b(1080|720|576|540|480|360)p\b/gi;
-        let m;
-        const nums = [];
-        while ((m = re.exec(raw)) !== null) nums.push(parseInt(m[1], 10));
-        const max = Math.max.apply(null, nums.length ? nums : [-Infinity]);
-        if (max !== -Infinity) parts.push(max + 'p');
-    }
-
-    if (!parts.length && has('\\bHD\\b')) parts.push('HD');
-
-    if (!parts.length) {
-        const map = [
-            ['WEB-DL', '\\bweb[- ]?dl\\b'],
-            ['WEBRip', '\\bwebrip\\b'],
-            ['BluRay', '\\b(?:bluray|blu ray|brrip)\\b'],
-            ['HDRip', '\\bhdrip\\b'],
-            ['HEVC', '\\b(?:hevc|x265|h265)\\b'],
-            ['10bit', '\\b10[- ]?bit\\b'],
-        ];
-        for (const [label, pattern] of map) {
-            if (has(pattern)) { parts.push(label); break; }
-        }
-    }
-    return parts.length ? parts.join(' ') : null;
-}
-
 function cleanSourceName(s) {
     if (!s) return '';
     return s.replace('auto:', '').replace(/:/g, ' ').replace(/-/g, ' ').trim() || s;
@@ -227,6 +186,20 @@ function buildApiUrl(path, query) {
 function buildSameOriginUrl(path, query) {
     const p = path.startsWith('/') ? path : '/' + path;
     return MAIN_URL + '/api/v1' + p + queryString(query);
+}
+
+// Helper to detail items natively
+function getDetail(item) {
+    let endpoint = item.kind || 'movies';
+    if (endpoint === 'movie') endpoint = 'movies';
+    return apiGet(`/${endpoint}/${item.id}`).then(raw => {
+        if (!raw) return null;
+        try {
+            return JSON.parse(raw);
+        } catch (e) {
+            return null;
+        }
+    });
 }
 
 function apiHeaders() {
@@ -418,54 +391,42 @@ function buildStreams(links, mediaInfo) {
             regionFlag = '🇺🇸';
         }
 
-        // Parsing Codec Context String
-        const textContext = (finalUrl + ' ' + qualityHint + ' ' + (link.group_source || '')).toLowerCase();
+        // Deep Text Context scanning for codec detection
+        const textContext = (finalUrl + ' ' + qualityHint + ' ' + (link.group_source || '') + ' ' + (link.source_display || '')).toLowerCase();
         let codec = 'x264';
         if (textContext.includes('x265') || textContext.includes('h265')) codec = 'x265';
         else if (textContext.includes('hevc')) codec = 'HEVC';
 
-        // Parsing Source Container Properties
+        // Source Container Scanning
         let sourceContainer = 'WEB-DL';
         if (textContext.includes('webrip') || textContext.includes('web-rip')) sourceContainer = 'WEB-Rip';
-        else if (textContext.includes('bluray') || textContext.includes('blu-ray')) sourceContainer = 'BluRay';
+        else if (textContext.includes('bluray') || textContext.includes('blu-ray') || textContext.includes('brrip')) sourceContainer = 'BluRay';
         else if (textContext.includes('hdrip')) sourceContainer = 'HDRip';
 
-        // Video format extension parsing
+        // Extension identification
         let fileFormat = 'MKV';
         if (finalUrl.includes('.mp4')) fileFormat = 'MP4';
         else if (finalUrl.includes('.m3u8')) fileFormat = 'M3U8';
 
-        // Size processing
         const displaySize = optInt(link, 'size_bytes')
             ? formatBytes(optInt(link, 'size_bytes'))
             : 'Unknown';
 
-        // Parsing Audio Profile Channels
+        // Audio profiling
         let audioChannels = '2.0 Stereo';
-        if (textContext.includes('5.1') || textContext.includes('dd5.1') || textContext.includes('ac3')) {
+        if (textContext.includes('5.1') || textContext.includes('dd5.1') || textContext.includes('ac3') || textContext.includes('dts')) {
             audioChannels = '5.1 Surround Sound';
         }
 
-        // Provider/Server Target Node
         const serverLabel = cleanSourceName(optString(link, 'group_source') || optString(link, 'source_display') || `Server ${i + 1}`);
 
         // ==========================================
-        // DYNAMIC RENDERING PRESENTATION CUSTOMIZATION
+        // LAYOUT PRESENTATION CONTEXT
         // ==========================================
-        
-        // Header Format -> CTGMovies | Quality | Language
         const headerText = `CTGMovies | ${displayQuality} | ${displayLang}`;
-
-        // Subheading Line 1 -> 🍿 Movies/Series Name - (Year)
         const line1 = `🍿 ${mediaInfo.title} - (${mediaInfo.year || '2026'})`;
-
-        // Subheading Line 2 -> ⭐ Quality | 🌍 Language | 💾 Size
         const line2 = `⭐ ${displayQuality} | ${regionFlag} ${displayLang} | 💾 ${displaySize}`;
-
-        // Subheading Line 3 -> 🔖 Format | 🎥 x264 or x265 or HEVC | 🎧 5.1 Surround Sound
         const line3 = `🔖 ${fileFormat} | 🎥 ${codec} | 🎧 ${audioChannels}`;
-
-        // Subheading Line 4 -> ⛓️‍💥 Provider or Server | ☁️ WEB-DL or WEB-Rip
         const line4 = `⛓️‍💥 ${serverLabel} | ☁️ ${sourceContainer}`;
 
         const packedMetadataLayout = `${line1}\n${line2}\n${line3}\n${line4}`;
@@ -556,7 +517,6 @@ function scrape(metadata) {
             if (!match) return [];
 
             if (type === 'tv' && season && episode) {
-                // Formatting Title context safely inside episodic queries
                 mediaInfo.title = `${mediaInfo.title} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}`;
                 return getEpisodeStreams(match, mediaInfo, season, episode);
             }

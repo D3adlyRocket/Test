@@ -118,7 +118,6 @@ function qualityFromUrl(url) {
 function cleanSourceName(s) {
     if (!s) return '';
     let name = s.replace('auto:', '').replace(/:/g, ' ').replace(/-/g, ' ').trim();
-    // Normalize server casing to match requested design style
     if (/^server\s*[a-z]$/i.test(name)) {
         name = name.replace(/server\s*([a-z])/i, function(m, letter) {
             return 'Server ' + letter.toUpperCase();
@@ -305,6 +304,10 @@ function parseSearchItems(raw, kind) {
     return items;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Stream Presentation Builder
+// ─────────────────────────────────────────────────────────────────────────────
+
 function searchCtg(query) {
     const params = { search: query };
     const moviesP = apiGet('/movies', params).then(raw => parseSearchItems(raw, 'movies')).catch(() => []);
@@ -348,10 +351,6 @@ function findBestMatch(mediaInfo, items, mediaType) {
     return bestScore >= 30 ? best : null;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Dynamic Stream Presentation Builder
-// ─────────────────────────────────────────────────────────────────────────────
-
 function buildStreams(links, mediaInfo) {
     const seen = new Set();
     const out = [];
@@ -369,7 +368,6 @@ function buildStreams(links, mediaInfo) {
         if (!finalUrl || seen.has(finalUrl)) return;
         seen.add(finalUrl);
 
-        // Quality Detection
         let quality = qualityFromUrl(finalUrl);
         const qualityHint = optString(link, 'quality') || '';
         if (quality === 'Unknown') {
@@ -382,7 +380,6 @@ function buildStreams(links, mediaInfo) {
         }
         const displayQuality = quality !== 'Unknown' ? quality.toUpperCase() : '1080P';
 
-        // Parsing Language & Region
         const rawLang = (optString(link, 'language') || 'en').toLowerCase();
         let displayLang = 'English';
         let regionFlag = '🌍';
@@ -397,19 +394,16 @@ function buildStreams(links, mediaInfo) {
             regionFlag = '🇺🇸';
         }
 
-        // Deep Text Context scanning for codec detection
         const textContext = (finalUrl + ' ' + qualityHint + ' ' + (link.group_source || '') + ' ' + (link.source_display || '')).toLowerCase();
         let codec = 'x264';
         if (textContext.includes('x265') || textContext.includes('h265')) codec = 'x265';
         else if (textContext.includes('hevc')) codec = 'HEVC';
 
-        // Source Container Scanning
         let sourceContainer = 'WEB-DL';
         if (textContext.includes('webrip') || textContext.includes('web-rip')) sourceContainer = 'WEB-Rip';
         else if (textContext.includes('bluray') || textContext.includes('blu-ray') || textContext.includes('brrip')) sourceContainer = 'BluRay';
         else if (textContext.includes('hdrip')) sourceContainer = 'HDRip';
 
-        // Extension identification
         let fileFormat = 'MKV';
         if (finalUrl.includes('.mp4')) fileFormat = 'MP4';
         else if (finalUrl.includes('.m3u8')) fileFormat = 'M3U8';
@@ -418,21 +412,13 @@ function buildStreams(links, mediaInfo) {
             ? formatBytes(optInt(link, 'size_bytes'))
             : 'Unknown';
 
-        // Audio profiling forced to high-quality surround channel layout mapping
         let audioChannels = '5.1 Surround';
 
         let rawServer = optString(link, 'group_source') || optString(link, 'source_display') || `Server ${i + 1}`;
         const serverLabel = cleanSourceName(rawServer);
-
-        // ==========================================
-        // ANIKOTOTV STRIPPING METHOD APPLIED
-        // ==========================================
-        // The core application automatically adds the quality layout plus language string to your fields.
-        // We configure the internal lines clean, and supply an alternate quality parameter to control the native prefix behavior.
         
         const headerText = `CTGMovies | ${displayQuality} | ${displayLang}`;
         
-        // Internal data representation lines clean of prefixes
         const line1 = `🍿 ${mediaInfo.title} - (${mediaInfo.year || '2026'})`;
         const line2 = `⭐ ${displayQuality} | ${regionFlag} ${displayLang} | 💾 ${displaySize}`;
         const line3 = `🔖 ${fileFormat} | 🎥 ${codec} | 🎧 ${audioChannels}`;
@@ -462,8 +448,8 @@ function buildStreams(links, mediaInfo) {
             size: packedMetadataLayout, 
             description: packedMetadataLayout,
             url: finalUrl,
-            quality: 'Clean', // Passes a key value that doesn't trigger the application's auto-prefix injection
-            language: '',     // Emptied to prevent the engine from appending language tags onto line 4
+            quality: '',      // Empty string cleanly removes any prefix and tracking dots entirely
+            language: '',     // Prevents trailing ' • en' language tags on the last line
             provider: 'CTGMovies',
             headers: STREAM_HEADERS,
             subtitles: subtitles.length ? subtitles : undefined,

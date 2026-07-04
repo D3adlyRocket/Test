@@ -1,6 +1,7 @@
 /**
  * vidlink - Built from src/vidlink/
  * Generated: 2026-05-24T13:07:23.110Z
+ * Patched: 2026 - Fixed Decryption Pathing, Quality Filters, & CDN Headers
  */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -122,17 +123,29 @@ async function getTmdbMetadata(id, type, season, episode) {
 function generateM3u8(_0) {
   return __async(this, arguments, function* (masterUrl, headers = {}) {
     try {
+      // FIX: If it's a direct MP4 file returned instead of an M3U8 container, skip scanning text entirely
+      if (typeof masterUrl === 'string' && masterUrl.toLowerCase().split('?')[0].endsWith('.mp4')) {
+        return [];
+      }
+
       console.log(`[M3U8] Parsing master m3u8: ${masterUrl}`);
       const resp = yield fetch(masterUrl, { headers });
       const text = yield resp.text();
+      
+      // Safety check if response is not valid M3U8 string syntax
+      if (!text || !text.includes("#EXTM3U")) {
+        return [];
+      }
+
       const baseUri = masterUrl.substring(0, masterUrl.lastIndexOf("/")) + "/";
       const results = [];
       const regex = /#EXT-X-STREAM-INF:.*?RESOLUTION=(\d+x\d+).*?\n([^\n]+)/g;
       let match;
       while ((match = regex.exec(text)) !== null) {
         const height = parseInt(match[1].split("x")[1]);
-        if (height < 720)
-          continue;
+        
+        // FIX: Removed strict "height < 720" restriction. This guarantees lower quality versions
+        // and alternative CDN streams are preserved instead of returning completely empty arrays.
         const res = height + "p";
         let url = match[2].trim();
         if (!url.startsWith("http")) {
@@ -161,7 +174,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     console.log(`[Vidlink] Fetching streams for ${mediaType} ${tmdbId}`);
     try {
-      const encUrl = `${DECRYPT_API}/enc-vidlink?text=${tmdbId}`;
+      // FIX 1: Fixed the URL endpoint generation to avoid duplicating /enc-vidlink paths
+      const encUrl = `${DECRYPT_API}?text=${tmdbId}`;
       const encResp = yield fetch(encUrl);
       const encJson = yield encResp.json();
       const encData = encJson.result;
@@ -189,7 +203,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
       // Helper function to turn dynamic qualities into the beautiful layout cards
       const pushFormattedStream = (rawQuality, streamUrl) => {
-         // Resolve UI strings
          let displayQuality = "1080p FHD";
          let cleanQuality = "1080P";
          
@@ -203,32 +216,62 @@ function getStreams(tmdbId, mediaType, season, episode) {
          } else if (qLower.includes("720")) {
              displayQuality = "720p HD";
              cleanQuality = "720P";
+         } else if (qLower.includes("480")) {
+             displayQuality = "480p SD";
+             cleanQuality = "480P";
+         } else if (qLower.includes("360")) {
+             displayQuality = "360p SD";
+             cleanQuality = "360P";
          } else if (qLower.includes("auto")) {
              displayQuality = "Auto Dynamic";
              cleanQuality = "Auto";
+         } else {
+             displayQuality = rawQuality + " Video";
+             cleanQuality = rawQuality.toUpperCase();
          }
 
          const calculatedSize = calculateCalculatedFallbackSize(cleanQuality, meta.duration);
          const mediaLabel = meta.name + (!isMovie ? " S" + season + "E" + episode : "");
 
-         // FIX LAYOUT SEPARATION DUPLICATION
+         // FIX 2: Check the URL context. If it contains nested JSON header queries (like ?headers=),
+         // extract those parameters to build dynamic custom referers rather than crashing with 403.
+         let activeReferer = `${VIDLINK_API}/`;
+         let activeOrigin = VIDLINK_API;
+         
+         if (streamUrl.includes("headers=")) {
+           try {
+             const urlObj = new URL(streamUrl);
+             const headerParam = urlObj.searchParams.get("headers");
+             if (headerParam) {
+               const parsedJson = JSON.parse(headerParam);
+               if (parsedJson.referer) activeReferer = parsedJson.referer;
+               if (parsedJson.origin) activeOrigin = parsedJson.origin;
+             }
+           } catch(e) {
+             console.warn("[Vidlink] Failed parsing inline URL headers context.");
+           }
+         }
+
          const headerName = `VidLink | ${displayQuality} | Main Mirror`;
          
+         const isMp4 = streamUrl.toLowerCase().split('?')[0].endsWith('.mp4');
+         const typeLabel = isMp4 ? "MP4 Direct" : "M3U8";
+
          const dropdownTitle = 
              "🎬 " + mediaLabel + " - " + meta.year + "\n" +
              "⚡ " + cleanQuality + " | 🌍 Original | 💾 " + calculatedSize + "\n" +
-             "🎞️ M3U8 | ⏱️ " + meta.duration + " | 📌 Main Mirror";
+             "🎞️ " + typeLabel + " | ⏱️ " + meta.duration + " | 📌 Main Mirror";
 
          streams.push({
-            name: headerName,      // Row 1 only
-            title: dropdownTitle,  // Dropdown card elements to bypass duplicating blocks
+            name: headerName,
+            title: dropdownTitle,
             url: streamUrl,
             quality: rawQuality,
-            type: "m3u8",
+            type: isMp4 ? "mp4" : "m3u8",
             headers: {
               "User-Agent": HEADERS["User-Agent"],
-              "Referer": `${VIDLINK_API}/`,
-              "Origin": VIDLINK_API
+              "Referer": activeReferer,
+              "Origin": activeOrigin
             },
             provider: "vidlink"
          });
@@ -250,7 +293,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
         console.warn(`[Vidlink] Failed to parse extra qualities for ${playlist}`);
       }
       
-      console.log(`[Vidlink] Found playlist stream`);
+      console.log(`[Vidlink] Completed parsing process`);
       return streams.map((s) => __spreadProps(__spreadValues({}, s), { quality: getSortedQuality(s.quality) }));
     } catch (error) {
       console.error(`[Vidlink] Error: ${error.message}`);
@@ -258,6 +301,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
     }
   });
 }
+
 function getSortedQuality(quality) {
   if (!quality)
     return "Auto";
@@ -282,4 +326,5 @@ function getSortedQuality(quality) {
   }
   return "\u200B\u200B\u200B\u200B" + quality;
 }
+
 module.exports = { getStreams };

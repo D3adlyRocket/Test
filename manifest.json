@@ -51,10 +51,9 @@
       "filename": "providers/cinemacity.js",
       "enabled": true,
       "hasSettings": true,
-      "resources": ["stream"],
-      "formats": ["mkv", "m3u8"],
+      "formats": ["mkv", "mp4", "m3u8"],
       "logo": "https://i.postimg.cc/KzjPtYWY/imdb.png",
-      "contentLanguage": ["en", "it"]
+      "contentLanguage": ["en", "hi", "it"]
     },
     {
       "id": "test",

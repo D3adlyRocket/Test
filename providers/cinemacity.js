@@ -11,7 +11,6 @@ var __async = (__this, __arguments, generator) => { return new Promise((resolve,
 var HEADERS = { "Accept": "*/*", "Origin": "https://lordflix.org", "Referer": "https://lordflix.org/", "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36" }; 
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c"; 
 var TMDB_BASE_URL = "https://api.themoviedb.org/3"; 
-var LORDFLIX_API = "https://snowhouse.lordflix.club"; 
 var MULTI_DECRYPT_API = "https://enc-dec.app/api"; 
 
 // src/lordflix/utils.js 
@@ -28,7 +27,6 @@ function extractFebBoxShare(lordflixId, mediaType, seasonNum, episodeNum, uiToke
         try { 
             const boxType = mediaType === "tv" ? 2 : 1; 
             const sharePageUrl = `https://www.febbox.com/mbp/to_share_page?box_type=${boxType}&mid=${lordflixId}&json=1`; 
-            console.log(`[Lordflix-FebBox] Requesting share link: ${sharePageUrl}`); 
             const shareRes = yield fetch(sharePageUrl).then((res) => res.json()); 
             if (!shareRes || shareRes.code !== 1 || !shareRes.data) return []; 
             const shareLink = shareRes.data.share_link || shareRes.data.shareLink; 
@@ -77,51 +75,62 @@ function extractFebBoxShare(lordflixId, mediaType, seasonNum, episodeNum, uiToke
 } 
 
 // src/lordflix/index.js 
-var SERVERS = ["Berlin", "Orion", "Frankfurt", "Phoenix", "Aqua", "Moscow", "Draco", "Comet", "Oslo", "Luna", "LordFlix", "Sakura", "Rio", "Ativa", "Vienna", "Lion", "Solstice"]; 
-function encodeQuote(str) { return encodeURIComponent(str).replace(/%20/g, "+").replace(/\+/g, "%20"); } 
 function getStreams(tmdbId, mediaType, seasonNum, episodeNum) { 
     return __async(this, null, function* () { 
         const streams = []; 
         const uiToken = getUiToken(); 
         try { 
             const info = yield getTMDBDetails(tmdbId, mediaType, seasonNum, episodeNum); 
-            if (!info.title || !info.imdbId) return streams; 
-            const typeParam = mediaType === "tv" ? "series" : "movie"; 
-            const titleEnc = encodeQuote(info.title); 
-            let discoveredLordflixId = null; 
-            yield Promise.all(SERVERS.map((server) => __async(this, null, function* () { 
-                try { 
-                    // Fixed: Updated structure to point cleanly to /challenge and encode cleanly for GitHub repository specification
-                    let serverUrl = `${LORDFLIX_API}/challenge?title=${titleEnc}&type=${typeParam}&year=${info.year || ""}&imdb=${info.imdbId}&tmdb=${tmdbId}&server=${server}`; 
-                    if (mediaType === "tv") serverUrl += `&season=${seasonNum}&episode=${episodeNum}`; 
-                    
-                    const encBridgeUrl = `${MULTI_DECRYPT_API}/enc-lordflix?url=${encodeURIComponent(serverUrl)}`; 
-                    const encBridgeJson = yield fetchJson(encBridgeUrl); 
-                    if (!encBridgeJson || encBridgeJson.status !== 200 || !encBridgeJson.result) return; 
-                    
-                    const proxyEncUrl = encBridgeJson.result.url; 
-                    const signature = encBridgeJson.result.sign; 
-                    if (!proxyEncUrl || !signature) return; 
-                    
-                    const remoteEncData = yield fetchText(proxyEncUrl); 
-                    const decResponse = yield fetch(`${MULTI_DECRYPT_API}/dec-lordflix`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: remoteEncData, sign: signature }) }); 
-                    if (!decResponse.ok) return; 
-                    
-                    const finalJson = yield decResponse.json(); 
-                    if (!finalJson || finalJson.status !== 200 || !finalJson.result || finalJson.result.error) return; 
-                    if (finalJson.result.id || finalJson.result.mid) { discoveredLordflixId = finalJson.result.id || finalJson.result.mid; } 
-                    const streamList = finalJson.result.stream; 
-                    if (!streamList || !Array.isArray(streamList) || streamList.length === 0) return; 
-                    const topStream = streamList[0]; 
-                    if (topStream.type === "hls" && topStream.playlist) { 
-                        const quality = "1080P"; 
-                        const audioTag = "Multi-Audio"; 
-                        const finalName = `🟣 LordFlix | ${quality} | ${audioTag}`; 
-                        const displayTitle = mediaType === "tv" ? `${info.title} - S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')} ${info.year ? ` (${info.year})` : ""}` : `${info.title}${info.year ? ` (${info.year})` : ""}`; 
-                        streams.push({ name: finalName, title: displayTitle, url: topStream.playlist, quality: quality, type: "m3u8", headers: HEADERS, _meta: { isCustom: true, title: displayTitle, quality: quality, audio: audioTag, server: `[Server: ${server}]`, format: "M3U8 / HLS", codec: "x264", runtime: info.runtime } }); 
+            if (!info.title) return streams; 
+
+            // Modified: Updated implementation to request streams using the new unified enc-dec route structure
+            let requestUrl = `${MULTI_DECRYPT_API}/lordflix?tmdb=${tmdbId}&type=${mediaType}`;
+            if (mediaType === "tv") {
+                requestUrl += `&season=${seasonNum}&episode=${episodeNum}`;
+            }
+
+            const data = yield fetchJson(requestUrl);
+            if (!data || !Array.isArray(data)) return streams;
+
+            let discoveredLordflixId = null;
+
+            for (const item of data) {
+                if (!item.url) continue;
+
+                // Capture media identification if present for downstream FebBox share resolving
+                if (item.id || item.mid) {
+                    discoveredLordflixId = item.id || item.mid;
+                }
+
+                const serverName = item.server || "Auto";
+                const quality = item.quality || "1080P"; 
+                const audioTag = "Multi-Audio"; 
+                const finalName = `🟣 LordFlix | ${quality} | ${audioTag}`; 
+                
+                const displayTitle = mediaType === "tv" 
+                    ? `${info.title} - S${String(seasonNum).padStart(2, '0')}E${String(episodeNum).padStart(2, '0')}${info.year ? ` (${info.year})` : ""}` 
+                    : `${info.title}${info.year ? ` (${info.year})` : ""}`; 
+
+                streams.push({ 
+                    name: finalName, 
+                    title: displayTitle, 
+                    url: item.url, 
+                    quality: quality, 
+                    type: item.url.includes(".m3u8") ? "m3u8" : "mp4", 
+                    headers: item.headers || HEADERS, 
+                    _meta: { 
+                        isCustom: true, 
+                        title: displayTitle, 
+                        quality: quality, 
+                        audio: audioTag, 
+                        server: `[Server: ${serverName}]`, 
+                        format: item.url.includes(".m3u8") ? "M3U8 / HLS" : "MP4 / Direct", 
+                        codec: "x264", 
+                        runtime: info.runtime 
                     } 
-                } catch (e) { } 
-            }))); 
+                }); 
+            }
+
             if (discoveredLordflixId && uiToken) { 
                 const directFebBoxStreams = yield extractFebBoxShare(discoveredLordflixId, mediaType, seasonNum, episodeNum, uiToken, info.runtime); 
                 if (directFebBoxStreams.length > 0) { streams.push(...directFebBoxStreams); } 
@@ -129,6 +138,7 @@ function getStreams(tmdbId, mediaType, seasonNum, episodeNum) {
         } catch (err) { 
             console.error(`[Lordflix] Main Error:`, err.message); 
         } 
+
         return streams.map(stream => { 
             if (!stream._meta) return stream; 
             try { 

@@ -26,6 +26,8 @@ var __async = (__this, __arguments, generator) => {
 // src/vidsrcme/index.js
 var BASEDOM = "https://whisperingauroras.com";
 var UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36";
+var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+
 function safeFetch(url, opts, ms) {
   ms = ms || 8e3;
   var controller;
@@ -295,37 +297,37 @@ function cleanTitleString(rawTitle) {
   return { title: clean, year: year };
 }
 
-// Fixed TMDB runtime scraper formatting
-function fetchTMDBMetadata(tmdbId, mediaType, season, episode) {
+// Fixed TMDB integrated dynamic runtime metadata resolver
+function fetchTMDBDuration(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
+    let fallbackDuration = mediaType === "tv" ? "45 min" : "90 min";
     try {
-      var apiKey = "844421298d0945744006c3da09a96e44";
-      var parsedId = parseInt(String(tmdbId).replace(/\D/g, ""), 10);
-      if (isNaN(parsedId)) return "N/A";
-
-      var isMovie = mediaType === "movie";
-      var url = isMovie 
-        ? "https://api.themoviedb.org/3/movie/" + parsedId + "?api_key=" + apiKey
-        : "https://api.themoviedb.org/3/tv/" + parsedId + "/season/" + (season || 1) + "/episode/" + (episode || 1) + "?api_key=" + apiKey;
-        
-      var res = yield safeFetch(url, {}, 4e3);
-      var data = yield res.json();
+      const type = mediaType === "tv" ? "tv" : "movie";
+      const cleanId = String(tmdbId).replace(/\D/g, "");
+      const url = `https://api.themoviedb.org/3/${type}/${cleanId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
       
-      var runtime = 0;
-      if (isMovie) {
-        runtime = data.runtime || 0;
-      } else {
-        runtime = data.runtime || (data.still_path ? 45 : 0); 
-      }
+      const response = yield fetch(url);
+      if (!response.ok) return fallbackDuration;
+      const data = yield response.json();
       
-      if (runtime > 0) {
-        var h = Math.floor(runtime / 60);
-        var m = runtime % 60;
-        return h > 0 ? h + "h " + m + "m" : m + "m";
+      let duration = fallbackDuration;
+      if (mediaType === "movie" && data.runtime) {
+        duration = `${data.runtime} min`;
+      } else if (mediaType === "tv" && season != null && episode != null) {
+        const epUrl = `https://api.themoviedb.org/3/tv/${cleanId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`;
+        const epRes = yield fetch(epUrl);
+        if (epRes.ok) {
+          const epData = yield epRes.json();
+          if (epData.runtime) {
+            duration = `${epData.runtime} min`;
+          } else if (data.episode_run_time && data.episode_run_time.length > 0) {
+            duration = `${data.episode_run_time[0]} min`;
+          }
+        }
       }
-      return "N/A";
+      return duration;
     } catch (e) {
-      return "N/A";
+      return fallbackDuration;
     }
   });
 }
@@ -338,7 +340,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       console.log("[VidSrc.me] Fetching embed page: " + url);
       
       var embedPromise = safeFetch(url, {}, 8e3);
-      var durationPromise = fetchTMDBMetadata(tmdbId, mediaType, season, episode);
+      var durationPromise = fetchTMDBDuration(tmdbId, mediaType, season, episode);
       
       var embed = yield embedPromise;
       var embedResp = yield embed.text();
@@ -418,7 +420,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
                 var line1 = `📽️ ${displayTitle}${epContext} - (${releaseYear})`;
                 var line2 = `⭐ ${displayQuality} | 🌍 Original-Audio | 🎧 AAC`;
                 var line3 = `🎞️ ${fileFormat} | 🎥 x264 | ⏳ ${durationStr}`;
-                var line4 = `📎 ${serverLabel}`;
+                var line4 = `📁 ${serverLabel}`;
 
                 var layoutContext = `${line1}\n${line2}\n${line3}\n${line4}`;
 

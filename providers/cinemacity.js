@@ -420,7 +420,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
                 var line1 = `📽️ ${displayTitle}${epContext} - (${releaseYear})`;
                 var line2 = `⭐ ${displayQuality} | 🌍 Original-Audio | 🎧 AAC`;
                 var line3 = `🎞️ ${fileFormat} | 🎥 x264 | ⏳ ${durationStr}`;
-                var line4 = `📁 ${serverLabel}`;
+                var line4 = `📎 ${serverLabel}`;
 
                 var layoutContext = `${line1}\n${line2}\n${line3}\n${line4}`;
 

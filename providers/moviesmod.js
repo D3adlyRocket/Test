@@ -11,7 +11,7 @@ async function onSettings() {
 
 const PROVIDER_NAME = "MovieBox";
 // Configured with your requested MovieBox endpoint (manifest.json trimmed for path appending)
-const MOVIEBOX_BASE = "https://stremio-moviebox-1.onrender.com/eyJyZXNvbHV0aW9uIjoiMTA4MHAiLCJsYW5ndWFnZSI6ImFsbCIsImxheW91dCI6ImNpbmVtYXRpYyJ9";
+const MOVIEBOX_BASE = "https://moviebox-cfa7.onrender.com/eyJyZXNvbHV0aW9uIjpbIjEwODBwIl0sImxhbmd1YWdlIjpbImVuIiwiaGkiXSwicHJveHlfdXJsIjoiIiwicHJvdmlkZXJzIjpbIm1vYmlsZSIsIndlYiIsImxlZ2FjeSJdLCJuYW1lX3RlbXBsYXRlIjoi8J-OpSAqKntyZXNvbHV0aW9ufSoqIiwidGl0bGVfdGVtcGxhdGUiOiLwn5SKIHthdWRpb30gfCDwn5K-ICp7c2l6ZX0qXFxu8J-SrCBTdWJzOiB7c3VidGl0bGVzfSJ9";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 async function getStreams(tmdbId, mediaType, season, episode) {

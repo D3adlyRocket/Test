@@ -1,12 +1,21 @@
-// HDMovie2 Provider for Nuvio // Bollywood + Hollywood Hindi Dubbed + Web Series // Updated with .equipment domain and HLS stream fixes
+// HDMovie2 Provider for Nuvio // Bollywood + Hollywood Hindi Dubbed + Web Series // Updated with Domain-Agnostic Iframe & HLS stream fixes
 var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305'
 var BASE = 'https://hdmovie2a.my/' // Updated Domain 🌐
-var CDN = 'https://hdm2.ink'
-var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
+var UA = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36'
 
 function httpGet(url, headers) {
     return fetch(url, {
-        headers: Object.assign({ 'User-Agent': UA }, headers || {})
+        headers: Object.assign({ 
+            'User-Agent': UA,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Ch-Ua': '"Chromium";v="137", "Not/A)Brand";v="24"',
+            'Sec-Ch-Ua-Mobile': '?1',
+            'Sec-Ch-Ua-Platform': '"Android"',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none'
+        }, headers || {})
     }).then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status)
         return r.text()
@@ -108,69 +117,68 @@ function searchSite(title, year) {
         })
 }
 
-function getHdm2Stream(playerUrl) {
+// Unified parser that handles ANY rotating mirror domain found in the iframe 🌀
+function getGenericStream(playerUrl) {
+    var origin = 'https://hdm2.ink';
+    var originMatch = playerUrl.match(/^(https?:\/\/[^\/]+)/);
+    if (originMatch) {
+        origin = originMatch[1];
+    }
+
     return httpGet(playerUrl, { 'Referer': BASE + '/' })
         .then(function(html) {
+            // Method A: Standard data-stream-url property
             var streamMatch = html.match(/data-stream-url="([^"]+)"/)
-            if (!streamMatch) {
-                console.log('[HDMovie2] No data-stream-url in hdm2 page')
-                return null
-            }
-            var streamPath = streamMatch[1]
-                .replace(/&amp;/g, '&')
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
+            if (streamMatch) {
+                var streamPath = streamMatch[1]
+                    .replace(/&amp;/g, '&')
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>')
 
-            var finalUrl = CDN + streamPath;
-            if (!finalUrl.includes('.m3u8')) {
-                finalUrl += '#index.m3u8';
-            }
-            console.log('[HDMovie2] hdm2 stream found!')
-            return {
-                url: finalUrl,
-                headers: {
-                    'Referer': CDN + '/',
-                    'Origin': CDN,
-                    'User-Agent': UA
+                var finalUrl = streamPath.startsWith('http') ? streamPath : origin + streamPath;
+                if (!finalUrl.includes('.m3u8')) {
+                    finalUrl += '#index.m3u8';
+                }
+                console.log('[HDMovie2] Dynamic stream found!')
+                return {
+                    url: finalUrl,
+                    headers: {
+                        'Referer': origin + '/',
+                        'Origin': origin,
+                        'User-Agent': UA
+                    }
                 }
             }
-        })
-}
 
-function getMolopStream(playerUrl) {
-    return httpGet(playerUrl, { 'Referer': BASE + '/' })
-        .then(function(html) {
+            // Method B: Sniff script fallback
             var sniffMatch = html.match(/sniff\s*\(\s*["'][^"']+["']\s*,\s*["'][^"']+["']\s*,\s*["']([a-f0-9]+)["']/)
-            if (!sniffMatch) {
-                console.log('[HDMovie2] No sniff hash in molop page')
-                return null
-            }
-            
-            var hash = sniffMatch[sniffMatch.length - 1]
-            var m3u8Url = 'https://molop.art/m3u8/1/' + hash + '/master.m3u8?s=1&cache=1'
-            console.log('[HDMovie2] molop hash: ' + hash)
-            return {
-                url: m3u8Url,
-                headers: {
-                    'Referer': 'https://molop.art/',
-                    'Origin': 'https://molop.art',
-                    'User-Agent': UA
+            if (sniffMatch) {
+                var hash = sniffMatch[sniffMatch.length - 1]
+                var m3u8Url = 'https://molop.art/m3u8/1/' + hash + '/master.m3u8?s=1&cache=1'
+                console.log('[HDMovie2] Sniff stream hash located!')
+                return {
+                    url: m3u8Url,
+                    headers: {
+                        'Referer': 'https://molop.art/',
+                        'Origin': 'https://molop.art',
+                        'User-Agent': UA
+                    }
                 }
             }
+
+            return null;
         })
 }
 
-// Fallback logic for older titles that require AJAX requests
 function tryGetStream(postId, movieUrl) {
     var nume = 1
     var maxNume = 4
 
     function tryNume() {
         if (nume > maxNume) {
-            console.log('[HDMovie2] All AJAX servers exhausted')
+            console.log('[HDMovie2] All AJAX options exhausted')
             return Promise.resolve(null)
         }
-        console.log('[HDMovie2] Trying AJAX server ' + nume)
         return httpPost(
             BASE + '/wp-admin/admin-ajax.php',
             'action=doo_player_ajax&post=' + postId + '&nume=' + nume + '&type=movie',
@@ -182,11 +190,10 @@ function tryGetStream(postId, movieUrl) {
             if (!embedUrl) return null
             
             var cleaned = embedUrl.replace(/\\\//g, '/')
-            var hdm2Match = cleaned.match(/src="(https:\/\/hdm2\.ink\/play\?v=[^"]+)"/)
-            if (hdm2Match) return getHdm2Stream(hdm2Match[1])
-
-            var molopMatch = cleaned.match(/src="(https:\/\/molop\.art\/watch\?v=[^"]+)"/)
-            if (molopMatch) return getMolopStream(molopMatch[1])
+            var srcMatch = cleaned.match(/src="([^"]+)"/)
+            if (srcMatch) {
+                return getGenericStream(srcMatch[1])
+            }
 
             nume++;
             return tryNume()
@@ -201,35 +208,26 @@ function tryGetStream(postId, movieUrl) {
 function getStreamFromMoviePage(movieUrl) {
     return httpGet(movieUrl, { 'Referer': BASE + '/' })
         .then(function(html) {
-            // STRATEGY 1: Try checking direct HTML strings (New layout style) 🎯
-            var hdm2Match = html.match(/src="(https:\/\/hdm2\.ink\/play\?v=[^"]+)"/)
-            if (hdm2Match) {
-                console.log('[HDMovie2] Found hdm2 stream directly in HTML')
-                return getHdm2Stream(hdm2Match[1])
+            // Captures any embedded script iframe, regardless of changing mirror domains 🎯
+            var embedMatch = html.match(/<iframe[^>]*src="([^"]+)"/i) || 
+                             html.match(/src=['"]([^'"]*?\/play[^'"]*?)['"]/i) ||
+                             html.match(/src=['"]([^'"]*?\/watch[^'"]*?)['"]/i);
+            
+            if (embedMatch) {
+                var embedUrl = embedMatch[1].replace(/\\\//g, '/');
+                if (embedUrl.startsWith('//')) embedUrl = 'https:' + embedUrl;
+                console.log('[HDMovie2] Intercepted player iframe link: ' + embedUrl);
+                return getGenericStream(embedUrl);
             }
 
-            var molopMatch = html.match(/src="(https:\/\/molop\.art\/watch\?v=[^"]+)"/)
-            if (molopMatch) {
-                console.log('[HDMovie2] Found molop stream directly in HTML')
-                return getMolopStream(molopMatch[1])
-            }
-
-            var lazyMatch = html.match(/src=['"]([^'"]*?(?:hdm2\.ink|molop\.art)[^'"]*?)['"]/)
-            if (lazyMatch) {
-                var embedUrl = lazyMatch[1].replace(/\\\//g, '/')
-                if (embedUrl.includes('hdm2.ink')) return getHdm2Stream(embedUrl)
-                if (embedUrl.includes('molop.art')) return getMolopStream(embedUrl)
-            }
-
-            // STRATEGY 2: Fallback to old AJAX architecture if HTML matches came up dry (Old layout style) 🔄
-            console.log('[HDMovie2] Direct HTML streams not found. Falling back to AJAX engine...')
+            // Fallback for database backward compatibility
             var postIdMatch = html.match(/postid-(\d+)/)
             if (postIdMatch) {
                 var postId = postIdMatch[1]
                 return tryGetStream(postId, movieUrl)
             }
 
-            console.log('[HDMovie2] No stream location methods succeeded.')
+            console.log('[HDMovie2] Clear extraction layout failure.')
             return null
         })
 }
@@ -271,8 +269,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
                     url: streamData.url,
                     quality: '1080p',
                     headers: streamData.headers || {
-                        'Referer': CDN + '/',
-                        'Origin': CDN,
+                        'Referer': BASE + '/',
                         'User-Agent': UA
                     }
                 }])

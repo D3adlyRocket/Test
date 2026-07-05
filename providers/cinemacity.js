@@ -2,12 +2,25 @@
 var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305'
 var BASE = 'https://hdmovie2a.my/' // Updated Domain 🌐
 var CDN = 'https://hdm2.ink'
-// Updated to a modern User-Agent to match the client environment
 var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36'
 
 function httpGet(url, headers) {
     return fetch(url, {
         headers: Object.assign({ 'User-Agent': UA }, headers || {})
+    }).then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        return r.text()
+    })
+}
+
+function httpPost(url, body, headers) {
+    return fetch(url, {
+        method: 'POST',
+        headers: Object.assign({
+            'User-Agent': UA,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }, headers || {}),
+        body: body
     }).then(function(r) {
         if (!r.ok) throw new Error('HTTP ' + r.status)
         return r.text()
@@ -29,7 +42,6 @@ function searchSite(title, year) {
             var articleRegex = /<article[^>]*>([\s\S]*?)<\/article>/g
             var articleMatch
             
-            // Dynamic URL matching to handle any structural change or domain shifts smoothly 🛠️
             var escapedBase = BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
             var linkRegex = new RegExp('href="(' + escapedBase + '[^"\\/]+\\/([^"\\/]+)\\/)"')
 
@@ -109,7 +121,6 @@ function getHdm2Stream(playerUrl) {
                 .replace(/&lt;/g, '<')
                 .replace(/&gt;/g, '>')
 
-            // Fix: Force .m3u8 extension extension for modern players 📺
             var finalUrl = CDN + streamPath;
             if (!finalUrl.includes('.m3u8')) {
                 finalUrl += '#index.m3u8';
@@ -135,7 +146,6 @@ function getMolopStream(playerUrl) {
                 return null
             }
             
-            // Fixed the variable casing error that caused the crash here ✅
             var hash = sniffMatch[sniffMatch.length - 1]
             var m3u8Url = 'https://molop.art/m3u8/1/' + hash + '/master.m3u8?s=1&cache=1'
             console.log('[HDMovie2] molop hash: ' + hash)
@@ -150,32 +160,76 @@ function getMolopStream(playerUrl) {
         })
 }
 
+// Fallback logic for older titles that require AJAX requests
+function tryGetStream(postId, movieUrl) {
+    var nume = 1
+    var maxNume = 4
+
+    function tryNume() {
+        if (nume > maxNume) {
+            console.log('[HDMovie2] All AJAX servers exhausted')
+            return Promise.resolve(null)
+        }
+        console.log('[HDMovie2] Trying AJAX server ' + nume)
+        return httpPost(
+            BASE + '/wp-admin/admin-ajax.php',
+            'action=doo_player_ajax&post=' + postId + '&nume=' + nume + '&type=movie',
+            { 'Referer': movieUrl }
+        ).then(function(body) {
+            var data
+            try { data = JSON.parse(body) } catch(e) { return null }
+            var embedUrl = data.embed_url || ''
+            if (!embedUrl) return null
+            
+            var cleaned = embedUrl.replace(/\\\//g, '/')
+            var hdm2Match = cleaned.match(/src="(https:\/\/hdm2\.ink\/play\?v=[^"]+)"/)
+            if (hdm2Match) return getHdm2Stream(hdm2Match[1])
+
+            var molopMatch = cleaned.match(/src="(https:\/\/molop\.art\/watch\?v=[^"]+)"/)
+            if (molopMatch) return getMolopStream(molopMatch[1])
+
+            nume++;
+            return tryNume()
+        }).catch(function() {
+            nume++;
+            return tryNume()
+        })
+    }
+    return tryNume()
+}
+
 function getStreamFromMoviePage(movieUrl) {
     return httpGet(movieUrl, { 'Referer': BASE + '/' })
         .then(function(html) {
-            // New direct-extraction routine based on DevTools observation 🎯
+            // STRATEGY 1: Try checking direct HTML strings (New layout style) 🎯
             var hdm2Match = html.match(/src="(https:\/\/hdm2\.ink\/play\?v=[^"]+)"/)
             if (hdm2Match) {
-                console.log('[HDMovie2] Found hdm2 stream directly in HTML: ' + hdm2Match[1])
+                console.log('[HDMovie2] Found hdm2 stream directly in HTML')
                 return getHdm2Stream(hdm2Match[1])
             }
 
             var molopMatch = html.match(/src="(https:\/\/molop\.art\/watch\?v=[^"]+)"/)
             if (molopMatch) {
-                console.log('[HDMovie2] Found molop stream directly in HTML: ' + molopMatch[1])
+                console.log('[HDMovie2] Found molop stream directly in HTML')
                 return getMolopStream(molopMatch[1])
             }
 
-            // Fallback checking strategy for dynamic/lazy source parameters
             var lazyMatch = html.match(/src=['"]([^'"]*?(?:hdm2\.ink|molop\.art)[^'"]*?)['"]/)
             if (lazyMatch) {
                 var embedUrl = lazyMatch[1].replace(/\\\//g, '/')
-                console.log('[HDMovie2] Found fallback stream link: ' + embedUrl)
                 if (embedUrl.includes('hdm2.ink')) return getHdm2Stream(embedUrl)
                 if (embedUrl.includes('molop.art')) return getMolopStream(embedUrl)
             }
 
-            console.log('[HDMovie2] No direct stream embeds found in page source')
+            // STRATEGY 2: Fallback to old AJAX architecture if HTML matches came up dry (Old layout style) 🔄
+            console.log('[HDMovie2] Direct HTML streams not found. Falling back to AJAX engine...')
+            var postIdMatch = html.match(/postid-(\d+)/)
+            if (postIdMatch) {
+                var postId = postIdMatch[1]
+                return tryGetStream(postId, movieUrl)
+            }
+
+            console.log('[HDMovie2] No stream location methods succeeded.')
             return null
         })
 }
@@ -195,7 +249,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
                 if (!title) throw new Error('No title')
                 var releaseDate = data.release_date || data.first_air_date || ''
                 var year = releaseDate ? parseInt(releaseDate.split('-')[0]) : null
-                console.log('[HDMovie2] Title: ' + title + ' Year: ' + year)
                 return searchSite(title, year)
             })
             .then(function(results) {
@@ -205,7 +258,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
                     return null
                 }
                 var result = results[0]
-                console.log('[HDMovie2] Using: ' + result.url)
                 return getStreamFromMoviePage(result.url)
             })
             .then(function(streamData) {
@@ -213,7 +265,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
                     resolve([]);
                     return
                 }
-                console.log('[HDMovie2] Resolving stream!')
                 resolve([{
                     name: '🎬 HDMovie2',
                     title: 'Hindi Dubbed • HD',

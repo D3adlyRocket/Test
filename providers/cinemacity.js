@@ -45,7 +45,7 @@ function searchSite(title, year) {
             
             // Escape BASE URL safely to use dynamically in regex
             var escapedBase = BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-            var linkRegex = new RegExp('href="(' + escapedBase + 'movies\\/([^"\\/]+)\\/)"')
+            var linkRegex = new RegExp('href="(' + escapedBase + '[^"\\/]+\\/([^"\\/]+)\\/)"')
 
             while ((articleMatch = articleRegex.exec(html)) !== null) {
                 var articleHtml = articleMatch[1]

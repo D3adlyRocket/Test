@@ -43,10 +43,11 @@ var SERVERS = {
   "Oxygen": { path: "neon2/sources-with-title" },
   "Lithium": { path: "downloader2/sources-with-title" },
   "Krypton": { path: "ym/sources-with-title" },
-  "Carbon": { path: "jett/sources-with-title" },
+  "Carbon": { path: "mb-flix/sources-with-title" },
   "Aluminium": { path: "lamovie/sources-with-title" },
   "Nitrogen": { path: "m4uhd/sources-with-title" },
   "Magnesium": { path: "hdmovie/sources-with-title" },
+  "Neon": { path: "superflix/sources-with-title" },
   "Helium": { path: "1movies/sources-with-title" }
 };
 
@@ -295,6 +296,7 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       "Hydrogen": "💧",
       "Nitrogen": "🌿",
       "Magnesium": "🎬",
+      "Neon": "💡",
       "Aluminium": "💿"
     };
     const serverEmoji = serverEmojis[serverName] || "🎬";
@@ -306,10 +308,11 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       "Oxygen": "Neon2",
       "Lithium": "Downloader2",
       "Krypton": "YM",
-      "Carbon": "JETT",
+      "Carbon": "MB-Flix",
       "Aluminium": "LaMovie",
       "Nitrogen": "M4UHD",
       "Magnesium": "HDMovie",
+      "Neon": "SuperFlix",
       "Helium": "1Movies"
     };
     const internalProvider = internalProviders[serverName] || serverName;
@@ -323,7 +326,7 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       const finalQualityLabel = rawQuality.toLowerCase().trim();
       
       // Line 2 Badges
-      let qualityBadge = "⚙️ " + finalQualityLabel;
+      let qualityBadge = "⚡ " + finalQualityLabel;
       if (finalQualityLabel.includes("2160") || finalQualityLabel.includes("4k")) {
         qualityBadge = "🌟 2160p";
       } else if (finalQualityLabel.includes("1080")) {
@@ -368,7 +371,7 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
          "🎬 " + mediaLabel + " - (" + mediaDetails.year + ")\n" +
          qualityBadge + " | " + audioSubheadingLabel + " | 🎧 AAC\n" +
          "🎞️ " + containerFormat + " | ⏱️ " + mediaDetails.duration + "\n" +
-         serverEmoji + " " + cleanServerName + " | Provider: " + internalProvider;
+         serverEmoji + " " + cleanServerName + " | 🔗 Provider: " + internalProvider;
 
       streams.push({
         name: `VidEasy | ${finalQualityLabel} | ${audioHeaderLabel}`,

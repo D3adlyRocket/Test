@@ -284,7 +284,7 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       headers: playbackHeaders
     }));
 
-    // Emoji mapping for various servers
+    // Server Emojis Map
     const serverEmojis = {
       "Carbon": "💎",
       "Helium": "🎈",
@@ -299,6 +299,21 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
     };
     const serverEmoji = serverEmojis[serverName] || "🎬";
 
+    // Internal Provider Backend Strings Map for Line 4
+    const internalProviders = {
+      "Hydrogen": "CDN",
+      "Titanium": "TEJO",
+      "Oxygen": "NEON2",
+      "Lithium": "DOWNLOADER2",
+      "Krypton": "YM",
+      "Carbon": "JETT",
+      "Aluminium": "LAMOVIE",
+      "Nitrogen": "M4UHD",
+      "Magnesium": "HDMOVIE",
+      "Helium": "1Movies"
+    };
+    const internalProvider = internalProviders[serverName] || serverName;
+
     const streams = [];
     (data.sources || []).forEach((source) => {
       if (!source.url)
@@ -307,7 +322,7 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       const rawQuality = source.quality || "1080p";
       const finalQualityLabel = rawQuality.toLowerCase().trim();
       
-      // Determine secondary quality icon matching criteria
+      // Line 2 Badges
       let qualityBadge = "⚙️ " + finalQualityLabel;
       if (finalQualityLabel.includes("2160") || finalQualityLabel.includes("4k")) {
         qualityBadge = "🌟 2160p";
@@ -317,11 +332,10 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
         qualityBadge = "⚡ 720p";
       }
 
-      // Determine default language variables
+      // Default Language Configurations
       let audioHeaderLabel = "Original Audio";
       let audioSubheadingLabel = "🌍 Original Audio";
 
-      // Server conditional rule checks
       if (serverName === "Hydrogen" || serverName === "Krypton") {
         audioHeaderLabel = "Original Audio";
         audioSubheadingLabel = "🌍 Original Audio";
@@ -329,7 +343,6 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
         audioHeaderLabel = "Multi-Audio";
         audioSubheadingLabel = "🌍 Multi-Audio";
       } else if (serverName === "Magnesium") {
-        // Evaluate payload source text properties if available to identify Bengali variants
         const titlePayload = (source.title || "").toLowerCase();
         if (titlePayload.includes("bengali") || titlePayload.includes("bangla")) {
           audioHeaderLabel = "Bengali";
@@ -343,17 +356,19 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       const containerFormat = source.url.includes(".m3u8") ? "M3U8" : source.url.includes(".mp4") ? "MP4" : "MKV";
       const mediaLabel = mediaDetails.title + (mediaDetails.mediaType === "tv" ? " S" + seasonNum + "E" + episodeNum : "");
       
-      // Filter out redundant "Server 2" references if parsing Krypton titles
+      // Intercept and Clean up Krypton title string tracking labels
       let cleanServerName = serverName;
       if (cleanServerName === "Krypton") {
         cleanServerName = cleanServerName.replace(/\s*[sS]erver\s*2\s*$/g, "").trim();
       }
 
+      // Line 1: Reverted to standard "🎬 Title - (Year)" matching previous spec
+      // Line 4: Modifying to Custom Emoji mapping logic: "🎈 ServerName | Provider: InternalProvider"
       const dropdownTitle = 
-         serverEmoji + " " + mediaLabel + " - (" + mediaDetails.year + ")\n" +
+         "🎬 " + mediaLabel + " - (" + mediaDetails.year + ")\n" +
          qualityBadge + " | " + audioSubheadingLabel + " | 🎧 AAC\n" +
          "🎞️ " + containerFormat + " | ⏱️ " + mediaDetails.duration + "\n" +
-         "📌 " + cleanServerName;
+         serverEmoji + " " + cleanServerName + " | Provider: " + internalProvider;
 
       streams.push({
         name: `VidEasy | ${finalQualityLabel} | ${audioHeaderLabel}`,
@@ -361,8 +376,8 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
         size: dropdownTitle,
         description: dropdownTitle,
         url: source.url,
-        quality: "",     // Blank to bypass cell optimization engine bugs on native app screen profiles
-        language: "",    // Blank to avoid row string splitting layout drops
+        quality: "",     
+        language: "",    
         headers: playbackHeaders,
         subtitles: formattedSubtitles,
         provider: "videasy"

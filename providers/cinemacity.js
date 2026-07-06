@@ -43,6 +43,10 @@ var SERVERS = {
   "Oxygen": { path: "neon2/sources-with-title" },
   "Lithium": { path: "downloader2/sources-with-title" },
   "Krypton": { path: "ym/sources-with-title" },
+  "Jett": { path: "jett/sources-with-title" },
+  "LaMovie": { path: "lamovie/sources-with-title" },
+  "M4U": { path: "m4uhd/sources-with-title" },
+  "HDMovie": { path: "hdmovie/sources-with-title" },
   "Helium": { path: "1movies/sources-with-title" }
 };
 

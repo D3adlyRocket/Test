@@ -284,14 +284,15 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
         return;
         
       const quality = source.quality || "1080p";
-      const finalQualityLabel = quality.toUpperCase();
+      const finalQualityLabel = quality.toLowerCase().trim();
       const containerFormat = source.url.includes(".m3u8") ? "M3U8" : source.url.includes(".mp4") ? "MP4" : "MKV";
       const mediaLabel = mediaDetails.title + (mediaDetails.mediaType === "tv" ? " S" + seasonNum + "E" + episodeNum : "");
       
       const dropdownTitle = 
-         "🎬 " + mediaLabel + " - " + mediaDetails.year + "\n" +
-         "⚡ " + finalQualityLabel + " | 🌍 Original Audio | 💾 Dynamic Size\n" +
-         "🎞️ " + containerFormat + " | ⏱️ " + mediaDetails.duration + " | 📌 " + serverName;
+         "🎬 " + mediaLabel + " - (" + mediaDetails.year + ")\n" +
+         "🌍 Original Audio | 🎧 AAC\n" +
+         "🎞️ " + containerFormat + " | ⏱️ " + mediaDetails.duration + "\n" +
+         "📌 " + serverName;
 
       streams.push({
         name: `VidEasy | ${finalQualityLabel} | Original Audio`,
@@ -299,7 +300,8 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
         size: dropdownTitle,
         description: dropdownTitle,
         url: source.url,
-        quality: quality,
+        quality: "",     // Left intentionally empty to force multi-line parsing layout onto phone interfaces
+        language: "",    // Left intentionally empty to block mobile single-line generation
         headers: playbackHeaders,
         subtitles: formattedSubtitles,
         provider: "videasy"

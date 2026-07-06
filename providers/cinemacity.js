@@ -215,7 +215,7 @@ function fetchMediaDetails(tmdbId, mediaType, seasonNum, episodeNum) {
         const epUrl = `${TMDB_BASE_URL}/tv/${cleanId}/season/${seasonNum}/episode/${episodeNum}?api_key=${TMDB_API_KEY}`;
         const epRes = yield fetch(epUrl);
         if (epRes.ok) {
-          const epData = yield epRes.ok ? epRes.json() : null;
+          const epData = yield epRes.json();
           if (epData && epData.runtime) {
             duration = `${epData.runtime} min`;
           } else if (data.episode_run_time && data.episode_run_time.length > 0) {
@@ -248,52 +248,16 @@ function getLangCode(langName) {
   if (!langName)
     return "en";
   const mapping = {
-    "english": "en",
-    "spanish": "es",
-    "french": "fr",
-    "german": "de",
-    "italian": "it",
-    "portuguese": "pt",
-    "portuguese (br)": "pt-br",
-    "arabic": "ar",
-    "japanese": "ja",
-    "korean": "ko",
-    "tamil": "ta",
-    "telugu": "te",
-    "malayalam": "ml",
-    "kannada": "kn",
-    "hindi": "hi",
-    "polish": "pl",
-    "greek": "el",
-    "croatian": "hr",
-    "ukrainian": "uk",
-    "lithuanian": "lt",
-    "thai": "th",
-    "estonian": "et",
-    "czech": "cs",
-    "zh-tw": "zh-tw",
-    "bokm\xE5l": "no",
-    "dutch": "nl",
-    "indonesian": "id",
-    "sinhala": "si",
-    "swedish": "sv",
-    "romanian": "ro",
-    "malay": "ms",
-    "persian": "fa",
-    "slovak": "sk",
-    "bulgarian": "bg",
-    "turkish": "tr",
-    "danish": "da",
-    "hebrew": "he",
-    "serbian": "sr",
-    "vietnamese": "vi",
-    "hungarian": "hu",
-    "icelandic": "is",
-    "albanian": "sq",
-    "bosnian": "bs",
-    "slovenian": "sl",
-    "bengali": "bn",
-    "macedonian": "mk"
+    "english": "en", "spanish": "es", "french": "fr", "german": "de", "italian": "it",
+    "portuguese": "pt", "portuguese (br)": "pt-br", "arabic": "ar", "japanese": "ja",
+    "korean": "ko", "tamil": "ta", "telugu": "te", "malayalam": "ml", "kannada": "kn",
+    "hindi": "hi", "polish": "pl", "greek": "el", "croatian": "hr", "ukrainian": "uk",
+    "lithuanian": "lt", "thai": "th", "estonian": "et", "czech": "cs", "zh-tw": "zh-tw",
+    "bokm\xE5l": "no", "dutch": "nl", "indonesian": "id", "sinhala": "si", "swedish": "sv",
+    "romanian": "ro", "malay": "ms", "persian": "fa", "slovak": "sk", "bulgarian": "bg",
+    "turkish": "tr", "danish": "da", "hebrew": "he", "serbian": "sr", "vietnamese": "vi",
+    "hungarian": "hu", "icelandic": "is", "albanian": "sq", "bosnian": "bs", "slovenian": "sl",
+    "bengali": "bn", "macedonian": "mk"
   };
   return mapping[langName.toLowerCase().trim()] || "en";
 }
@@ -330,8 +294,10 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
          "🎞️ " + containerFormat + " | ⏱️ " + mediaDetails.duration + " | 📌 " + serverName;
 
       streams.push({
-        name: `VidEasy | ${quality} | Original Audio`,
+        name: `VidEasy | ${finalQualityLabel} | Original Audio`,
         title: dropdownTitle,
+        size: dropdownTitle,
+        description: dropdownTitle,
         url: source.url,
         quality: quality,
         headers: playbackHeaders,

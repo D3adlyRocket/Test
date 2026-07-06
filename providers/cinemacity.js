@@ -43,10 +43,9 @@ var SERVERS = {
   "Oxygen": { path: "neon2/sources-with-title" },
   "Lithium": { path: "downloader2/sources-with-title" },
   "Krypton": { path: "ym/sources-with-title" },
-  "Carbon": { path: "mb-flix/sources-with-title" },
+  "Carbon": { path: "meine/sources-with-title" },
   "Aluminium": { path: "lamovie/sources-with-title" },
   "Nitrogen": { path: "m4uhd/sources-with-title" },
-  "Magnesium": { path: "hdmovie/sources-with-title" },
   "Neon": { path: "superflix/sources-with-title" },
   "Helium": { path: "1movies/sources-with-title" }
 };
@@ -295,7 +294,6 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       "Titanium": "🛡️",
       "Hydrogen": "💧",
       "Nitrogen": "🌿",
-      "Magnesium": "🎬",
       "Neon": "💡",
       "Aluminium": "💿"
     };
@@ -308,10 +306,9 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       "Oxygen": "Neon2",
       "Lithium": "Downloader2",
       "Krypton": "YM",
-      "Carbon": "MB-Flix",
+      "Carbon": "Meine",
       "Aluminium": "LaMovie",
       "Nitrogen": "M4UHD",
-      "Magnesium": "HDMovie",
       "Neon": "SuperFlix",
       "Helium": "1Movies"
     };

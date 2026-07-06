@@ -52,15 +52,15 @@ var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 var REQUEST_HEADERS = {
   "User-Agent": USER_AGENT,
   "Accept": "*/*",
-  "Origin": "https://www.vidking.net",
-  "Referer": "https://www.vidking.net",
+  "Origin": "https://player.videasy.to",
+  "Referer": "https://player.videasy.to",
   "Connection": "keep-alive"
 };
 var PLAYBACK_HEADERS = {
   "User-Agent": USER_AGENT,
   "Accept": "*/*",
-  "Origin": "https://www.vidking.net",
-  "Referer": "https://www.vidking.net"
+  "Origin": "https://player.videasy.to",
+  "Referer": "https://player.videasy.to"
 };
 var SERVERS = {
   "Neon": {

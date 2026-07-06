@@ -302,14 +302,14 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
     // Internal Provider Backend Strings Map for Line 4
     const internalProviders = {
       "Hydrogen": "CDN",
-      "Titanium": "TEJO",
-      "Oxygen": "NEON2",
-      "Lithium": "DOWNLOADER2",
+      "Titanium": "Tejo",
+      "Oxygen": "Neon2",
+      "Lithium": "Downloader2",
       "Krypton": "YM",
       "Carbon": "JETT",
-      "Aluminium": "LAMOVIE",
+      "Aluminium": "LaMovie",
       "Nitrogen": "M4UHD",
-      "Magnesium": "HDMOVIE",
+      "Magnesium": "HDMovie",
       "Helium": "1Movies"
     };
     const internalProvider = internalProviders[serverName] || serverName;

@@ -42,6 +42,7 @@ var SERVERS = {
   "Titanium": { path: "tejo/sources-with-title" },
   "Oxygen": { path: "neon2/sources-with-title" },
   "Lithium": { path: "downloader2/sources-with-title" },
+  "Krypton": { path: "ym/sources-with-title" },
   "Helium": { path: "1movies/sources-with-title" }
 };
 

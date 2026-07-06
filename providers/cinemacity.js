@@ -43,10 +43,10 @@ var SERVERS = {
   "Oxygen": { path: "neon2/sources-with-title" },
   "Lithium": { path: "downloader2/sources-with-title" },
   "Krypton": { path: "ym/sources-with-title" },
-  "Jett": { path: "jett/sources-with-title" },
-  "LaMovie": { path: "lamovie/sources-with-title" },
-  "M4U": { path: "m4uhd/sources-with-title" },
-  "HDMovie": { path: "hdmovie/sources-with-title" },
+  "Carbon": { path: "jett/sources-with-title" },
+  "Aluminium": { path: "lamovie/sources-with-title" },
+  "Nitrogen": { path: "m4uhd/sources-with-title" },
+  "Magnesium": { path: "hdmovie/sources-with-title" },
   "Helium": { path: "1movies/sources-with-title" }
 };
 
@@ -283,30 +283,86 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       name: sub.language || sub.lang || "English",
       headers: playbackHeaders
     }));
+
+    // Emoji mapping for various servers
+    const serverEmojis = {
+      "Carbon": "💎",
+      "Helium": "🎈",
+      "Lithium": "🔋",
+      "Oxygen": "💨",
+      "Krypton": "🦸",
+      "Titanium": "🛡️",
+      "Hydrogen": "💧",
+      "Nitrogen": "🌿",
+      "Magnesium": "🎬",
+      "Aluminium": "💿"
+    };
+    const serverEmoji = serverEmojis[serverName] || "🎬";
+
     const streams = [];
     (data.sources || []).forEach((source) => {
       if (!source.url)
         return;
         
-      const quality = source.quality || "1080p";
-      const finalQualityLabel = quality.toLowerCase().trim();
+      const rawQuality = source.quality || "1080p";
+      const finalQualityLabel = rawQuality.toLowerCase().trim();
+      
+      // Determine secondary quality icon matching criteria
+      let qualityBadge = "⚙️ " + finalQualityLabel;
+      if (finalQualityLabel.includes("2160") || finalQualityLabel.includes("4k")) {
+        qualityBadge = "🌟 2160p";
+      } else if (finalQualityLabel.includes("1080")) {
+        qualityBadge = "🔥 1080p";
+      } else if (finalQualityLabel.includes("720")) {
+        qualityBadge = "⚡ 720p";
+      }
+
+      // Determine default language variables
+      let audioHeaderLabel = "Original Audio";
+      let audioSubheadingLabel = "🌍 Original Audio";
+
+      // Server conditional rule checks
+      if (serverName === "Hydrogen" || serverName === "Krypton") {
+        audioHeaderLabel = "Original Audio";
+        audioSubheadingLabel = "🌍 Original Audio";
+      } else if (serverName === "Oxygen") {
+        audioHeaderLabel = "Multi-Audio";
+        audioSubheadingLabel = "🌍 Multi-Audio";
+      } else if (serverName === "Magnesium") {
+        // Evaluate payload source text properties if available to identify Bengali variants
+        const titlePayload = (source.title || "").toLowerCase();
+        if (titlePayload.includes("bengali") || titlePayload.includes("bangla")) {
+          audioHeaderLabel = "Bengali";
+          audioSubheadingLabel = "🇧🇩 Bengali";
+        } else {
+          audioHeaderLabel = "Normal Hindi";
+          audioSubheadingLabel = "🇮🇳 Hindi";
+        }
+      }
+
       const containerFormat = source.url.includes(".m3u8") ? "M3U8" : source.url.includes(".mp4") ? "MP4" : "MKV";
       const mediaLabel = mediaDetails.title + (mediaDetails.mediaType === "tv" ? " S" + seasonNum + "E" + episodeNum : "");
       
+      // Filter out redundant "Server 2" references if parsing Krypton titles
+      let cleanServerName = serverName;
+      if (cleanServerName === "Krypton") {
+        cleanServerName = cleanServerName.replace(/\s*[sS]erver\s*2\s*$/g, "").trim();
+      }
+
       const dropdownTitle = 
-         "🎬 " + mediaLabel + " - (" + mediaDetails.year + ")\n" +
-         "🌍 Original Audio | 🎧 AAC\n" +
+         serverEmoji + " " + mediaLabel + " - (" + mediaDetails.year + ")\n" +
+         qualityBadge + " | " + audioSubheadingLabel + " | 🎧 AAC\n" +
          "🎞️ " + containerFormat + " | ⏱️ " + mediaDetails.duration + "\n" +
-         "📌 " + serverName;
+         "📌 " + cleanServerName;
 
       streams.push({
-        name: `VidEasy | ${finalQualityLabel} | Original Audio`,
+        name: `VidEasy | ${finalQualityLabel} | ${audioHeaderLabel}`,
         title: dropdownTitle,
         size: dropdownTitle,
         description: dropdownTitle,
         url: source.url,
-        quality: "",     // Left intentionally empty to force multi-line parsing layout onto phone interfaces
-        language: "",    // Left intentionally empty to block mobile single-line generation
+        quality: "",     // Blank to bypass cell optimization engine bugs on native app screen profiles
+        language: "",    // Blank to avoid row string splitting layout drops
         headers: playbackHeaders,
         subtitles: formattedSubtitles,
         provider: "videasy"

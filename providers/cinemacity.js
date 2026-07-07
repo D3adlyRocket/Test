@@ -1,508 +1,406 @@
-/**
- * videasy - Built from src/videasy/
- * Generated: 2026-07-06T12:54:46.702Z
- */
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
+// VidFast Scraper for Nuvio Local Scrapers
+// React Native compatible version
 
-// src/videasy/constants.js
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var TMDB_BASE_URL = "https://api.themoviedb.org/3";
-var WINGS_API_BASE = "https://api.wingsdatabase.com";
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
-var REQUEST_HEADERS = {
-  "User-Agent": USER_AGENT,
-  "Accept": "*/*",
-  "Origin": "https://www.vidking.net",
-  "Referer": "https://www.vidking.net/",
-  "Cache-Control": "no-cache, no-store, must-revalidate",
-  "Pragma": "no-cache",
-  "Expires": "0"
-};
-var SERVERS = {
-  "Hydrogen": { path: "cdn/sources-with-title" },
-  "Titanium": { path: "tejo/sources-with-title" },
-  "Oxygen": { path: "neon2/sources-with-title" },
-  "Lithium": { path: "downloader2/sources-with-title" },
-  "Krypton": { path: "ym/sources-with-title" },
-  "Carbon": { path: "mb-flix/sources-with-title" },
-  "Aluminium": { path: "lamovie/sources-with-title" },
-  "Nitrogen": { path: "m4uhd/sources-with-title" },
-  "Neon": { path: "superflix/sources-with-title" },
-  "Helium": { path: "1movies/sources-with-title" }
-};
+console.log('[VidFast] Initializing VidFast scraper');
 
-// src/videasy/utils.js
-var jl = [1116352408, 1899447441, 3049323471, 3921009573, 961987163, 1508970993, 2453635748, 2870763221, 3624381080, 310598401, 607225278, 1426881987, 1925078388, 2162078206, 2614888103, 3248222580];
-var Tf = [1732584193, 4023233417, 2562383102, 271733878];
-var Js = 61;
-var _f = 8;
-var ms = 2654435769;
-var Ys = [109, 118, 109, 49];
-var Sf = (l) => (l * (l + 1) & 1) === 0;
-var bf = (l) => (l * (l + 1) & 1) === 1;
-function ui(l) {
-  l >>>= 0;
-  l ^= l >>> 16;
-  l = Math.imul(l, 2246822507) >>> 0;
-  l ^= l >>> 13;
-  l = Math.imul(l, 3266489909) >>> 0;
-  l ^= l >>> 16;
-  return l >>> 0;
-}
-function ps(l, o) {
-  l >>>= 0;
-  o &= 31;
-  return o === 0 ? l >>> 0 : (l << o | l >>> 32 - o) >>> 0;
-}
-function If(l) {
-  let o = Tf[0] >>> 0;
-  for (let e = 0; e < l.length; e++) {
-    o = ps((o ^ Math.imul(l.charCodeAt(e), jl[e & 15])) >>> 0, 5);
-  }
-  return ui(o);
-}
-function Af(l) {
-  const o = new Array(256);
-  for (let i = 0; i < 256; i++)
-    o[i] = i;
-  let e = 0;
-  for (let i = 0; i < 256; i++) {
-    e = e + o[i] + l.charCodeAt(i % l.length) & 255;
-    const r = o[i];
-    o[i] = o[e];
-    o[e] = r;
-  }
-  return o;
-}
-function wf(l) {
-  let o = 2166136261;
-  for (let e = 0; e < l.length; e++) {
-    o = Math.imul(o ^ l.charCodeAt(e), 16777619) >>> 0;
-  }
-  return ui(o);
-}
-function vf(l, o, e) {
-  return ((l ^ o) >>> 0 | (l & o & e) >>> 0) >>> 0;
-}
-function Nf(l, o) {
-  if (bf(l.length))
-    return { S: Af(l), acc: If(l) };
-  const e = new Array(Js);
-  let i = ui(wf(l) ^ ui(o >>> 0 ^ ms)) >>> 0;
-  for (let r = 0; r < _f; r++) {
-    if (Sf(r)) {
-      const n = i % Js;
-      i = ps(i + ms >>> 0, 7 + (r & 7));
-      e[n] = (i ^ ui(i)) >>> 0;
-      i = ui(i + n >>> 0);
-    } else {
-      e[r] = jl[r & 15];
-    }
-  }
-  return { S: e, acc: ui(i ^ 2779096485) >>> 0 };
-}
-function Rf(l, o) {
-  const e = l.S;
-  let i = l.acc;
-  const r = i % Js;
-  const n = 0 - +(r in e);
-  const u = e[r] >>> 0;
-  const d = Math.imul(ms, o + 1) >>> 0;
-  let g = vf(i, (u ^ d) >>> 0, n);
-  g = (ps(g + i >>> 0, r & 31) ^ ps(i, Math.imul(r, 7) & 31)) >>> 0;
-  i = ui(g + ms >>> 0);
-  e[r] = i >>> 0;
-  l.acc = i;
-  return i >>> 0;
-}
-function Cf(l, o, e) {
-  const i = Nf(l, o);
-  const r = new Uint8Array(e);
-  let n = 0;
-  for (let u = 0; u < e; ) {
-    const d = Rf(i, n++);
-    r[u++] = d & 255;
-    u < e && (r[u++] = d >>> 8 & 255);
-    u < e && (r[u++] = d >>> 16 & 255);
-    u < e && (r[u++] = d >>> 24 & 255);
-  }
-  return r;
-}
-function decodeBase64(str) {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  const cleanStr = str.replace(/-/g, "+").replace(/_/g, "/").replace(/=+$/, "");
-  const len = cleanStr.length;
-  const bytes = new Uint8Array(Math.floor(len * 0.75));
-  let p = 0;
-  for (let i = 0; i < len; i += 4) {
-    const c1 = chars.indexOf(cleanStr[i]);
-    const c2 = chars.indexOf(cleanStr[i + 1] || "A");
-    const c3 = chars.indexOf(cleanStr[i + 2] || "A");
-    const c4 = chars.indexOf(cleanStr[i + 3] || "A");
-    bytes[p++] = c1 << 2 | c2 >> 4;
-    if (i + 2 < len)
-      bytes[p++] = (c2 & 15) << 4 | c3 >> 2;
-    if (i + 3 < len)
-      bytes[p++] = (c3 & 3) << 6 | c4;
-  }
-  return bytes;
-}
-function xf(l) {
-  return decodeBase64(l);
-}
-function decryptWingsDatabase(l, o, e) {
-  const i = xf(l);
-  const r = Cf(o, e, i.length);
-  for (let n = 0; n < i.length; n++)
-    i[n] ^= r[n];
-  for (let n = 0; n < Ys.length; n++) {
-    if (i[n] !== Ys[n])
-      throw new Error("decrypt failed: bad seed or tampered payload");
-  }
-  let out = "";
-  const sub = i.subarray(Ys.length);
-  for (let n = 0; n < sub.length; ) {
-    const c = sub[n++];
-    if (c < 128) {
-      out += String.fromCharCode(c);
-    } else if (c > 191 && c < 224) {
-      out += String.fromCharCode((c & 31) << 6 | sub[n++] & 63);
-    } else if (c > 223 && c < 240) {
-      out += String.fromCharCode((c & 15) << 12 | (sub[n++] & 63) << 6 | sub[n++] & 63);
-    } else {
-      out += String.fromCharCode((c & 7) << 18 | (sub[n++] & 63) << 12 | (sub[n++] & 63) << 6 | sub[n++] & 63);
-    }
-  }
-  return out;
-}
+// Constants
+const TMDB_API_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
+const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+const VIDFAST_BASE = 'https://vidfast.vc';
+const ENCRYPT_API = 'https://enc-dec.app/api/enc-vidfast';
+const DECRYPT_API = 'https://enc-dec.app/api/dec-vidfast';
+const ALLOWED_SERVERS = ['Alpha', 'Cobra', 'Max', 'Oscar', 'vEdge', 'vFast', 'vRapid'];
 
-function fetchMediaDetails(tmdbId, mediaType, seasonNum, episodeNum) {
-  return __async(this, null, function* () {
-    var _a;
-    let fallbackDuration = mediaType === "tv" ? "45 min" : "90 min";
+// Parse HLS master playlist to extract quality variants
+async function parseM3U8Playlist(playlistUrl) {
     try {
-      const endpoint = mediaType === "tv" ? "tv" : "movie";
-      const cleanId = String(tmdbId).replace(/\D/g, "");
-      const url = `${TMDB_BASE_URL}/${endpoint}/${cleanId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
-      
-      const res = yield fetch(url, {
-        headers: {
-          "User-Agent": REQUEST_HEADERS["User-Agent"],
-          "Accept": "application/json"
-        }
-      });
-      if (!res.ok) throw new Error(`TMDB HTTP ${res.status}`);
-      const data = yield res.json();
-      
-      let duration = fallbackDuration;
-      if (mediaType === "movie" && data.runtime) {
-        duration = `${data.runtime} min`;
-      } else if (mediaType === "tv" && seasonNum != null && episodeNum != null) {
-        const epUrl = `${TMDB_BASE_URL}/tv/${cleanId}/season/${seasonNum}/episode/${episodeNum}?api_key=${TMDB_API_KEY}`;
-        const epRes = yield fetch(epUrl);
-        if (epRes.ok) {
-          const epData = yield epRes.json();
-          if (epData && epData.runtime) {
-            duration = `${epData.runtime} min`;
-          } else if (data.episode_run_time && data.episode_run_time.length > 0) {
-            duration = `${data.episode_run_time[0]} min`;
-          }
-        }
-      }
-
-      return {
-        title: mediaType === "tv" ? data.name : data.title,
-        year: (mediaType === "tv" ? data.first_air_date : data.release_date || "").substring(0, 4),
-        imdbId: ((_a = data.external_ids) == null ? void 0 : _a.imdb_id) || null,
-        mediaType,
-        duration: duration
-      };
-    } catch (e) {
-      console.error(`[VidEasy] TMDB details fetch error: ${e.message}`);
-      return {
-        title: mediaType === "tv" ? "Unknown TV Show" : "Unknown Movie",
-        year: "N/A",
-        imdbId: null,
-        mediaType,
-        duration: fallbackDuration
-      };
-    }
-  });
-}
-
-function getLangCode(langName) {
-  if (!langName)
-    return "en";
-  const mapping = {
-    "english": "en", "spanish": "es", "french": "fr", "german": "de", "italian": "it",
-    "portuguese": "pt", "portuguese (br)": "pt-br", "arabic": "ar", "japanese": "ja",
-    "korean": "ko", "tamil": "ta", "telugu": "te", "malayalam": "ml", "kannada": "kn",
-    "hindi": "hi", "polish": "pl", "greek": "el", "croatian": "hr", "ukrainian": "uk",
-    "lithuanian": "lt", "thai": "th", "estonian": "et", "czech": "cs", "zh-tw": "zh-tw",
-    "bokm\xE5l": "no", "dutch": "nl", "indonesian": "id", "sinhala": "si", "swedish": "sv",
-    "romanian": "ro", "malay": "ms", "persian": "fa", "slovak": "sk", "bulgarian": "bg",
-    "turkish": "tr", "danish": "da", "hebrew": "he", "serbian": "sr", "vietnamese": "vi",
-    "hungarian": "hu", "icelandic": "is", "albanian": "sq", "bosnian": "bs", "slovenian": "sl",
-    "bengali": "bn", "macedonian": "mk"
-  };
-  return mapping[langName.toLowerCase().trim()] || "en";
-}
-
-function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNum, episodeNum) {
-  try {
-    const data = JSON.parse(decryptedData);
-    if (!data || typeof data !== "object")
-      return [];
-    const playbackHeaders = {
-      "Referer": "https://www.vidking.net/",
-      "Origin": "https://www.vidking.net",
-      "User-Agent": USER_AGENT
-    };
-    const formattedSubtitles = (data.subtitles || []).map((sub) => ({
-      url: sub.url,
-      language: getLangCode(sub.language || sub.lang),
-      name: sub.language || sub.lang || "English",
-      headers: playbackHeaders
-    }));
-
-    // Server Emojis Map
-    const serverEmojis = {
-      "Carbon": "💎",
-      "Helium": "🎈",
-      "Lithium": "🔋",
-      "Oxygen": "💨",
-      "Krypton": "🦸",
-      "Titanium": "🛡️",
-      "Hydrogen": "💧",
-      "Nitrogen": "🌿",
-      "Neon": "💡",
-      "Aluminium": "💿"
-    };
-    const serverEmoji = serverEmojis[serverName] || "🎬";
-
-    // Internal Provider Backend Strings Map for Line 4
-    const internalProviders = {
-      "Hydrogen": "CDN",
-      "Titanium": "Tejo",
-      "Oxygen": "Neon2",
-      "Lithium": "Downloader2",
-      "Krypton": "YM",
-      "Carbon": "MB-Flix",
-      "Aluminium": "LaMovie",
-      "Nitrogen": "M4UHD",
-      "Neon": "SuperFlix",
-      "Helium": "1Movies"
-    };
-    const internalProvider = internalProviders[serverName] || serverName;
-
-    const streams = [];
-    (data.sources || []).forEach((source) => {
-      if (!source.url)
-        return;
+        const response = await fetch(playlistUrl, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                'Referer': 'https://vidfast.vc/'
+            }
+        });
         
-      let rawQuality = source.quality || "1080p";
-      
-      // Strip "server 2" variations globally from incoming strings immediately
-      let finalQualityLabel = rawQuality.replace(/\s*server\s*2\s*$/gi, "").trim();
-      
-      // Force Oxygen server display quality to capital "Auto"
-      if (serverName === "Oxygen") {
-        finalQualityLabel = "Auto";
-      }
-
-      // Line 2 Quality Badges (Case-Insensitive checks)
-      let lowLabel = finalQualityLabel.toLowerCase();
-      let qualityBadge = "⚡ " + finalQualityLabel;
-      if (lowLabel.includes("2160") || lowLabel.includes("4k")) {
-        qualityBadge = "🌟 2160p";
-      } else if (lowLabel.includes("1080")) {
-        qualityBadge = "🔥 1080p";
-      } else if (lowLabel.includes("720")) {
-        qualityBadge = "⚡ 720p";
-      } else if (lowLabel === "auto") {
-        qualityBadge = "⚡ Auto";
-      }
-
-      // Dynamic Audio Tag Routing Block
-      let audioHeaderLabel = "Original Audio";
-      let audioSubheadingLabel = "🌍 Original Audio";
-
-      if (serverName === "Hydrogen" || serverName === "Krypton") {
-        audioHeaderLabel = "Original Audio";
-        audioSubheadingLabel = "🌍 Original Audio";
-      } else if (serverName === "Oxygen") {
-        audioHeaderLabel = "Multi-Audio";
-        audioSubheadingLabel = "🌍 Multi-Audio";
-      } else if (serverName === "Aluminium") {
-        // Enforce targeted rule override to display LaMovie links as Dual-Audio
-        audioHeaderLabel = "Dual-Audio";
-        audioSubheadingLabel = "🌍 Dual-Audio";
-      } else if (serverName === "Magnesium") {
-        const titlePayload = (source.title || "").toLowerCase();
-        if (titlePayload.includes("bengali") || titlePayload.includes("bangla")) {
-          audioHeaderLabel = "Bengali";
-          audioSubheadingLabel = "🇧🇩 Bengali";
-        } else {
-          audioHeaderLabel = "Normal Hindi";
-          audioSubheadingLabel = "🇮🇳 Hindi";
+        if (!response.ok) return null;
+        
+        const playlistText = await response.text();
+        
+        // Check if it's a master playlist (contains #EXT-X-STREAM-INF)
+        if (!playlistText.includes('#EXT-X-STREAM-INF')) {
+            return null; // Not a master playlist, it's a single quality stream
         }
-      }
+        
+        const variants = [];
+        const lines = playlistText.split('\n');
+        
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i].trim();
+            
+            if (line.startsWith('#EXT-X-STREAM-INF')) {
+                // Extract resolution
+                const resolutionMatch = line.match(/RESOLUTION=(\d+)x(\d+)/i);
+                const bandwidthMatch = line.match(/BANDWIDTH=(\d+)/i);
+                
+                // Next line should be the URL
+                const urlLine = lines[i + 1]?.trim();
+                if (!urlLine || urlLine.startsWith('#')) continue;
+                
+                // Build full URL if relative
+                let variantUrl = urlLine;
+                if (!urlLine.startsWith('http')) {
+                    const baseUrl = playlistUrl.substring(0, playlistUrl.lastIndexOf('/') + 1);
+                    variantUrl = baseUrl + urlLine;
+                }
+                
+                // Determine quality from resolution
+                let quality = 'Unknown';
+                if (resolutionMatch) {
+                    const height = parseInt(resolutionMatch[2]);
+                    if (height >= 2160) quality = '2160p';
+                    else if (height >= 1440) quality = '1440p';
+                    else if (height >= 1080) quality = '1080p';
+                    else if (height >= 720) quality = '720p';
+                    else if (height >= 480) quality = '480p';
+                    else if (height >= 360) quality = '360p';
+                    else quality = `${height}p`;
+                }
+                
+                variants.push({
+                    url: variantUrl,
+                    quality: quality,
+                    bandwidth: bandwidthMatch ? parseInt(bandwidthMatch[1]) : 0
+                });
+            }
+        }
+        
+        return variants.length > 0 ? variants : null;
+    } catch (error) {
+        return null;
+    }
+}
 
-      const containerFormat = source.url.includes(".m3u8") ? "M3U8" : source.url.includes(".mp4") ? "MP4" : "MKV";
-      const mediaLabel = mediaDetails.title + (mediaDetails.mediaType === "tv" ? " S" + seasonNum + "E" + episodeNum : "");
-      
-      let cleanServerName = serverName;
-      if (cleanServerName === "Krypton") {
-        cleanServerName = cleanServerName.replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
-      }
-
-      const dropdownTitle = 
-         "🎬 " + mediaLabel + " - (" + mediaDetails.year + ")\n" +
-         qualityBadge + " | " + audioSubheadingLabel + " | 🎧 AAC\n" +
-         "🎞️ " + containerFormat + " | ⏱️ " + mediaDetails.duration + "\n" +
-         serverEmoji + " " + cleanServerName + " | 🔗 Provider: " + internalProvider;
-
-      streams.push({
-        name: `VidEasy | ${finalQualityLabel} | ${audioHeaderLabel}`,
-        title: dropdownTitle,
-        size: dropdownTitle,
-        description: dropdownTitle,
-        url: source.url,
-        quality: "",     
-        language: "",    
-        headers: playbackHeaders,
-        subtitles: formattedSubtitles,
-        provider: "videasy",
-        _is4k: lowLabel.includes("2160") || lowLabel.includes("4k"),
-        _serverName: serverName
-      });
+// Get TMDB details
+function getTMDBDetails(tmdbId, mediaType) {
+    const endpoint = mediaType === 'tv' ? 'tv' : 'movie';
+    const url = `${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    
+    return fetch(url).then(function(response) {
+        return response.json();
+    }).then(function(data) {
+        const isTv = mediaType === 'tv';
+        return {
+            title: isTv ? data.name : data.title,
+            year: (isTv ? data.first_air_date : data.release_date)?.substring(0, 4) || '',
+            mediaType: isTv ? 'tv' : 'movie'
+        };
     });
-    return streams;
-  } catch (e) {
-    console.error(`[VidEasy] Formatting error: ${e.message}`);
-    return [];
-  }
 }
 
-// src/videasy/index.js
-function fetchFromWingsServer(serverName, serverConfig, mediaType, tmdbId, mediaDetails, seed, seasonNum, episodeNum) {
-  return __async(this, null, function* () {
-    const params = {
-      title: mediaDetails.title,
-      mediaType,
-      year: String(mediaDetails.year),
-      episodeId: String(episodeNum || 1),
-      seasonId: String(seasonNum || 1),
-      tmdbId: String(tmdbId),
-      imdbId: mediaDetails.imdbId || "",
-      enc: "2",
-      seed
-    };
-    const queryString = Object.keys(params).map((key) => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`).join("&");
-    const url = `${WINGS_API_BASE}/${serverConfig.path}?${queryString}`;
-    console.log(`[VidEasy] Querying server ${serverName}: ${url}`);
+// Main scraping function
+async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
     try {
-      const res = yield fetch(url, { headers: REQUEST_HEADERS });
-      if (!res.ok)
-        throw new Error(`HTTP ${res.status}`);
-      const encryptedData = yield res.text();
-      if (!encryptedData || encryptedData.trim() === "") {
-        throw new Error("Empty response");
-      }
-      const decryptedData = decryptWingsDatabase(encryptedData, seed, Number(tmdbId));
-      if (!decryptedData)
-        return [];
-      const streams = formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNum, episodeNum);
-      console.log(`[VidEasy] ✅ Found ${streams.length} stream(s) from ${serverName}`);
-      return streams;
-    } catch (e) {
-      console.warn(`[VidEasy] ❌ Error from ${serverName}: ${e.message}`);
-      return [];
-    }
-  });
-}
-function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
-  return __async(this, null, function* () {
-    console.log(`[VidEasy] Starting extraction for TMDB ID: ${tmdbId}, Type: ${mediaType}${mediaType === "tv" ? `, S:${seasonNum}E:${episodeNum}` : ""}`);
-    try {
-      const mediaDetails = yield fetchMediaDetails(tmdbId, mediaType, seasonNum, episodeNum);
-      if (!mediaDetails) {
-        console.error("[VidEasy] Failed to fetch media details from TMDB.");
-        return [];
-      }
-      console.log(`[VidEasy] Media Details: "${mediaDetails.title}" (${mediaDetails.year}) | Duration: ${mediaDetails.duration}`);
-      const seedUrl = `${WINGS_API_BASE}/seed?mediaId=${tmdbId}`;
-      console.log(`[VidEasy] Fetching seed from: ${seedUrl}`);
-      const seedRes = yield fetch(seedUrl, { headers: REQUEST_HEADERS });
-      if (!seedRes.ok)
-        throw new Error(`Seed HTTP ${seedRes.status}`);
-      const seedJson = yield seedRes.json();
-      const seed = seedJson.seed;
-      if (!seed)
-        throw new Error("No seed returned from API");
-      console.log(`[VidEasy] Seed successfully retrieved: ${seed}`);
-      const serverPromises = Object.keys(SERVERS).map((serverName) => {
-        const serverConfig = SERVERS[serverName];
-        return fetchFromWingsServer(
-          serverName,
-          serverConfig,
-          mediaType,
-          tmdbId,
-          mediaDetails,
-          seed,
-          seasonNum,
-          episodeNum
-        );
-      });
-      const results = yield Promise.all(serverPromises);
-      const allStreams = [];
-      results.forEach((streams) => {
-        allStreams.push(...streams);
-      });
-      const uniqueStreams = [];
-      const seenUrls = /* @__PURE__ */ new Set();
-      allStreams.forEach((stream) => {
-        if (!seenUrls.has(stream.url)) {
-          seenUrls.add(stream.url);
-          uniqueStreams.push(stream);
-        }
-      });
+        // Build page URL
+        const pageUrl = mediaInfo.mediaType === 'tv'
+            ? `${VIDFAST_BASE}/tv/${tmdbId}/${seasonNum}/${episodeNum}`
+            : `${VIDFAST_BASE}/movie/${tmdbId}`;
 
-      const serverOrderKeys = Object.keys(SERVERS);
-      uniqueStreams.sort((a, b) => {
-        if (a._is4k && !b._is4k) return -1;
-        if (!a._is4k && b._is4k) return 1;
+        // Headers
+        const headers = {
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive',
+            'Origin': 'https://vidfast.vc',
+            'Referer': pageUrl,
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'cross-site',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+            'X-Requested-With': 'XMLHttpRequest'
+        };
+
+        // Step 1: Fetch page
+        const pageResponse = await fetch(pageUrl, { headers });
         
-        const indexA = serverOrderKeys.indexOf(a._serverName);
-        const indexB = serverOrderKeys.indexOf(b._serverName);
-        return indexA - indexB;
-      });
+        if (!pageResponse.ok) {
+            console.log(`[VidFast] Page fetch failed: HTTP ${pageResponse.status}`);
+            return [];
+        }
+        
+        const pageText = await pageResponse.text();
 
-      console.log(`[VidEasy] Total unique streams found: ${uniqueStreams.length}`);
-      return uniqueStreams;
-    } catch (e) {
-      console.error(`[VidEasy] Error in getStreams: ${e.message}`);
-      return [];
+        // Step 2: Extract encrypted data
+        let rawData = null;
+        
+        // Look for __NEXT_DATA__ script tag
+        const nextDataMatch = pageText.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
+        if (nextDataMatch) {
+            try {
+                const jsonData = JSON.parse(nextDataMatch[1]);
+                const propsStr = JSON.stringify(jsonData);
+                const dataMatch = propsStr.match(/"en":"([^"]+)"/);
+                if (dataMatch) rawData = dataMatch[1];
+            } catch (e) {
+                // Continue to fallback patterns
+            }
+        }
+        
+        // Fallback patterns
+        if (!rawData) {
+            const patterns = [
+                /"en":"([^"]+)"/,
+                /'en':'([^']+)'/,
+                /\\"en\\":\\"([^"]+)\\"/,
+                /data\s*=\s*"([^"]+)"/
+            ];
+            
+            for (const pattern of patterns) {
+                const match = pageText.match(pattern);
+                if (match) {
+                    rawData = match[1];
+                    break;
+                }
+            }
+        }
+
+        if (!rawData) {
+            console.log('[VidFast] Could not extract data from page');
+            return [];
+        }
+
+        // Step 3: Get servers and stream URLs
+        const apiUrl = `${ENCRYPT_API}?text=${encodeURIComponent(rawData)}&version=1`;
+        const apiResponse = await fetch(apiUrl);
+        
+        if (!apiResponse.ok) {
+            console.log('[VidFast] enc-vidfast API failed');
+            return [];
+        }
+        
+        const apiData = await apiResponse.json();
+
+        if (apiData.status !== 200 || !apiData.result) {
+            console.log('[VidFast] enc-vidfast API returned error');
+            return [];
+        }
+
+        const apiServers = apiData.result.servers;
+        const streamBase = apiData.result.stream;
+        const token = apiData.result.token;
+
+        // Update headers with token if provided
+        if (token) {
+            headers['X-CSRF-Token'] = token;
+        }
+
+        // Step 4: Fetch and decrypt servers list
+        const serversResponse = await fetch(apiServers, { 
+            method: 'POST',
+            headers 
+        });
+        const serversEncrypted = await serversResponse.text();
+        
+        const decryptResponse = await fetch(DECRYPT_API, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text: serversEncrypted, version: '1' })
+        });
+        const decryptData = await decryptResponse.json();
+        let serverList = decryptData.result;
+
+        if (!serverList || !Array.isArray(serverList) || serverList.length === 0) {
+            console.log('[VidFast] No servers available');
+            return [];
+        }
+
+        // Apply server filtering
+        if (typeof ALLOWED_SERVERS !== 'undefined') {
+            serverList = serverList.filter(s => ALLOWED_SERVERS.includes(s.name));
+            console.log(`[VidFast] Filtered to allowed servers: ${serverList.length} remaining`);
+        }
+        
+        if (typeof FILTER_DESCRIPTION !== 'undefined') {
+            serverList = serverList.filter(s => 
+                s.description && s.description.includes(FILTER_DESCRIPTION)
+            );
+            console.log(`[VidFast] Filtered by description "${FILTER_DESCRIPTION}": ${serverList.length} remaining`);
+        }
+        
+        if (typeof BLOCKED_SERVERS !== 'undefined') {
+            serverList = serverList.filter(s => !BLOCKED_SERVERS.includes(s.name));
+            console.log(`[VidFast] Blocked servers removed: ${serverList.length} remaining`);
+        }
+
+        if (serverList.length === 0) {
+            console.log('[VidFast] No servers after filtering');
+            return [];
+        }
+
+        console.log(`[VidFast] Found ${serverList.length} server(s)`);
+
+        // Step 5: Fetch and decrypt streams from each server
+        const rawStreams = [];
+
+        for (let i = 0; i < serverList.length; i++) {
+            const serverObj = serverList[i];
+            const server = serverObj.data;
+            const serverName = serverObj.name || `Server ${i + 1}`;
+            const apiStream = `${streamBase}/${server}`;
+
+            try {
+                const streamResponse = await fetch(apiStream, { 
+                    method: 'POST',
+                    headers 
+                });
+
+                if (!streamResponse.ok) {
+                    continue;
+                }
+
+                const streamEncrypted = await streamResponse.text();
+                
+                const streamDecryptResponse = await fetch(DECRYPT_API, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: streamEncrypted, version: '1' })
+                });
+                const streamDecryptData = await streamDecryptResponse.json();
+                const data = streamDecryptData.result;
+
+                if (!data.url) {
+                    continue;
+                }
+
+                // Determine quality from response data
+                let quality = 'Unknown';
+                
+                if (data.quality) {
+                    quality = data.quality;
+                    if (/2160|4k/i.test(quality)) quality = '4K';
+                    else if (/1440/i.test(quality)) quality = '1440p';
+                    else if (/1080/i.test(quality)) quality = '1080p';
+                    else if (/720/i.test(quality)) quality = '720p';
+                    else if (/480/i.test(quality)) quality = '480p';
+                    else if (/360/i.test(quality)) quality = '360p';
+                    else if (/auto|adaptive/i.test(quality)) quality = 'Auto';
+                } else if (data.label) {
+                    quality = data.label;
+                    if (/2160|4k/i.test(quality)) quality = '4K';
+                    else if (/1440/i.test(quality)) quality = '1440p';
+                    else if (/1080/i.test(quality)) quality = '1080p';
+                    else if (/720/i.test(quality)) quality = '720p';
+                    else if (/480/i.test(quality)) quality = '480p';
+                    else if (/360/i.test(quality)) quality = '360p';
+                    else if (/auto|adaptive/i.test(quality)) quality = 'Auto';
+                } else if (data.url.includes('.m3u8')) {
+                    quality = 'Auto';
+                } else {
+                    const qualityMatch = data.url.match(/(\d{3,4})[pP]/);
+                    if (qualityMatch) quality = `${qualityMatch[1]}p`;
+                }
+
+                rawStreams.push({
+                    serverName: serverName,
+                    url: data.url,
+                    quality: quality,
+                    isM3U8: data.url.includes('.m3u8')
+                });
+            } catch (error) {
+                continue;
+            }
+        }
+
+        // Step 6: Parse m3u8 playlists in parallel
+        const parsePromises = rawStreams.map(async function(stream) {
+            if (!stream.isM3U8) {
+                return [stream]; // Return as single-item array for consistency
+            }
+            
+            const variants = await parseM3U8Playlist(stream.url);
+            if (variants && variants.length > 0) {
+                return variants.map(v => ({
+                    serverName: stream.serverName,
+                    url: v.url,
+                    quality: v.quality,
+                    isM3U8: false
+                }));
+            }
+            return [stream]; // Fallback to original
+        });
+
+        const parsedStreamArrays = await Promise.all(parsePromises);
+        const allParsedStreams = parsedStreamArrays.flat();
+
+        // Step 7: Build final stream objects
+        const streams = allParsedStreams.map(function(stream) {
+            return {
+                name: `VidFast ${stream.serverName} - ${stream.quality}`,
+                title: `${mediaInfo.title} (${mediaInfo.year})`,
+                url: stream.url,
+                quality: stream.quality,
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+                    'Referer': 'https://vidfast.vc/'
+                },
+                provider: 'vidfast'
+            };
+        });
+
+        // Deduplicate by URL
+        const uniqueStreams = [];
+        const seenUrls = new Set();
+
+        streams.forEach(function(stream) {
+            if (!seenUrls.has(stream.url)) {
+                seenUrls.add(stream.url);
+                uniqueStreams.push(stream);
+            }
+        });
+
+        // Sort by quality
+        uniqueStreams.sort(function(a, b) {
+            const qualityOrder = {
+                'Adaptive': 4000,
+                '2160p': 2160,
+                '1440p': 1440,
+                '1080p': 1080,
+                '720p': 720,
+                '480p': 480,
+                '360p': 360,
+                'Unknown': 0
+            };
+            return (qualityOrder[b.quality] || 0) - (qualityOrder[a.quality] || 0);
+        });
+
+        console.log(`[VidFast] Returning ${uniqueStreams.length} stream(s)`);
+        return uniqueStreams;
+    } catch (error) {
+        console.error(`[VidFast] Error: ${error.message}`);
+        return [];
     }
-  });
 }
-module.exports = { getStreams };
+
+// Main function
+function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
+    console.log(`[VidFast] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}${seasonNum ? `, S${seasonNum}E${episodeNum}` : ''}`);
+
+    return getTMDBDetails(tmdbId, mediaType).then(function(mediaInfo) {
+        if (!mediaInfo) {
+            console.log('[VidFast] Failed to get TMDB details');
+            return [];
+        }
+
+        console.log(`[VidFast] Title: "${mediaInfo.title}" (${mediaInfo.year})`);
+
+        return scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum);
+    }).catch(function(error) {
+        console.error(`[VidFast] Error: ${error.message}`);
+        return [];
+    });
+}
+
+// Export the main function
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { getStreams };
+} else {
+    global.getStreams = getStreams;
+}

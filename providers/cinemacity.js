@@ -27,7 +27,7 @@ var __async = (__this, __arguments, generator) => {
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var TMDB_BASE_URL = "https://api.themoviedb.org/3";
 var WINGS_API_BASE = "https://api.wingsdatabase.com";
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/122.0.0.0 Safari/537.36";
 var REQUEST_HEADERS = {
   "User-Agent": USER_AGENT,
   "Accept": "*/*",
@@ -319,10 +319,15 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       if (!source.url)
         return;
         
-      const rawQuality = source.quality || "1080p";
-      const finalQualityLabel = rawQuality.toLowerCase().trim();
+      let rawQuality = source.quality || "1080p";
+      let finalQualityLabel = rawQuality.toLowerCase().trim();
       
-      // Line 2 Badges
+      // Fix 2: Force Oxygen server quality display labels to "Auto"
+      if (serverName === "Oxygen") {
+        finalQualityLabel = "auto";
+      }
+
+      // Line 2 Quality Badges
       let qualityBadge = "⚡ " + finalQualityLabel;
       if (finalQualityLabel.includes("2160") || finalQualityLabel.includes("4k")) {
         qualityBadge = "🌟 2160p";
@@ -330,6 +335,8 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
         qualityBadge = "🔥 1080p";
       } else if (finalQualityLabel.includes("720")) {
         qualityBadge = "⚡ 720p";
+      } else if (finalQualityLabel === "auto") {
+        qualityBadge = "⚡ Auto";
       }
 
       // Default Language Configurations
@@ -356,14 +363,12 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       const containerFormat = source.url.includes(".m3u8") ? "M3U8" : source.url.includes(".mp4") ? "MP4" : "MKV";
       const mediaLabel = mediaDetails.title + (mediaDetails.mediaType === "tv" ? " S" + seasonNum + "E" + episodeNum : "");
       
-      // Intercept and Clean up Krypton title string tracking labels
+      // Fix 1: Completely clean up Krypton title tracking noise from subheadings
       let cleanServerName = serverName;
       if (cleanServerName === "Krypton") {
-        cleanServerName = cleanServerName.replace(/\s*[sS]erver\s*2\s*$/g, "").trim();
+        cleanServerName = cleanServerName.replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
       }
 
-      // Line 1: Reverted to standard "🎬 Title - (Year)" matching previous spec
-      // Line 4: Modifying to Custom Emoji mapping logic: "🎈 ServerName | Provider: InternalProvider"
       const dropdownTitle = 
          "🎬 " + mediaLabel + " - (" + mediaDetails.year + ")\n" +
          qualityBadge + " | " + audioSubheadingLabel + " | 🎧 AAC\n" +
@@ -380,7 +385,10 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
         language: "",    
         headers: playbackHeaders,
         subtitles: formattedSubtitles,
-        provider: "videasy"
+        provider: "videasy",
+        // Extra properties kept for global master list sorting constraints
+        _is4k: finalQualityLabel.includes("2160") || finalQualityLabel.includes("4k"),
+        _serverName: serverName
       });
     });
     return streams;
@@ -473,6 +481,19 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
           uniqueStreams.push(stream);
         }
       });
+
+      // Fix 3: Group 4K links at the absolute top, while strictly maintaining the specified provider sequence order underneath
+      const serverOrderKeys = Object.keys(SERVERS);
+      uniqueStreams.sort((a, b) => {
+        if (a._is4k && !b._is4k) return -1;
+        if (!a._is4k && b._is4k) return 1;
+        
+        // Tie-breaker fallback: retain the static layout provider order configuration rules
+        const indexA = serverOrderKeys.indexOf(a._serverName);
+        const indexB = serverOrderKeys.indexOf(b._serverName);
+        return indexA - indexB;
+      });
+
       console.log(`[VidEasy] Total unique streams found: ${uniqueStreams.length}`);
       return uniqueStreams;
     } catch (e) {

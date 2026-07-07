@@ -321,10 +321,10 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
         
       let rawQuality = source.quality || "1080p";
       
-      // Fix 1: Strip "server 2" variations globally from the incoming quality strings immediately
+      // Strip "server 2" variations globally from incoming strings immediately
       let finalQualityLabel = rawQuality.replace(/\s*server\s*2\s*$/gi, "").trim();
       
-      // Fix 2: Force Oxygen server display quality to capital "Auto"
+      // Force Oxygen server display quality to capital "Auto"
       if (serverName === "Oxygen") {
         finalQualityLabel = "Auto";
       }
@@ -342,7 +342,7 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
         qualityBadge = "⚡ Auto";
       }
 
-      // Default Language Configurations
+      // Dynamic Audio Tag Routing Block
       let audioHeaderLabel = "Original Audio";
       let audioSubheadingLabel = "🌍 Original Audio";
 
@@ -352,6 +352,10 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       } else if (serverName === "Oxygen") {
         audioHeaderLabel = "Multi-Audio";
         audioSubheadingLabel = "🌍 Multi-Audio";
+      } else if (serverName === "Aluminium") {
+        // Enforce targeted rule override to display LaMovie links as Dual-Audio
+        audioHeaderLabel = "Dual-Audio";
+        audioSubheadingLabel = "🌍 Dual-Audio";
       } else if (serverName === "Magnesium") {
         const titlePayload = (source.title || "").toLowerCase();
         if (titlePayload.includes("bengali") || titlePayload.includes("bangla")) {

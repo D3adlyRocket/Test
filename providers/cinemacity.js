@@ -47,10 +47,6 @@ var SERVERS = {
   "Aluminium": { path: "lamovie/sources-with-title" },
   "Nitrogen": { path: "m4uhd/sources-with-title" },
   "Neon": { path: "superflix/sources-with-title" },
-  "mb": { path:  "moviebox/sources-with-title" },
-  "Reyna": { path: "primewire/sources-with-title" },
-  "Omen": { path: "onionplay/sources-with-title" },
-  "Ghost": { path: "primesrcme/sources-with-title" },
   "Helium": { path: "1movies/sources-with-title" }
 };
 

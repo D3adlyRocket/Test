@@ -27,7 +27,7 @@ var __async = (__this, __arguments, generator) => {
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var TMDB_BASE_URL = "https://api.themoviedb.org/3";
 var WINGS_API_BASE = "https://api.wingsdatabase.com";
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, Gecko) Chrome/122.0.0.0 Safari/537.36";
+var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 var REQUEST_HEADERS = {
   "User-Agent": USER_AGENT,
   "Accept": "*/*",
@@ -320,22 +320,25 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
         return;
         
       let rawQuality = source.quality || "1080p";
-      let finalQualityLabel = rawQuality.toLowerCase().trim();
       
-      // Fix 2: Force Oxygen server quality display labels to "Auto"
+      // Fix 1: Strip "server 2" variations globally from the incoming quality strings immediately
+      let finalQualityLabel = rawQuality.replace(/\s*server\s*2\s*$/gi, "").trim();
+      
+      // Fix 2: Force Oxygen server display quality to capital "Auto"
       if (serverName === "Oxygen") {
-        finalQualityLabel = "auto";
+        finalQualityLabel = "Auto";
       }
 
-      // Line 2 Quality Badges
+      // Line 2 Quality Badges (Case-Insensitive checks)
+      let lowLabel = finalQualityLabel.toLowerCase();
       let qualityBadge = "⚡ " + finalQualityLabel;
-      if (finalQualityLabel.includes("2160") || finalQualityLabel.includes("4k")) {
+      if (lowLabel.includes("2160") || lowLabel.includes("4k")) {
         qualityBadge = "🌟 2160p";
-      } else if (finalQualityLabel.includes("1080")) {
+      } else if (lowLabel.includes("1080")) {
         qualityBadge = "🔥 1080p";
-      } else if (finalQualityLabel.includes("720")) {
+      } else if (lowLabel.includes("720")) {
         qualityBadge = "⚡ 720p";
-      } else if (finalQualityLabel === "auto") {
+      } else if (lowLabel === "auto") {
         qualityBadge = "⚡ Auto";
       }
 
@@ -363,7 +366,6 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
       const containerFormat = source.url.includes(".m3u8") ? "M3U8" : source.url.includes(".mp4") ? "MP4" : "MKV";
       const mediaLabel = mediaDetails.title + (mediaDetails.mediaType === "tv" ? " S" + seasonNum + "E" + episodeNum : "");
       
-      // Fix 1: Completely clean up Krypton title tracking noise from subheadings
       let cleanServerName = serverName;
       if (cleanServerName === "Krypton") {
         cleanServerName = cleanServerName.replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
@@ -386,8 +388,7 @@ function formatStreamsForNuvio(decryptedData, serverName, mediaDetails, seasonNu
         headers: playbackHeaders,
         subtitles: formattedSubtitles,
         provider: "videasy",
-        // Extra properties kept for global master list sorting constraints
-        _is4k: finalQualityLabel.includes("2160") || finalQualityLabel.includes("4k"),
+        _is4k: lowLabel.includes("2160") || lowLabel.includes("4k"),
         _serverName: serverName
       });
     });
@@ -482,13 +483,11 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         }
       });
 
-      // Fix 3: Group 4K links at the absolute top, while strictly maintaining the specified provider sequence order underneath
       const serverOrderKeys = Object.keys(SERVERS);
       uniqueStreams.sort((a, b) => {
         if (a._is4k && !b._is4k) return -1;
         if (!a._is4k && b._is4k) return 1;
         
-        // Tie-breaker fallback: retain the static layout provider order configuration rules
         const indexA = serverOrderKeys.indexOf(a._serverName);
         const indexB = serverOrderKeys.indexOf(b._serverName);
         return indexA - indexB;

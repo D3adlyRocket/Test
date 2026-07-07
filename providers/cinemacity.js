@@ -6,9 +6,14 @@ console.log('[VidFast] Initializing VidFast scraper');
 // Constants
 const TMDB_API_KEY = "1c29a5198ee1854bd5eb45dbe8d17d92";
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
-const VIDFAST_BASE = 'https://vidfast.yogeshkumarjamre1.workers.dev';
-const ENCRYPT_API = 'https://enc-dec.app/api/enc-vidfast';
-const DECRYPT_API = 'https://enc-dec.app/api/dec-vidfast';
+const VIDFAST_BASE = 'https://vidfast.vc';
+
+// --- UPDATED ENDPOINTS FOR SCENARIO B ---
+const WORKER_BASE = 'https://vidfast.yogeshkumarjamre1.workers.dev';
+const ENCRYPT_API = `${WORKER_BASE}/api/enc-vidfast`;
+const DECRYPT_API = `${WORKER_BASE}/api/dec-vidfast`;
+// ----------------------------------------
+
 const ALLOWED_SERVERS = ['Alpha', 'Cobra', 'Max', 'Oscar', 'vEdge', 'vFast', 'vRapid'];
 
 // Parse HLS master playlist to extract quality variants
@@ -25,9 +30,8 @@ async function parseM3U8Playlist(playlistUrl) {
         
         const playlistText = await response.text();
         
-        // Check if it's a master playlist (contains #EXT-X-STREAM-INF)
         if (!playlistText.includes('#EXT-X-STREAM-INF')) {
-            return null; // Not a master playlist, it's a single quality stream
+            return null; 
         }
         
         const variants = [];
@@ -37,22 +41,18 @@ async function parseM3U8Playlist(playlistUrl) {
             const line = lines[i].trim();
             
             if (line.startsWith('#EXT-X-STREAM-INF')) {
-                // Extract resolution
                 const resolutionMatch = line.match(/RESOLUTION=(\d+)x(\d+)/i);
                 const bandwidthMatch = line.match(/BANDWIDTH=(\d+)/i);
                 
-                // Next line should be the URL
                 const urlLine = lines[i + 1]?.trim();
                 if (!urlLine || urlLine.startsWith('#')) continue;
                 
-                // Build full URL if relative
                 let variantUrl = urlLine;
                 if (!urlLine.startsWith('http')) {
                     const baseUrl = playlistUrl.substring(0, playlistUrl.lastIndexOf('/') + 1);
                     variantUrl = baseUrl + urlLine;
                 }
                 
-                // Determine quality from resolution
                 let quality = 'Unknown';
                 if (resolutionMatch) {
                     const height = parseInt(resolutionMatch[2]);
@@ -99,12 +99,10 @@ function getTMDBDetails(tmdbId, mediaType) {
 // Main scraping function
 async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
     try {
-        // Build page URL
         const pageUrl = mediaInfo.mediaType === 'tv'
             ? `${VIDFAST_BASE}/tv/${tmdbId}/${seasonNum}/${episodeNum}`
             : `${VIDFAST_BASE}/movie/${tmdbId}`;
 
-        // Headers
         const headers = {
             'Accept': '*/*',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -118,7 +116,6 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
             'X-Requested-With': 'XMLHttpRequest'
         };
 
-        // Step 1: Fetch page
         const pageResponse = await fetch(pageUrl, { headers });
         
         if (!pageResponse.ok) {
@@ -128,10 +125,8 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
         
         const pageText = await pageResponse.text();
 
-        // Step 2: Extract encrypted data
         let rawData = null;
         
-        // Look for __NEXT_DATA__ script tag
         const nextDataMatch = pageText.match(/<script id="__NEXT_DATA__"[^>]*>(.*?)<\/script>/s);
         if (nextDataMatch) {
             try {
@@ -139,12 +134,9 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
                 const propsStr = JSON.stringify(jsonData);
                 const dataMatch = propsStr.match(/"en":"([^"]+)"/);
                 if (dataMatch) rawData = dataMatch[1];
-            } catch (e) {
-                // Continue to fallback patterns
-            }
+            } catch (e) {}
         }
         
-        // Fallback patterns
         if (!rawData) {
             const patterns = [
                 /"en":"([^"]+)"/,
@@ -167,19 +159,18 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
             return [];
         }
 
-        // Step 3: Get servers and stream URLs
         const apiUrl = `${ENCRYPT_API}?text=${encodeURIComponent(rawData)}&version=1`;
         const apiResponse = await fetch(apiUrl);
         
         if (!apiResponse.ok) {
-            console.log('[VidFast] enc-vidfast API failed');
+            console.log('[VidFast] Worker encryption API failed');
             return [];
         }
         
         const apiData = await apiResponse.json();
 
         if (apiData.status !== 200 || !apiData.result) {
-            console.log('[VidFast] enc-vidfast API returned error');
+            console.log('[VidFast] Worker encryption API returned error');
             return [];
         }
 
@@ -187,12 +178,10 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
         const streamBase = apiData.result.stream;
         const token = apiData.result.token;
 
-        // Update headers with token if provided
         if (token) {
             headers['X-CSRF-Token'] = token;
         }
 
-        // Step 4: Fetch and decrypt servers list
         const serversResponse = await fetch(apiServers, { 
             method: 'POST',
             headers 
@@ -212,22 +201,8 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
             return [];
         }
 
-        // Apply server filtering
         if (typeof ALLOWED_SERVERS !== 'undefined') {
             serverList = serverList.filter(s => ALLOWED_SERVERS.includes(s.name));
-            console.log(`[VidFast] Filtered to allowed servers: ${serverList.length} remaining`);
-        }
-        
-        if (typeof FILTER_DESCRIPTION !== 'undefined') {
-            serverList = serverList.filter(s => 
-                s.description && s.description.includes(FILTER_DESCRIPTION)
-            );
-            console.log(`[VidFast] Filtered by description "${FILTER_DESCRIPTION}": ${serverList.length} remaining`);
-        }
-        
-        if (typeof BLOCKED_SERVERS !== 'undefined') {
-            serverList = serverList.filter(s => !BLOCKED_SERVERS.includes(s.name));
-            console.log(`[VidFast] Blocked servers removed: ${serverList.length} remaining`);
         }
 
         if (serverList.length === 0) {
@@ -237,7 +212,6 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
 
         console.log(`[VidFast] Found ${serverList.length} server(s)`);
 
-        // Step 5: Fetch and decrypt streams from each server
         const rawStreams = [];
 
         for (let i = 0; i < serverList.length; i++) {
@@ -252,9 +226,7 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
                     headers 
                 });
 
-                if (!streamResponse.ok) {
-                    continue;
-                }
+                if (!streamResponse.ok) continue;
 
                 const streamEncrypted = await streamResponse.text();
                 
@@ -266,11 +238,8 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
                 const streamDecryptData = await streamDecryptResponse.json();
                 const data = streamDecryptData.result;
 
-                if (!data.url) {
-                    continue;
-                }
+                if (!data.url) continue;
 
-                // Determine quality from response data
                 let quality = 'Unknown';
                 
                 if (data.quality) {
@@ -309,11 +278,8 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
             }
         }
 
-        // Step 6: Parse m3u8 playlists in parallel
         const parsePromises = rawStreams.map(async function(stream) {
-            if (!stream.isM3U8) {
-                return [stream]; // Return as single-item array for consistency
-            }
+            if (!stream.isM3U8) return [stream];
             
             const variants = await parseM3U8Playlist(stream.url);
             if (variants && variants.length > 0) {
@@ -324,13 +290,12 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
                     isM3U8: false
                 }));
             }
-            return [stream]; // Fallback to original
+            return [stream];
         });
 
         const parsedStreamArrays = await Promise.all(parsePromises);
         const allParsedStreams = parsedStreamArrays.flat();
 
-        // Step 7: Build final stream objects
         const streams = allParsedStreams.map(function(stream) {
             return {
                 name: `VidFast ${stream.serverName} - ${stream.quality}`,
@@ -345,7 +310,6 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
             };
         });
 
-        // Deduplicate by URL
         const uniqueStreams = [];
         const seenUrls = new Set();
 
@@ -356,7 +320,6 @@ async function scrapeVidFast(tmdbId, mediaInfo, seasonNum, episodeNum) {
             }
         });
 
-        // Sort by quality
         uniqueStreams.sort(function(a, b) {
             const qualityOrder = {
                 'Adaptive': 4000,

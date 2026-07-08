@@ -157,12 +157,10 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
   }
   const yearString = mediaInfo.year ? `(${mediaInfo.year})` : "N/A";
   const durationStr = mediaInfo.runtime || "90 min";
-
-  // Dynamic stream format evaluation
   const containerFormat = streamUrl.includes(".m3u8") ? "📡 M3U8" : "🎞️ MP4";
 
-  return "🎬 " + mediaLabel + " - " + yearString + "\n" +
-         qualityBadge + " | 🌍 Original Audio | 🎧 AAC\n" +
+  // Prevent app from prefixing an extra quality badge on layouts that auto-inject properties
+  return qualityBadge + " | 🌍 Original Audio | 🎧 AAC\n" +
          containerFormat + " | ⚡ x2.64 | ⏱️ " + durationStr + "\n" +
          "🌀 " + cleanServer + " | 🔗 Provider: Vidrock";
 }
@@ -194,11 +192,12 @@ function parseAstraPlaylist(playlistUrl, serverName, mediaInfo, seasonNum, episo
               size: dropdownTitle,
               description: dropdownTitle,
               url: item.url,
-              quality: quality,
+              quality: "", // Clear to stop layout text insertion
               language: "",
               headers: PLAYBACK_HEADERS,
               provider: "vidrock",
-              _serverKey: serverName
+              _serverKey: serverName,
+              _rawQuality: quality
             });
           }
         });
@@ -285,11 +284,12 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
             size: dropdownTitle,
             description: dropdownTitle,
             url: videoUrl,
-            quality: quality,
+            quality: "", // Clear to stop layout text insertion
             language: "",
             headers: PLAYBACK_HEADERS,
             provider: "vidrock",
-            _serverKey: serverName
+            _serverKey: serverName,
+            _rawQuality: quality
           });
         }
       }
@@ -323,7 +323,6 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         return 0;
       };
 
-      // Sort by Provider Group name string first, then sort by highest quality layout
       uniqueStreams.sort((a, b) => {
         const providerA = String(a._serverKey || "").toLowerCase();
         const providerB = String(b._serverKey || "").toLowerCase();
@@ -331,7 +330,7 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         if (providerA !== providerB) {
           return providerA.localeCompare(providerB);
         }
-        return getQualityValue(b.quality) - getQualityValue(a.quality);
+        return getQualityValue(b._rawQuality) - getQualityValue(a._rawQuality);
       });
 
       console.log(`[Vidrock] Total streams found: ${uniqueStreams.length}`);

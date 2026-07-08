@@ -181,15 +181,15 @@ function parseAstraPlaylist(playlistUrl, serverName, mediaInfo, seasonNum, episo
           if (item.url && item.resolution) {
             let quality = `${item.resolution}p`;
             
-            // Override check if Astra happens to return Unknown strings
             if (serverName.toLowerCase().includes("orion") && quality.toLowerCase().includes("unknown")) {
               quality = "1080p";
             }
 
             const dropdownTitle = buildDropdownMetadata(serverName, quality, mediaInfo, seasonNum, episodeNum, item.url);
-            
+            let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
+
             streams.push({
-              name: `Vidrock | ${quality} | Original Audio`,
+              name: `Vidrock | ${quality} | [${cleanServer}]`,
               title: dropdownTitle,
               size: dropdownTitle,
               description: dropdownTitle,
@@ -272,15 +272,15 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
           
           let quality = extractQuality(videoUrl);
           
-          // Fix 2: Force Orion quality back to 1080p if it gets flagged as Unknown
           if (serverName.toLowerCase().includes("orion") && quality.toLowerCase() === "unknown") {
             quality = "1080p";
           }
 
           const dropdownTitle = buildDropdownMetadata(serverName, quality, mediaInfo, seasonNum, episodeNum, videoUrl);
-          
+          let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
+
           streams.push({
-            name: `Vidrock | ${quality} | Original Audio`,
+            name: `Vidrock | ${quality} | [${cleanServer}]`,
             title: dropdownTitle,
             size: dropdownTitle,
             description: dropdownTitle,
@@ -323,7 +323,7 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         return 0;
       };
 
-      // Fix 1: Sort by Provider Group name string first, then sort by highest quality layout
+      // Sort by Provider Group name string first, then sort by highest quality layout
       uniqueStreams.sort((a, b) => {
         const providerA = String(a._serverKey || "").toLowerCase();
         const providerB = String(b._serverKey || "").toLowerCase();

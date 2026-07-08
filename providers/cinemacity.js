@@ -239,8 +239,9 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
       } else {
         itemId = tmdbId.toString();
       }
-      const encryptedId = encryptVidrock(itemId);
-      const apiUrl = `${VIDROCK_BASE_URL}/api/${mediaType}/${encryptedId}`;
+      // Comment out or remove the encryption line, and pass the itemId directly
+const apiUrl = `${VIDROCK_BASE_URL}/api/${mediaType}/${itemId}`;
+
       console.log(`[Vidrock] Querying URL: ${apiUrl}`);
       const response = yield fetch(apiUrl, {
         headers: WORKING_HEADERS

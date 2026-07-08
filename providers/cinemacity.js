@@ -135,7 +135,7 @@ function extractQuality(url) {
   return "Unknown";
 }
 
-function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, episodeNum) {
+function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, episodeNum, streamUrl) {
   let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
   let normalizedQuality = qualityLabel.toLowerCase().trim() === "auto" ? "Auto" : qualityLabel;
   
@@ -158,9 +158,12 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
   const yearString = mediaInfo.year ? `(${mediaInfo.year})` : "N/A";
   const durationStr = mediaInfo.runtime || "90 min";
 
+  // Dynamic stream format evaluation
+  const containerFormat = streamUrl.includes(".m3u8") ? "📡 M3U8" : "🎞️ MP4";
+
   return "🎬 " + mediaLabel + " - " + yearString + "\n" +
          qualityBadge + " | 🌍 Original Audio | 🎧 AAC\n" +
-         "🎞️ H264 | ⏱️ " + durationStr + "\n" +
+         containerFormat + " | ⚡ x2.64 | ⏱️ " + durationStr + "\n" +
          "🌀 " + cleanServer + " | 🔗 Provider: Vidrock";
 }
 
@@ -176,8 +179,14 @@ function parseAstraPlaylist(playlistUrl, serverName, mediaInfo, seasonNum, episo
       if (Array.isArray(data)) {
         data.forEach((item) => {
           if (item.url && item.resolution) {
-            const quality = `${item.resolution}p`;
-            const dropdownTitle = buildDropdownMetadata(serverName, quality, mediaInfo, seasonNum, episodeNum);
+            let quality = `${item.resolution}p`;
+            
+            // Override check if Astra happens to return Unknown strings
+            if (serverName.toLowerCase().includes("orion") && quality.toLowerCase().includes("unknown")) {
+              quality = "1080p";
+            }
+
+            const dropdownTitle = buildDropdownMetadata(serverName, quality, mediaInfo, seasonNum, episodeNum, item.url);
             
             streams.push({
               name: `Vidrock | ${quality} | Original Audio`,
@@ -185,10 +194,11 @@ function parseAstraPlaylist(playlistUrl, serverName, mediaInfo, seasonNum, episo
               size: dropdownTitle,
               description: dropdownTitle,
               url: item.url,
-              quality: "",
+              quality: quality,
               language: "",
               headers: PLAYBACK_HEADERS,
-              provider: "vidrock"
+              provider: "vidrock",
+              _serverKey: serverName
             });
           }
         });
@@ -259,8 +269,15 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
             astraPromises.push(parseAstraPlaylist(videoUrl, serverName, mediaInfo, seasonNum, episodeNum));
             continue;
           }
+          
           let quality = extractQuality(videoUrl);
-          const dropdownTitle = buildDropdownMetadata(serverName, quality, mediaInfo, seasonNum, episodeNum);
+          
+          // Fix 2: Force Orion quality back to 1080p if it gets flagged as Unknown
+          if (serverName.toLowerCase().includes("orion") && quality.toLowerCase() === "unknown") {
+            quality = "1080p";
+          }
+
+          const dropdownTitle = buildDropdownMetadata(serverName, quality, mediaInfo, seasonNum, episodeNum, videoUrl);
           
           streams.push({
             name: `Vidrock | ${quality} | Original Audio`,
@@ -268,10 +285,11 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
             size: dropdownTitle,
             description: dropdownTitle,
             url: videoUrl,
-            quality: "",
+            quality: quality,
             language: "",
             headers: PLAYBACK_HEADERS,
-            provider: "vidrock"
+            provider: "vidrock",
+            _serverKey: serverName
           });
         }
       }
@@ -291,27 +309,31 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
           uniqueStreams.push(stream);
         }
       });
-      const getQualityValue = (titleText) => {
-        const low = titleText.toLowerCase();
-        if (low.includes("2160") || low.includes("4k"))
-          return 2160;
-        if (low.includes("1440"))
-          return 1440;
-        if (low.includes("1080"))
-          return 1080;
-        if (low.includes("720"))
-          return 720;
-        if (low.includes("480"))
-          return 480;
-        if (low.includes("360"))
-          return 360;
-        if (low.includes("240"))
-          return 240;
-        if (low.includes("auto"))
-          return -1;
+
+      const getQualityValue = (qLabel) => {
+        const q = String(qLabel).toLowerCase().replace(/p$/, "");
+        if (q === "4k" || q === "2160") return 2160;
+        if (q === "1440") return 1440;
+        if (q === "1080") return 1080;
+        if (q === "720") return 720;
+        if (q === "480") return 480;
+        if (q === "360") return 360;
+        if (q === "240") return 240;
+        if (q === "auto") return -1;
         return 0;
       };
-      uniqueStreams.sort((a, b) => getQualityValue(b.title) - getQualityValue(a.title));
+
+      // Fix 1: Sort by Provider Group name string first, then sort by highest quality layout
+      uniqueStreams.sort((a, b) => {
+        const providerA = String(a._serverKey || "").toLowerCase();
+        const providerB = String(b._serverKey || "").toLowerCase();
+        
+        if (providerA !== providerB) {
+          return providerA.localeCompare(providerB);
+        }
+        return getQualityValue(b.quality) - getQualityValue(a.quality);
+      });
+
       console.log(`[Vidrock] Total streams found: ${uniqueStreams.length}`);
       return uniqueStreams;
     } catch (error) {

@@ -45,6 +45,7 @@ var __async = (__this, __arguments, generator) => {
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var TMDB_BASE_URL = "https://api.themoviedb.org/3";
 var VIDROCK_BASE_URL = "https://vidrock.ru";
+var PASSPHRASE = "x7k9mPqT2rWvY8zA5bC3nF6hJ2lK4mN9";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 
 var WORKING_HEADERS = {
@@ -67,6 +68,31 @@ var PLAYBACK_HEADERS = {
 };
 
 // src/vidrock/utils.js
+var import_crypto_js = __toESM(require("crypto-js"));
+
+// Decrypts the API tokens using the site's passphrase configuration
+function decryptVidrock(cipherText) {
+  try {
+    // Revert URL-safe replacements back to standard base64 symbols before parsing
+    let base64 = cipherText.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4) { base64 += "="; }
+
+    const key = import_crypto_js.default.enc.Utf8.parse(PASSPHRASE);
+    const iv = import_crypto_js.default.enc.Utf8.parse(PASSPHRASE.substring(0, 16));
+    
+    const decrypted = import_crypto_js.default.AES.decrypt(base64, key, {
+      iv,
+      mode: import_crypto_js.default.mode.CBC,
+      padding: import_crypto_js.default.pad.Pkcs7
+    });
+    
+    return decrypted.toString(import_crypto_js.default.enc.Utf8);
+  } catch (e) {
+    console.error(`[Vidrock] Decryption Error: ${e.message}`);
+    return null;
+  }
+}
+
 function fetchTmdbDetails(tmdbId, mediaType) {
   return __async(this, null, function* () {
     var _a;
@@ -101,15 +127,6 @@ function getProviderEmoji(serverName) {
   if (nameLower.includes("atlas")) return "🌀";
   if (nameLower.includes("orion")) return "🎯";
   return "🌍";
-}
-
-// Converts URL-safe token characters back to valid Base64 string paths required by Cloudflare Worker files
-function sanitizeToken(token) {
-  let clean = token.replace(/-/g, "+").replace(/_/g, "/");
-  while (clean.length % 4) {
-    clean += "=";
-  }
-  return clean;
 }
 
 function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, episodeNum, streamUrl) {
@@ -147,52 +164,55 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
 // src/vidrock/index.js
 function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
   return __async(this, null, function* () {
-    console.log(`[Vidrock] Starting dynamic extraction for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
+    console.log(`[Vidrock] Starting core extraction for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
     try {
       const mediaInfo = yield fetchTmdbDetails(tmdbId, mediaType);
-      if (!mediaInfo) {
-        console.error("[Vidrock] Failed to fetch TMDB details.");
-        return [];
-      }
+      if (!mediaInfo) return [];
       
       let itemId = (mediaType === "tv" && seasonNum && episodeNum) ? `${tmdbId}_${seasonNum}_${episodeNum}` : tmdbId.toString();
       const apiUrl = `${VIDROCK_BASE_URL}/api/${mediaType}/${itemId}`;
 
-      console.log(`[Vidrock] Querying URL: ${apiUrl}`);
       const response = yield fetch(apiUrl, { headers: WORKING_HEADERS });
-      if (!response.ok) {
-        console.error(`[Vidrock] Request failed with HTTP ${response.status}`);
+      if (!response.ok) return [];
+      
+      const responseText = yield response.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
         return [];
       }
-      
-      const data = yield response.json();
-      const streams = [];
 
+      const streams = [];
       if (data && typeof data === "object") {
         for (const serverName of Object.keys(data)) {
           const source = data[serverName];
           if (!source || !source.url) continue;
 
-          let rawUrl = source.url;
-          if (rawUrl.includes("%")) {
-            try { rawUrl = decodeURIComponent(rawUrl); } catch (e) {}
+          let rawPayload = source.url;
+          if (rawPayload.includes("%")) {
+            try { rawPayload = decodeURIComponent(rawPayload); } catch (e) {}
           }
 
-          let finalStreamUrl = "";
+          // Decrypt the raw payload string to recover the valid plain-text token/URL path
+          const decryptedToken = decryptVidrock(rawPayload);
+          if (!decryptedToken) continue;
 
-          if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
-            finalStreamUrl = rawUrl;
+          let finalStreamUrl = "";
+          const isAtlas = serverName.toLowerCase().includes("atlas");
+          const isOrion = serverName.toLowerCase().includes("orion");
+
+          // Handle pre-built URLs inside Orion or build specific worker endpoints
+          if (decryptedToken.startsWith("http://") || decryptedToken.startsWith("https://")) {
+            finalStreamUrl = decryptedToken;
           } else {
             const pathType = mediaType === "tv" ? "tv" : "movie";
-            // Sanitize the token to restore correct padding/symbols before placing into URL paths
-            const validToken = sanitizeToken(rawUrl);
-
-            if (serverName.toLowerCase().includes("atlas")) {
-              finalStreamUrl = `https://broad-block-5c3c.34-4fe.workers.dev/${pathType}/${validToken}/index.m3u8`;
-            } else if (serverName.toLowerCase().includes("orion")) {
-              finalStreamUrl = `https://johannesburg.hellium.workers.dev/${validToken}`;
+            if (isAtlas) {
+              finalStreamUrl = `https://broad-block-5c3c.34-4fe.workers.dev/${pathType}/${decryptedToken}/index.m3u8`;
+            } else if (isOrion) {
+              finalStreamUrl = `https://johannesburg.hellium.workers.dev/${encodeURIComponent(decryptedToken)}`;
             } else {
-              finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${validToken}/master.m3u8`;
+              finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${decryptedToken}/master.m3u8`;
             }
           }
 
@@ -225,10 +245,9 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         }
       });
 
-      console.log(`[Vidrock] Compilation complete. Streams optimized: ${uniqueStreams.length}`);
       return uniqueStreams;
     } catch (error) {
-      console.error(`[Vidrock] Error in getStreams execution: ${error.message}`);
+      console.error(`[Vidrock] Process error: ${error.message}`);
       return [];
     }
   });

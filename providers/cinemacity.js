@@ -1,6 +1,6 @@
 /**
  * vidrock - Built from src/vidrock/
- * Generated: 2026-06-09T09:59:10.427Z
+ * Generated: 2026-07-08
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -55,10 +55,16 @@ var WORKING_HEADERS = {
   "Origin": "https://vidrock.ru"
 };
 
+// Crucial update: Adding Cloudflare worker spoof headers to stop 404/403 drops
 var PLAYBACK_HEADERS = {
   "User-Agent": USER_AGENT,
   "Referer": "https://vidrock.ru/",
-  "Origin": "https://vidrock.ru"
+  "Origin": "https://vidrock.ru",
+  "Accept": "*/*",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Sec-Fetch-Dest": "empty",
+  "Sec-Fetch-Mode": "cors",
+  "Sec-Fetch-Site": "cross-site"
 };
 
 // src/vidrock/utils.js
@@ -130,84 +136,126 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
          providerEmoji + " " + cleanServer + " | 🔗 Provider: VidRock";
 }
 
+// Helper to fetch and resolve individual sub-playlists if an index is found
+function parseM3U8Qualities(masterUrl, serverName, mediaInfo, seasonNum, episodeNum) {
+  return __async(this, null, function* () {
+    try {
+      const res = yield fetch(masterUrl, { headers: PLAYBACK_HEADERS });
+      if (!res.ok) return [];
+      
+      const text = yield res.text();
+      const streams = [];
+      const lines = text.split("\n");
+      const baseUrl = masterUrl.substring(0, masterUrl.lastIndexOf("/") + 1);
+
+      // Loop through lines looking for individual resolution bands
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (line.startsWith("#EXT-X-STREAM-INF")) {
+          let quality = "Adaptive";
+          const resMatch = line.match(/RESOLUTION=\d+x(\d+)/i);
+          if (resMatch) quality = `${resMatch[1]}p`;
+
+          const nextLine = lines[i + 1] ? lines[i + 1].trim() : "";
+          if (nextLine && !nextLine.startsWith("#")) {
+            const finalUrl = nextLine.startsWith("http") ? nextLine : `${baseUrl}${nextLine}`;
+            const dropdownTitle = buildDropdownMetadata(serverName, quality, mediaInfo, seasonNum, episodeNum, finalUrl);
+            let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
+            const pEmoji = getProviderEmoji(cleanServer);
+
+            streams.push({
+              name: `🪨 VidRock | ${quality} | ${pEmoji} [${cleanServer}]`,
+              title: dropdownTitle,
+              size: dropdownTitle,
+              description: dropdownTitle,
+              url: finalUrl,
+              quality: quality,
+              language: "English",
+              headers: PLAYBACK_HEADERS,
+              provider: "vidrock",
+              _serverKey: serverName,
+              _rawQuality: quality
+            });
+          }
+        }
+      }
+
+      // If no sub-bands were cleanly parsed, return the master playlist as a multi option
+      if (streams.length === 0) {
+        const dropdownTitle = buildDropdownMetadata(serverName, "Multi", mediaInfo, seasonNum, episodeNum, masterUrl);
+        let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
+        streams.push({
+          name: `🪨 VidRock | Multi | ${getProviderEmoji(cleanServer)} [${cleanServer}]`,
+          title: dropdownTitle,
+          size: dropdownTitle,
+          description: dropdownTitle,
+          url: masterUrl,
+          quality: "1080p",
+          language: "English",
+          headers: PLAYBACK_HEADERS,
+          provider: "vidrock",
+          _serverKey: serverName,
+          _rawQuality: "Multi"
+        });
+      }
+      return streams;
+    } catch (e) {
+      console.error(`[Vidrock] M3U8 parse failure: ${e.message}`);
+      return [];
+    }
+  });
+}
+
 // src/vidrock/index.js
 function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
   return __async(this, null, function* () {
-    console.log(`[Vidrock] Starting extraction for TMDB ID: ${tmdbId}, Type: ${mediaType}${mediaType === "tv" ? `, S:${seasonNum}E:${episodeNum}` : ""}`);
+    console.log(`[Vidrock] Starting extraction for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
     try {
       const mediaInfo = yield fetchTmdbDetails(tmdbId, mediaType);
-      if (!mediaInfo) {
-        console.error("[Vidrock] Failed to fetch TMDB details.");
-        return [];
-      }
+      if (!mediaInfo) return [];
       
       let itemId = (mediaType === "tv" && seasonNum && episodeNum) ? `${tmdbId}_${seasonNum}_${episodeNum}` : tmdbId.toString();
       const apiUrl = `${VIDROCK_BASE_URL}/api/${mediaType}/${itemId}`;
 
-      console.log(`[Vidrock] Querying URL: ${apiUrl}`);
       const response = yield fetch(apiUrl, { headers: WORKING_HEADERS });
-      if (!response.ok) {
-        console.error(`[Vidrock] Request failed with HTTP ${response.status}`);
-        return [];
-      }
+      if (!response.ok) return [];
       
-      const responseText = yield response.text();
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (e) {
-        console.error(`[Vidrock] Invalid JSON response: ${responseText.substring(0, 100)}`);
-        return [];
-      }
-
+      const data = yield response.json();
       const streams = [];
+      const m3u8Promises = [];
+
       if (data && typeof data === "object") {
-        if (data.error) {
-          console.error(`[Vidrock] API error returned: ${data.error}`);
-          return [];
-        }
-        
         for (const serverName of Object.keys(data)) {
           const source = data[serverName];
           if (!source || !source.url) continue;
 
-          let rawToken = source.url;
-          if (rawToken.includes("%")) {
-            try { rawToken = decodeURIComponent(rawToken); } catch (e) {}
+          let rawPath = source.url;
+          if (rawPath.includes("%")) {
+            try { rawPath = decodeURIComponent(rawPath); } catch (e) {}
           }
 
-          // Dynamically map the raw server token to the active Cloudflare Multi-Quality Edge proxy worker
-          let finalStreamUrl;
-          if (serverName.toLowerCase().includes("astra")) {
-            finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawToken}/master.m3u8`;
-          } else if (serverName.toLowerCase().includes("atlas")) {
-            finalStreamUrl = `https://white-sun-5f88.3-97e.workers.dev/movie/${rawToken}/index.m3u8`;
-          } else {
-            // Generic Fallback structure observed in the routing table
-            finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawToken}/master.m3u8`;
+          // Smart URL construction base on current response properties
+          let finalStreamUrl = rawPath;
+          if (!rawPath.startsWith("http")) {
+            if (serverName.toLowerCase().includes("atlas")) {
+              finalStreamUrl = `https://white-sun-5f88.3-97e.workers.dev/${mediaType === "tv" ? "tv" : "movie"}/${rawPath}/index.m3u8`;
+            } else {
+              finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawPath}/master.m3u8`;
+            }
           }
 
-          const dropdownTitle = buildDropdownMetadata(serverName, "Multi", mediaInfo, seasonNum, episodeNum, finalStreamUrl);
-          let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
-          const pEmoji = getProviderEmoji(cleanServer);
-
-          streams.push({
-            name: `🪨 VidRock | Adaptive | ${pEmoji} [${cleanServer}]`,
-            title: dropdownTitle,
-            size: dropdownTitle,
-            description: dropdownTitle,
-            url: finalStreamUrl,
-            quality: "1080p", // Sets the highest fallback display property for application views
-            language: "English",
-            headers: PLAYBACK_HEADERS,
-            provider: "vidrock",
-            _serverKey: serverName,
-            _rawQuality: "Adaptive"
-          });
+          // Push to dynamic reader to extract all resolutions cleanly
+          m3u8Promises.push(parseM3U8Qualities(finalStreamUrl, serverName, mediaInfo, seasonNum, episodeNum));
         }
       }
 
-      // De-duplicate URLs if multiple identical providers map to the same backend path
+      if (m3u8Promises.length > 0) {
+        const resolutionResults = yield Promise.all(m3u8Promises);
+        resolutionResults.forEach((subList) => {
+          if (subList && Array.isArray(subList)) streams.push(...subList);
+        });
+      }
+
       const uniqueStreams = [];
       const seenUrls = new Set();
       streams.forEach((stream) => {
@@ -217,10 +265,26 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         }
       });
 
-      console.log(`[Vidrock] Total stream sources compiled: ${uniqueStreams.length}`);
+      const getQualityValue = (qLabel) => {
+        const q = String(qLabel).toLowerCase().replace(/p$/, "");
+        if (q === "4k" || q === "2160") return 2160;
+        if (q === "1080") return 1080;
+        if (q === "720") return 720;
+        if (q === "480") return 480;
+        if (q === "360") return 360;
+        return 0;
+      };
+
+      uniqueStreams.sort((a, b) => {
+        const providerA = String(a._serverKey || "").toLowerCase();
+        const providerB = String(b._serverKey || "").toLowerCase();
+        if (providerA !== providerB) return providerA.localeCompare(providerB);
+        return getQualityValue(b._rawQuality) - getQualityValue(a._rawQuality);
+      });
+
       return uniqueStreams;
     } catch (error) {
-      console.error(`[Vidrock] Error in getStreams execution: ${error.message}`);
+      console.error(`[Vidrock] Error in execution: ${error.message}`);
       return [];
     }
   });

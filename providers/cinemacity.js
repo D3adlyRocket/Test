@@ -64,27 +64,27 @@ var PLAYBACK_HEADERS = {
 };
 
 // src/vidrock/utils.js
-const CryptoJS = require("crypto-js");
+const crypto = require("crypto");
 
-// Secure AES-256 Decryption with inline padding fixes
+// Native AES-256-CBC Decryption using built-in engine to prevent environment drops on mobile
 function decryptVidrock(cipherText) {
   try {
+    // Revert URL-safe Base64 replacements back to standard formatting
     let base64 = cipherText.replace(/-/g, "+").replace(/_/g, "/");
     while (base64.length % 4) { base64 += "="; }
 
-    const key = CryptoJS.enc.Utf8.parse(PASSPHRASE);
-    const iv = CryptoJS.enc.Utf8.parse(PASSPHRASE.substring(0, 16));
+    const key = Buffer.from(PASSPHRASE, "utf8");
+    const iv = Buffer.from(PASSPHRASE.substring(0, 16), "utf8");
     
-    const decrypted = CryptoJS.AES.decrypt(base64, key, {
-      iv: iv,
-      mode: CryptoJS.mode.CBC,
-      padding: CryptoJS.pad.Pkcs7
-    });
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+    decipher.setAutoPadding(true);
     
-    const plainText = decrypted.toString(CryptoJS.enc.Utf8);
-    return plainText || null;
+    let decrypted = decipher.update(base64, "base64", "utf8");
+    decrypted += decipher.final("utf8");
+    
+    return decrypted || null;
   } catch (e) {
-    console.error(`[Vidrock] Decryption failed internally: ${e.message}`);
+    console.error(`[Vidrock] Native Decryption Error: ${e.message}`);
     return null;
   }
 }
@@ -160,7 +160,7 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
 // src/vidrock/index.js
 function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
   return __async(this, null, function* () {
-    console.log(`[Vidrock] Running unified stream extraction for TMDB ID: ${tmdbId}`);
+    console.log(`[Vidrock] Unified cross-platform execution for TMDB ID: ${tmdbId}`);
     try {
       const mediaInfo = yield fetchTmdbDetails(tmdbId, mediaType);
       if (!mediaInfo) return [];
@@ -190,11 +190,11 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
             try { rawPayload = decodeURIComponent(rawPayload); } catch (e) {}
           }
 
-          // Decrypt payload. If decryption encounters an issue, fallback directly onto the raw token string
-          let decryptedToken = decryptVidrock(rawPayload);
+          // Strict decryption handling
+          const decryptedToken = decryptVidrock(rawPayload);
           if (!decryptedToken) {
-            console.log(`[Vidrock] Decryption empty for ${serverName}, attempting raw payload fallback.`);
-            decryptedToken = rawPayload;
+            console.error(`[Vidrock] Skipping source ${serverName} due to cipher parsing failure.`);
+            continue; 
           }
 
           let finalStreamUrl = "";
@@ -243,10 +243,10 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         }
       });
 
-      console.log(`[Vidrock] Finished processing. Total links: ${uniqueStreams.length}`);
+      console.log(`[Vidrock] Compilation complete. Valid clean links: ${uniqueStreams.length}`);
       return uniqueStreams;
     } catch (error) {
-      console.error(`[Vidrock] General execution error: ${error.message}`);
+      console.error(`[Vidrock] Runtime execution error: ${error.message}`);
       return [];
     }
   });

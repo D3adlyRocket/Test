@@ -1,6 +1,6 @@
 /**
  * vidrock - Built from src/vidrock/
- * Generated: 2026-07-08
+ * Generated: 2026-07-09
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -134,7 +134,7 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
 // src/vidrock/index.js
 function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
   return __async(this, null, function* () {
-    console.log(`[Vidrock] Fetching cross-platform streams for TMDB ID: ${tmdbId}`);
+    console.log(`[Vidrock] Mapping stream sources side-by-side for ID: ${tmdbId}`);
     try {
       const mediaInfo = yield fetchTmdbDetails(tmdbId, mediaType);
       if (!mediaInfo) return [];
@@ -159,31 +159,34 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
           const source = data[serverName];
           if (!source || !source.url) continue;
 
-          let targetToken = source.url;
-          if (targetToken.includes("%")) {
-            try { targetToken = decodeURIComponent(targetToken); } catch (e) {}
+          let rawPayload = source.url;
+          if (rawPayload.includes("%")) {
+            try { rawPayload = decodeURIComponent(rawPayload); } catch (e) {}
           }
 
           let finalStreamUrl = "";
-          const isAtlas = serverName.toLowerCase().includes("atlas");
-          const isOrion = serverName.toLowerCase().includes("orion");
+          const nameLower = serverName.toLowerCase();
 
-          // Safe execution check without crashing the client engine
-          if (targetToken.startsWith("http://") || targetToken.startsWith("https://")) {
-            finalStreamUrl = targetToken;
+          if (rawPayload.startsWith("http://") || rawPayload.startsWith("https://")) {
+            finalStreamUrl = rawPayload;
           } else {
             const pathType = mediaType === "tv" ? "tv" : "movie";
-            if (isAtlas) {
-              finalStreamUrl = `https://broad-block-5c3c.34-4fe.workers.dev/${pathType}/${targetToken}/index.m3u8`;
-            } else if (isOrion) {
-              // Ensure absolute URLs passed to Orion are cleanly encoded
-              if (targetToken.startsWith("http")) {
-                finalStreamUrl = `https://johannesburg.hellium.workers.dev/${encodeURIComponent(targetToken)}`;
+
+            if (nameLower.includes("atlas")) {
+              // Exact pattern match matching clean multi-hex/dot-separated routing keys
+              finalStreamUrl = `https://broad-block-5c3c.34-4fe.workers.dev/${pathType}/${rawPayload}/index.m3u8`;
+            } else if (nameLower.includes("orion")) {
+              // Orion worker handles incoming absolute CDN links passed into it directly or plain tokens cleanly
+              if (rawPayload.startsWith("http")) {
+                finalStreamUrl = `https://johannesburg.hellium.workers.dev/${encodeURIComponent(rawPayload)}`;
               } else {
-                finalStreamUrl = `https://johannesburg.hellium.workers.dev/${targetToken}`;
+                finalStreamUrl = `https://johannesburg.hellium.workers.dev/${rawPayload}`;
               }
+            } else if (nameLower.includes("astra")) {
+              finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawPayload}/master.m3u8`;
             } else {
-              finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${targetToken}/master.m3u8`;
+              // General Fallback
+              finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawPayload}/master.m3u8`;
             }
           }
 
@@ -216,7 +219,7 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         }
       });
 
-      console.log(`[Vidrock] Compilation complete. Total processed links: ${uniqueStreams.length}`);
+      console.log(`[Vidrock] Compilation complete. Total matched links: ${uniqueStreams.length}`);
       return uniqueStreams;
     } catch (error) {
       console.error(`[Vidrock] Global thread error: ${error.message}`);

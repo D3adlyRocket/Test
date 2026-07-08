@@ -41,12 +41,12 @@ var __async = (__this, __arguments, generator) => {
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var TMDB_BASE_URL = "https://api.themoviedb.org/3";
 var VIDROCK_BASE_URL = "https://vidrock.ru";
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+var USER_AGENT = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36";
 
 var WORKING_HEADERS = {
   "User-Agent": USER_AGENT,
   "Accept": "application/json, text/plain, */*",
-  "Accept-Language": "en-US,en;q=0.9",
+  "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
   "Referer": "https://vidrock.ru/",
   "Origin": "https://vidrock.ru"
 };
@@ -56,7 +56,7 @@ var PLAYBACK_HEADERS = {
   "Referer": "https://vidrock.ru/",
   "Origin": "https://vidrock.ru",
   "Accept": "*/*",
-  "Accept-Language": "en-US,en;q=0.9",
+  "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
   "Sec-Fetch-Dest": "empty",
   "Sec-Fetch-Mode": "cors",
   "Sec-Fetch-Site": "cross-site"
@@ -134,7 +134,7 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
 // src/vidrock/index.js
 function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
   return __async(this, null, function* () {
-    console.log(`[Vidrock] Mapping stream sources side-by-side for ID: ${tmdbId}`);
+    console.log(`[Vidrock] Processing streams using active DevTools routing endpoints for ID: ${tmdbId}`);
     try {
       const mediaInfo = yield fetchTmdbDetails(tmdbId, mediaType);
       if (!mediaInfo) return [];
@@ -173,19 +173,16 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
             const pathType = mediaType === "tv" ? "tv" : "movie";
 
             if (nameLower.includes("atlas")) {
-              // Exact pattern match matching clean multi-hex/dot-separated routing keys
-              finalStreamUrl = `https://broad-block-5c3c.34-4fe.workers.dev/${pathType}/${rawPayload}/index.m3u8`;
+              // Updated to reflect the live domain captured from DevTools network logs
+              finalStreamUrl = `https://white-sun-5f88.3-97e.workers.dev/${pathType}/${rawPayload}/index.m3u8`;
             } else if (nameLower.includes("orion")) {
-              // Orion worker handles incoming absolute CDN links passed into it directly or plain tokens cleanly
               if (rawPayload.startsWith("http")) {
                 finalStreamUrl = `https://johannesburg.hellium.workers.dev/${encodeURIComponent(rawPayload)}`;
               } else {
                 finalStreamUrl = `https://johannesburg.hellium.workers.dev/${rawPayload}`;
               }
-            } else if (nameLower.includes("astra")) {
-              finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawPayload}/master.m3u8`;
             } else {
-              // General Fallback
+              // Astra / General File endpoints
               finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawPayload}/master.m3u8`;
             }
           }
@@ -219,7 +216,7 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         }
       });
 
-      console.log(`[Vidrock] Compilation complete. Total matched links: ${uniqueStreams.length}`);
+      console.log(`[Vidrock] Compilation complete. Total verified links: ${uniqueStreams.length}`);
       return uniqueStreams;
     } catch (error) {
       console.error(`[Vidrock] Global thread error: ${error.message}`);

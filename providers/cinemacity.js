@@ -16,10 +16,6 @@ var __copyProps = (to, from, except, desc) => {
   }
   return to;
 };
-var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
-  mod
-));
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
     var fulfilled = (value) => {
@@ -68,27 +64,27 @@ var PLAYBACK_HEADERS = {
 };
 
 // src/vidrock/utils.js
-var import_crypto_js = __toESM(require("crypto-js"));
+const CryptoJS = require("crypto-js");
 
-// Decrypts the API tokens using the site's passphrase configuration
+// Secure AES-256 Decryption with inline padding fixes
 function decryptVidrock(cipherText) {
   try {
-    // Revert URL-safe replacements back to standard base64 symbols before parsing
     let base64 = cipherText.replace(/-/g, "+").replace(/_/g, "/");
     while (base64.length % 4) { base64 += "="; }
 
-    const key = import_crypto_js.default.enc.Utf8.parse(PASSPHRASE);
-    const iv = import_crypto_js.default.enc.Utf8.parse(PASSPHRASE.substring(0, 16));
+    const key = CryptoJS.enc.Utf8.parse(PASSPHRASE);
+    const iv = CryptoJS.enc.Utf8.parse(PASSPHRASE.substring(0, 16));
     
-    const decrypted = import_crypto_js.default.AES.decrypt(base64, key, {
-      iv,
-      mode: import_crypto_js.default.mode.CBC,
-      padding: import_crypto_js.default.pad.Pkcs7
+    const decrypted = CryptoJS.AES.decrypt(base64, key, {
+      iv: iv,
+      mode: CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7
     });
     
-    return decrypted.toString(import_crypto_js.default.enc.Utf8);
+    const plainText = decrypted.toString(CryptoJS.enc.Utf8);
+    return plainText || null;
   } catch (e) {
-    console.error(`[Vidrock] Decryption Error: ${e.message}`);
+    console.error(`[Vidrock] Decryption failed internally: ${e.message}`);
     return null;
   }
 }
@@ -164,7 +160,7 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
 // src/vidrock/index.js
 function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
   return __async(this, null, function* () {
-    console.log(`[Vidrock] Starting core extraction for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
+    console.log(`[Vidrock] Running unified stream extraction for TMDB ID: ${tmdbId}`);
     try {
       const mediaInfo = yield fetchTmdbDetails(tmdbId, mediaType);
       if (!mediaInfo) return [];
@@ -194,15 +190,17 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
             try { rawPayload = decodeURIComponent(rawPayload); } catch (e) {}
           }
 
-          // Decrypt the raw payload string to recover the valid plain-text token/URL path
-          const decryptedToken = decryptVidrock(rawPayload);
-          if (!decryptedToken) continue;
+          // Decrypt payload. If decryption encounters an issue, fallback directly onto the raw token string
+          let decryptedToken = decryptVidrock(rawPayload);
+          if (!decryptedToken) {
+            console.log(`[Vidrock] Decryption empty for ${serverName}, attempting raw payload fallback.`);
+            decryptedToken = rawPayload;
+          }
 
           let finalStreamUrl = "";
           const isAtlas = serverName.toLowerCase().includes("atlas");
           const isOrion = serverName.toLowerCase().includes("orion");
 
-          // Handle pre-built URLs inside Orion or build specific worker endpoints
           if (decryptedToken.startsWith("http://") || decryptedToken.startsWith("https://")) {
             finalStreamUrl = decryptedToken;
           } else {
@@ -245,9 +243,10 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         }
       });
 
+      console.log(`[Vidrock] Finished processing. Total links: ${uniqueStreams.length}`);
       return uniqueStreams;
     } catch (error) {
-      console.error(`[Vidrock] Process error: ${error.message}`);
+      console.error(`[Vidrock] General execution error: ${error.message}`);
       return [];
     }
   });

@@ -47,6 +47,9 @@ var TMDB_BASE_URL = "https://api.themoviedb.org/3";
 var VIDROCK_BASE_URL = "https://vidrock.ru";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 
+// Primary CORS gateway to bypass perimeter cloud blocks natively
+var PROXY_URL = "https://corsproxy.io/?";
+
 var WORKING_HEADERS = {
   "User-Agent": USER_AGENT,
   "Accept": "application/json, text/plain, */*",
@@ -55,7 +58,6 @@ var WORKING_HEADERS = {
   "Origin": "https://vidrock.ru"
 };
 
-// Crucial update: Adding Cloudflare worker spoof headers to stop 404/403 drops
 var PLAYBACK_HEADERS = {
   "User-Agent": USER_AGENT,
   "Referer": "https://vidrock.ru/",
@@ -136,11 +138,12 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
          providerEmoji + " " + cleanServer + " | 🔗 Provider: VidRock";
 }
 
-// Helper to fetch and resolve individual sub-playlists if an index is found
 function parseM3U8Qualities(masterUrl, serverName, mediaInfo, seasonNum, episodeNum) {
   return __async(this, null, function* () {
     try {
-      const res = yield fetch(masterUrl, { headers: PLAYBACK_HEADERS });
+      // Fetch through proxy handler to isolate authentication loops
+      const targetUrl = masterUrl.startsWith("http") ? `${PROXY_URL}${encodeURIComponent(masterUrl)}` : masterUrl;
+      const res = yield fetch(targetUrl, { headers: PLAYBACK_HEADERS });
       if (!res.ok) return [];
       
       const text = yield res.text();
@@ -148,7 +151,6 @@ function parseM3U8Qualities(masterUrl, serverName, mediaInfo, seasonNum, episode
       const lines = text.split("\n");
       const baseUrl = masterUrl.substring(0, masterUrl.lastIndexOf("/") + 1);
 
-      // Loop through lines looking for individual resolution bands
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i].trim();
         if (line.startsWith("#EXT-X-STREAM-INF")) {
@@ -180,7 +182,6 @@ function parseM3U8Qualities(masterUrl, serverName, mediaInfo, seasonNum, episode
         }
       }
 
-      // If no sub-bands were cleanly parsed, return the master playlist as a multi option
       if (streams.length === 0) {
         const dropdownTitle = buildDropdownMetadata(serverName, "Multi", mediaInfo, seasonNum, episodeNum, masterUrl);
         let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
@@ -209,16 +210,20 @@ function parseM3U8Qualities(masterUrl, serverName, mediaInfo, seasonNum, episode
 // src/vidrock/index.js
 function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
   return __async(this, null, function* () {
-    console.log(`[Vidrock] Starting extraction for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
+    console.log(`[Vidrock] Starting proxy extraction for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
     try {
       const mediaInfo = yield fetchTmdbDetails(tmdbId, mediaType);
       if (!mediaInfo) return [];
       
       let itemId = (mediaType === "tv" && seasonNum && episodeNum) ? `${tmdbId}_${seasonNum}_${episodeNum}` : tmdbId.toString();
-      const apiUrl = `${VIDROCK_BASE_URL}/api/${mediaType}/${itemId}`;
+      const rawApiUrl = `${VIDROCK_BASE_URL}/api/${mediaType}/${itemId}`;
+      const proxiedApiUrl = `${PROXY_URL}${encodeURIComponent(rawApiUrl)}`;
 
-      const response = yield fetch(apiUrl, { headers: WORKING_HEADERS });
-      if (!response.ok) return [];
+      const response = yield fetch(proxiedApiUrl, { headers: WORKING_HEADERS });
+      if (!response.ok) {
+        console.error(`[Vidrock] API Proxy Request failed with status ${response.status}`);
+        return [];
+      }
       
       const data = yield response.json();
       const streams = [];
@@ -234,7 +239,6 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
             try { rawPath = decodeURIComponent(rawPath); } catch (e) {}
           }
 
-          // Smart URL construction base on current response properties
           let finalStreamUrl = rawPath;
           if (!rawPath.startsWith("http")) {
             if (serverName.toLowerCase().includes("atlas")) {
@@ -244,7 +248,6 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
             }
           }
 
-          // Push to dynamic reader to extract all resolutions cleanly
           m3u8Promises.push(parseM3U8Qualities(finalStreamUrl, serverName, mediaInfo, seasonNum, episodeNum));
         }
       }
@@ -282,9 +285,10 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         return getQualityValue(b._rawQuality) - getQualityValue(a._rawQuality);
       });
 
+      console.log(`[Vidrock] Compilation complete. Streams loaded: ${uniqueStreams.length}`);
       return uniqueStreams;
     } catch (error) {
-      console.error(`[Vidrock] Error in execution: ${error.message}`);
+      console.error(`[Vidrock] Global thread execution error: ${error.message}`);
       return [];
     }
   });

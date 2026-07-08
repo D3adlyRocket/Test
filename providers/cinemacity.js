@@ -17,10 +17,6 @@ var __copyProps = (to, from, except, desc) => {
   return to;
 };
 var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
-  // If the importer is in node compatibility mode or this is not an ESM
-  // file that has been converted to a CommonJS file using a Babel-
-  // compatible transform (i.e. "__esModule" has not been set), then set
-  // "default" to the CommonJS "module.exports" for node compatibility.
   isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
   mod
 ));
@@ -49,8 +45,8 @@ var __async = (__this, __arguments, generator) => {
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var TMDB_BASE_URL = "https://api.themoviedb.org/3";
 var VIDROCK_BASE_URL = "https://vidrock.ru";
-var PASSPHRASE = "x7k9mPqT2rWvY8zA5bC3nF6hJ2lK4mN9";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+
 var WORKING_HEADERS = {
   "User-Agent": USER_AGENT,
   "Accept": "application/json, text/plain, */*",
@@ -58,6 +54,7 @@ var WORKING_HEADERS = {
   "Referer": "https://vidrock.ru/",
   "Origin": "https://vidrock.ru"
 };
+
 var PLAYBACK_HEADERS = {
   "User-Agent": USER_AGENT,
   "Referer": "https://vidrock.ru/",
@@ -65,17 +62,6 @@ var PLAYBACK_HEADERS = {
 };
 
 // src/vidrock/utils.js
-var import_crypto_js = __toESM(require("crypto-js"));
-function encryptVidrock(text) {
-  const key = import_crypto_js.default.enc.Utf8.parse(PASSPHRASE);
-  const iv = import_crypto_js.default.enc.Utf8.parse(PASSPHRASE.substring(0, 16));
-  const encrypted = import_crypto_js.default.AES.encrypt(text, key, {
-    iv,
-    mode: import_crypto_js.default.mode.CBC,
-    padding: import_crypto_js.default.pad.Pkcs7
-  });
-  return encrypted.toString().replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
 function fetchTmdbDetails(tmdbId, mediaType) {
   return __async(this, null, function* () {
     var _a;
@@ -103,37 +89,6 @@ function fetchTmdbDetails(tmdbId, mediaType) {
     }
   });
 }
-function extractQuality(url) {
-  if (!url)
-    return "Unknown";
-  const qualityPatterns = [
-    /(\d{3,4})p/i,
-    /(\d{3,4})k/i,
-    /quality[_-]?(\d{3,4})/i,
-    /res[_-]?(\d{3,4})/i,
-    /(\d{3,4})x\d{3,4}/i
-  ];
-  for (const pattern of qualityPatterns) {
-    const match = url.match(pattern);
-    if (match) {
-      const qualityNum = parseInt(match[1]);
-      if (qualityNum >= 240 && qualityNum <= 4320) {
-        return `${qualityNum}p`;
-      }
-    }
-  }
-  if (url.includes("1080") || url.includes("1920"))
-    return "1080p";
-  if (url.includes("720") || url.includes("1280"))
-    return "720p";
-  if (url.includes("480") || url.includes("854"))
-    return "480p";
-  if (url.includes("360") || url.includes("640"))
-    return "360p";
-  if (url.includes("240") || url.includes("426"))
-    return "240p";
-  return "Unknown";
-}
 
 function getProviderEmoji(serverName) {
   const nameLower = String(serverName).toLowerCase();
@@ -155,8 +110,8 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
     qualityBadge = "🚀 1080p";
   } else if (lowQuality.includes("720")) {
     qualityBadge = "🛰️ 720p";
-  } else if (lowQuality === "auto") {
-    qualityBadge = "🛸 Auto";
+  } else if (lowQuality === "auto" || lowQuality === "multi") {
+    qualityBadge = "🛸 Multi-Res";
   }
 
   const durationStr = mediaInfo.runtime || "90 min";
@@ -164,7 +119,6 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
   const providerEmoji = getProviderEmoji(cleanServer);
   const yearStr = mediaInfo.year ? `(${mediaInfo.year})` : "N/A";
 
-  // Reconstruct Subheading Line 1 dynamically for Movies vs Series
   let line1 = `🎬 ${mediaInfo.title || "Unknown"} - ${yearStr}`;
   if (seasonNum && episodeNum) {
     line1 += ` | S${seasonNum}E${episodeNum}`;
@@ -172,54 +126,8 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
 
   return line1 + "\n" +
          qualityBadge + " | 🌍 Original Audio | 🎧 AAC\n" +
-         containerFormat + " | ⚡ x2.64 | ⏱️ " + durationStr + "\n" +
+         containerFormat + " | ⚡ Adaptive HLS | ⏱️ " + durationStr + "\n" +
          providerEmoji + " " + cleanServer + " | 🔗 Provider: VidRock";
-}
-
-function parseAstraPlaylist(playlistUrl, serverName, mediaInfo, seasonNum, episodeNum) {
-  return __async(this, null, function* () {
-    try {
-      console.log(`[Vidrock] Fetching Astra playlist: ${playlistUrl}`);
-      const res = yield fetch(playlistUrl, { headers: PLAYBACK_HEADERS });
-      if (!res.ok)
-        return [];
-      const data = yield res.json();
-      const streams = [];
-      if (Array.isArray(data)) {
-        data.forEach((item) => {
-          if (item.url && item.resolution) {
-            let quality = `${item.resolution}p`;
-            
-            if (serverName.toLowerCase().includes("orion") && quality.toLowerCase().includes("unknown")) {
-              quality = "1080p";
-            }
-
-            const dropdownTitle = buildDropdownMetadata(serverName, quality, mediaInfo, seasonNum, episodeNum, item.url);
-            let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
-            const pEmoji = getProviderEmoji(cleanServer);
-
-            streams.push({
-              name: `🪨 VidRock | ${quality} | ${pEmoji} [${cleanServer}]`,
-              title: dropdownTitle,
-              size: dropdownTitle,
-              description: dropdownTitle,
-              url: item.url,
-              quality: "", 
-              language: "",
-              headers: PLAYBACK_HEADERS,
-              provider: "vidrock",
-              _serverKey: serverName,
-              _rawQuality: quality
-            });
-          }
-        });
-      }
-      return streams;
-    } catch (e) {
-      console.error(`[Vidrock] Astra playlist parse error: ${e.message}`);
-      return [];
-    }
-  });
 }
 
 // src/vidrock/index.js
@@ -232,24 +140,17 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         console.error("[Vidrock] Failed to fetch TMDB details.");
         return [];
       }
-      console.log(`[Vidrock] TMDB Info: "${mediaInfo.title}" (${mediaInfo.year || "N/A"})`);
-      let itemId;
-      if (mediaType === "tv" && seasonNum && episodeNum) {
-        itemId = `${tmdbId}_${seasonNum}_${episodeNum}`;
-      } else {
-        itemId = tmdbId.toString();
-      }
-      // Comment out or remove the encryption line, and pass the itemId directly
-const apiUrl = `${VIDROCK_BASE_URL}/api/${mediaType}/${itemId}`;
+      
+      let itemId = (mediaType === "tv" && seasonNum && episodeNum) ? `${tmdbId}_${seasonNum}_${episodeNum}` : tmdbId.toString();
+      const apiUrl = `${VIDROCK_BASE_URL}/api/${mediaType}/${itemId}`;
 
       console.log(`[Vidrock] Querying URL: ${apiUrl}`);
-      const response = yield fetch(apiUrl, {
-        headers: WORKING_HEADERS
-      });
+      const response = yield fetch(apiUrl, { headers: WORKING_HEADERS });
       if (!response.ok) {
         console.error(`[Vidrock] Request failed with HTTP ${response.status}`);
         return [];
       }
+      
       const responseText = yield response.text();
       let data;
       try {
@@ -258,65 +159,57 @@ const apiUrl = `${VIDROCK_BASE_URL}/api/${mediaType}/${itemId}`;
         console.error(`[Vidrock] Invalid JSON response: ${responseText.substring(0, 100)}`);
         return [];
       }
-      console.log(`[Vidrock] Processing API response...`);
+
       const streams = [];
-      const astraPromises = [];
       if (data && typeof data === "object") {
         if (data.error) {
           console.error(`[Vidrock] API error returned: ${data.error}`);
           return [];
         }
+        
         for (const serverName of Object.keys(data)) {
           const source = data[serverName];
-          if (!source || !source.url)
-            continue;
-          let videoUrl = source.url;
-          if (videoUrl.includes("%")) {
-            try {
-              videoUrl = decodeURIComponent(videoUrl);
-            } catch (e) {
-            }
-          }
-          if (videoUrl.includes("/playlist/")) {
-            astraPromises.push(parseAstraPlaylist(videoUrl, serverName, mediaInfo, seasonNum, episodeNum));
-            continue;
-          }
-          
-          let quality = extractQuality(videoUrl);
-          
-          if (serverName.toLowerCase().includes("orion") && quality.toLowerCase() === "unknown") {
-            quality = "1080p";
+          if (!source || !source.url) continue;
+
+          let rawToken = source.url;
+          if (rawToken.includes("%")) {
+            try { rawToken = decodeURIComponent(rawToken); } catch (e) {}
           }
 
-          const dropdownTitle = buildDropdownMetadata(serverName, quality, mediaInfo, seasonNum, episodeNum, videoUrl);
+          // Dynamically map the raw server token to the active Cloudflare Multi-Quality Edge proxy worker
+          let finalStreamUrl;
+          if (serverName.toLowerCase().includes("astra")) {
+            finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawToken}/master.m3u8`;
+          } else if (serverName.toLowerCase().includes("atlas")) {
+            finalStreamUrl = `https://white-sun-5f88.3-97e.workers.dev/movie/${rawToken}/index.m3u8`;
+          } else {
+            // Generic Fallback structure observed in the routing table
+            finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawToken}/master.m3u8`;
+          }
+
+          const dropdownTitle = buildDropdownMetadata(serverName, "Multi", mediaInfo, seasonNum, episodeNum, finalStreamUrl);
           let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
           const pEmoji = getProviderEmoji(cleanServer);
 
           streams.push({
-            name: `🪨 VidRock | ${quality} | ${pEmoji} [${cleanServer}]`,
+            name: `🪨 VidRock | Adaptive | ${pEmoji} [${cleanServer}]`,
             title: dropdownTitle,
             size: dropdownTitle,
             description: dropdownTitle,
-            url: videoUrl,
-            quality: "", 
-            language: "",
+            url: finalStreamUrl,
+            quality: "1080p", // Sets the highest fallback display property for application views
+            language: "English",
             headers: PLAYBACK_HEADERS,
             provider: "vidrock",
             _serverKey: serverName,
-            _rawQuality: quality
+            _rawQuality: "Adaptive"
           });
         }
       }
-      if (astraPromises.length > 0) {
-        const astraResults = yield Promise.all(astraPromises);
-        astraResults.forEach((subList) => {
-          if (subList && Array.isArray(subList)) {
-            streams.push(...subList);
-          }
-        });
-      }
+
+      // De-duplicate URLs if multiple identical providers map to the same backend path
       const uniqueStreams = [];
-      const seenUrls = /* @__PURE__ */ new Set();
+      const seenUrls = new Set();
       streams.forEach((stream) => {
         if (!seenUrls.has(stream.url)) {
           seenUrls.add(stream.url);
@@ -324,35 +217,13 @@ const apiUrl = `${VIDROCK_BASE_URL}/api/${mediaType}/${itemId}`;
         }
       });
 
-      const getQualityValue = (qLabel) => {
-        const q = String(qLabel).toLowerCase().replace(/p$/, "");
-        if (q === "4k" || q === "2160") return 2160;
-        if (q === "1440") return 1440;
-        if (q === "1080") return 1080;
-        if (q === "720") return 720;
-        if (q === "480") return 480;
-        if (q === "360") return 360;
-        if (q === "240") return 240;
-        if (q === "auto") return -1;
-        return 0;
-      };
-
-      uniqueStreams.sort((a, b) => {
-        const providerA = String(a._serverKey || "").toLowerCase();
-        const providerB = String(b._serverKey || "").toLowerCase();
-        
-        if (providerA !== providerB) {
-          return providerA.localeCompare(providerB);
-        }
-        return getQualityValue(b._rawQuality) - getQualityValue(a._rawQuality);
-      });
-
-      console.log(`[Vidrock] Total streams found: ${uniqueStreams.length}`);
+      console.log(`[Vidrock] Total stream sources compiled: ${uniqueStreams.length}`);
       return uniqueStreams;
     } catch (error) {
-      console.error(`[Vidrock] Error in getStreams: ${error.message}`);
+      console.error(`[Vidrock] Error in getStreams execution: ${error.message}`);
       return [];
     }
   });
 }
+
 module.exports = { getStreams };

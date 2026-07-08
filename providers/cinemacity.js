@@ -162,8 +162,16 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
   const durationStr = mediaInfo.runtime || "90 min";
   const containerFormat = streamUrl.includes(".m3u8") ? "📡 M3U8" : "🎞️ MP4";
   const providerEmoji = getProviderEmoji(cleanServer);
+  const yearStr = mediaInfo.year ? `(${mediaInfo.year})` : "N/A";
 
-  return qualityBadge + " | 🌍 Original Audio | 🎧 AAC\n" +
+  // Reconstruct Subheading Line 1 dynamically for Movies vs Series
+  let line1 = `🎬 ${mediaInfo.title || "Unknown"} - ${yearStr}`;
+  if (seasonNum && episodeNum) {
+    line1 += ` | S${seasonNum}E${episodeNum}`;
+  }
+
+  return line1 + "\n" +
+         qualityBadge + " | 🌍 Original Audio | 🎧 AAC\n" +
          containerFormat + " | ⚡ x2.64 | ⏱️ " + durationStr + "\n" +
          providerEmoji + " " + cleanServer + " | 🔗 Provider: VidRock";
 }
@@ -284,7 +292,7 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
           const pEmoji = getProviderEmoji(cleanServer);
 
           streams.push({
-            name: `VidRock | ${quality} | ${pEmoji} [${cleanServer}]`,
+            name: `🪨 VidRock | ${quality} | ${pEmoji} [${cleanServer}]`,
             title: dropdownTitle,
             size: dropdownTitle,
             description: dropdownTitle,

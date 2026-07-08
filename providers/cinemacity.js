@@ -1,6 +1,6 @@
 /**
  * vidrock - Built from src/vidrock/
- * Generated: 2026-06-09T09:59:10.427Z
+ * Generated: 2026-07-08
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -55,10 +55,16 @@ var WORKING_HEADERS = {
   "Origin": "https://vidrock.ru"
 };
 
+// Fixed: Added security verification parameters to authorize streaming playback
 var PLAYBACK_HEADERS = {
   "User-Agent": USER_AGENT,
   "Referer": "https://vidrock.ru/",
-  "Origin": "https://vidrock.ru"
+  "Origin": "https://vidrock.ru",
+  "Accept": "*/*",
+  "Accept-Language": "en-US,en;q=0.9",
+  "Sec-Fetch-Dest": "empty",
+  "Sec-Fetch-Mode": "cors",
+  "Sec-Fetch-Site": "cross-site"
 };
 
 // src/vidrock/utils.js
@@ -176,14 +182,12 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
             try { rawToken = decodeURIComponent(rawToken); } catch (e) {}
           }
 
-          // Dynamically map the raw server token to the active Cloudflare Multi-Quality Edge proxy worker
+          // Fixed: Dynamic endpoint resolution to prevent 404 mapping states
           let finalStreamUrl;
-          if (serverName.toLowerCase().includes("astra")) {
-            finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawToken}/master.m3u8`;
-          } else if (serverName.toLowerCase().includes("atlas")) {
-            finalStreamUrl = `https://white-sun-5f88.3-97e.workers.dev/movie/${rawToken}/index.m3u8`;
+          if (serverName.toLowerCase().includes("atlas")) {
+            const pathType = mediaType === "tv" ? "tv" : "movie";
+            finalStreamUrl = `https://white-sun-5f88.3-97e.workers.dev/${pathType}/${rawToken}/index.m3u8`;
           } else {
-            // Generic Fallback structure observed in the routing table
             finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawToken}/master.m3u8`;
           }
 
@@ -197,9 +201,9 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
             size: dropdownTitle,
             description: dropdownTitle,
             url: finalStreamUrl,
-            quality: "1080p", // Sets the highest fallback display property for application views
+            quality: "1080p", 
             language: "English",
-            headers: PLAYBACK_HEADERS,
+            headers: PLAYBACK_HEADERS, // Injects cross-origin metadata straight into player instance
             provider: "vidrock",
             _serverKey: serverName,
             _rawQuality: "Adaptive"
@@ -207,7 +211,6 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         }
       }
 
-      // De-duplicate URLs if multiple identical providers map to the same backend path
       const uniqueStreams = [];
       const seenUrls = new Set();
       streams.forEach((stream) => {

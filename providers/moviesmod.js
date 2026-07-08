@@ -11,7 +11,7 @@ async function onSettings() {
 
 const PROVIDER_NAME = "MovieBox";
 // Configured with your requested MovieBox endpoint (manifest.json trimmed for path appending)
-const MOVIEBOX_BASE = "https://moviebox-cfa7.onrender.com/eyJyZXNvbHV0aW9uIjpbIjEwODBwIl0sImxhbmd1YWdlIjpbImVuIiwiaGkiLCJvcmlnIl0sInByb3h5X3VybCI6ImZyZWUiLCJwcm92aWRlcnMiOlsibW9iaWxlIiwid2ViIiwibGVnYWN5Il0sIm5hbWVfdGVtcGxhdGUiOiLwn46lICoqe3Jlc29sdXRpb259KioiLCJ0aXRsZV90ZW1wbGF0ZSI6IvCflIoge2F1ZGlvfSB8IPCfkr4gKntzaXplfSpcXG7wn5KsIFN1YnM6IHtzdWJ0aXRsZXN9In0";
+const MOVIEBOX_BASE = "https://stremio-moviebox-1.onrender.com/eyJyZXNvbHV0aW9uIjpbIjEwODBwIl0sImxhbmd1YWdlIjpbImVuIiwiaGkiLCJvcmlnIl0sInByb3h5X3VybCI6ImZyZWUiLCJwcm92aWRlcnMiOlsibW9iaWxlIiwid2ViIiwibGVnYWN5Il0sIm5hbWVfdGVtcGxhdGUiOiLwn46lICoqe3Jlc29sdXRpb259KioiLCJ0aXRsZV90ZW1wbGF0ZSI6IvCflIoge2F1ZGlvfSB8IPCfkr4gKntzaXplfSpcXG7wn5KsIFN1YnM6IHtzdWJ0aXRsZXN9In0";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 async function getStreams(tmdbId, mediaType, season, episode) {

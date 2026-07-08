@@ -41,7 +41,6 @@ var __async = (__this, __arguments, generator) => {
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var TMDB_BASE_URL = "https://api.themoviedb.org/3";
 var VIDROCK_BASE_URL = "https://vidrock.ru";
-var PASSPHRASE = "x7k9mPqT2rWvY8zA5bC3nF6hJ2lK4mN9";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
 
 var WORKING_HEADERS = {
@@ -64,31 +63,6 @@ var PLAYBACK_HEADERS = {
 };
 
 // src/vidrock/utils.js
-const crypto = require("crypto");
-
-// Native AES-256-CBC Decryption using built-in engine to prevent environment drops on mobile
-function decryptVidrock(cipherText) {
-  try {
-    // Revert URL-safe Base64 replacements back to standard formatting
-    let base64 = cipherText.replace(/-/g, "+").replace(/_/g, "/");
-    while (base64.length % 4) { base64 += "="; }
-
-    const key = Buffer.from(PASSPHRASE, "utf8");
-    const iv = Buffer.from(PASSPHRASE.substring(0, 16), "utf8");
-    
-    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
-    decipher.setAutoPadding(true);
-    
-    let decrypted = decipher.update(base64, "base64", "utf8");
-    decrypted += decipher.final("utf8");
-    
-    return decrypted || null;
-  } catch (e) {
-    console.error(`[Vidrock] Native Decryption Error: ${e.message}`);
-    return null;
-  }
-}
-
 function fetchTmdbDetails(tmdbId, mediaType) {
   return __async(this, null, function* () {
     var _a;
@@ -160,7 +134,7 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
 // src/vidrock/index.js
 function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
   return __async(this, null, function* () {
-    console.log(`[Vidrock] Unified cross-platform execution for TMDB ID: ${tmdbId}`);
+    console.log(`[Vidrock] Fetching cross-platform streams for TMDB ID: ${tmdbId}`);
     try {
       const mediaInfo = yield fetchTmdbDetails(tmdbId, mediaType);
       if (!mediaInfo) return [];
@@ -185,32 +159,31 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
           const source = data[serverName];
           if (!source || !source.url) continue;
 
-          let rawPayload = source.url;
-          if (rawPayload.includes("%")) {
-            try { rawPayload = decodeURIComponent(rawPayload); } catch (e) {}
-          }
-
-          // Strict decryption handling
-          const decryptedToken = decryptVidrock(rawPayload);
-          if (!decryptedToken) {
-            console.error(`[Vidrock] Skipping source ${serverName} due to cipher parsing failure.`);
-            continue; 
+          let targetToken = source.url;
+          if (targetToken.includes("%")) {
+            try { targetToken = decodeURIComponent(targetToken); } catch (e) {}
           }
 
           let finalStreamUrl = "";
           const isAtlas = serverName.toLowerCase().includes("atlas");
           const isOrion = serverName.toLowerCase().includes("orion");
 
-          if (decryptedToken.startsWith("http://") || decryptedToken.startsWith("https://")) {
-            finalStreamUrl = decryptedToken;
+          // Safe execution check without crashing the client engine
+          if (targetToken.startsWith("http://") || targetToken.startsWith("https://")) {
+            finalStreamUrl = targetToken;
           } else {
             const pathType = mediaType === "tv" ? "tv" : "movie";
             if (isAtlas) {
-              finalStreamUrl = `https://broad-block-5c3c.34-4fe.workers.dev/${pathType}/${decryptedToken}/index.m3u8`;
+              finalStreamUrl = `https://broad-block-5c3c.34-4fe.workers.dev/${pathType}/${targetToken}/index.m3u8`;
             } else if (isOrion) {
-              finalStreamUrl = `https://johannesburg.hellium.workers.dev/${encodeURIComponent(decryptedToken)}`;
+              // Ensure absolute URLs passed to Orion are cleanly encoded
+              if (targetToken.startsWith("http")) {
+                finalStreamUrl = `https://johannesburg.hellium.workers.dev/${encodeURIComponent(targetToken)}`;
+              } else {
+                finalStreamUrl = `https://johannesburg.hellium.workers.dev/${targetToken}`;
+              }
             } else {
-              finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${decryptedToken}/master.m3u8`;
+              finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${targetToken}/master.m3u8`;
             }
           }
 
@@ -243,10 +216,10 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         }
       });
 
-      console.log(`[Vidrock] Compilation complete. Valid clean links: ${uniqueStreams.length}`);
+      console.log(`[Vidrock] Compilation complete. Total processed links: ${uniqueStreams.length}`);
       return uniqueStreams;
     } catch (error) {
-      console.error(`[Vidrock] Runtime execution error: ${error.message}`);
+      console.error(`[Vidrock] Global thread error: ${error.message}`);
       return [];
     }
   });

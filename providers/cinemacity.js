@@ -103,6 +103,15 @@ function getProviderEmoji(serverName) {
   return "🌍";
 }
 
+// Converts URL-safe token characters back to valid Base64 string paths required by Cloudflare Worker files
+function sanitizeToken(token) {
+  let clean = token.replace(/-/g, "+").replace(/_/g, "/");
+  while (clean.length % 4) {
+    clean += "=";
+  }
+  return clean;
+}
+
 function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, episodeNum, streamUrl) {
   let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
   let normalizedQuality = qualityLabel.toLowerCase().trim() === "auto" ? "Auto" : qualityLabel;
@@ -138,7 +147,7 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
 // src/vidrock/index.js
 function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
   return __async(this, null, function* () {
-    console.log(`[Vidrock] Starting dynamic path extraction for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
+    console.log(`[Vidrock] Starting dynamic extraction for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
     try {
       const mediaInfo = yield fetchTmdbDetails(tmdbId, mediaType);
       if (!mediaInfo) {
@@ -171,19 +180,19 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
 
           let finalStreamUrl = "";
 
-          // Inspect the structure of the incoming URL from the server response
           if (rawUrl.startsWith("http://") || rawUrl.startsWith("https://")) {
-            // Server returned a pre-built direct worker routing endpoint
             finalStreamUrl = rawUrl;
           } else {
-            // Fallback generation logic if individual segments map tokens
             const pathType = mediaType === "tv" ? "tv" : "movie";
+            // Sanitize the token to restore correct padding/symbols before placing into URL paths
+            const validToken = sanitizeToken(rawUrl);
+
             if (serverName.toLowerCase().includes("atlas")) {
-              finalStreamUrl = `https://broad-block-5c3c.34-4fe.workers.dev/${pathType}/${rawUrl}/index.m3u8`;
+              finalStreamUrl = `https://broad-block-5c3c.34-4fe.workers.dev/${pathType}/${validToken}/index.m3u8`;
             } else if (serverName.toLowerCase().includes("orion")) {
-              finalStreamUrl = `https://johannesburg.hellium.workers.dev/${encodeURIComponent(rawUrl)}`;
+              finalStreamUrl = `https://johannesburg.hellium.workers.dev/${validToken}`;
             } else {
-              finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${rawUrl}/master.m3u8`;
+              finalStreamUrl = `https://shy-smoke-85df.xxw8bjzldt.workers.dev/file1/${validToken}/master.m3u8`;
             }
           }
 
@@ -216,7 +225,7 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
         }
       });
 
-      console.log(`[Vidrock] Compilation complete. Streams ready to play: ${uniqueStreams.length}`);
+      console.log(`[Vidrock] Compilation complete. Streams optimized: ${uniqueStreams.length}`);
       return uniqueStreams;
     } catch (error) {
       console.error(`[Vidrock] Error in getStreams execution: ${error.message}`);

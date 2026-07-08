@@ -135,6 +135,14 @@ function extractQuality(url) {
   return "Unknown";
 }
 
+function getProviderEmoji(serverName) {
+  const nameLower = String(serverName).toLowerCase();
+  if (nameLower.includes("astra")) return "🪐";
+  if (nameLower.includes("atlas")) return "🌀";
+  if (nameLower.includes("orion")) return "🎯";
+  return "🌍";
+}
+
 function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, episodeNum, streamUrl) {
   let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
   let normalizedQuality = qualityLabel.toLowerCase().trim() === "auto" ? "Auto" : qualityLabel;
@@ -142,7 +150,7 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
   let qualityBadge = "💎 " + normalizedQuality;
   const lowQuality = normalizedQuality.toLowerCase();
   if (lowQuality.includes("2160") || lowQuality.includes("4k")) {
-    qualityBadge = "🪐 2160p";
+    qualityBadge = "🌟 2160p";
   } else if (lowQuality.includes("1080")) {
     qualityBadge = "🚀 1080p";
   } else if (lowQuality.includes("720")) {
@@ -151,18 +159,13 @@ function buildDropdownMetadata(serverName, qualityLabel, mediaInfo, seasonNum, e
     qualityBadge = "🛸 Auto";
   }
 
-  let mediaLabel = mediaInfo.title || "Unknown Movie";
-  if (seasonNum && episodeNum) {
-    mediaLabel = `${mediaInfo.title} S${seasonNum}E${episodeNum}`;
-  }
-  const yearString = mediaInfo.year ? `(${mediaInfo.year})` : "N/A";
   const durationStr = mediaInfo.runtime || "90 min";
   const containerFormat = streamUrl.includes(".m3u8") ? "📡 M3U8" : "🎞️ MP4";
+  const providerEmoji = getProviderEmoji(cleanServer);
 
-  // Prevent app from prefixing an extra quality badge on layouts that auto-inject properties
   return qualityBadge + " | 🌍 Original Audio | 🎧 AAC\n" +
          containerFormat + " | ⚡ x2.64 | ⏱️ " + durationStr + "\n" +
-         "🌀 " + cleanServer + " | 🔗 Provider: Vidrock";
+         providerEmoji + " " + cleanServer + " | 🔗 Provider: VidRock";
 }
 
 function parseAstraPlaylist(playlistUrl, serverName, mediaInfo, seasonNum, episodeNum) {
@@ -185,14 +188,15 @@ function parseAstraPlaylist(playlistUrl, serverName, mediaInfo, seasonNum, episo
 
             const dropdownTitle = buildDropdownMetadata(serverName, quality, mediaInfo, seasonNum, episodeNum, item.url);
             let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
+            const pEmoji = getProviderEmoji(cleanServer);
 
             streams.push({
-              name: `Vidrock | ${quality} | [${cleanServer}]`,
+              name: `🪨 VidRock | ${quality} | ${pEmoji} [${cleanServer}]`,
               title: dropdownTitle,
               size: dropdownTitle,
               description: dropdownTitle,
               url: item.url,
-              quality: "", // Clear to stop layout text insertion
+              quality: "", 
               language: "",
               headers: PLAYBACK_HEADERS,
               provider: "vidrock",
@@ -277,14 +281,15 @@ function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
 
           const dropdownTitle = buildDropdownMetadata(serverName, quality, mediaInfo, seasonNum, episodeNum, videoUrl);
           let cleanServer = String(serverName).replace(/\s*(1080p\s+)?server\s*2\s*$/gi, "").trim();
+          const pEmoji = getProviderEmoji(cleanServer);
 
           streams.push({
-            name: `Vidrock | ${quality} | [${cleanServer}]`,
+            name: `VidRock | ${quality} | ${pEmoji} [${cleanServer}]`,
             title: dropdownTitle,
             size: dropdownTitle,
             description: dropdownTitle,
             url: videoUrl,
-            quality: "", // Clear to stop layout text insertion
+            quality: "", 
             language: "",
             headers: PLAYBACK_HEADERS,
             provider: "vidrock",

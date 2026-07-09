@@ -1,6 +1,6 @@
 var PROVIDER_NAME = "MoviesHunt";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var movieshuntBase = "https://movieshunt.team";
+var movieshuntBase = "https://movieshunt.run";
 var abhilinksBase = "https://abhilinks.life";
 var currentUA = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
 

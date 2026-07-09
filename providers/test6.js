@@ -27,7 +27,7 @@ var __async = (__this, __arguments, generator) => {
 var cheerio = require("cheerio-without-node-native");
 var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 var DOMAINS_JSON_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
-var FALLBACK_DOMAIN = "https://toon-stream.site";
+var FALLBACK_DOMAIN = "https://toonstream.vip";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
 var cachedDomain = "";
 var domainCachedAt = 0;

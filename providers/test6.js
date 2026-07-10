@@ -1,7 +1,7 @@
 var PROVIDER_NAME = "MoviesHunt";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var movieshuntBase = "https://movieshunt.run";
-var abhilinksBase = "https://abhilinks.life";
+var abhilinksBase = "https://abhilinks.site";
 var currentUA = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
 
 var UAS = [
@@ -62,41 +62,43 @@ function parseSearchResults(html) {
   return results;
 }
 
-async function searchSite(query) {
-  var results = [];
-  var queries = [query.replace(/'/g, "").trim()];
-  var cleaned = query.replace(/[^a-zA-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-  if (cleaned !== queries[0]) queries.push(cleaned);
-  var noYear = cleaned.replace(/\s*\d{4}\s*/g, " ").trim();
-  if (noYear && queries.indexOf(noYear) < 0) queries.push(noYear);
-  var words = cleaned.split(" ").filter(function(w) { return w.length > 2; });
-  while (words.length > 1) {
-    words.pop();
-    var subQ = words.join(" ");
-    if (subQ.length > 3 && queries.indexOf(subQ) < 0) queries.push(subQ);
-  }
-  if (cleaned) {
-    var parts = cleaned.split(" ");
-    if (parts.length > 1) {
-      var lastWords = parts.slice(-Math.min(2, parts.length)).join(" ");
-      if (lastWords.length > 3 && queries.indexOf(lastWords) < 0) queries.push(lastWords);
-      var lastWord = parts[parts.length - 1];
-      if (lastWord.length > 3 && /[a-zA-Z]/.test(lastWord) && queries.indexOf(lastWord) < 0) queries.push(lastWord);
+function searchSite(query) {
+  return __async(this, null, function* () {
+    var results = [];
+    var queries = [query.replace(/'/g, "").trim()];
+    var cleaned = query.replace(/[^a-zA-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+    if (cleaned !== queries[0]) queries.push(cleaned);
+    var noYear = cleaned.replace(/\s*\d{4}\s*/g, " ").trim();
+    if (noYear && queries.indexOf(noYear) < 0) queries.push(noYear);
+    var words = cleaned.split(" ").filter(function(w) { return w.length > 2; });
+    while (words.length > 1) {
+      words.pop();
+      var subQ = words.join(" ");
+      if (subQ.length > 3 && queries.indexOf(subQ) < 0) queries.push(subQ);
     }
-  }
-  for (var qi = 0; qi < queries.length; qi++) {
-    var q = queries[qi];
-    if (q.length < 3) continue;
-    var url = movieshuntBase + "/?s=" + encodeURIComponent(q);
-    var html = await fetchText(url, { headers: hdrs() });
-    if (!html) continue;
-    var found = parseSearchResults(html);
-    if (found && found.length) {
-      log("Search '" + q + "' found " + found.length + " results");
-      return found;
+    if (cleaned) {
+      var parts = cleaned.split(" ");
+      if (parts.length > 1) {
+        var lastWords = parts.slice(-Math.min(2, parts.length)).join(" ");
+        if (lastWords.length > 3 && queries.indexOf(lastWords) < 0) queries.push(lastWords);
+        var lastWord = parts[parts.length - 1];
+        if (lastWord.length > 3 && /[a-zA-Z]/.test(lastWord) && queries.indexOf(lastWord) < 0) queries.push(lastWord);
+      }
     }
-  }
-  return results;
+    for (var qi = 0; qi < queries.length; qi++) {
+      var q = queries[qi];
+      if (q.length < 3) continue;
+      var url = movieshuntBase + "/?s=" + encodeURIComponent(q);
+      var html = yield fetchText(url, { headers: hdrs() });
+      if (!html) continue;
+      var found = parseSearchResults(html);
+      if (found && found.length) {
+        log("Search '" + q + "' found " + found.length + " results");
+        return found;
+      }
+    }
+    return results;
+  });
 }
 
 function matchHits(results, tmdbInfo, isTV) {
@@ -146,9 +148,9 @@ function matchHits(results, tmdbInfo, isTV) {
 }
 
 function extractAbhilinksUrl(html) {
-  var m = html.match(/<a[^>]*href="(https:\/\/abhilinks\.life\/[^"]+)"[^>]*class="btn"[^>]*>/i);
+  var m = html.match(/<a[^>]*href="(https:\/\/abhilinks\.(?:life|site)\/[^"]+)"[^>]*class="btn"[^>]*>/i);
   if (m) return m[1];
-  var m2 = html.match(/<a[^>]*href="(https:\/\/abhilinks\.life\/[^"]+)"[^>]*>/i);
+  var m2 = html.match(/<a[^>]*href="(https:\/\/abhilinks\.(?:life|site)\/[^"]+)"[^>]*>/i);
   if (m2) return m2[1];
   return null;
 }
@@ -163,7 +165,7 @@ function extractQualityOptions(html) {
     if (quality === "480P") continue;
     var pos = m.index;
     var ctx = html.substring(Math.max(0, pos - 200), pos + 600);
-    var hubMatch = ctx.match(/href="(https:\/\/hubcloud\.cx\/drive\/[^"]+)"/i);
+    var hubMatch = ctx.match(/href="(https:\/\/hubcloud\.cx\/(?:drive|video)\/[^"]+)"/i);
     var vcMatch = ctx.match(/href="(https:\/\/href\.li\/\?https:\/\/vcloud\.zip\/[^"]+)"/i);
     if (hubMatch) options.push({ quality: quality, size: size, type: "hubcloud", url: hubMatch[1] });
     else if (vcMatch) options.push({ quality: quality, size: size, type: "vcloud", url: vcMatch[1] });
@@ -177,30 +179,44 @@ function extractVcloudUrl(hrefLiUrl) {
   return null;
 }
 
-async function processHubcloud(hubUrl) {
-  var html = await fetchText(hubUrl, { headers: hdrs({ Referer: abhilinksBase + "/" }) });
-  if (!html) return null;
-  var genMatch = html.match(/href="(https:\/\/gamerxyt\.com\/hubcloud\.php[^"]+)"/i);
-  if (!genMatch) return null;
-  var genUrl = genMatch[1].replace(/&amp;/g, "&");
-  var genHtml = await fetchText(genUrl, { headers: hdrs({ Referer: hubUrl, Cookie: "xla=s4t" }) });
-  if (!genHtml || genHtml.length < 500) return null;
-  return extractFSLLinks(genHtml);
+function processHubcloud(hubUrl) {
+  return __async(this, null, function* () {
+    var html = yield fetchText(hubUrl, { headers: hdrs({ Referer: abhilinksBase + "/" }) });
+    if (!html) return null;
+    var genMatch = html.match(/href="(https:\/\/gamerxyt\.com\/hubcloud\.php[^"]+)"/i);
+    if (!genMatch) return null;
+    var genUrl = genMatch[1].replace(/&amp;/g, "&");
+    var desktopUA = "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0";
+    var genHtml = yield fetchText(genUrl, {
+      headers: {
+        "User-Agent": desktopUA,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Referer": hubUrl,
+        "DNT": "1",
+        "Cookie": "xla=s4t"
+      }
+    });
+    if (!genHtml || genHtml.length < 500) return null;
+    return extractFSLLinks(genHtml);
+  });
 }
 
-async function processVcloud(vcUrl) {
-  var html = await fetchText(vcUrl, { headers: hdrs({ Referer: abhilinksBase + "/" }) });
-  if (!html) return null;
-  var b64 = html.match(/atob\s*\(\s*atob\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\)/);
-  if (!b64) return null;
-  var first, tokenUrl;
-  try {
-    first = atob(b64[1]);
-    tokenUrl = atob(first);
-  } catch (e) { return null; }
-  var tokenHtml = await fetchText(tokenUrl, { headers: hdrs({ Referer: movieshuntBase + "/", Cookie: "xla=s4t" }) });
-  if (!tokenHtml) return null;
-  return extractFSLLinks(tokenHtml);
+function processVcloud(vcUrl) {
+  return __async(this, null, function* () {
+    var html = yield fetchText(vcUrl, { headers: hdrs({ Referer: abhilinksBase + "/" }) });
+    if (!html) return null;
+    var b64 = html.match(/atob\s*\(\s*atob\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\)/);
+    if (!b64) return null;
+    var first, tokenUrl;
+    try {
+      first = atob(b64[1]);
+      tokenUrl = atob(first);
+    } catch (e) { return null; }
+    var tokenHtml = yield fetchText(tokenUrl, { headers: hdrs({ Referer: movieshuntBase + "/", Cookie: "xla=s4t" }) });
+    if (!tokenHtml) return null;
+    return extractFSLLinks(tokenHtml);
+  });
 }
 
 function extractFSLLinks(html) {
@@ -280,7 +296,7 @@ function extractSeasonLinks(html) {
     var sectionStart = h4s[i].end;
     var sectionEnd = i + 1 < h4s.length ? h4s[i + 1].start : html.length;
     var section = html.substring(sectionStart, sectionEnd);
-    var urlMatch = section.match(/href="(https:\/\/abhilinks\.life\/archives\/\d+)\/?"/i);
+    var urlMatch = section.match(/href="(https:\/\/abhilinks\.(?:life|site)\/archives\/\d+)\/?"/i);
     if (urlMatch) {
       if (!seasons[sNum]) seasons[sNum] = {};
       if (!seasons[sNum][qual]) seasons[sNum][qual] = urlMatch[1];
@@ -289,177 +305,243 @@ function extractSeasonLinks(html) {
   return seasons;
 }
 
-async function getStreams(tmdbId, mediaType, season, episode) {
-  currentUA = UAS[Math.floor(Math.random() * UAS.length)];
-  log("getStreams(" + tmdbId + ", " + mediaType + ", " + season + ", " + episode + ")");
+function getProviderEmoji(serverType) {
+  var sLower = String(serverType).toLowerCase();
+  if (sLower.includes("fslv2")) return "🪐";
+  if (sLower.includes("fsl")) return "🌀";
+  if (sLower.includes("worker")) return "🎯";
+  return "🌍";
+}
 
-  var isTV = mediaType === "tv" || mediaType === "series";
-  var tmdbInfo = await getTMDBInfo(tmdbId, mediaType);
-  if (!tmdbInfo) { log("TMDB fetch failed"); return []; }
+function buildDropdownMetadata(tmdbInfo, qualityLabel, sizeLabel, isTV, season, episode, serverType) {
+  var title = (isTV ? tmdbInfo.name : tmdbInfo.title) || "Unknown Title";
+  var releaseYear = isTV ? (tmdbInfo.first_air_date || "").split("-")[0] : (tmdbInfo.release_date || "").split("-")[0];
+  var yearStr = releaseYear ? "(" + releaseYear + ")" : "N/A";
 
-  var title = isTV ? tmdbInfo.name : tmdbInfo.title;
-  if (!title) { log("No title from TMDB"); return []; }
-  log("Title: " + title);
+  // Row 1: Context details
+  var line1 = "🎬 " + title + " - " + yearStr;
+  if (isTV && season && episode) {
+    line1 += " | S" + season + "E" + episode;
+  }
 
-  var searchResults = await searchSite(title);
-  if (!searchResults || !searchResults.length) { log("Search failed"); return []; }
-  log("Search results: " + searchResults.length);
+  // Row 2: Quality badge profiles
+  var normalizedQuality = String(qualityLabel).toUpperCase().trim();
+  var qIcon = "💎 " + normalizedQuality;
+  if (normalizedQuality.includes("2160") || normalizedQuality.includes("4K")) {
+    qIcon = "🌟 2160p";
+  } else if (normalizedQuality.includes("1080")) {
+    qIcon = "🚀 1080p";
+  } else if (normalizedQuality.includes("720")) {
+    qIcon = "🛰️ 720p";
+  }
 
-  var matches = matchHits(searchResults, tmdbInfo, isTV);
-  if (!matches.length) { log("No match found"); return []; }
-  log("Matches: " + matches.length);
+  var sizeStr = sizeLabel ? sizeLabel.trim() : "Variable Size";
+  var line2 = qIcon + " | 🌍 Hindi / English | 💾 " + sizeStr;
 
-  for (var mi = 0; mi < matches.length; mi++) {
-    var matched = matches[mi];
-    var postUrl = matched.url;
-    log("Trying post: " + postUrl);
+  // Row 3: Containers and hardware specs
+  var runtimeStr = tmdbInfo.runtime ? tmdbInfo.runtime + " min" : (isTV ? "45 min" : "90 min");
+  var line3 = "🎞️ MKV | ⚡ x264 | ⏱️ " + runtimeStr;
 
-    var postHtml = await fetchText(postUrl, { headers: hdrs() });
-    if (!postHtml) continue;
+  // Row 4: Provider references
+  var pEmoji = getProviderEmoji(serverType);
+  var line4 = pEmoji + " " + serverType + " | 🔗 Provider: MoviesHunt";
 
-    var allStreams = [];
+  return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4;
+}
 
-    if (isTV) {
-      var parsedSeason = season !== undefined && season !== null && season !== "undefined" ? parseInt(season) : null;
-      var parsedEpisode = episode !== undefined && episode !== null && episode !== "undefined" ? parseInt(episode) : null;
+function getStreams(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    currentUA = UAS[Math.floor(Math.random() * UAS.length)];
+    log("getStreams(" + tmdbId + ", " + mediaType + ", " + season + ", " + episode + ")");
 
-      var episodes = [];
-      var seasonAbhiUrls = [];
+    var isTV = mediaType === "tv" || mediaType === "series";
+    var tmdbInfo = yield getTMDBInfo(tmdbId, mediaType);
+    if (!tmdbInfo) { log("TMDB fetch failed"); return []; }
 
-      if (parsedSeason) {
-        var seasonLinks = extractSeasonLinks(postHtml);
-        if (seasonLinks[parsedSeason]) {
-          var quals = Object.keys(seasonLinks[parsedSeason]).sort(function(a, b) { return parseInt(b) - parseInt(a); });
-          quals.forEach(function(q) { seasonAbhiUrls.push({ quality: q, url: seasonLinks[parsedSeason][q] }); });
-          log("S" + parsedSeason + " qualities: " + quals.join(", "));
+    var title = isTV ? tmdbInfo.name : tmdbInfo.title;
+    if (!title) { log("No title from TMDB"); return []; }
+    log("Title: " + title);
+
+    var searchResults = yield searchSite(title);
+    if (!searchResults || !searchResults.length) { log("Search failed"); return []; }
+    log("Search results: " + searchResults.length);
+
+    var matches = matchHits(searchResults, tmdbInfo, isTV);
+    if (!matches.length) { log("No match found"); return []; }
+    log("Matches: " + matches.length);
+
+    for (var mi = 0; mi < matches.length; mi++) {
+      var matched = matches[mi];
+      var postUrl = matched.url;
+      log("Trying post: " + postUrl);
+
+      var postHtml = yield fetchText(postUrl, { headers: hdrs() });
+      if (!postHtml) continue;
+
+      var allStreams = [];
+
+      if (isTV) {
+        var parsedSeason = season !== undefined && season !== null && season !== "undefined" ? parseInt(season) : null;
+        var parsedEpisode = episode !== undefined && episode !== null && episode !== "undefined" ? parseInt(episode) : null;
+
+        var episodes = [];
+        var seasonAbhiUrls = [];
+
+        if (parsedSeason) {
+          var seasonLinks = extractSeasonLinks(postHtml);
+          if (seasonLinks[parsedSeason]) {
+            var quals = Object.keys(seasonLinks[parsedSeason]).sort(function(a, b) { return parseInt(b) - parseInt(a); });
+            quals.forEach(function(q) { seasonAbhiUrls.push({ quality: q, url: seasonLinks[parsedSeason][q] }); });
+            log("S" + parsedSeason + " qualities: " + quals.join(", "));
+          }
         }
-      }
 
-      if (!seasonAbhiUrls.length) {
-        var fallback = extractAbhilinksUrl(postHtml);
-        if (fallback) seasonAbhiUrls.push({ quality: "", url: fallback });
-      }
-
-      if (!seasonAbhiUrls.length) { log("No abhilinks URLs, trying next match"); continue; }
-
-      var tvTasks = [];
-      for (var qui = 0; qui < seasonAbhiUrls.length; qui++) {
-        var sa = seasonAbhiUrls[qui];
-        log("Fetching " + (sa.quality || "default") + ": " + sa.url);
-        var abhilinksHtml = await fetchText(sa.url, { headers: hdrs() });
-        if (!abhilinksHtml) { log("  fetch failed"); continue; }
-
-        var epList = extractEpisodes(abhilinksHtml);
-        if (!epList.length) { log("  no episodes"); continue; }
-
-        var filtered = epList;
-        if (parsedEpisode) {
-          filtered = epList.filter(function(ep) { return ep.number === parsedEpisode; });
-          if (!filtered.length) { log("  episode " + parsedEpisode + " not found"); continue; }
+        if (!seasonAbhiUrls.length) {
+          var fallback = extractAbhilinksUrl(postHtml);
+          if (fallback) seasonAbhiUrls.push({ quality: "", url: fallback });
         }
 
-        for (var ei = 0; ei < filtered.length; ei++) {
-          var ep = filtered[ei];
-          for (var li = 0; li < ep.links.length; li++) {
-            var link = ep.links[li];
-            tvTasks.push((function(epNum, l, qual) {
-              return async function() {
-                var fslStreams = null;
-                if (l.type === "hubcloud") fslStreams = await processHubcloud(l.url);
-                else if (l.type === "vcloud") fslStreams = await processVcloud(l.url);
-                if (fslStreams) {
-                  fslStreams.forEach(function(s) { s.episode = epNum; s.quality = s.quality || qual; });
-                }
-                return fslStreams;
-              };
-            })(ep.number, link, sa.quality));
+        if (!seasonAbhiUrls.length) { log("No abhilinks URLs, trying next match"); continue; }
+
+        var tvTasks = [];
+        for (var qui = 0; qui < seasonAbhiUrls.length; qui++) {
+          var sa = seasonAbhiUrls[qui];
+          log("Fetching " + (sa.quality || "default") + ": " + sa.url);
+          var abhilinksHtml = yield fetchText(sa.url, { headers: hdrs() });
+          if (!abhilinksHtml) { log("  fetch failed"); continue; }
+
+          var epList = extractEpisodes(abhilinksHtml);
+          if (!epList.length) { log("  no episodes"); continue; }
+
+          var filtered = epList;
+          if (parsedEpisode) {
+            filtered = epList.filter(function(ep) { return ep.number === parsedEpisode; });
+            if (!filtered.length) { log("  episode " + parsedEpisode + " not found"); continue; }
+          }
+
+          for (var ei = 0; ei < filtered.length; ei++) {
+            var ep = filtered[ei];
+            for (var li = 0; li < ep.links.length; li++) {
+              var link = ep.links[li];
+              tvTasks.push((function(epNum, l, qual) {
+                return async function() {
+                  var fslStreams = null;
+                  if (l.type === "hubcloud") fslStreams = yield processHubcloud(l.url);
+                  else if (l.type === "vcloud") fslStreams = yield processVcloud(l.url);
+                  if (fslStreams) {
+                    fslStreams.forEach(function(s) { s.episode = epNum; s.quality = s.quality || qual; });
+                  }
+                  return fslStreams;
+                };
+              })(ep.number, link, sa.quality));
+            }
+          }
+        }
+
+        if (!tvTasks.length) { log("No hubcloud/vcloud tasks"); continue; }
+        log("Processing " + tvTasks.length + " hubcloud/vcloud links...");
+        var tvResults = yield Promise.all(tvTasks.map(function(t) { return t(); }));
+        for (var ri = 0; ri < tvResults.length; ri++) {
+          if (!tvResults[ri]) continue;
+          for (var si = 0; si < tvResults[ri].length; si++) {
+            var fl = tvResults[ri][si];
+            
+            var normQual = (fl.quality || "1080p").toLowerCase().replace(/p/g, "") + "p";
+            var pEmoji = getProviderEmoji(fl.type);
+            var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, "", true, parsedSeason, fl.episode, fl.type);
+
+            allStreams.push({
+              name: "🪨 " + PROVIDER_NAME + " | " + normQual + " | " + pEmoji + " [" + fl.type + "]",
+              title: dropdownTitle,
+              size: dropdownTitle,
+              description: dropdownTitle,
+              url: fl.url,
+              quality: "", 
+              language: "",
+              headers: { Referer: movieshuntBase + "/", "User-Agent": currentUA },
+              _rawQuality: normQual
+            });
+          }
+        }
+      } else {
+        var abhilinksUrl = extractAbhilinksUrl(postHtml);
+        if (!abhilinksUrl) { log("No abhilinks URL, trying next match"); continue; }
+        log("Abhilinks: " + abhilinksUrl);
+
+        var abhilinksHtml = yield fetchText(abhilinksUrl, { headers: hdrs() });
+        if (!abhilinksHtml) { log("Abhilinks fetch failed"); continue; }
+
+        var qualityOptions = extractQualityOptions(abhilinksHtml);
+        if (!qualityOptions.length) { log("No quality options found"); continue; }
+        log("Quality options: " + qualityOptions.length);
+
+        var tasks = [];
+        for (var qi = 0; qi < qualityOptions.length; qi++) {
+          var opt = qualityOptions[qi];
+          tasks.push((function(qOpt) {
+            return async function() {
+              if (qOpt.type === "hubcloud") return yield processHubcloud(qOpt.url);
+              else if (qOpt.type === "vcloud") {
+                var vcUrl = extractVcloudUrl(qOpt.url);
+                if (!vcUrl) return null;
+                return yield processVcloud(vcUrl);
+              }
+              return null;
+            };
+          })(opt));
+        }
+        var results = yield Promise.all(tasks.map(function(t) { return t(); }));
+
+        for (var ri2 = 0; ri2 < results.length; ri2++) {
+          if (!results[ri2]) continue;
+          var qOpt = qualityOptions[ri2];
+          for (var si2 = 0; si2 < results[ri2].length; si2++) {
+            var fl2 = results[ri2][si2];
+            var q = fl2.quality || qOpt.quality;
+            var size = qOpt.size || "";
+
+            var normQual = String(q).toLowerCase().replace(/p/g, "") + "p";
+            var pEmoji = getProviderEmoji(fl2.type);
+            var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, size, false, null, null, fl2.type);
+
+            allStreams.push({
+              name: "🪨 " + PROVIDER_NAME + " | " + normQual + " | " + pEmoji + " [" + fl2.type + "]",
+              title: dropdownTitle,
+              size: dropdownTitle,
+              description: dropdownTitle,
+              url: fl2.url,
+              quality: "", 
+              language: "",
+              headers: { Referer: movieshuntBase + "/", "User-Agent": currentUA },
+              _rawQuality: normQual
+            });
           }
         }
       }
 
-      if (!tvTasks.length) { log("No hubcloud/vcloud tasks"); continue; }
-      log("Processing " + tvTasks.length + " hubcloud/vcloud links...");
-      var tvResults = await Promise.all(tvTasks.map(function(t) { return t(); }));
-      for (var ri = 0; ri < tvResults.length; ri++) {
-        if (!tvResults[ri]) continue;
-        for (var si = 0; si < tvResults[ri].length; si++) {
-          var fl = tvResults[ri][si];
-          var label = title + " S" + (parsedSeason || 1) + "E" + (fl.episode || "?") + " - " + PROVIDER_NAME + " | " + fl.type;
-          allStreams.push({
-            name: label,
-            title: label,
-            url: fl.url,
-            quality: fl.quality || "",
-            headers: { Referer: movieshuntBase + "/", "User-Agent": currentUA }
-          });
-        }
+      allStreams = dedupe(allStreams);
+      allStreams.sort(function(a, b) {
+        var getQualityValue = function(qLabel) {
+          var q = String(qLabel).toLowerCase().replace(/p$/, "");
+          if (q === "2160" || q === "4k") return 2160;
+          if (q === "1080") return 1080;
+          if (q === "720") return 720;
+          if (q === "480") return 480;
+          return 0;
+        };
+        return getQualityValue(b._rawQuality) - getQualityValue(a._rawQuality);
+      });
+
+      if (allStreams.length > 0) {
+        log("Returning " + allStreams.length + " streams from " + postUrl);
+        return allStreams;
       }
-    } else {
-      var abhilinksUrl = extractAbhilinksUrl(postHtml);
-      if (!abhilinksUrl) { log("No abhilinks URL, trying next match"); continue; }
-      log("Abhilinks: " + abhilinksUrl);
-
-      var abhilinksHtml = await fetchText(abhilinksUrl, { headers: hdrs() });
-      if (!abhilinksHtml) { log("Abhilinks fetch failed"); continue; }
-
-      var qualityOptions = extractQualityOptions(abhilinksHtml);
-      if (!qualityOptions.length) { log("No quality options found"); continue; }
-      log("Quality options: " + qualityOptions.length);
-
-      var tasks = [];
-      for (var qi = 0; qi < qualityOptions.length; qi++) {
-        var opt = qualityOptions[qi];
-        tasks.push((function(qOpt) {
-          return async function() {
-            if (qOpt.type === "hubcloud") return await processHubcloud(qOpt.url);
-            else if (qOpt.type === "vcloud") {
-              var vcUrl = extractVcloudUrl(qOpt.url);
-              if (!vcUrl) return null;
-              return await processVcloud(vcUrl);
-            }
-            return null;
-          };
-        })(opt));
-      }
-      var results = await Promise.all(tasks.map(function(t) { return t(); }));
-
-      for (var ri2 = 0; ri2 < results.length; ri2++) {
-        if (!results[ri2]) continue;
-        var qOpt = qualityOptions[ri2];
-        for (var si2 = 0; si2 < results[ri2].length; si2++) {
-          var fl2 = results[ri2][si2];
-          var q = fl2.quality || qOpt.quality;
-          var size = qOpt.size || "";
-          var label = title + " " + qOpt.quality;
-          if (size) label += " [" + size + "]";
-          label += " - " + PROVIDER_NAME + " | " + fl2.type;
-          allStreams.push({
-            name: label,
-            title: label,
-            url: fl2.url,
-            quality: q,
-            size: size,
-            headers: { Referer: movieshuntBase + "/", "User-Agent": currentUA }
-          });
-        }
-      }
+      log("No streams from this post, trying next match");
     }
 
-    allStreams = dedupe(allStreams);
-    allStreams.sort(function(a, b) {
-      var qa = parseInt(a.quality, 10) || 0;
-      var qb = parseInt(b.quality, 10) || 0;
-      return qb - qa;
-    });
-    if (allStreams.length > 0) {
-      log("Returning " + allStreams.length + " streams from " + postUrl);
-      return allStreams;
-    }
-    log("No streams from this post, trying next match");
-  }
-
-  log("No streams from any match");
-  return [];
+    log("No streams from any match");
+    return [];
+  });
 }
 
 module.exports = { getStreams: getStreams };

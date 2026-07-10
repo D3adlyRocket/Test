@@ -235,7 +235,7 @@ function extractFSLLinks(html) {
     var quality = "";
     var qm2 = text.match(/(2160|1080|720|480)\s*[pP]/i);
     if (qm2) quality = qm2[1] + "P";
-    streams.push({ url: url, type: type, quality: quality });
+    streams.push({ url: url, type: type, quality: quality, rawText: text });
   }
   return streams;
 }
@@ -299,39 +299,67 @@ function extractSeasonLinks(html) {
   return seasons;
 }
 
-function getProviderEmoji(serverType) {
-  var sLower = String(serverType).toLowerCase();
-  if (sLower.includes("fslv2")) return "🪐";
-  if (sLower.includes("fsl")) return "🌀";
-  if (sLower.includes("worker")) return "🎯";
-  return "🌍";
-}
-
-function buildDropdownMetadata(tmdbInfo, qualityLabel, sizeLabel, isTV, season, episode, serverType) {
+function buildDropdownMetadata(tmdbInfo, qualityLabel, sizeLabel, isTV, season, episode, serverType, targetStr) {
   var title = (isTV ? tmdbInfo.name : tmdbInfo.title) || "Unknown Title";
   var releaseYear = isTV ? (tmdbInfo.first_air_date || "").split("-")[0] : (tmdbInfo.release_date || "").split("-")[0];
   var yearStr = releaseYear ? " (" + releaseYear + ")" : "";
+  var searchPool = String(targetStr).toLowerCase();
 
-  // Line 1: Movie/Series context indicators matching GoatAPI specification rules
-  var line1 = "🎬 " + title + yearStr;
+  // Subheading Line 1
+  var line1 = "🍿 " + title + " - " + yearStr;
   if (isTV && season && episode) {
     line1 += " | S" + season + "E" + episode;
   }
 
-  // Line 2: Spatial property indicators and resolution configurations
-  var normalizedQuality = String(qualityLabel).toUpperCase().trim();
-  var qIcon = (normalizedQuality.includes("2160") || normalizedQuality.includes("4K")) ? "🌟" : "💎";
+  // Subheading Line 2
+  var normQual = String(qualityLabel).toLowerCase().replace(/p/g, "") + "p";
+  var qIcon = "💎";
+  if (normQual.includes("2160") || normQual.includes("4k")) qIcon = "🌟";
+  else if (normQual.includes("1080")) qIcon = "🔥";
+  
+  var langStr = "Hindi / English"; 
+  if (searchPool.includes("multi")) langStr = "Multi-Audio";
+  else if (searchPool.includes("dual")) langStr = "Dual-Audio";
+
   var sizeStr = sizeLabel ? sizeLabel.trim() : "Variable Size";
-  var line2 = qIcon + " " + normalizedQuality + " | 🌍 Hindi / English | 💾 " + sizeStr;
+  var line2 = qIcon + " " + normQual.toUpperCase() + " | 🔈 " + langStr + " | 💾 " + sizeStr;
 
-  // Line 3: System containers, play durations, and video compression specifications
-  var runtimeStr = tmdbInfo.runtime ? tmdbInfo.runtime + " min" : (isTV ? "45 min" : "90 min");
-  var line3 = "🎞️ MKV | ⏱️ " + runtimeStr + " | 📼 x264";
+  // Subheading Line 3
+  var formatVal = "MKV";
+  var codecVal = "🎥 H.264";
+  if (searchPool.includes("hevc") || searchPool.includes("x265") || searchPool.includes("h265")) {
+    codecVal = searchPool.includes("hevc") ? "⚡ HEVC" : "🎥 H.265";
+  } else if (searchPool.includes("x264")) {
+    codecVal = "🎥 H.264";
+  }
 
-  // Line 4: Specific release tags and sound routing maps
-  var line4 = "🏷️ " + PROVIDER_NAME + " | 🔊 DD5.1";
+  var hdrVal = "";
+  if (searchPool.includes("hdr10+")) hdrVal = " | 🌈 HDR10+";
+  else if (searchPool.includes("hdr")) hdrVal = " | 🌈 HDR";
 
-  return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4;
+  var sourceVal = "";
+  if (searchPool.includes("web-dl") || searchPool.includes("webdl")) sourceVal = " | 📥 WEB-DL";
+  else if (searchPool.includes("web-rip") || searchPool.includes("webrip")) sourceVal = " | 🌐 WEB-Rip";
+  else if (searchPool.includes("hd-rip") || searchPool.includes("hdrip")) sourceVal = " | 📺 HD-Rip";
+  else if (searchPool.includes("bluray")) sourceVal = " | 💿 BluRay";
+
+  var line3 = "🎞️ " + formatVal + hdrVal + " | " + codecVal + sourceVal;
+
+  // Subheading Line 4
+  var audioCodec = "🎧 AAC";
+  if (searchPool.includes("ddp5.1") || searchPool.includes("ddp 5.1") || searchPool.includes("atmos")) audioCodec = "🎧 DDP 5.1";
+  else if (searchPool.includes("truehd")) audioCodec = "🎧 TrueHD";
+  
+  var audioProfile = "";
+  if (searchPool.includes("atmos")) audioProfile = " | 🔊 Dolby Atmos";
+  else if (searchPool.includes("dv") || searchPool.includes("dolby vision")) audioProfile = " | ♾ Dolby Vision";
+  
+  var line4 = audioCodec + audioProfile;
+
+  // Subheading Line 5
+  var line5 = "🔗 " + serverType;
+
+  return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -431,11 +459,16 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           var fl = tvResults[ri][si];
           
           var normQual = (fl.quality || "1080p").toLowerCase().replace(/p/g, "") + "p";
-          var pEmoji = getProviderEmoji(fl.type);
-          var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, "", true, parsedSeason, fl.episode, fl.type);
+          var rawPool = fl.rawText || matched.title || "";
+          
+          var langLabel = "Original-Audio";
+          if (rawPool.toLowerCase().includes("multi")) langLabel = "Multi-Audio";
+          else if (rawPool.toLowerCase().includes("dual")) langLabel = "Dual-Audio";
+
+          var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, "", true, parsedSeason, fl.episode, fl.type, rawPool);
 
           allStreams.push({
-            name: "🪨 " + PROVIDER_NAME + " | " + normQual + " | " + pEmoji + " [" + fl.type + "]",
+            name: PROVIDER_NAME + " | " + normQual.toUpperCase() + " | " + langLabel,
             title: dropdownTitle,
             size: dropdownTitle,
             description: dropdownTitle,
@@ -485,11 +518,16 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           var size = qOpt.size || "";
 
           var normQual = String(q).toLowerCase().replace(/p/g, "") + "p";
-          var pEmoji = getProviderEmoji(fl2.type);
-          var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, size, false, null, null, fl2.type);
+          var rawPool = fl2.rawText || matched.title || "";
+
+          var langLabel = "Original-Audio";
+          if (rawPool.toLowerCase().includes("multi")) langLabel = "Multi-Audio";
+          else if (rawPool.toLowerCase().includes("dual")) langLabel = "Dual-Audio";
+
+          var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, size, false, null, null, fl2.type, rawPool);
 
           allStreams.push({
-            name: "🪨 " + PROVIDER_NAME + " | " + normQual + " | " + pEmoji + " [" + fl2.type + "]",
+            name: PROVIDER_NAME + " | " + normQual.toUpperCase() + " | " + langLabel,
             title: dropdownTitle,
             size: dropdownTitle,
             description: dropdownTitle,

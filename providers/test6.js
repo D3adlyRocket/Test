@@ -299,11 +299,15 @@ function extractSeasonLinks(html) {
   return seasons;
 }
 
-function buildDropdownMetadata(tmdbInfo, qualityLabel, sizeLabel, isTV, season, episode, serverType, targetStr) {
+function buildDropdownMetadata(tmdbInfo, qualityLabel, sizeLabel, isTV, season, episode, serverType, targetStr, finalUrl) {
   var title = (isTV ? tmdbInfo.name : tmdbInfo.title) || "Unknown Title";
   var releaseYear = isTV ? (tmdbInfo.first_air_date || "").split("-")[0] : (tmdbInfo.release_date || "").split("-")[0];
   var yearStr = releaseYear ? " (" + releaseYear + ")" : "";
-  var searchPool = String(targetStr).toLowerCase();
+  
+  // Create a combined parsing pool consisting of raw text, title, and the fully unescaped download URL path
+  var unescapedUrl = "";
+  try { if (finalUrl) unescapedUrl = decodeURIComponent(finalUrl); } catch(e) { unescapedUrl = finalUrl || ""; }
+  var searchPool = (String(targetStr) + " " + unescapedUrl).toLowerCase();
 
   // Subheading Line 1
   var line1 = "🍿 " + title + " - " + yearStr;
@@ -313,6 +317,10 @@ function buildDropdownMetadata(tmdbInfo, qualityLabel, sizeLabel, isTV, season, 
 
   // Subheading Line 2
   var normQual = String(qualityLabel).toLowerCase().replace(/p/g, "") + "p";
+  if (searchPool.includes("2160p") || searchPool.includes("4k")) normQual = "2160p";
+  else if (searchPool.includes("1080p")) normQual = "1080p";
+  else if (searchPool.includes("720p")) normQual = "720p";
+
   var qIcon = "💎";
   if (normQual.includes("2160") || normQual.includes("4k")) qIcon = "🌟";
   else if (normQual.includes("1080")) qIcon = "🔥";
@@ -336,6 +344,7 @@ function buildDropdownMetadata(tmdbInfo, qualityLabel, sizeLabel, isTV, season, 
   var hdrVal = "";
   if (searchPool.includes("hdr10+")) hdrVal = " | 🌈 HDR10+";
   else if (searchPool.includes("hdr")) hdrVal = " | 🌈 HDR";
+  else if (searchPool.includes("sdr")) hdrVal = " | 🌈 SDR";
 
   var sourceVal = "";
   if (searchPool.includes("web-dl") || searchPool.includes("webdl")) sourceVal = " | 📥 WEB-DL";
@@ -461,11 +470,19 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           var normQual = (fl.quality || "1080p").toLowerCase().replace(/p/g, "") + "p";
           var rawPool = fl.rawText || matched.title || "";
           
-          var langLabel = "Original-Audio";
-          if (rawPool.toLowerCase().includes("multi")) langLabel = "Multi-Audio";
-          else if (rawPool.toLowerCase().includes("dual")) langLabel = "Dual-Audio";
+          var unescapedUrl = "";
+          try { if (fl.url) unescapedUrl = decodeURIComponent(fl.url); } catch(e) {}
+          var checkString = (rawPool + " " + unescapedUrl).toLowerCase();
 
-          var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, "", true, parsedSeason, fl.episode, fl.type, rawPool);
+          if (checkString.includes("2160p") || checkString.includes("4k")) normQual = "2160p";
+          else if (checkString.includes("1080p")) normQual = "1080p";
+          else if (checkString.includes("720p")) normQual = "720p";
+
+          var langLabel = "Original-Audio";
+          if (checkString.includes("multi")) langLabel = "Multi-Audio";
+          else if (checkString.includes("dual")) langLabel = "Dual-Audio";
+
+          var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, "", true, parsedSeason, fl.episode, fl.type, rawPool, fl.url);
 
           allStreams.push({
             name: PROVIDER_NAME + " | " + normQual.toUpperCase() + " | " + langLabel,
@@ -519,12 +536,20 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
           var normQual = String(q).toLowerCase().replace(/p/g, "") + "p";
           var rawPool = fl2.rawText || matched.title || "";
+          
+          var unescapedUrl = "";
+          try { if (fl2.url) unescapedUrl = decodeURIComponent(fl2.url); } catch(e) {}
+          var checkString = (rawPool + " " + unescapedUrl).toLowerCase();
+
+          if (checkString.includes("2160p") || checkString.includes("4k")) normQual = "2160p";
+          else if (checkString.includes("1080p")) normQual = "1080p";
+          else if (checkString.includes("720p")) normQual = "720p";
 
           var langLabel = "Original-Audio";
-          if (rawPool.toLowerCase().includes("multi")) langLabel = "Multi-Audio";
-          else if (rawPool.toLowerCase().includes("dual")) langLabel = "Dual-Audio";
+          if (checkString.includes("multi")) langLabel = "Multi-Audio";
+          else if (checkString.includes("dual")) langLabel = "Dual-Audio";
 
-          var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, size, false, null, null, fl2.type, rawPool);
+          var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, size, false, null, null, fl2.type, rawPool, fl2.url);
 
           allStreams.push({
             name: PROVIDER_NAME + " | " + normQual.toUpperCase() + " | " + langLabel,

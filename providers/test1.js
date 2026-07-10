@@ -61,9 +61,15 @@ async function fetchJson(url, opts) {
 
 function parseQuality(label) {
   const m = label.match(/(2160|1080|720|480)\s*P/i);
-  if (m) return `${m[1]}P`;
-  if (/4K|UHD/i.test(label)) return "2160P";
+  if (m) return `${m[1]}p`;
+  if (/4K|UHD/i.test(label)) return "2160p";
   return "HD";
+}
+
+function parseSize(text) {
+  if (!text) return "Unknown Size";
+  const m = text.match(/(\d+(?:\.\d+)?\s*(?:GB|MB|gb|mb))/);
+  return m ? m[1].toUpperCase() : "Unknown Size";
 }
 
 function siteTitle(html) {
@@ -108,10 +114,13 @@ function buildDropdownMetadata(tmdbData, qualityLabel, isTv, season, episode, se
   else if (normQual.includes("1080")) qIcon = "🔥";
   
   let langStr = "Original-Audio"; 
-  if (searchPool.includes("multi")) langStr = "Multi-Audio";
-  else if (searchPool.includes("dual")) langStr = "Dual-Audio";
+  const multiAudioKeywords = ["multi", "dual", "hindi", "tamil", "telugu", "bengali", "malayalam", "kannada", "marathi", "punjabi"];
+  if (multiAudioKeywords.some(keyword => searchPool.includes(keyword))) {
+    langStr = "Multi-Audio";
+  }
 
-  const line2 = `${qIcon} ${normQual.toUpperCase()} | 🌍 ${langStr} | 💾 Variable Size`;
+  const parsedSize = parseSize(labelText);
+  const line2 = `${qIcon} ${normQual} | 🌍 ${langStr} | 💾 ${parsedSize}`;
 
   // Subheading Line 3
   const formatVal = targetUrl.includes(".mp4") ? "MP4" : "MKV";
@@ -153,14 +162,18 @@ function buildDropdownMetadata(tmdbData, qualityLabel, isTv, season, episode, se
 }
 
 function makeStream(tmdbData, name, q, server, url, isTv, season, episode) {
-  const metadata = buildDropdownMetadata(tmdbData, q, isTv, season, episode, server, name, url);
+  const cleanQ = q.toLowerCase();
+  const metadata = buildDropdownMetadata(tmdbData, cleanQ, isTv, season, episode, server, name, url);
   
   let displayLang = "Original-Audio";
-  if (name.toLowerCase().includes("multi") || url.toLowerCase().includes("multi")) displayLang = "Multi-Audio";
-  else if (name.toLowerCase().includes("dual") || url.toLowerCase().includes("dual")) displayLang = "Dual-Audio";
+  const searchPool = `${name} ${url}`.toLowerCase();
+  const multiAudioKeywords = ["multi", "dual", "hindi", "tamil", "telugu", "bengali", "malayalam", "kannada", "marathi", "punjabi"];
+  if (multiAudioKeywords.some(keyword => searchPool.includes(keyword))) {
+    displayLang = "Multi-Audio";
+  }
 
   return {
-    name: `${PROVIDER_NAME} | ${q.toUpperCase()} | ${displayLang}`,
+    name: `${PROVIDER_NAME} | ${cleanQ} | ${displayLang}`,
     title: metadata,
     size: metadata,
     description: metadata,
@@ -200,7 +213,7 @@ async function serverHandler(id, server) {
 async function processFile(tmdbData, id, label, quality, isTv, season, episode) {
   const q = quality || parseQuality(label);
   const streams = [];
-  if (q === "480P") return streams;
+  if (q.toUpperCase() === "480P") return streams;
 
   const [hcUrl, workerUrl] = await Promise.all([
     serverHandler(id, "hubcloud"),
@@ -214,7 +227,7 @@ async function processFile(tmdbData, id, label, quality, isTv, season, episode) 
     if (hcHtml) {
       const rawTitle = (hcHtml.match(/<title>(.*?)<\/title>/i) || [])[1] || "";
       const cleanTitle = cleanHubTitle(rawTitle);
-      displayName = cleanTitle || label;
+      displayName = cleanTitle ? `${cleanTitle} ${parseSize(label)}` : label;
 
       const gamer = hcHtml.match(/href="(https:\/\/gamerxyt\.com[^"]+)"/i);
       if (gamer) {
@@ -240,7 +253,7 @@ async function processFile(tmdbData, id, label, quality, isTv, season, episode) 
             if (!/cdn\.fsl-buckets\.life|r2\.cloudflarestorage|r2\.dev|workers\.dev|hub\.(latent|whistle)/i.test(url)) continue;
             const type = /workers\.dev/i.test(url) ? "Worker" : "FSLv2";
             const qm = text.match(/(2160|1080|720|480)\s*[pP]/i);
-            links.push({ url, type, quality: qm ? qm[1] + "P" : "" });
+            links.push({ url, type, quality: qm ? qm[1] + "p" : "" });
           }
           for (const l of links) streams.push(makeStream(tmdbData, displayName, l.quality || q, l.type, l.url, isTv, season, episode));
         }
@@ -316,7 +329,7 @@ async function getGemmaStreams(tmdbData, imdbId, isTv, season, episode, title) {
         const langLabel = lang.title ? ` | ${lang.title}` : "";
         
         streams.push({
-          name: `${PROVIDER_NAME} | HD | Gemma${langLabel}`,
+          name: `${PROVIDER_NAME} | hd | Gemma${langLabel}`,
           title: metadata,
           size: metadata,
           description: metadata,
@@ -352,6 +365,7 @@ async function scrapeZinkCloud(tmdbData, title, year, isTv, season, episode) {
     if (isTv) {
       let selectedTpiUrl = null;
       let selectedQuality = "";
+      let selectedLabel = "";
 
       const parts = postHtml.split('<div class="seriecontainer">');
       for (let pi = 1; pi < parts.length; pi++) {
@@ -368,13 +382,14 @@ async function scrapeZinkCloud(tmdbData, title, year, isTv, season, episode) {
         while ((bm = btnRx.exec(container)) !== null) {
           const label = bm[2].replace(/<[^>]+>/g, "").trim();
           const q = parseQuality(label);
-          if (q !== "480P") qLinks.push({ tpiUrl: bm[1], quality: q, label });
+          if (q.toUpperCase() !== "480P") qLinks.push({ tpiUrl: bm[1], quality: q, label });
         }
 
         qLinks.sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0));
         if (qLinks.length) {
           selectedTpiUrl = qLinks[0].tpiUrl;
           selectedQuality = qLinks[0].quality;
+          selectedLabel = qLinks[0].label;
         }
         break;
       }
@@ -391,7 +406,7 @@ async function scrapeZinkCloud(tmdbData, title, year, isTv, season, episode) {
               if (label.toLowerCase().includes("all episodes")) continue;
               const epNum = label.match(/(?:EPISODE|EP|E)\s*[-_]?\s*0?(\d+)/i);
               if (epNum && parseInt(epNum[1]) === episode) {
-                targets.push({ id: m[2], label, quality: selectedQuality });
+                targets.push({ id: m[2], label: `${label} ${selectedLabel}`, quality: selectedQuality });
               }
             }
             const nested = await Promise.all(targets.map(t => processFile(tmdbData, t.id, t.label, t.quality, true, season, episode)));

@@ -1,9 +1,43 @@
-// Dahmer Movies Scraper - Format Column Added (MKV/MP4/M3U8)
+// Dahmer Movies Scraper - Format Column & Fallback Endpoints Added
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 const DAHMER_MOVIES_API = 'https://a.111477.xyz';
 const DAHMER_WORKER_API = 'https://p.111477.xyz/bulk?u=';
+const DAHMER_ENDPOINTS = [
+  "https://tight-frog-63c3.xn1nazihva.workers.dev/config/aHR0cHM6Ly9hLjExMTQ3Ny54eXovOjpzb3J0PWZpbGUtZGVzYzo6dG1kYj02ZTZhYjcwMGI2NDc3MTcxZWU2YzIzZDUwNGIxZTljYjo6bmFtZT1FY2xpcHNpYQ",
+  "https://cool-darkness-71f0.heved.workers.dev/config/aHR0cHM6Ly9hLjExMTQ3Ny54eXovOjpzb3J0PWZpbGUtZGVzYzo6dG1kYj02ZTZhYjcwMGI2NDc3MTcxZWU2YzIzZDUwNGIxZTljYjo6bmFtZT1FY2xpcHNpYQ"
+];
+
+// Helper to make requests with automatic endpoint fallback
+async function makeScraperRequest(path, customHeaders = {}) {
+    // Generate an execution queue: standard API first, followed by alternates
+    const endpointsToTry = [DAHMER_MOVIES_API, ...HEXION_ENDPOINTS];
+    
+    for (const baseEndpoint of endpointsToTry) {
+        try {
+            // Build final URL depending on whether the base is a root domain or a routing worker parameter
+            const fullUrl = baseEndpoint.includes('/config/') 
+                ? `${baseEndpoint}${path}` 
+                : `${baseEndpoint}${path}`;
+
+            const response = await fetch(fullUrl, {
+                headers: { 
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                    'Referer': DAHMER_MOVIES_API + '/',
+                    ...customHeaders
+                }
+            });
+            
+            if (response.ok) {
+                return { ok: true, text: await response.text(), activeEndpoint: baseEndpoint };
+            }
+        } catch (e) {
+            console.log(`[DahmerMovies] Endpoint failed: ${baseEndpoint}. Trying next fallback...`);
+        }
+    }
+    return { ok: false, text: '', activeEndpoint: '' };
+}
 
 async function makeRequest(url) {
     try {
@@ -38,18 +72,15 @@ function parseLinks(html) {
     return links;
 }
 
-// Advanced properties analyzer parser parsing from raw filename context
 function parseFileInfo(filename) {
   var text = String(filename || '').toUpperCase();
   
-  // 1. Source type identification
   var source = 'Unknown Source';
   if (/\bBLURAY\b|\bBLU-RAY\b|\bBDREMUX\b/i.test(text)) source = 'BluRay';
   else if (/\bWEB-DL\b|\bWEBDL\b|\bWEB\b/i.test(text)) source = 'WEB-DL';
   else if (/\bHDTV\b/i.test(text)) source = 'HDTV';
   else if (/\bCAM\b|\bCAMRIP\b/i.test(text)) source = 'CAM';
 
-  // 2. Video Encoding parameters
   var videoCodec = 'Unknown Video';
   if (/\bH\.?265\b|\bX265\b|\bHEVC\b/i.test(text)) {
     videoCodec = 'H265';
@@ -62,7 +93,6 @@ function parseFileInfo(filename) {
     videoCodec = 'AV1';
   }
 
-  // 3. Audio format profile attributes
   var audioCodec = 'AAC'; 
   if (/\bTRUEHD\b/i.test(text)) audioCodec = 'TrueHD';
   else if (/\bATMOS\b/i.test(text)) audioCodec = 'Atmos';
@@ -70,7 +100,6 @@ function parseFileInfo(filename) {
   else if (/\bDD\b|\bAC3\b/i.test(text)) audioCodec = 'DD';
   else if (/\bDTS\b/i.test(text)) audioCodec = 'DTS';
 
-  // 4. Surround audio layout configurations
   var audioChannels = '';
   if (/\b7\.1\b/.test(text)) audioChannels = '7.1';
   else if (/\b5\.1\b/.test(text)) audioChannels = '5.1';
@@ -83,7 +112,6 @@ function parseFileInfo(filename) {
   };
 }
 
-// Fixed multi-line UI compositor running up to 4 sequential rows
 function buildTitle(meta, res, lang, format, size, filename) {
   var qIcon = (res.includes('4K') || res.includes('2160')) ? '🌟' : '💎';
   var parsed = parseFileInfo(filename);
@@ -95,9 +123,8 @@ function buildTitle(meta, res, lang, format, size, filename) {
 
   return line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
 }
+
 async function invokeDahmerMovies(title, year, season = null, episode = null, mediaType = 'movie', tmdbData = {}) {
-    
-    // Generates a clean baseline text without punctuation blockers like colons or apostrophes
     const cleanTitle = title.replace(/[:']/g, ''); 
     const encodedTitle = encodeURIComponent(cleanTitle);
     const encodedRawTitle = encodeURIComponent(title);
@@ -107,14 +134,12 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     if (mediaType === 'tv' && season !== null) {
         const padSeason = season < 10 ? '0' + season : season;
         folderVariants = [
-            // Matches titles with or without apostrophes (e.g., Marvels Daredevil vs Marvel's Daredevil)
             `/tvs/${encodedTitle}/Season%20${padSeason}/`,
             `/tvs/${encodedTitle}/Season%20${season}/`,
             `/tvs/${encodedRawTitle}/Season%20${padSeason}/`,
             `/tvs/${encodedRawTitle}/Season%20${season}/`
         ];
     } else {
-        // Fallbacks for movies that omit or include years in the directory name
         folderVariants = [
             `/movies/${encodeURIComponent(cleanTitle + ' (' + year + ')')}/`,
             `/movies/${encodeURIComponent(title + ' (' + year + ')')}/`,
@@ -127,11 +152,12 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     let activeDirUrl = '';
 
     for (const path of folderVariants) {
-        const fullDirUrl = DAHMER_MOVIES_API + path;
-        const response = await makeRequest(fullDirUrl);
-        if (response.ok) {
-            html = await response.text();
-            activeDirUrl = fullDirUrl;
+        // Use the new dynamic helper which tests main + alternate endpoints automatically
+        const result = await makeScraperRequest(path);
+        if (result.ok) {
+            html = result.text;
+            // Capture which server/worker processed it so file URLs route correctly
+            activeDirUrl = result.activeEndpoint + path;
             break; 
         }
     }
@@ -139,22 +165,19 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     if (!html) return [];
     let paths = parseLinks(html);
 
-// Filter exact episode for TV shows
-if (mediaType === 'tv' && season !== null && episode !== null) {
-    const seasonSlug = String(season).padStart(2, '0');
-    const episodeSlug = String(episode).padStart(2, '0');
+    if (mediaType === 'tv' && season !== null && episode !== null) {
+        const seasonSlug = String(season).padStart(2, '0');
+        const episodeSlug = String(episode).padStart(2, '0');
 
-    paths = paths.filter(path => {
-        const file = path.text;
-
-        return (
-            new RegExp(`S${seasonSlug}E${episodeSlug}`, 'i').test(file) ||
-
-            // Also allow S1E1 style
-            new RegExp(`S${season}E${episode}`, 'i').test(file)
-        );
-    });
-}
+        paths = paths.filter(path => {
+            const file = path.text;
+            return (
+                new RegExp(`S${seasonSlug}E${episodeSlug}`, 'i').test(file) ||
+                new RegExp(`S${season}E${episode}`, 'i').test(file)
+            );
+        });
+    }
+    
     const sortedPaths = paths.sort((a, b) => {
         const a4k = /2160p|4k/i.test(a.text);
         const b4k = /2160p|4k/i.test(b.text);
@@ -162,11 +185,12 @@ if (mediaType === 'tv' && season !== null && episode !== null) {
     });
 
     const results = [];
-    for (const path of sortedPaths.slice(0, 5)) {
+    for (const path of sortedPaths.slice(0, 10)) {
         let directUrl;
         if (path.href.startsWith('http')) {
             directUrl = path.href;
         } else if (path.href.includes('/movies/') || path.href.includes('/tvs/')) {
+            // Keep original absolute schema extraction targeting the standard api
             directUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
         } else {
             directUrl = activeDirUrl + path.href;
@@ -178,7 +202,6 @@ if (mediaType === 'tv' && season !== null && episode !== null) {
 
         const fileName = path.text;
         
-        // 1. Language Logic
         let language = "Original"; 
         const isMulti = /\b(HIN|TAM|TEL|Multi|Dual|DUB|Multi-Audio|MULTI)\b/i.test(fileName);
         const hasEngTag = /\b(Eng|English)\b/i.test(fileName);
@@ -187,40 +210,31 @@ if (mediaType === 'tv' && season !== null && episode !== null) {
         if (isMulti) language = "Multi Audio";
         else if (isEnglishTitle && hasEngTag) language = "English";
 
-        // 2. Format Logic (New Column)
         const formatMatch = fileName.match(/\.(mkv|mp4|m3u8|avi|webm)$/i);
         const fileFormat = formatMatch ? formatMatch[1].toUpperCase() : 'LINK';
 
-        // 3. Technical Info
         const resolution = fileName.match(/\b(2160p|1080p|720p|4k)\b/i)?.[0] || '1080p';
         const fileSize = path.size !== 'N/A' ? path.size : 'N/A';
-        
-        let info = fileName
-            .replace(/\.(mkv|mp4|avi|webm|m3u8)$/i, '')
-            .replace(/[\[\]()._-]/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
 
-        // Creates the layout metadata details
-const displayTitle = mediaType === 'tv'
-    ? title + ` S${season < 10 ? '0' + season : season}E${episode < 10 ? '0' + episode : episode}`
-    : title;
+        const displayTitle = mediaType === 'tv'
+            ? title + ` S${season < 10 ? '0' + season : season}E${episode < 10 ? '0' + episode : episode}`
+            : title;
 
-const runtime = mediaType === 'tv'
-    ? (
-        tmdbData?.episode_run_time?.find(v => v > 0) || 
-        tmdbData?.runtime || 
-        tmdbData?.last_episode_to_air?.runtime ||
-        tmdbData?.next_episode_to_air?.runtime ||
-        45
-    )
-    : (tmdbData?.runtime || 90);
+        const runtime = mediaType === 'tv'
+            ? (
+                tmdbData?.episode_run_time?.find(v => v > 0) || 
+                tmdbData?.runtime || 
+                tmdbData?.last_episode_to_air?.runtime ||
+                tmdbData?.next_episode_to_air?.runtime ||
+                45
+              )
+            : (tmdbData?.runtime || 90);
 
-const metaPayload = {
-    name: displayTitle,
-    year: year,
-    duration: runtime + ' min'
-};
+        const metaPayload = {
+            name: displayTitle,
+            year: year,
+            duration: runtime + ' min'
+        };
 
         const generatedTitle = buildTitle(
             metaPayload,
@@ -258,14 +272,7 @@ async function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episode
         const title = mediaType === 'tv' ? data.name : data.title;
         const year = (mediaType === 'tv' ? data.first_air_date : data.release_date)?.substring(0, 4);
         if (!title) return [];
-        return await invokeDahmerMovies(
-    title,
-    year,
-    seasonNum,
-    episodeNum,
-    type,
-    data
-);
+        return await invokeDahmerMovies(title, year, seasonNum, episodeNum, type, data);
     } catch (e) { return []; }
 }
 

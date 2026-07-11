@@ -11,15 +11,12 @@ const DAHMER_ENDPOINTS = [
 
 // Helper to make requests with automatic endpoint fallback
 async function makeScraperRequest(path, customHeaders = {}) {
-    // Generate an execution queue: standard API first, followed by alternates
-    const endpointsToTry = [DAHMER_MOVIES_API, ...HEXION_ENDPOINTS];
+    // FIXED: Corrected reference to use DAHMER_ENDPOINTS instead of HEXION_ENDPOINTS
+    const endpointsToTry = [DAHMER_MOVIES_API, ...DAHMER_ENDPOINTS];
     
     for (const baseEndpoint of endpointsToTry) {
         try {
-            // Build final URL depending on whether the base is a root domain or a routing worker parameter
-            const fullUrl = baseEndpoint.includes('/config/') 
-                ? `${baseEndpoint}${path}` 
-                : `${baseEndpoint}${path}`;
+            const fullUrl = `${baseEndpoint}${path}`;
 
             const response = await fetch(fullUrl, {
                 headers: { 
@@ -152,11 +149,9 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
     let activeDirUrl = '';
 
     for (const path of folderVariants) {
-        // Use the new dynamic helper which tests main + alternate endpoints automatically
         const result = await makeScraperRequest(path);
         if (result.ok) {
             html = result.text;
-            // Capture which server/worker processed it so file URLs route correctly
             activeDirUrl = result.activeEndpoint + path;
             break; 
         }
@@ -190,7 +185,6 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
         if (path.href.startsWith('http')) {
             directUrl = path.href;
         } else if (path.href.includes('/movies/') || path.href.includes('/tvs/')) {
-            // Keep original absolute schema extraction targeting the standard api
             directUrl = DAHMER_MOVIES_API + (path.href.startsWith('/') ? '' : '/') + path.href;
         } else {
             directUrl = activeDirUrl + path.href;

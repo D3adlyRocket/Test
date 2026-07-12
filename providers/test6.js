@@ -1,593 +1,609 @@
-var PROVIDER_NAME = "MoviesHunt";
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var movieshuntBase = "https://movieshunt.run";
-var abhilinksBase = "https://abhilinks.site";
-var currentUA = "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36";
+/**
+ * MovieBox provider for Nuvio
+ * ---------------------------------------------------------------------------
+ * Ported from phisher98's Cloudstream extension (MovieBoxProvider.cs3).
+ * That extension was a compiled plugin (no public .kt source), so this was
+ * built by decompiling the shipped classes.dex with jadx and re-reading the
+ * real string constants (endpoints, header names) straight out of the dex.
+ * Endpoints, header names, and the signing algorithm below are taken
+ * directly from that decompile, not guessed.
+ *
+ * What this talks to is MovieBox's real backend, "aoneroom" / "mbox.in"
+ * (com.community.mbox.in Android app), which requires a signed-request
+ * scheme on every call:
+ *   - x-client-token:  "<timestamp>,<md5(reverse(timestamp))>"
+ *   - x-tr-signature:  "<timestamp>|2|<base64(HMAC-MD5(secret, canonical))>"
+ *   - a short-lived bearer token returned via an "x-user" response header
+ *     on the first authenticated-ish call, cached and reused while valid.
+ *
+ * Nuvio's sandbox does not have Node's `crypto`, so md5 / HMAC-MD5 / base64
+ * are implemented from scratch below (no dependencies).
+ *
+ * IMPORTANT / things you must fill in or verify before relying on this:
+ *  1. TMDB_API_KEY below - Nuvio's getStreams() only gives you a tmdbId, but
+ *     MovieBox's own search only takes a free-text keyword. So we look the
+ *     title/year up on TMDB first, then search MovieBox with that title.
+ *     Put your own (free) TMDB v3 API key in TMDB_API_KEY.
+ *  2. The "fallback detectors" branch in the original loadLinks() (used only
+ *     when playData.streams comes back empty) could not be recovered from
+ *     the decompile - that one method hit a decompiler stack overflow on a
+ *     deeply nested control-flow graph. Everything else below (search,
+ *     get, play-info, signing, token flow) came from readable decompiled
+ *     code or literal strings pulled from the dex. The fallback path is
+ *     stubbed out and clearly marked - streams simply won't include that
+ *     extra fallback source until/unless it's filled in.
+ *  3. Host pool: the app rotates between a few api hosts. Default below
+ *     matches the original provider's default (index 4 of its pool).
+ * ---------------------------------------------------------------------------
+ */
 
-var UAS = [
-  "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
-  "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Mobile Safari/537.36",
-  "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36",
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+// ============================================================================
+// Config - key loaded from local config.js (gitignored, never committed)
+// ============================================================================
+const { TMDB_API_KEY } = require('./config.js');
+
+const HOST_POOL = [
+  'https://api6.aoneroom.com',
+  'https://api5.aoneroom.com',
+  'https://api4.aoneroom.com',
+  'https://api4sg.aoneroom.com',
+  'https://api3.aoneroom.com'
 ];
+const DEFAULT_HOST = HOST_POOL[4]; // matches original provider's default
 
-function log(msg) { console.log("[" + PROVIDER_NAME + "] " + msg); }
+// These two constants are exactly what's in the app: base64 blobs that
+// decode to *another* base64 string, which is the real HMAC key.
+// (double base64 - this is the app's own obfuscation, not mine)
+const SECRET_KEY_DEFAULT_B64 = 'NzZpUmwwN3MweFNOOWpxbUVXQXQ3OUVCSlp1bElRSXNWNjRGWnIyTw==';
+const SECRET_KEY_ALT_B64 = 'WHFuMm5uTzQxL0w5Mm8xaXVYaFNMSFRiWHZZNFo1Wlo2Mm04bVNMQQ==';
 
-function hdrs(extra) {
-  return Object.assign({}, { "User-Agent": currentUA, "Accept-Language": "en-US,en;q=0.9", "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" }, extra || {});
+const APP_UA = 'com.community.mbox.in/50020042 (Linux; U; Android 16; en_IN; sdk_gphone64_x86_64; Build/BP22.250325.006; Cronet/133.0.6876.3)';
+const APP_PACKAGE_NAME = 'com.community.mbox.in';
+const APP_VERSION_NAME = '3.0.03.0529.03';
+const APP_VERSION_CODE = 50020042;
+
+const BRAND_MODELS = {
+  Samsung: ['SM-S918B', 'SM-A528B', 'SM-M336B'],
+  Xiaomi: ['2201117TI', 'M2012K11AI', 'Redmi Note 11'],
+  OnePlus: ['LE2111', 'CPH2449', 'IN2023'],
+  Google: ['Pixel 6', 'Pixel 7', 'Pixel 8'],
+  Realme: ['RMX3085', 'RMX3360', 'RMX3551']
+};
+
+// ============================================================================
+// Module state (persists for the life of the plugin process)
+// ============================================================================
+let cachedBearerToken = null;
+let cachedDeviceId = null;
+
+// ============================================================================
+// Minimal, dependency-free crypto: MD5, HMAC-MD5, base64
+// ============================================================================
+
+// --- base64 (byte array <-> string), no atob/btoa/Buffer assumed ---
+const B64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+function bytesToBase64(bytes) {
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const b0 = bytes[i];
+    const b1 = i + 1 < bytes.length ? bytes[i + 1] : null;
+    const b2 = i + 2 < bytes.length ? bytes[i + 2] : null;
+    const triplet = (b0 << 16) | ((b1 !== null ? b1 : 0) << 8) | (b2 !== null ? b2 : 0);
+    out += B64_CHARS[(triplet >> 18) & 0x3f];
+    out += B64_CHARS[(triplet >> 12) & 0x3f];
+    out += b1 !== null ? B64_CHARS[(triplet >> 6) & 0x3f] : '=';
+    out += b2 !== null ? B64_CHARS[triplet & 0x3f] : '=';
+  }
+  return out;
 }
 
-var FETCH_TIMEOUT = 20000;
-
-function raceTimeout(ms) {
-  return new Promise(function(_, reject) { setTimeout(function() { reject(new Error("Timeout")); }, ms); });
-}
-
-async function fetchText(url, opts) {
-  try {
-    var r = await Promise.race([fetch(url, opts || {}), raceTimeout(FETCH_TIMEOUT)]);
-    if (r && r.ok) return await r.text();
-  } catch (e) {}
-  return null;
-}
-
-async function fetchJson(url, opts) {
-  try {
-    var r = await Promise.race([fetch(url, opts || {}), raceTimeout(FETCH_TIMEOUT)]);
-    if (r && r.ok) return await r.json();
-  } catch (e) {}
-  return null;
-}
-
-async function getTMDBInfo(tmdbId, mediaType) {
-  var type = mediaType === "tv" || mediaType === "series" ? "tv" : "movie";
-  var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY + "&language=en-US";
-  return await fetchJson(url, { headers: { "User-Agent": currentUA } });
-}
-
-function parseSearchResults(html) {
-  var results = [];
-  var entryRe = /<h\d[^>]*class="[^"]*entry-title[^"]*"[^>]*>([\s\S]*?)<\/h\d>/gi;
-  var m;
-  while ((m = entryRe.exec(html)) !== null) {
-    var inner = m[1];
-    var linkMatch = inner.match(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/i);
-    if (linkMatch) {
-      var href = linkMatch[1];
-      if (href.indexOf("http") !== 0) href = movieshuntBase + (href.startsWith("/") ? "" : "/") + href;
-      var text = linkMatch[2].replace(/<[^>]+>/g, "").trim();
-      if (text.length > 5) results.push({ title: text, url: href });
+function base64ToBytes(b64) {
+  const clean = b64.replace(/[^A-Za-z0-9+/]/g, '');
+  const bytes = [];
+  let buffer = 0;
+  let bits = 0;
+  for (let i = 0; i < clean.length; i++) {
+    const val = B64_CHARS.indexOf(clean[i]);
+    if (val === -1) continue;
+    buffer = (buffer << 6) | val;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((buffer >> bits) & 0xff);
     }
   }
-  return results;
+  return bytes;
 }
 
-async function searchSite(query) {
-  var results = [];
-  var queries = [query.replace(/'/g, "").trim()];
-  var cleaned = query.replace(/[^a-zA-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
-  if (cleaned !== queries[0]) queries.push(cleaned);
-  var noYear = cleaned.replace(/\s*\d{4}\s*/g, " ").trim();
-  if (noYear && queries.indexOf(noYear) < 0) queries.push(noYear);
-  var words = cleaned.split(" ").filter(function(w) { return w.length > 2; });
-  while (words.length > 1) {
-    words.pop();
-    var subQ = words.join(" ");
-    if (subQ.length > 3 && queries.indexOf(subQ) < 0) queries.push(subQ);
-  }
-  if (cleaned) {
-    var parts = cleaned.split(" ");
-    if (parts.length > 1) {
-      var lastWords = parts.slice(-Math.min(2, parts.length)).join(" ");
-      if (lastWords.length > 3 && queries.indexOf(lastWords) < 0) queries.push(lastWords);
-      var lastWord = parts[parts.length - 1];
-      if (lastWord.length > 3 && /[a-zA-Z]/.test(lastWord) && queries.indexOf(lastWord) < 0) queries.push(lastWord);
-    }
-  }
-  for (var qi = 0; qi < queries.length; qi++) {
-    var q = queries[qi];
-    if (q.length < 3) continue;
-    var url = movieshuntBase + "/?s=" + encodeURIComponent(q);
-    var html = await fetchText(url, { headers: hdrs() });
-    if (!html) continue;
-    var found = parseSearchResults(html);
-    if (found && found.length) {
-      log("Search '" + q + "' found " + found.length + " results");
-      return found;
-    }
-  }
-  return results;
-}
-
-function matchHits(results, tmdbInfo, isTV) {
-  var title = (isTV ? tmdbInfo.name : tmdbInfo.title) || "";
-  var releaseYear = isTV ? (tmdbInfo.first_air_date || "").split("-")[0] : (tmdbInfo.release_date || "").split("-")[0];
-  var mainLower = title.toLowerCase().replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
-  var fillerRe = /\b(and|&|the|a|an)\b/g;
-  var mainStripped = mainLower.replace(fillerRe, "").replace(/\s+/g, " ").trim();
-  var mainWords = mainLower.split(/\s+/).filter(function(w) { return w.length > 1; });
-  var scored = [];
-  var seen = {};
-  for (var i = 0; i < results.length; i++) {
-    var doc = results[i];
-    var docTitle = doc.title || "";
-    var docUrl = doc.url || "";
-    if (seen[docUrl]) continue;
-    seen[docUrl] = true;
-    var titleLower = docTitle.toLowerCase().replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'");
-    var score = 0;
-    if (titleLower === mainLower) score += 100;
-    else if (titleLower.indexOf(mainLower) >= 0 || mainLower.indexOf(titleLower) >= 0) score += 50;
-    else {
-      var docStripped = titleLower.replace(fillerRe, "").replace(/\s+/g, " ").trim();
-      if (docStripped.indexOf(mainStripped) >= 0 || mainStripped.indexOf(docStripped) >= 0) score += 50;
-      else if (docStripped.replace(/[^a-z0-9\s]/g, "").trim() === mainStripped.replace(/[^a-z0-9\s]/g, "").trim()) score += 60;
-    }
-    if (score === 0 && mainWords.length > 1) {
-      var docWords = titleLower.split(/\s+/).filter(function(w) { return w.length > 1; });
-      var matchCount = 0;
-      for (var wi = 0; wi < mainWords.length; wi++) {
-        for (var wj = 0; wj < docWords.length; wj++) {
-          if (mainWords[wi] === docWords[wj] || docWords[wj].indexOf(mainWords[wi]) === 0 || mainWords[wi].indexOf(docWords[wj]) === 0) {
-            matchCount++;
-            break;
-          }
-        }
-      }
-      if (matchCount >= Math.min(mainWords.length, 3)) score += 50;
-    }
-    if (score >= 50 && releaseYear && docTitle.indexOf(releaseYear) >= 0) score += 10;
-    if (score >= 50) scored.push({ doc: doc, score: score });
-  }
-  scored.sort(function(a, b) { return b.score - a.score; });
-  var result = [];
-  for (var si = 0; si < Math.min(scored.length, 5); si++) result.push(scored[si].doc);
-  return result;
-}
-
-function extractAbhilinksUrl(html) {
-  var m = html.match(/<a[^>]*href="(https:\/\/abhilinks\.(?:life|site)\/[^"]+)"[^>]*class="btn"[^>]*>/i);
-  if (m) return m[1];
-  var m2 = html.match(/<a[^>]*href="(https:\/\/abhilinks\.(?:life|site)\/[^"]+)"[^>]*>/i);
-  if (m2) return m2[1];
-  return null;
-}
-
-function extractQualityOptions(html) {
-  var options = [];
-  var qRe = /(2160|1080|720|480)[pP](?:\s+\w{1,15})?\s*\[([^\]]+)\]/g;
-  var m;
-  while ((m = qRe.exec(html)) !== null) {
-    var quality = m[1] + "P";
-    var size = m[2];
-    if (quality === "480P") continue;
-    var pos = m.index;
-    var ctx = html.substring(Math.max(0, pos - 200), pos + 600);
-    var hubMatch = ctx.match(/href="(https:\/\/hubcloud\.cx\/(?:drive|video)\/[^"]+)"/i);
-    var vcMatch = ctx.match(/href="(https:\/\/href\.li\/\?https:\/\/vcloud\.zip\/[^"]+)"/i);
-    if (hubMatch) options.push({ quality: quality, size: size, type: "hubcloud", url: hubMatch[1] });
-    else if (vcMatch) options.push({ quality: quality, size: size, type: "vcloud", url: vcMatch[1] });
-  }
-  return options;
-}
-
-function extractVcloudUrl(hrefLiUrl) {
-  var m = hrefLiUrl.match(/href\.li\/\?https:\/\/vcloud\.zip\/([^"&?]+)/i);
-  if (m) return "https://vcloud.zip/" + m[1];
-  return null;
-}
-
-async function processHubcloud(hubUrl) {
-  var html = await fetchText(hubUrl, { headers: hdrs({ Referer: abhilinksBase + "/" }) });
-  if (!html) return null;
-  var genMatch = html.match(/href="(https:\/\/gamerxyt\.com\/hubcloud\.php[^"]+)"/i);
-  if (!genMatch) return null;
-  var genUrl = genMatch[1].replace(/&amp;/g, "&");
-  var desktopUA = "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0";
-  var genHtml = await fetchText(genUrl, {
-    headers: {
-      "User-Agent": desktopUA,
-      "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      "Accept-Language": "en-US,en;q=0.5",
-      "Referer": hubUrl,
-      "DNT": "1",
-      "Cookie": "xla=s4t"
-    }
-  });
-  if (!genHtml || genHtml.length < 500) return null;
-  return extractFSLLinks(genHtml);
-}
-
-async function processVcloud(vcUrl) {
-  var html = await fetchText(vcUrl, { headers: hdrs({ Referer: abhilinksBase + "/" }) });
-  if (!html) return null;
-  var b64 = html.match(/atob\s*\(\s*atob\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\)/);
-  if (!b64) return null;
-  var first, tokenUrl;
-  try {
-    first = atob(b64[1]);
-    tokenUrl = atob(first);
-  } catch (e) { return null; }
-  var tokenHtml = await fetchText(tokenUrl, { headers: hdrs({ Referer: movieshuntBase + "/", Cookie: "xla=s4t" }) });
-  if (!tokenHtml) return null;
-  return extractFSLLinks(tokenHtml);
-}
-
-function extractFSLLinks(html) {
-  var streams = [];
-  var anchors = html.match(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi);
-  if (!anchors) return streams;
-  for (var i = 0; i < anchors.length; i++) {
-    var a = anchors[i];
-    var hm = a.match(/href="([^"]+)"/i);
-    var tm = a.match(/>([\s\S]*?)<\/a>/i);
-    if (!hm) continue;
-    var url = hm[1].replace(/&amp;/g, "&");
-    var text = tm ? tm[1].replace(/<[^>]+>/g, "").trim() : "";
-    if (!url || url.indexOf("javascript:") === 0) continue;
-    if (/telegram/i.test(text) || /tg\//i.test(url) || /pixeldrain/i.test(url)) continue;
-    if (/hubcloud\.cx|gpdl2/i.test(url)) continue;
-    var type = "";
-    if (/cdn\.fsl-buckets\.life/i.test(url) || /r2\.cloudflarestorage/i.test(url) || /r2\.dev/i.test(url)) type = "FSLv2";
-    else if (/hub\.(latent|whistle)/i.test(url)) type = "FSL";
-    else if (/workers\.dev/i.test(url)) type = "Worker";
-    else continue;
-    var quality = "";
-    var qm2 = text.match(/(2160|1080|720|480)\s*[pP]/i);
-    if (qm2) quality = qm2[1] + "P";
-    streams.push({ url: url, type: type, quality: quality, rawText: text });
-  }
-  return streams;
-}
-
-function dedupe(arr) {
-  var seen = {};
-  return (arr || []).filter(function(item) {
-    if (!item || !item.url) return false;
-    if (seen[item.url]) return false;
-    seen[item.url] = true;
-    return true;
-  });
-}
-
-function extractEpisodes(html) {
-  var episodes = [];
-  var epRe = /-:\s*Episodes?\s*:\s*(\d+)\s*:-/gi;
-  var parts = [];
-  var m;
-  while ((m = epRe.exec(html)) !== null) parts.push({ num: parseInt(m[1]), idx: m.index });
-  for (var i = 0; i < parts.length; i++) {
-    var start = parts[i].idx;
-    var end = i + 1 < parts.length ? parts[i + 1].idx : html.length;
-    var secHtml = html.substring(start, end);
-    var links = [];
-    var hubRe = /href="(https:\/\/hubcloud\.cx\/(?:drive|video)\/[^"]+)"/gi;
-    var hm;
-    while ((hm = hubRe.exec(secHtml)) !== null) links.push({ type: "hubcloud", url: hm[1] });
-    var vcRe = /href="(https:\/\/href\.li\/\?https:\/\/vcloud\.zip\/[^"]+)"/gi;
-    while ((hm = vcRe.exec(secHtml)) !== null) {
-      var vcUrl = extractVcloudUrl(hm[1]);
-      if (vcUrl) links.push({ type: "vcloud", url: vcUrl });
-    }
-    if (links.length) episodes.push({ number: parts[i].num, links: links });
-  }
-  return episodes;
-}
-
-function extractSeasonLinks(html) {
-  var seasons = {};
-  var h4Re = /<h4[^>]*>([\s\S]*?)<\/h4>/gi;
-  var h4s = [];
-  var m;
-  while ((m = h4Re.exec(html)) !== null) h4s.push({ inner: m[1], start: m.index, end: m.index + m[0].length });
-  for (var i = 0; i < h4s.length; i++) {
-    var h4 = h4s[i];
-    var sMatch = h4.inner.match(/Season\s+(\d+)/i);
-    var qMatch = h4.inner.match(/(\d+p)/i);
-    if (!sMatch || !qMatch) continue;
-    var sNum = parseInt(sMatch[1]);
-    var qual = qMatch[1].toUpperCase();
-    var sectionStart = h4s[i].end;
-    var sectionEnd = i + 1 < h4s.length ? h4s[i + 1].start : html.length;
-    var section = html.substring(sectionStart, sectionEnd);
-    var urlMatch = section.match(/href="(https:\/\/abhilinks\.(?:life|site)\/archives\/\d+)\/?"/i);
-    if (urlMatch) {
-      if (!seasons[sNum]) seasons[sNum] = {};
-      if (!seasons[sNum][qual]) seasons[sNum][qual] = urlMatch[1];
-    }
-  }
-  return seasons;
-}
-
-function buildDropdownMetadata(tmdbInfo, qualityLabel, sizeLabel, isTV, season, episode, serverType, targetStr, finalUrl) {
-  var title = (isTV ? tmdbInfo.name : tmdbInfo.title) || "Unknown Title";
-  var releaseYear = isTV ? (tmdbInfo.first_air_date || "").split("-")[0] : (tmdbInfo.release_date || "").split("-")[0];
-  var yearStr = releaseYear ? " (" + releaseYear + ")" : "";
-  
-  // Create a combined parsing pool consisting of raw text, title, and the fully unescaped download URL path
-  var unescapedUrl = "";
-  try { if (finalUrl) unescapedUrl = decodeURIComponent(finalUrl); } catch(e) { unescapedUrl = finalUrl || ""; }
-  var searchPool = (String(targetStr) + " " + unescapedUrl).toLowerCase();
-
-  // Subheading Line 1
-  var line1 = "🍿 " + title + " - " + yearStr;
-  if (isTV && season && episode) {
-    line1 += " | S" + season + "E" + episode;
-  }
-
-  // Subheading Line 2
-  var normQual = String(qualityLabel).toLowerCase().replace(/p/g, "") + "p";
-  if (searchPool.includes("2160p") || searchPool.includes("4k")) normQual = "2160p";
-  else if (searchPool.includes("1080p")) normQual = "1080p";
-  else if (searchPool.includes("720p")) normQual = "720p";
-
-  var qIcon = "💎";
-  if (normQual.includes("2160") || normQual.includes("4k")) qIcon = "🌟";
-  else if (normQual.includes("1080")) qIcon = "🔥";
-  
-  var langStr = "Hindi / English"; 
-  if (searchPool.includes("multi")) langStr = "Multi-Audio";
-  else if (searchPool.includes("dual")) langStr = "Dual-Audio";
-
-  var sizeStr = sizeLabel ? sizeLabel.trim() : "Variable Size";
-  var line2 = qIcon + " " + normQual.toUpperCase() + " | 🔈 " + langStr + " | 💾 " + sizeStr;
-
-  // Subheading Line 3
-  var formatVal = "MKV";
-  var codecVal = "🎥 H.264";
-  if (searchPool.includes("hevc") || searchPool.includes("x265") || searchPool.includes("h265")) {
-    codecVal = searchPool.includes("hevc") ? "⚡ HEVC" : "🎥 H.265";
-  } else if (searchPool.includes("x264")) {
-    codecVal = "🎥 H.264";
-  }
-
-  var hdrVal = "";
-  if (searchPool.includes("hdr10+")) hdrVal = " | 🌈 HDR10+";
-  else if (searchPool.includes("hdr")) hdrVal = " | 🌈 HDR";
-  else if (searchPool.includes("sdr")) hdrVal = " | 🌈 SDR";
-
-  var sourceVal = "";
-  if (searchPool.includes("web-dl") || searchPool.includes("webdl")) sourceVal = " | 📥 WEB-DL";
-  else if (searchPool.includes("web-rip") || searchPool.includes("webrip")) sourceVal = " | 🌐 WEB-Rip";
-  else if (searchPool.includes("hd-rip") || searchPool.includes("hdrip")) sourceVal = " | 📺 HD-Rip";
-  else if (searchPool.includes("bluray")) sourceVal = " | 💿 BluRay";
-
-  var line3 = "🎞️ " + formatVal + hdrVal + " | " + codecVal + sourceVal;
-
-  // Subheading Line 4
-  var audioCodec = "🎧 AAC";
-  if (searchPool.includes("ddp5.1") || searchPool.includes("ddp 5.1") || searchPool.includes("atmos")) audioCodec = "🎧 DDP 5.1";
-  else if (searchPool.includes("truehd")) audioCodec = "🎧 TrueHD";
-  
-  var audioProfile = "";
-  if (searchPool.includes("atmos")) audioProfile = " | 🔊 Dolby Atmos";
-  else if (searchPool.includes("dv") || searchPool.includes("dolby vision")) audioProfile = " | ♾ Dolby Vision";
-  
-  var line4 = audioCodec + audioProfile;
-
-  // Subheading Line 5
-  var line5 = "🔗 " + serverType;
-
-  return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
-}
-
-async function getStreams(tmdbId, mediaType, season, episode) {
-  currentUA = UAS[Math.floor(Math.random() * UAS.length)];
-  log("getStreams(" + tmdbId + ", " + mediaType + ", " + season + ", " + episode + ")");
-
-  var isTV = mediaType === "tv" || mediaType === "series";
-  var tmdbInfo = await getTMDBInfo(tmdbId, mediaType);
-  if (!tmdbInfo) { log("TMDB fetch failed"); return []; }
-
-  var title = isTV ? tmdbInfo.name : tmdbInfo.title;
-  if (!title) { log("No title from TMDB"); return []; }
-  log("Title: " + title);
-
-  var searchResults = await searchSite(title);
-  if (!searchResults || !searchResults.length) { log("Search failed"); return []; }
-  log("Search results: " + searchResults.length);
-
-  var matches = matchHits(searchResults, tmdbInfo, isTV);
-  if (!matches.length) { log("No match found"); return []; }
-  log("Matches: " + matches.length);
-
-  for (var mi = 0; mi < matches.length; mi++) {
-    var matched = matches[mi];
-    var postUrl = matched.url;
-    log("Trying post: " + postUrl);
-
-    var postHtml = await fetchText(postUrl, { headers: hdrs() });
-    if (!postHtml) continue;
-
-    var allStreams = [];
-
-    if (isTV) {
-      var parsedSeason = season !== undefined && season !== null && season !== "undefined" ? parseInt(season) : null;
-      var parsedEpisode = episode !== undefined && episode !== null && episode !== "undefined" ? parseInt(episode) : null;
-
-      var episodes = [];
-      var seasonAbhiUrls = [];
-
-      if (parsedSeason) {
-        var seasonLinks = extractSeasonLinks(postHtml);
-        if (seasonLinks[parsedSeason]) {
-          var quals = Object.keys(seasonLinks[parsedSeason]).sort(function(a, b) { return parseInt(b) - parseInt(a); });
-          quals.forEach(function(q) { seasonAbhiUrls.push({ quality: q, url: seasonLinks[parsedSeason][q] }); });
-          log("S" + parsedSeason + " qualities: " + quals.join(", "));
-        }
-      }
-
-      if (!seasonAbhiUrls.length) {
-        var fallback = extractAbhilinksUrl(postHtml);
-        if (fallback) seasonAbhiUrls.push({ quality: "", url: fallback });
-      }
-
-      if (!seasonAbhiUrls.length) { log("No abhilinks URLs, trying next match"); continue; }
-
-      var tvTasks = [];
-      for (var qui = 0; qui < seasonAbhiUrls.length; qui++) {
-        var sa = seasonAbhiUrls[qui];
-        log("Fetching " + (sa.quality || "default") + ": " + sa.url);
-        var abhilinksHtml = await fetchText(sa.url, { headers: hdrs() });
-        if (!abhilinksHtml) { log("  fetch failed"); continue; }
-
-        var epList = extractEpisodes(abhilinksHtml);
-        if (!epList.length) { log("  no episodes"); continue; }
-
-        var filtered = epList;
-        if (parsedEpisode) {
-          filtered = epList.filter(function(ep) { return ep.number === parsedEpisode; });
-          if (!filtered.length) { log("  episode " + parsedEpisode + " not found"); continue; }
-        }
-
-        for (var ei = 0; ei < filtered.length; ei++) {
-          var ep = filtered[ei];
-          for (var li = 0; li < ep.links.length; li++) {
-            var link = ep.links[li];
-            tvTasks.push((function(epNum, l, qual) {
-              return async function() {
-                var fslStreams = null;
-                if (l.type === "hubcloud") fslStreams = await processHubcloud(l.url);
-                else if (l.type === "vcloud") fslStreams = await processVcloud(l.url);
-                if (fslStreams) {
-                  fslStreams.forEach(function(s) { s.episode = epNum; s.quality = s.quality || qual; });
-                }
-                return fslStreams;
-              };
-            })(ep.number, link, sa.quality));
-          }
-        }
-      }
-
-      if (!tvTasks.length) { log("No hubcloud/vcloud tasks"); continue; }
-      log("Processing " + tvTasks.length + " hubcloud/vcloud links...");
-      var tvResults = await Promise.all(tvTasks.map(function(t) { return t(); }));
-      for (var ri = 0; ri < tvResults.length; ri++) {
-        if (!tvResults[ri]) continue;
-        for (var si = 0; si < tvResults[ri].length; si++) {
-          var fl = tvResults[ri][si];
-          
-          var normQual = (fl.quality || "1080p").toLowerCase().replace(/p/g, "") + "p";
-          var rawPool = fl.rawText || matched.title || "";
-          
-          var unescapedUrl = "";
-          try { if (fl.url) unescapedUrl = decodeURIComponent(fl.url); } catch(e) {}
-          var checkString = (rawPool + " " + unescapedUrl).toLowerCase();
-
-          if (checkString.includes("2160p") || checkString.includes("4k")) normQual = "2160p";
-          else if (checkString.includes("1080p")) normQual = "1080p";
-          else if (checkString.includes("720p")) normQual = "720p";
-
-          var langLabel = "Original-Audio";
-          if (checkString.includes("multi")) langLabel = "Multi-Audio";
-          else if (checkString.includes("dual")) langLabel = "Dual-Audio";
-
-          var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, "", true, parsedSeason, fl.episode, fl.type, rawPool, fl.url);
-
-          allStreams.push({
-            name: PROVIDER_NAME + " | " + normQual.toUpperCase() + " | " + langLabel,
-            title: dropdownTitle,
-            size: dropdownTitle,
-            description: dropdownTitle,
-            url: fl.url,
-            quality: "", 
-            language: "",
-            headers: { Referer: movieshuntBase + "/", "User-Agent": currentUA },
-            _rawQuality: normQual
-          });
-        }
-      }
+function utf8Bytes(str) {
+  const bytes = [];
+  for (let i = 0; i < str.length; i++) {
+    let code = str.codePointAt(i);
+    if (code > 0xffff) i++; // surrogate pair consumed
+    if (code < 0x80) {
+      bytes.push(code);
+    } else if (code < 0x800) {
+      bytes.push(0xc0 | (code >> 6), 0x80 | (code & 0x3f));
+    } else if (code < 0x10000) {
+      bytes.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f));
     } else {
-      var abhilinksUrl = extractAbhilinksUrl(postHtml);
-      if (!abhilinksUrl) { log("No abhilinks URL, trying next match"); continue; }
-      log("Abhilinks: " + abhilinksUrl);
-
-      var abhilinksHtml = await fetchText(abhilinksUrl, { headers: hdrs() });
-      if (!abhilinksHtml) { log("Abhilinks fetch failed"); continue; }
-
-      var qualityOptions = extractQualityOptions(abhilinksHtml);
-      if (!qualityOptions.length) { log("No quality options found"); continue; }
-      log("Quality options: " + qualityOptions.length);
-
-      var tasks = [];
-      for (var qi = 0; qi < qualityOptions.length; qi++) {
-        var opt = qualityOptions[qi];
-        tasks.push((function(qOpt) {
-          return async function() {
-            if (qOpt.type === "hubcloud") return await processHubcloud(qOpt.url);
-            else if (qOpt.type === "vcloud") {
-              var vcUrl = extractVcloudUrl(qOpt.url);
-              if (!vcUrl) return null;
-              return await processVcloud(vcUrl);
-            }
-            return null;
-          };
-        })(opt));
-      }
-      var results = await Promise.all(tasks.map(function(t) { return t(); }));
-
-      for (var ri2 = 0; ri2 < results.length; ri2++) {
-        if (!results[ri2]) continue;
-        var qOpt = qualityOptions[ri2];
-        for (var si2 = 0; si2 < results[ri2].length; si2++) {
-          var fl2 = results[ri2][si2];
-          var q = fl2.quality || qOpt.quality;
-          var size = qOpt.size || "";
-
-          var normQual = String(q).toLowerCase().replace(/p/g, "") + "p";
-          var rawPool = fl2.rawText || matched.title || "";
-          
-          var unescapedUrl = "";
-          try { if (fl2.url) unescapedUrl = decodeURIComponent(fl2.url); } catch(e) {}
-          var checkString = (rawPool + " " + unescapedUrl).toLowerCase();
-
-          if (checkString.includes("2160p") || checkString.includes("4k")) normQual = "2160p";
-          else if (checkString.includes("1080p")) normQual = "1080p";
-          else if (checkString.includes("720p")) normQual = "720p";
-
-          var langLabel = "Original-Audio";
-          if (checkString.includes("multi")) langLabel = "Multi-Audio";
-          else if (checkString.includes("dual")) langLabel = "Dual-Audio";
-
-          var dropdownTitle = buildDropdownMetadata(tmdbInfo, normQual, size, false, null, null, fl2.type, rawPool, fl2.url);
-
-          allStreams.push({
-            name: PROVIDER_NAME + " | " + normQual.toUpperCase() + " | " + langLabel,
-            title: dropdownTitle,
-            size: dropdownTitle,
-            description: dropdownTitle,
-            url: fl2.url,
-            quality: "", 
-            language: "",
-            headers: { Referer: movieshuntBase + "/", "User-Agent": currentUA },
-            _rawQuality: normQual
-          });
-        }
-      }
+      bytes.push(
+        0xf0 | (code >> 18),
+        0x80 | ((code >> 12) & 0x3f),
+        0x80 | ((code >> 6) & 0x3f),
+        0x80 | (code & 0x3f)
+      );
     }
-
-    allStreams = dedupe(allStreams);
-    allStreams.sort(function(a, b) {
-      var getQualityValue = function(qLabel) {
-        var q = String(qLabel).toLowerCase().replace(/p$/, "");
-        if (q === "2160" || q === "4k") return 2160;
-        if (q === "1080") return 1080;
-        if (q === "720") return 720;
-        if (q === "480") return 480;
-        return 0;
-      };
-      return getQualityValue(b._rawQuality) - getQualityValue(a._rawQuality);
-    });
-
-    if (allStreams.length > 0) {
-      log("Returning " + allStreams.length + " streams from " + postUrl);
-      return allStreams;
-    }
-    log("No streams from this post, trying next match");
   }
-
-  log("No streams from any match");
-  return [];
+  return bytes;
 }
 
-module.exports = { getStreams: getStreams };
+function bytesToHex(bytes) {
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) {
+    out += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16);
+  }
+  return out;
+}
+
+// --- MD5 (standard public-domain style implementation) ---
+function md5(bytesIn) {
+  function rotl(x, c) { return (x << c) | (x >>> (32 - c)); }
+  function addU32(a, b) { return (a + b) >>> 0; }
+
+  const s = [
+    7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22,
+    5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20, 5, 9, 14, 20,
+    4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+    6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21
+  ];
+  const K = new Array(64);
+  for (let i = 0; i < 64; i++) {
+    K[i] = Math.floor(Math.abs(Math.sin(i + 1)) * 4294967296) >>> 0;
+  }
+
+  const msgLenBits = bytesIn.length * 8;
+  const msg = bytesIn.slice();
+  msg.push(0x80);
+  while (msg.length % 64 !== 56) msg.push(0);
+  for (let i = 0; i < 8; i++) {
+    // little-endian 64-bit length (we only ever hit the low 32 bits in practice)
+    if (i < 4) {
+      msg.push((msgLenBits >>> (8 * i)) & 0xff);
+    } else {
+      msg.push(0);
+    }
+  }
+
+  let a0 = 0x67452301, b0 = 0xefcdab89, c0 = 0x98badcfe, d0 = 0x10325476;
+
+  for (let chunkStart = 0; chunkStart < msg.length; chunkStart += 64) {
+    const M = new Array(16);
+    for (let i = 0; i < 16; i++) {
+      const o = chunkStart + i * 4;
+      M[i] = (msg[o]) | (msg[o + 1] << 8) | (msg[o + 2] << 16) | (msg[o + 3] << 24);
+      M[i] = M[i] >>> 0;
+    }
+    let A = a0, B = b0, C = c0, D = d0;
+    for (let i = 0; i < 64; i++) {
+      let F, g;
+      if (i < 16) { F = (B & C) | (~B & D); g = i; }
+      else if (i < 32) { F = (D & B) | (~D & C); g = (5 * i + 1) % 16; }
+      else if (i < 48) { F = B ^ C ^ D; g = (3 * i + 5) % 16; }
+      else { F = C ^ (B | ~D); g = (7 * i) % 16; }
+      F = (F + A + K[i] + M[g]) >>> 0;
+      A = D; D = C; C = B;
+      B = addU32(B, rotl(F, s[i]));
+    }
+    a0 = addU32(a0, A); b0 = addU32(b0, B); c0 = addU32(c0, C); d0 = addU32(d0, D);
+  }
+
+  function u32le(n) {
+    return [n & 0xff, (n >>> 8) & 0xff, (n >>> 16) & 0xff, (n >>> 24) & 0xff];
+  }
+  return [].concat(u32le(a0), u32le(b0), u32le(c0), u32le(d0));
+}
+
+function md5Hex(bytes) {
+  return bytesToHex(md5(bytes));
+}
+
+// --- HMAC-MD5 (generic HMAC construction, block size 64 bytes for MD5) ---
+function hmacMd5(keyBytes, msgBytes) {
+  const blockSize = 64;
+  let key = keyBytes.slice();
+  if (key.length > blockSize) key = md5(key);
+  while (key.length < blockSize) key.push(0);
+
+  const oKeyPad = key.map((b) => b ^ 0x5c);
+  const iKeyPad = key.map((b) => b ^ 0x36);
+
+  const inner = md5(iKeyPad.concat(msgBytes));
+  return md5(oKeyPad.concat(inner));
+}
+
+// ============================================================================
+// Signing scheme (recovered from MovieBoxProvider.kt logic)
+// ============================================================================
+
+function reverseString(str) {
+  return str.split('').reverse().join('');
+}
+
+function generateXClientToken(hardcodedTimestamp) {
+  const timestamp = String(hardcodedTimestamp != null ? hardcodedTimestamp : Date.now());
+  const reversed = reverseString(timestamp);
+  const hash = md5Hex(utf8Bytes(reversed));
+  return timestamp + ',' + hash;
+}
+
+function buildCanonicalString(method, accept, contentType, url, body, timestamp) {
+  const u = new URL(url);
+  const path = u.pathname || '';
+  const paramNames = [];
+  u.searchParams.forEach((_, key) => {
+    if (paramNames.indexOf(key) === -1) paramNames.push(key);
+  });
+  paramNames.sort();
+  const query = paramNames
+    .map((key) => u.searchParams.getAll(key).map((v) => key + '=' + v).join('&'))
+    .join('&');
+  const canonicalUrl = query.length > 0 ? path + '?' + query : path;
+
+  let bodyHash = '';
+  let bodyLength = '';
+  if (body != null) {
+    let bodyBytes = utf8Bytes(body);
+    bodyLength = String(bodyBytes.length);
+    if (bodyBytes.length > 102400) bodyBytes = bodyBytes.slice(0, 102400);
+    bodyHash = md5Hex(bodyBytes);
+  }
+
+  return (
+    method.toUpperCase() + '\n' +
+    (accept || '') + '\n' +
+    (contentType || '') + '\n' +
+    bodyLength + '\n' +
+    timestamp + '\n' +
+    bodyHash + '\n' +
+    canonicalUrl
+  );
+}
+
+function generateXTrSignature(method, accept, contentType, url, body, useAltKey, hardcodedTimestamp) {
+  const timestamp = hardcodedTimestamp != null ? hardcodedTimestamp : Date.now();
+  const canonical = buildCanonicalString(method, accept, contentType, url, body, timestamp);
+
+  // double base64: field value -> base64 decode -> that string is ITSELF base64 -> decode again to raw key bytes
+  const secretB64 = useAltKey ? SECRET_KEY_ALT_B64 : SECRET_KEY_DEFAULT_B64;
+  const secretStr = bytesToUtf8String(base64ToBytes(secretB64));
+  const secretBytes = base64ToBytes(secretStr);
+
+  const sig = hmacMd5(secretBytes, utf8Bytes(canonical));
+  const sigB64 = bytesToBase64(sig);
+  return timestamp + '|2|' + sigB64;
+}
+
+function bytesToUtf8String(bytes) {
+  // decode utf8 byte array back to a JS string (good enough for our ascii-only secrets)
+  let out = '';
+  for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+  return out;
+}
+
+function randomBrandModel() {
+  const brands = Object.keys(BRAND_MODELS);
+  const brand = brands[Math.floor(Math.random() * brands.length)];
+  const models = BRAND_MODELS[brand];
+  const model = models[Math.floor(Math.random() * models.length)];
+  return { brand, model };
+}
+
+function getDeviceId() {
+  if (cachedDeviceId) return cachedDeviceId;
+  let id = '';
+  for (let i = 0; i < 16; i++) {
+    const b = Math.floor(Math.random() * 256);
+    id += (b < 16 ? '0' : '') + b.toString(16);
+  }
+  cachedDeviceId = id;
+  return id;
+}
+
+function buildClientInfoHeader() {
+  const bm = randomBrandModel();
+  return JSON.stringify({
+    package_name: APP_PACKAGE_NAME,
+    version_name: APP_VERSION_NAME,
+    version_code: APP_VERSION_CODE,
+    os: 'android',
+    os_version: '16',
+    device_id: getDeviceId(),
+    install_store: 'ps',
+    gaid: 'd7578036d13336cc', // literal value baked into the original app build
+    brand: bm.brand,
+    model: bm.model,
+    system_language: 'en',
+    net: 'NETWORK_WIFI',
+    region: 'IN',
+    timezone: 'Asia/Calcutta',
+    sp_code: ''
+  });
+}
+
+// ============================================================================
+// Bearer token (returned via "x-user" response header, cached while valid)
+// ============================================================================
+
+function decodeJwtExpiry(token) {
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return 0;
+    let b64 = payload.replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4 !== 0) b64 += '=';
+    const json = bytesToUtf8String(base64ToBytes(b64));
+    return JSON.parse(json).exp || 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+function isTokenValid(token) {
+  if (!token) return false;
+  const exp = decodeJwtExpiry(token);
+  return exp > Math.floor(Date.now() / 1000) + 3600;
+}
+
+function extractTokenFromXUser(xUserHeader) {
+  if (!xUserHeader) return null;
+  try {
+    const parsed = JSON.parse(xUserHeader);
+    return parsed.token || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// GET a cheap endpoint whose response carries "x-user", to mint a bearer token.
+function fetchFreshToken(host) {
+  const url = host + '/wefeed-mobile-bff/tab/ranking-list?tabId=0&categoryType=4516404531735022304&page=1&perPage=1';
+  const xClientToken = generateXClientToken();
+  const xTrSignature = generateXTrSignature('GET', 'application/json', 'application/json', url, null, false);
+  const headers = {
+    'user-agent': APP_UA,
+    accept: 'application/json',
+    'content-type': 'application/json',
+    'x-client-token': xClientToken,
+    'x-tr-signature': xTrSignature,
+    'x-client-info': buildClientInfoHeader(),
+    'x-client-status': '0'
+  };
+  return fetch(url, { method: 'GET', headers })
+    .then((res) => {
+      const xUser = res.headers.get('x-user');
+      const token = extractTokenFromXUser(xUser);
+      if (token && isTokenValid(token)) {
+        cachedBearerToken = token;
+      }
+      return cachedBearerToken || '';
+    })
+    .catch(() => '');
+}
+
+function getCachedToken(host) {
+  if (isTokenValid(cachedBearerToken)) {
+    return Promise.resolve(cachedBearerToken);
+  }
+  return fetchFreshToken(host);
+}
+
+// ============================================================================
+// Title normalization / matching (for picking the right search result)
+// ============================================================================
+
+function cleanTitle(s) {
+  return s
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function tokenScore(a, b) {
+  if (a === b) return 1;
+  const aTokens = new Set(a.split(' ').filter(Boolean));
+  const bTokens = new Set(b.split(' ').filter(Boolean));
+  let overlap = 0;
+  aTokens.forEach((t) => { if (bTokens.has(t)) overlap++; });
+  const union = new Set([...aTokens, ...bTokens]).size || 1;
+  return overlap / union;
+}
+
+// ============================================================================
+// TMDB lookup (Nuvio hands us a tmdbId, MovieBox search wants a keyword)
+// ============================================================================
+
+function fetchTmdbTitle(tmdbId, mediaType) {
+  const path = mediaType === 'tv' ? 'tv' : 'movie';
+  const url = 'https://api.themoviedb.org/3/' + path + '/' + tmdbId + '?api_key=' + TMDB_API_KEY;
+  return fetch(url)
+    .then((res) => res.json())
+    .then((data) => {
+      const title = data.title || data.name || '';
+      const dateStr = data.release_date || data.first_air_date || '';
+      const year = dateStr ? parseInt(dateStr.slice(0, 4), 10) : null;
+      return { title, year };
+    });
+}
+
+// ============================================================================
+// MovieBox API calls
+// ============================================================================
+
+function searchMovieBox(host, keyword, page) {
+  const url = host + '/wefeed-mobile-bff/subject-api/search/v2';
+  const jsonBody = JSON.stringify({ page: page || 1, perPage: 20, keyword: keyword });
+
+  return getCachedToken(host).then((token) => {
+    const xClientToken = generateXClientToken();
+    const xTrSignature = generateXTrSignature('POST', 'application/json', 'application/json; charset=utf-8', url, jsonBody, false);
+    const headers = {
+      'user-agent': APP_UA,
+      accept: 'application/json',
+      'content-type': 'application/json',
+      connection: 'keep-alive',
+      'x-client-token': xClientToken,
+      'x-tr-signature': xTrSignature,
+      'x-client-info': buildClientInfoHeader(),
+      'x-client-status': '0',
+      Authorization: 'Bearer ' + token
+    };
+    return fetch(url, { method: 'POST', headers, body: jsonBody }).then((res) => {
+      const xUser = res.headers.get('x-user');
+      const freshToken = extractTokenFromXUser(xUser);
+      if (freshToken && isTokenValid(freshToken)) cachedBearerToken = freshToken;
+      return res.json();
+    });
+  }).then((root) => {
+    const results = (root && root.data && root.data.results) || [];
+    const subjects = [];
+    results.forEach((r) => {
+      (r.subjects || []).forEach((s) => {
+        subjects.push({
+          title: s.title,
+          subjectId: s.subjectId,
+          cover: s.cover && s.cover.url,
+          subjectType: s.subjectType != null ? s.subjectType : 1 // 1 = movie, else tv
+        });
+      });
+    });
+    return subjects;
+  });
+}
+
+function getSubjectDetail(host, subjectId) {
+  const url = host + '/wefeed-mobile-bff/subject-api/get?subjectId=' + subjectId;
+  return getCachedToken(host).then((token) => {
+    const xClientToken = generateXClientToken();
+    const xTrSignature = generateXTrSignature('GET', 'application/json', 'application/json', url, null, false);
+    const headers = {
+      'user-agent': APP_UA,
+      accept: 'application/json',
+      'content-type': 'application/json',
+      'x-client-token': xClientToken,
+      'x-tr-signature': xTrSignature,
+      'x-client-info': buildClientInfoHeader(),
+      'x-client-status': '0',
+      Authorization: 'Bearer ' + token
+    };
+    return fetch(url, { method: 'GET', headers }).then((res) => res.json());
+  }).then((root) => (root && root.data) || {});
+}
+
+function getPlayInfo(host, subjectId, season, episode, token) {
+  const url = host + '/wefeed-mobile-bff/subject-api/play-info?subjectId=' + subjectId +
+    '&se=' + (season || 0) + '&ep=' + (episode != null ? episode : 0);
+  const xClientToken = generateXClientToken();
+  const xTrSignature = generateXTrSignature('GET', 'application/json', 'application/json', url, null, false);
+  const headers = {
+    'user-agent': APP_UA,
+    accept: 'application/json',
+    'content-type': 'application/json',
+    'x-client-token': xClientToken,
+    'x-tr-signature': xTrSignature,
+    'x-client-info': buildClientInfoHeader(),
+    'x-client-status': '0',
+    Authorization: 'Bearer ' + token
+  };
+  return fetch(url, { method: 'GET', headers })
+    .then((res) => res.json())
+    .then((root) => {
+      const playData = root && root.data && root.data.playData;
+      const streams = (playData && playData.streams) || [];
+      // NOTE: if `streams` is empty here, the original provider falls back to
+      // a "detectors" scan that could not be recovered from decompilation
+      // (see file header). Nothing is returned in that case below.
+      return streams;
+    })
+    .catch(() => []);
+}
+
+function getHighestQuality(input) {
+  const table = [['2160', 2160], ['1440', 1440], ['1080', 1080], ['720', 720], ['480', 480], ['360', 360], ['240', 240]];
+  const lower = (input || '').toLowerCase();
+  for (const [label, val] of table) {
+    if (lower.indexOf(label) !== -1) return val;
+  }
+  return null;
+}
+
+// ============================================================================
+// Main entry point Nuvio calls
+// ============================================================================
+
+function getStreams(tmdbId, mediaType, season, episode) {
+  const host = DEFAULT_HOST;
+
+  return fetchTmdbTitle(tmdbId, mediaType)
+    .then(({ title, year }) => {
+      if (!title) return [];
+      const wantType = mediaType === 'tv' ? 2 : 1; // subjectType: 1 movie, else tv per decompile
+      const normWanted = cleanTitle(title);
+
+      return searchMovieBox(host, title, 1).then((subjects) => {
+        if (!subjects.length) return null;
+        let best = null;
+        let bestScore = -1;
+        subjects.forEach((s) => {
+          const score = tokenScore(normWanted, cleanTitle(s.title || ''));
+          const typeMatches = mediaType === 'tv' ? s.subjectType !== 1 : s.subjectType === 1;
+          const adjusted = score + (typeMatches ? 0.25 : 0);
+          if (adjusted > bestScore) {
+            bestScore = adjusted;
+            best = s;
+          }
+        });
+        return best;
+      });
+    })
+    .then((best) => {
+      if (!best) return [];
+
+      return getSubjectDetail(host, best.subjectId).then((detail) => {
+        const dubs = (detail && detail.dubs) || [];
+        const subjectIds = [{ subjectId: best.subjectId, language: detail.language || 'original' }];
+        dubs.forEach((d) => {
+          if (d && d.subjectId) subjectIds.push({ subjectId: d.subjectId, language: d.language || 'dub' });
+        });
+
+        return getCachedToken(host).then((token) => {
+          const perLanguage = subjectIds.map((entry) =>
+            getPlayInfo(host, entry.subjectId, season, episode, token).then((streams) =>
+              streams.map((stream) => ({
+                name: 'MovieBox' + (entry.language ? ' - ' + entry.language : ''),
+                title: stream.format || best.title,
+                url: stream.streamUrl || stream.url,
+                quality: getHighestQuality(
+                  (stream.resolutions && stream.resolutions[0]) || stream.format || stream.streamUrl || ''
+                ),
+                headers: {
+                  Referer: host,
+                  // signCookieRaw carries the short-lived signed cookie the CDN checks
+                  Cookie: stream.signCookie || stream.signCookieRaw || ''
+                }
+              }))
+            )
+          );
+          return Promise.all(perLanguage);
+        });
+      });
+    })
+    .then((perLanguageResults) => [].concat.apply([], perLanguageResults || []))
+    .catch((err) => {
+      console.error('[MovieBox] getStreams error:', err && err.message);
+      return [];
+    });
+}
+
+module.exports = { getStreams };

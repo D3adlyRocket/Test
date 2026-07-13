@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Workers First with Fallbacks
+// Dahmer Movies Scraper - Workers First with Robust Validation
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -11,7 +11,6 @@ const DAHMER_ENDPOINTS = [
 
 // Helper to make requests with automatic endpoint fallback (Workers First)
 async function makeScraperRequest(path, customHeaders = {}) {
-    // TWEAKED: Workers endpoints are now prioritized at the front of the queue
     const endpointsToTry = [...DAHMER_ENDPOINTS, DAHMER_MOVIES_API];
     
     for (const baseEndpoint of endpointsToTry) {
@@ -27,7 +26,15 @@ async function makeScraperRequest(path, customHeaders = {}) {
             });
             
             if (response.ok) {
-                return { ok: true, text: await response.text(), activeEndpoint: baseEndpoint };
+                const text = await response.text();
+                
+                // VALIDATION: Ensure the response actually looks like directory HTML.
+                // It must contain table rows (<tr>) or link anchors (<a href).
+                if (text && (text.includes('<tr') || text.includes('href='))) {
+                    return { ok: true, text: text, activeEndpoint: baseEndpoint };
+                } else {
+                    console.log(`[DahmerMovies] Endpoint returned empty/invalid HTML: ${baseEndpoint}. Trying next...`);
+                }
             }
         } catch (e) {
             console.log(`[DahmerMovies] Endpoint failed: ${baseEndpoint}. Trying next fallback...`);
@@ -154,7 +161,6 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
         if (result.ok) {
             html = result.text;
             activeDirUrl = result.activeEndpoint + path;
-            // Mark if we had to fall back to the raw a.111477 domain
             if (result.activeEndpoint === DAHMER_MOVIES_API) {
                 usedFallbackUrl = true;
             }
@@ -198,11 +204,8 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
         directUrl = directUrl.replace(/([^:]\/)\/+/g, "$1");
         directUrl = decodeURI(directUrl);
         
-        // TWEAKED: If we used the fallback domain (a.111477), use the fallback proxy (p.111477).
-        // Otherwise, stream directly or let the worker proxy it.
-        let streamUrl = usedFallbackUrl 
-            ? DAHMER_WORKER_API + encodeURI(directUrl)
-            : encodeURI(directUrl);
+        // Use the dedicated stream proxy p.111477 for ultimate playback reliability
+        let streamUrl = DAHMER_WORKER_API + encodeURI(directUrl);
 
         const fileName = path.text;
         

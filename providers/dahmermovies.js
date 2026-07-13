@@ -1,4 +1,4 @@
-// Dahmer Movies Scraper - Format Column & Fallback Endpoints Added
+// Dahmer Movies Scraper - Workers First with Fallbacks
 console.log('[DahmerMovies] Initializing Scraper');
 
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -9,10 +9,10 @@ const DAHMER_ENDPOINTS = [
   "https://cool-darkness-71f0.heved.workers.dev/config/aHR0cHM6Ly9hLjExMTQ3Ny54eXovOjpzb3J0PWZpbGUtZGVzYzo6dG1kYj02ZTZhYjcwMGI2NDc3MTcxZWU2YzIzZDUwNGIxZTljYjo6bmFtZT1FY2xpcHNpYQ"
 ];
 
-// Helper to make requests with automatic endpoint fallback
+// Helper to make requests with automatic endpoint fallback (Workers First)
 async function makeScraperRequest(path, customHeaders = {}) {
-    // FIXED: Corrected reference to use DAHMER_ENDPOINTS instead of HEXION_ENDPOINTS
-    const endpointsToTry = [DAHMER_MOVIES_API, ...DAHMER_ENDPOINTS];
+    // TWEAKED: Workers endpoints are now prioritized at the front of the queue
+    const endpointsToTry = [...DAHMER_ENDPOINTS, DAHMER_MOVIES_API];
     
     for (const baseEndpoint of endpointsToTry) {
         try {
@@ -147,12 +147,17 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
 
     let html = '';
     let activeDirUrl = '';
+    let usedFallbackUrl = false;
 
     for (const path of folderVariants) {
         const result = await makeScraperRequest(path);
         if (result.ok) {
             html = result.text;
             activeDirUrl = result.activeEndpoint + path;
+            // Mark if we had to fall back to the raw a.111477 domain
+            if (result.activeEndpoint === DAHMER_MOVIES_API) {
+                usedFallbackUrl = true;
+            }
             break; 
         }
     }
@@ -192,7 +197,12 @@ async function invokeDahmerMovies(title, year, season = null, episode = null, me
 
         directUrl = directUrl.replace(/([^:]\/)\/+/g, "$1");
         directUrl = decodeURI(directUrl);
-        let streamUrl = DAHMER_WORKER_API + encodeURI(directUrl);
+        
+        // TWEAKED: If we used the fallback domain (a.111477), use the fallback proxy (p.111477).
+        // Otherwise, stream directly or let the worker proxy it.
+        let streamUrl = usedFallbackUrl 
+            ? DAHMER_WORKER_API + encodeURI(directUrl)
+            : encodeURI(directUrl);
 
         const fileName = path.text;
         

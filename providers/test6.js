@@ -3,7 +3,7 @@
 // Version : 4.3.0                                              //
 // - Header: Purstream | Quality | Language (No Emojis)         //
 // - Line 1: 🎬 Movie Name - Year (or S/E info)                  //
-// - Line 2: 🔥 Quality | 🌐 LangType | 🔊 Flags                 //
+// - Line 2: 🔥 Quality | 🔊 LangType | 🗣️ Flags                 //
 // - Line 3: 🎯 Format • Codec | 🎧 AAC | Duration              //
 // ============================================================= //
 

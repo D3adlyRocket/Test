@@ -1,207 +1,267 @@
-"use strict";
+const PROVIDER_NAME = 'OlaMovies 4K';
+const BASE_URL = 'https://v3.olamovies.mov';
+const TMDB_API_KEY = '439c478a771f35c05022f9feabcca01c';
+const TIMEOUT = 15000;
 
-var cheerio = require("cheerio-without-node-native");
-
-var PROVIDER_NAME = "PikaHD (Streamtape)";
-var DEFAULT_MAIN_URL = "https://new.pikahd.co";
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-
-var DEFAULT_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9'
 };
 
-// --- Helper Utilities ---
-
-function assign(target, source) {
-  target = target || {}; source = source || {};
-  var out = {};
-  for (var k in target) out[k] = target[k];
-  for (var k in source) out[k] = source[k];
-  return out;
+async function fetchWithTimeout(url, options = {}, timeout = TIMEOUT) {
+  const fetchOptions = { ...options };
+  if (!fetchOptions.headers) fetchOptions.headers = HEADERS;
+  return Promise.race([
+    fetch(url, fetchOptions),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Request Timeout')), timeout))
+  ]);
 }
 
-function fixUrl(url, baseUrl) {
-  if (!url) return "";
-  if (url.startsWith("http")) return url;
-  if (url.startsWith("//")) return "https:" + url;
-  try { return new URL(url, baseUrl).toString(); } catch(e) { return url; }
+async function fetchText(url, options = {}) {
+  try {
+    const res = await fetchWithTimeout(url, options);
+    if (res && res.ok) return await res.text();
+    return null;
+  } catch (err) {
+    return null;
+  }
 }
 
-function fetchText(url, options) {
-  options = options || {};
-  return fetch(url, {
-    method: options.method || "GET",
-    headers: assign(DEFAULT_HEADERS, options.headers || {}),
-    redirect: "follow"
-  }).then(function(res) {
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    return res.text();
-  });
+async function fetchJson(url, options = {}) {
+  try {
+    const res = await fetchWithTimeout(url, options);
+    if (res && res.ok) return await res.json();
+    return null;
+  } catch (err) {
+    return null;
+  }
 }
 
-function getTmdbMeta(tmdbId, mediaType) {
-  var type = (mediaType === "tv" || mediaType === "series") ? "tv" : "movie";
-  var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
-  return fetch(url, { headers: DEFAULT_HEADERS }).then(function(res) {
-    return res.json();
-  }).then(function(data) {
-    return {
-      title: data.title || data.name || "",
-      year: (data.release_date || data.first_air_date || "").split("-")[0] || "2026"
-    };
-  }).catch(function() {
-    return { title: "", year: "2026" };
-  });
-}
-
-// --- Scraper Core Logic ---
-
-function searchContent(query) {
-  var searchUrl = DEFAULT_MAIN_URL + "/?s=" + encodeURIComponent(query);
-  return fetchText(searchUrl).then(function(html) {
-    var $ = cheerio.load(html);
-    var targetHref = null;
-    
-    $("article, .post, .entry").each(function(_, el) {
-      if (targetHref) return;
-      var linkEl = $(el).find("h1 a, h2 a, h3 a, .entry-title a, a").first();
-      var href = linkEl.attr("href");
-      if (href) targetHref = fixUrl(href, DEFAULT_MAIN_URL);
-    });
-
-    if (!targetHref) {
-      $("a").each(function(_, el) {
-        if (targetHref) return;
-        var href = $(el).attr("href") || "";
-        if (href.includes("/movie/") || href.includes("/series/") || href.includes("/tv/")) {
-          targetHref = fixUrl(href, DEFAULT_MAIN_URL);
-        }
-      });
+async function getTMDBInfo(tmdbId, type) {
+  const mediaType = (type === 'tv' || type === 'series') ? 'tv' : 'movie';
+  let title = '';
+  let year = '';
+  try {
+    const url = `https://api.themoviedb.org/3/${mediaType}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const data = await fetchJson(url);
+    if (data) {
+      title = data.title || data.name || '';
+      const dateStr = data.release_date || data.first_air_date || '';
+      year = dateStr.split('-')[0];
     }
-    return targetHref;
-  });
+  } catch (err) {}
+  return { title, year, type: mediaType };
 }
 
-function extractFromPage(contentUrl, metaTitle) {
-  return fetchText(contentUrl).then(function(html) {
-    var $ = cheerio.load(html);
-    var rawLinks = [];
+async function searchArticles(query, year, isTv, season) {
+  const searchUrl = `${BASE_URL}/?s=${encodeURIComponent(query)}`;
+  const html = await fetchText(searchUrl);
+  if (!html) return [];
 
-    // Extract potential Streamtape embedded links or proxies
-    $("iframe[src], iframe[data-src], a[href]").each(function(_, el) {
-      var target = $(el).attr("src") || $(el).attr("data-src") || $(el).attr("href") || "";
-      if (target.includes("streamtape") || target.includes("tapecontent") || target.includes("kmhd.eu")) {
-        rawLinks.push(fixUrl(target, contentUrl));
+  const articles = [];
+  const linkRegex = /<h2[^>]*class="[^"]*entry-title[^"]*"[^>]*>\s*<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  while ((match = linkRegex.exec(html)) !== null) {
+    const url = match[1];
+    let titleText = match[2].replace(/<[^>]+>/g, '').replace(/&#8211;/g, '-').replace(/&#038;/g, '&').trim();
+
+    if (url.includes('/category/') || url.includes('/page/')) continue;
+
+    if (!isTv && year && !titleText.includes(year)) {
+      if (!titleText.toLowerCase().includes(query.toLowerCase())) continue;
+    }
+
+    if (isTv && season) {
+      const seasonRegex = new RegExp(`(?:Season\\s*0*${season}|S0*${season}\\b)`, 'i');
+      if (!seasonRegex.test(titleText) && !titleText.toLowerCase().includes('complete')) {
+        continue;
       }
-    });
+    }
 
-    if (rawLinks.length === 0) return [];
-
-    var outStreams = [];
-    var p = Promise.resolve();
-
-    // Iterate sequentially through found targets to process stream links cleanly
-    rawLinks.slice(0, 4).forEach(function(url) {
-      p = p.then(function() {
-        return resolveStreamtape(url).then(function(resolvedMediaUrl) {
-          if (resolvedMediaUrl) {
-            var quality = /1080p/.test(resolvedMediaUrl.toLowerCase()) ? "1080p" : "720p";
-            
-            var fullLayout = 
-              "🎬 " + metaTitle + "\n" +
-              "💎 " + quality + " | 🔊 Hindi / Multiaudio 🌐\n" +
-              "⛓️‍💥 Engine: " + PROVIDER_NAME;
-
-            outStreams.push({
-              name: PROVIDER_NAME + " | " + quality,
-              title: fullLayout,
-              size: fullLayout,
-              description: fullLayout,
-              url: resolvedMediaUrl
-            });
-          }
-        });
-      });
-    });
-
-    return p.then(function() { return outStreams; });
-  });
-}
-
-// --- Dedicated Streamtape Extraction Engine ---
-
-function resolveStreamtape(url) {
-  // If we already intercepted a hotlink directly, pass it straight through
-  if (url.includes("tapecontent.net/radosgw/")) {
-    return Promise.resolve(url);
+    articles.push({ url, title: titleText });
   }
 
-  // Convert default links to embedded variant paths for easier parsing
-  var embedUrl = url.replace("/v/", "/e/");
-  
-  return fetchText(embedUrl).then(function(html) {
-    // Locate the hidden JavaScript token allocation strings Streamtape uses
-    var match = html.match(/document\.getElementById\('robotlink'\)\.innerHTML\s*=\s*['"]([^'"]+)['"]/i);
-    if (!match) return null;
-
-    var parts = match[1].split("+");
-    var finalPath = "";
-
-    parts.forEach(function(part) {
-      var clean = part.replace(/['"\s]/g, "");
-      if (clean.indexOf("substring") > -1) {
-        // Evaluate dynamic string slice offsets used to fool simple scrapers
-        var subMatch = clean.match(/.*?substring\((\d+)\)/);
-        if (subMatch) {
-          var index = parseInt(subMatch[1], 10);
-          finalPath += clean.split(".substring")[0].substring(index);
-        }
-      } else {
-        finalPath += clean;
-      }
-    });
-
-    if (!finalPath) return null;
-    
-    // Add custom dynamic security generation parameters required by Streamtape CDNs
-    var streamToken = html.match(/&token=([A-Za-z0-9_-]+)/);
-    var tokenSuffix = streamToken ? "&token=" + streamToken[1] : "";
-
-    var realStreamUrl = "https:" + finalPath + tokenSuffix + "&stream=1";
-    return realStreamUrl;
-  }).catch(function() {
-    return null;
-  });
+  return articles;
 }
 
-// --- Nuvio Entry Points ---
+function decodeHtmlEntities(str) {
+  return str
+    .replace(/&#8211;/g, '-')
+    .replace(/&#8212;/g, '--')
+    .replace(/&#038;/g, '&')
+    .replace(/&amp;/g, '&')
+    .replace(/&#8217;/g, "'");
+}
 
-function getStreams(tmdbId, mediaType, season, episode) {
-  return getTmdbMeta(tmdbId, mediaType).then(function(tmdbData) {
-    if (!tmdbData.title) return [];
-    
-    var searchQuery = tmdbData.title;
-    if ((mediaType === "tv" || mediaType === "series") && season && episode) {
-      searchQuery += " S" + (season < 10 ? "0" + season : season) + "E" + (episode < 10 ? "0" + episode : episode);
+function extract4KStreams(articleHtml, articleUrl, tmdbInfo) {
+  const streams = [];
+  const linkRegex = /<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+  let match;
+  const seenUrls = new Set();
+
+  while ((match = linkRegex.exec(articleHtml)) !== null) {
+    const url = match[1].trim();
+    const rawText = decodeHtmlEntities(match[2].replace(/<[^>]+>/g, '').trim());
+
+    if (!url.startsWith('http://') && !url.startsWith('https://')) continue;
+    if (url.includes('olamovies.mov') || url.includes('google.com') || url.includes('telegram.me') || url.includes('t.me')) continue;
+
+    // STRICT 4K FILTERING: Ensure the link is 4K / 2160p
+    const is2160p = /2160p|\b4k\b/i.test(rawText);
+    const isLowerQuality = /1080p|720p|480p/i.test(rawText);
+
+    if (!is2160p || (isLowerQuality && !rawText.toLowerCase().includes('2160p'))) {
+      continue;
     }
 
-    return searchContent(searchQuery).then(function(contentUrl) {
-      if (!contentUrl) {
-        return searchContent(tmdbData.title).then(function(fallbackUrl) {
-          if (!fallbackUrl) return [];
-          return extractFromPage(fallbackUrl, tmdbData.title);
-        });
+    if (seenUrls.has(url)) continue;
+    seenUrls.add(url);
+
+    const sizeMatch = rawText.match(/\[?(\d+(?:\.\d+)?\s*(?:GB|MB))\]?/i);
+    const sizeStr = sizeMatch ? sizeMatch[1].toUpperCase() : 'N/A';
+
+    const tags = [];
+    if (/hdr10\+/i.test(rawText)) tags.push('⚡ HDR10+');
+    else if (/hdr10/i.test(rawText)) tags.push('⚡ HDR10');
+    else if (/hdr/i.test(rawText)) tags.push('⚡ HDR');
+
+    if (/dv|dolby\s*vision/i.test(rawText)) tags.push('🕵️‍♀️ DV');
+    if (/remux/i.test(rawText)) tags.push('💎 REMUX');
+    if (/bluray/i.test(rawText)) tags.push('📀 BluRay');
+    if (/web-dl|webrip/i.test(rawText)) tags.push('🌐 WEB-DL');
+    if (/x265|hevc/i.test(rawText)) tags.push('🎥 HEVC x265');
+    if (/10bit/i.test(rawText)) tags.push('🔆 10Bit');
+    if (/atmos/i.test(rawText)) tags.push('🔊 Atmos');
+
+    const tagStr = tags.length > 0 ? tags.join(' • ') : '🌟 4K UHD';
+
+    streams.push({
+      name: `${PROVIDER_NAME} | 2160P (4K)`,
+      title: `🎬 ${tmdbInfo.title || 'Movie'} (${tmdbInfo.year || ''})\n🌟 2160P 4K UHD | 💾 ${sizeStr}\n${tagStr} |\n🔗 ${rawText}`,
+      url: url,
+      quality: '4K',
+      size: sizeStr,
+      behaviorHints: {
+        notWebReady: true,
+        proxyHeaders: {
+          request: {
+            Referer: articleUrl
+          }
+        }
       }
-      return extractFromPage(contentUrl, tmdbData.title);
     });
-  }).catch(function() {
-    return [];
-  });
+  }
+
+  return streams;
+}
+
+async function getStreams(tmdbId, type = 'movie', season = null, episode = null) {
+  const streams = [];
+  try {
+    const isTv = (type === 'tv' || type === 'series');
+    const tmdbInfo = await getTMDBInfo(tmdbId, type);
+    if (!tmdbInfo.title) return streams;
+
+    console.log(`[${PROVIDER_NAME}] Searching for: ${tmdbInfo.title} (${tmdbInfo.year})`);
+    const articles = await searchArticles(tmdbInfo.title, tmdbInfo.year, isTv, season);
+
+    for (const article of articles) {
+      const articleHtml = await fetchText(article.url);
+      if (!articleHtml) continue;
+
+      const extracted = extract4KStreams(articleHtml, article.url, tmdbInfo);
+      streams.push(...extracted);
+    }
+  } catch (err) {
+    console.error(`[${PROVIDER_NAME}] Error fetching streams:`, err);
+  }
+  return streams;
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams: getStreams };
+  module.exports = { getStreams };
 } else {
   global.getStreams = getStreams;
+}
+
+// --- 4K ONLY WRAPPER WITH UNIVERSAL ID/TITLE BRIDGE (STRICTLY NO 1080P/720P/480P) ---
+if (typeof getStreams === 'function') {
+  const __origGetStreams = getStreams;
+  getStreams = async function(...args) {
+    try {
+      let runArgs = [...args];
+      // Safely unpack ID if passed as object from Nuvio sandbox
+      if (runArgs.length > 0 && runArgs[0] && typeof runArgs[0] === 'object') {
+        const obj = runArgs[0];
+        runArgs[0] = obj.id || obj.imdb_id || obj.tmdb_id || obj.title || obj.query || runArgs[0];
+        if (obj.type && !runArgs[1]) runArgs[1] = obj.type;
+        if (obj.season && !runArgs[2]) runArgs[2] = obj.season;
+        if (obj.episode && !runArgs[3]) runArgs[3] = obj.episode;
+      }
+      
+      // For providers requiring specific TMDB/IMDB IDs when given a title or compound ID
+      if (args.length > 0 && typeof runArgs[0] === 'string') {
+        try {
+          let rawId = runArgs[0].trim();
+          let season = runArgs[2];
+          let episode = runArgs[3];
+          if (rawId.includes(':')) {
+            const parts = rawId.split(':');
+            rawId = parts[0];
+            if (parts[1] && season == null) season = parseInt(parts[1], 10);
+            if (parts[2] && episode == null) episode = parseInt(parts[2], 10);
+          }
+          const type = runArgs[1] || 'movie';
+          const mediaType = (type === 'tv' || type === 'series') ? 'tv' : 'movie';
+          
+          // If OlaMovies or Cineby are given an IMDB ID (tt...), resolve to TMDB integer ID
+          if (('olamovies' === 'olamovies' || 'olamovies' === 'cineby') && rawId.startsWith('tt')) {
+            const res = await fetch('https://api.themoviedb.org/3/find/' + rawId + '?api_key=1865f43a0549ca50d341dd9ab8b29f49&external_source=imdb_id');
+            const json = await res.json();
+            if (json && json.movie_results && json.movie_results.length > 0 && mediaType === 'movie') {
+              runArgs[0] = json.movie_results[0].id.toString();
+            } else if (json && json.tv_results && json.tv_results.length > 0 && mediaType === 'tv') {
+              runArgs[0] = json.tv_results[0].id.toString();
+              if (season != null) runArgs[2] = season;
+              if (episode != null) runArgs[3] = episode;
+            }
+          }
+          // If given a plain text string title instead of an ID, resolve via TMDB search
+          else if (!rawId.startsWith('tt') && !/^\d+$/.test(rawId)) {
+            const res = await fetch('https://api.themoviedb.org/3/search/' + mediaType + '?api_key=1865f43a0549ca50d341dd9ab8b29f49&query=' + encodeURIComponent(rawId));
+            const json = await res.json();
+            if (json && json.results && json.results.length > 0) {
+              const matchedId = json.results[0].id.toString();
+              if ('olamovies' === 'olamovies' || 'olamovies' === 'cineby') {
+                runArgs[0] = matchedId;
+              }
+            }
+          }
+        } catch (err) {}
+      }
+      
+      const results = await __origGetStreams(...runArgs);
+      if (!Array.isArray(results)) return [];
+      
+      return results.filter(s => {
+        if (!s || !s.url) return false;
+        const q = (s.quality || s.resolution || '').toString().toUpperCase();
+        const str = ((s.name || '') + ' ' + (s.title || '') + ' ' + (s.qualityTag || '')).toUpperCase();
+        
+        // Strictly eliminate 1080p, 720p, 480p, SD, or lower resolutions
+        if (q === '1080P' || q === '720P' || q === '480P' || q === '1080' || q === '720' || q === '480' || /\b(1080P|720P|480P|360P|240P|1080|720|480|FHD)\b/.test(str)) {
+          return false;
+        }
+        
+        // Keep ONLY 4K (2160p) streams
+        const is2160 = q === '4K' || q === '2160P' || q === '2160' || q === 'UHD' || str.includes('2160P') || /\b(4K|2160|UHD|REMUX)\b/.test(str);
+        return is2160;
+      });
+    } catch (e) {
+      return [];
+    }
+  };
+  if (typeof module !== 'undefined' && module.exports) module.exports = { getStreams };
+  if (typeof global !== 'undefined') global.getStreams = getStreams;
 }

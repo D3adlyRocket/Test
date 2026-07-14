@@ -1,113 +1,198 @@
 // =============================================================
-  // Provider Nuvio : Vstream (VF / VOSTFR / MULTI)
-  // Version : 2.0.0 — métadonnées enrichies (durée, nom épisode)
-  // =============================================================
+// Provider Nuvio : Cinepulse.vc (VF/VOSTFR/MULTI)
+// Version : 1.0.0 — API native + obfuscation répliquée depuis le bundle client
+// =============================================================
 
-  var TMDB_KEY = 'f3d757824f08ea2cff45eb8f47ca3a1e';
-  var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
-  var DOMAINS_URL = 'https://raw.githubusercontent.com/Snixi92/nuvio-french-providers/main/domains.json';
-  var FALLBACK_TLD = 'to';
-  var _cachedEndpoint = null;
+var https = require('https');
+var zlib = require('zlib');
 
-  function detectEndpoint() {
-    if (_cachedEndpoint) return Promise.resolve(_cachedEndpoint);
-    return fetch(DOMAINS_URL)
-      .then(function(r) { return r.ok ? r.json() : Promise.reject(); })
-      .then(function(d) {
-        var tld = d.vstream || FALLBACK_TLD;
-        _cachedEndpoint = { base: 'https://vstream.' + tld, api: 'https://api.vstream.' + tld + '/api', ref: 'https://vstream.' + tld + '/' };
-        return _cachedEndpoint;
-      })
-      .catch(function() {
-        _cachedEndpoint = { base: 'https://vstream.' + FALLBACK_TLD, api: 'https://api.vstream.' + FALLBACK_TLD + '/api', ref: 'https://vstream.' + FALLBACK_TLD + '/' };
-        return _cachedEndpoint;
-      });
-  }
+var CP_API_HOST = 'apiapi.cinepulse.mx';
+var CP_REFERER = 'https://cinepulse.mx/';
+var CP_ORIGIN = 'https://cinepulse.mx';
+var CP_VERSION = '3.5.2';
+var CP_SCREEN = Buffer.from('1920x1080').toString('base64');
+var CP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-  function getTmdbMeta(tmdbId, type) {
-    return fetch('https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=en-US')
-      .then(function(r) { return r.json(); })
-      .then(function(d) {
-        var duration = '';
-        if (type === 'movie' && d.runtime) duration = d.runtime + ' min';
-        else if (type === 'tv' && d.episode_run_time && d.episode_run_time.length > 0) duration = d.episode_run_time[0] + ' min';
-        return { name: d.title || d.name || 'Vstream', year: (d.release_date || d.first_air_date || '').split('-')[0], duration: duration };
-      }).catch(function() { return { name: 'Vstream', year: '', duration: '' }; });
-  }
+var REFRESH_TOKEN = process.env.CINEPULSE_REFRESH_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiI5MzE3NWNjOS01MWQ5LTQzZDAtOTJiOS0xNGI1NjY1OTJmNmUiLCJzZXNzaW9uSWQiOiIyNzM4ZDgwYS04YTIyLTQ4M2EtYjlhNy0yZWVlYWQ0N2UxODgiLCJpYXQiOjE3NzkwNTY2NDAsImV4cCI6MTc4MTY0ODY0MCwiYXVkIjoiY2luZXB1bHNlLWZyb250ZW5kIiwiaXNzIjoiY2luZXB1bHNlLWJhY2tlbmQtYXBpIn0.RkMsnWwXhDC-_X4p95OVXeKdbAqXCo2R3dVhrPXHhyc';
 
-  function getEpInfo(tmdbId, season, episode) {
-    if (!season || !episode) return Promise.resolve(null);
-    return fetch('https://api.themoviedb.org/3/tv/' + tmdbId + '/season/' + season + '/episode/' + episode + '?api_key=' + TMDB_KEY + '&language=en-US')
-      .then(function(r) { return r.json(); })
-      .then(function(d) { return { name: d.name || null, duration: d.runtime ? d.runtime + ' min' : null }; })
-      .catch(function() { return null; });
-  }
+var _accessToken = null;
+var _tokenExpiry = 0;
+var _profileId = null;
 
-  function buildTitle(meta, lang, quality, season, episode, epInfo) {
-    var l = (lang || '').toUpperCase();
-    var icon = l.indexOf('MULTI') !== -1 ? '🌍' : l.indexOf('VOST') !== -1 ? '🔡' : '🇫🇷';
-    var label = l.indexOf('MULTI') !== -1 ? 'MULTI' : l.indexOf('VOST') !== -1 ? 'VOSTFR' : 'VF';
-    var line1 = '🎬 ';
-    if (season && episode) {
-      line1 += 'S' + season + 'E' + episode + (epInfo && epInfo.name ? ' — ' + epInfo.name : '') + ' | ' + meta.name;
-    } else {
-      line1 += meta.name + (meta.year ? ' (' + meta.year + ')' : '');
+// ── Obfuscation (répliquée exactement depuis le bundle client v3.5.2) ──────────
+function generateRandomKey(len) {
+  len = len || 8;
+  var chars = 'abceghjklmnopqrtuvwxyzABCEGHIJKLMNOPQRTUVWXYZ0123456789';
+  var s = '';
+  for (var r = 0; r < len; r++) s += chars.charAt(Math.floor(55 * Math.random()));
+  return s;
+}
+
+function encodeValue(val, type) {
+  var s = String(val);
+  if (type === 'id') {
+    var e = '';
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charAt(i);
+      e += /\d/.test(c) ? ((parseInt(c, 10) + 7) % 10).toString() : c;
     }
-    var specs = ['📺 ' + (quality || 'HD'), icon + ' ' + label, '🎞️ M3U8'];
-    var finalDur = (epInfo && epInfo.duration) ? epInfo.duration : meta.duration;
-    if (finalDur) specs.push('⏱️ ' + finalDur);
-    specs.push('🌐 Vstream');
-    return line1 + '\n' + specs.join(' | ');
+    return 'c' + Buffer.from(e).toString('base64');
   }
+  if (type === 'type') {
+    var e = '';
+    for (var r = 0; r < s.length; r++) e += String.fromCharCode(s.charCodeAt(r) ^ 107);
+    return 't' + Buffer.from(e).toString('base64');
+  }
+  if (type === 'season') {
+    var n = parseInt(s, 10);
+    var t2 = String(n + 5);
+    var r2 = '';
+    for (var i = 0; i < t2.length; i++) r2 += ((parseInt(t2.charAt(i), 10) + 3) % 10).toString();
+    return 's' + r2;
+  }
+  if (type === 'episode') {
+    var n = parseInt(s, 10);
+    var t2 = String(n + 9);
+    var r2 = '';
+    for (var i = 0; i < t2.length; i++) r2 += ((parseInt(t2.charAt(i), 10) + 4) % 10).toString();
+    return 'e' + r2;
+  }
+  if (type === 'exp') {
+    var hex = s.split('').map(function(c) { return c.charCodeAt(0).toString(16); }).join('');
+    return 'x' + Buffer.from(hex).toString('base64');
+  }
+  return 'd' + Buffer.from(s).toString('base64');
+}
 
-  function normalizeSources(sources, endpoint, meta, season, episode, epInfo) {
-    var out = [];
-    for (var i = 0; i < sources.length; i++) {
-      var s = sources[i];
-      if (!s || s.isEmbed) continue;
-      var url = s.url || '';
-      if (!url.startsWith('http')) {
-        if (url.charAt(0) === '/') {
-          var m = url.match(/[?&]url=([^&]+)/);
-          if (!m) continue;
-          try { url = decodeURIComponent(m[1]); } catch(e) { continue; }
-        } else continue;
-      }
-      var quality = s.quality || 'HD';
-      var ref = url.match(/^(https?:\/\/[^\/]+)/);
-      out.push({
-        name: 'Vstream',
-        title: buildTitle(meta, s.lang || 'VF', quality, season, episode, epInfo),
-        url: url,
-        quality: quality,
-        headers: { 'User-Agent': UA, 'Referer': ref ? ref[1] + '/' : endpoint.ref, 'Origin': ref ? ref[1] : endpoint.base }
+function obfuscateParams(params) {
+  var t = {};
+  t[generateRandomKey()] = encodeValue(Date.now() + 60000, 'exp');
+  var km = { tmdbId: 'id', type: 'type', season: 'season', episode: 'episode', sessionId: 'sid' };
+  var keys = Object.keys(params);
+  for (var i = 0; i < keys.length; i++) {
+    var key = keys[i];
+    if (params[key] == null) continue;
+    t[generateRandomKey()] = encodeValue(params[key], km[key] || key.substring(0, 2));
+  }
+  var nc = ['q', 'w', 'p', 'z', 'h', 'j'];
+  var n = 10 + Math.floor(10 * Math.random());
+  for (var a = 0; a < n; a++) {
+    t[generateRandomKey()] = nc[Math.floor(Math.random() * nc.length)] +
+      Buffer.from(generateRandomKey(8 + Math.floor(8 * Math.random()))).toString('base64');
+  }
+  return t;
+}
+
+// ── Requête HTTPS JSON (http/1.1, compatible Node.js natif) ─────────────────────
+function httpsRequest(method, path, extraHeaders, body) {
+  return new Promise(function(resolve, reject) {
+    var bodyStr = body ? JSON.stringify(body) : null;
+    var options = {
+      hostname: CP_API_HOST,
+      path: path,
+      method: method,
+      headers: Object.assign({
+        'User-Agent': CP_UA,
+        'Referer': CP_REFERER,
+        'Origin': CP_ORIGIN,
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'fr-FR,fr;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Host': CP_API_HOST
+      }, extraHeaders || {}, bodyStr ? {
+        'Content-Type': 'application/json',
+        'Content-Length': Buffer.byteLength(bodyStr)
+      } : {})
+    };
+    var req = https.request(options, function(res) {
+      var chunks = [];
+      var enc = res.headers['content-encoding'] || '';
+      res.on('data', function(c) { chunks.push(c); });
+      res.on('end', function() {
+        var buf = Buffer.concat(chunks);
+        function parse(b) {
+          try { resolve(JSON.parse(b.toString('utf8'))); }
+          catch(e) { reject(new Error('bad JSON: ' + b.toString('utf8').slice(0, 100))); }
+        }
+        if (enc === 'gzip') zlib.gunzip(buf, function(e, d) { e ? reject(e) : parse(d); });
+        else if (enc === 'br') zlib.brotliDecompress(buf, function(e, d) { e ? reject(e) : parse(d); });
+        else if (enc === 'deflate') zlib.inflate(buf, function(e, d) { e ? reject(e) : parse(d); });
+        else parse(buf);
       });
-    }
-    return out;
-  }
-
-  function getStreams(tmdbId, mediaType, season, episode) {
-    return Promise.all([
-      getTmdbMeta(tmdbId, mediaType),
-      mediaType === 'tv' ? getEpInfo(tmdbId, season, episode) : Promise.resolve(null),
-      detectEndpoint()
-    ]).then(function(res) {
-      var meta = res[0], epInfo = res[1], ep = res[2];
-      var apiUrl = mediaType === 'tv'
-        ? ep.api + '/sources/tv/' + tmdbId + '/' + (season || 1) + '/' + (episode || 1)
-        : ep.api + '/sources/movie/' + tmdbId;
-      return fetch(apiUrl, { headers: { 'User-Agent': UA, 'Referer': ep.ref } })
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-          if (!d || !d.sources) return [];
-          return normalizeSources(d.sources, ep, meta, season, episode, epInfo);
-        });
-    }).catch(function(e) {
-      console.error('[Vstream]', e.message || e);
-      return [];
     });
-  }
+    req.on('error', reject);
+    req.setTimeout(15000, function() { req.destroy(new Error('timeout')); });
+    if (bodyStr) req.write(bodyStr);
+    req.end();
+  });
+}
 
-  if (typeof module !== 'undefined' && module.exports) { module.exports = { getStreams: getStreams }; }
-  else { if (typeof globalThis !== 'undefined') globalThis.getStreams = getStreams; if (typeof global !== 'undefined') global.getStreams = getStreams; }
-  
+// ── Gestion du token d'accès (auto-refresh) ─────────────────────────────────────
+function getAccessToken() {
+  var now = Date.now();
+  if (_accessToken && now < _tokenExpiry - 30000) return Promise.resolve(_accessToken);
+  return httpsRequest('POST', '/api/v2/auth/refresh-auth-token', {}, { refreshToken: REFRESH_TOKEN })
+    .then(function(data) {
+      if (data.type !== 'success' || !data.data) throw new Error('token refresh failed: ' + JSON.stringify(data).slice(0, 100));
+      _accessToken = data.data.items.accessToken;
+      _tokenExpiry = Date.now() + 870000;
+      return _accessToken;
+    });
+}
+
+function getProfileId(accessToken) {
+  if (_profileId) return Promise.resolve(_profileId);
+  return httpsRequest('GET', '/api/v2/profiles', { 'Authorization': 'Bearer ' + accessToken })
+    .then(function(data) {
+      var profiles = data.data && data.data.items && data.data.items.profiles;
+      if (!profiles || !profiles.length) throw new Error('aucun profil trouvé');
+      _profileId = profiles[0].id;
+      return _profileId;
+    });
+}
+
+// ── Récupération des streams ─────────────────────────────────────────────────────
+function getStreams(tmdbId, mediaType, season, episode) {
+  return getAccessToken().then(function(token) {
+    return getProfileId(token).then(function(profileId) {
+      var params = { tmdbId: tmdbId, type: mediaType === 'tv' ? 'tv' : 'movie' };
+      if (mediaType === 'tv' && season != null) params.season = season;
+      if (mediaType === 'tv' && episode != null) params.episode = episode;
+
+      var obf = obfuscateParams(params);
+      var qs = Object.keys(obf).map(function(k) {
+        return encodeURIComponent(k) + '=' + encodeURIComponent(obf[k]);
+      }).join('&');
+
+      return httpsRequest('GET', '/watch/sources?' + qs, {
+        'Authorization': 'Bearer ' + token,
+        'X-Profile-Id': profileId,
+        'X-Client-Version': CP_VERSION,
+        'X-Screen-Size': CP_SCREEN,
+        'X-Request-Time': String(Date.now())
+      });
+    });
+  }).then(function(data) {
+    if (data.type !== 'success' || !data.data || !Array.isArray(data.data.items)) return [];
+    var results = [];
+    var items = data.data.items;
+    for (var i = 0; i < items.length; i++) {
+      var s = items[i];
+      if (!s.url) continue;
+      var lang = (s.language || '').toUpperCase();
+      var quality = s.quality || 'HD';
+      var langIcon = lang === 'VF' ? '🇫🇷' : lang === 'VOSTFR' ? '🔡' : lang === 'MULTI' ? '🌐' : '🎬';
+      results.push({
+        name: 'Cinepulse \u2022 ' + quality,
+        title: langIcon + ' ' + lang + ' | \uD83D\uDCFA ' + quality + ' | ' + (s.type || 'hls').toUpperCase(),
+        url: s.url
+      });
+    }
+    return results;
+  }).catch(function() { return []; });
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams: getStreams };
+}

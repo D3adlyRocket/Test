@@ -2,7 +2,7 @@
 
 var cheerio = require("cheerio-without-node-native");
 
-var PROVIDER_NAME = "PikaHD";
+var PROVIDER_NAME = "PikaHD (Streamtape)";
 var DEFAULT_MAIN_URL = "https://new.pikahd.co";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 
@@ -11,7 +11,7 @@ var DEFAULT_HEADERS = {
   "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
 };
 
-// --- Helper Functions ---
+// --- Helper Utilities ---
 
 function assign(target, source) {
   target = target || {}; source = source || {};
@@ -40,17 +40,12 @@ function fetchText(url, options) {
   });
 }
 
-function fetchJson(url) {
-  return fetch(url, { headers: DEFAULT_HEADERS }).then(function(res) {
-    if (!res.ok) throw new Error("HTTP " + res.status);
-    return res.json();
-  });
-}
-
 function getTmdbMeta(tmdbId, mediaType) {
   var type = (mediaType === "tv" || mediaType === "series") ? "tv" : "movie";
   var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY;
-  return fetchJson(url).then(function(data) {
+  return fetch(url, { headers: DEFAULT_HEADERS }).then(function(res) {
+    return res.json();
+  }).then(function(data) {
     return {
       title: data.title || data.name || "",
       year: (data.release_date || data.first_air_date || "").split("-")[0] || "2026"
@@ -60,7 +55,7 @@ function getTmdbMeta(tmdbId, mediaType) {
   });
 }
 
-// --- Scraper Implementation Engine ---
+// --- Scraper Core Logic ---
 
 function searchContent(query) {
   var searchUrl = DEFAULT_MAIN_URL + "/?s=" + encodeURIComponent(query);
@@ -68,7 +63,6 @@ function searchContent(query) {
     var $ = cheerio.load(html);
     var targetHref = null;
     
-    // Look through WordPress standard article layouts
     $("article, .post, .entry").each(function(_, el) {
       if (targetHref) return;
       var linkEl = $(el).find("h1 a, h2 a, h3 a, .entry-title a, a").first();
@@ -76,7 +70,6 @@ function searchContent(query) {
       if (href) targetHref = fixUrl(href, DEFAULT_MAIN_URL);
     });
 
-    // Fallback global link processing
     if (!targetHref) {
       $("a").each(function(_, el) {
         if (targetHref) return;
@@ -95,48 +88,37 @@ function extractFromPage(contentUrl, metaTitle) {
     var $ = cheerio.load(html);
     var rawLinks = [];
 
-    // 1. Check for nested iframes or direct streaming paths embedded on the layout
-    $("iframe[src], iframe[data-src]").each(function(_, el) {
-      var src = $(el).attr("src") || $(el).attr("data-src");
-      if (src && !src.includes("youtube.com")) {
-        rawLinks.push(fixUrl(src, contentUrl));
-      }
-    });
-
-    // 2. Extract outbound streaming indicators, direct mirror assets, or link proxy patterns
-    $("a[href]").each(function(_, el) {
-      var href = $(el).attr("href") || "";
-      var lower = href.toLowerCase();
-      if (lower.includes("kmhd.eu") || lower.includes("player") || lower.includes("embed") || /\.(mp4|mkv|m3u8)/.test(lower)) {
-        rawLinks.push(fixUrl(href, contentUrl));
+    // Extract potential Streamtape embedded links or proxies
+    $("iframe[src], iframe[data-src], a[href]").each(function(_, el) {
+      var target = $(el).attr("src") || $(el).attr("data-src") || $(el).attr("href") || "";
+      if (target.includes("streamtape") || target.includes("tapecontent") || target.includes("kmhd.eu")) {
+        rawLinks.push(fixUrl(target, contentUrl));
       }
     });
 
     if (rawLinks.length === 0) return [];
 
     var outStreams = [];
-    var maxLinks = rawLinks.slice(0, 5); // Performance throttle loop bounds
-    
-    // Process items sequentially to prevent event-loop lockups inside the mobile ecosystem
     var p = Promise.resolve();
-    maxLinks.forEach(function(url) {
+
+    // Iterate sequentially through found targets to process stream links cleanly
+    rawLinks.slice(0, 4).forEach(function(url) {
       p = p.then(function() {
-        return resolveStreamSource(url).then(function(resolvedUrl) {
-          if (resolvedUrl) {
-            var quality = /4k|2160/.test(resolvedUrl.toLowerCase()) ? "2160p" : "1080p";
+        return resolveStreamtape(url).then(function(resolvedMediaUrl) {
+          if (resolvedMediaUrl) {
+            var quality = /1080p/.test(resolvedMediaUrl.toLowerCase()) ? "1080p" : "720p";
             
-            // Generate the multi-line layout formatting scheme requested by Nuvio
             var fullLayout = 
               "🎬 " + metaTitle + "\n" +
-              "💎 " + quality + " | 🔊 English 🇺🇸\n" +
-              "⛓️‍💥 Provider: " + PROVIDER_NAME;
+              "💎 " + quality + " | 🔊 Hindi / Multiaudio 🌐\n" +
+              "⛓️‍💥 Engine: " + PROVIDER_NAME;
 
             outStreams.push({
               name: PROVIDER_NAME + " | " + quality,
               title: fullLayout,
               size: fullLayout,
               description: fullLayout,
-              url: resolvedUrl
+              url: resolvedMediaUrl
             });
           }
         });
@@ -147,60 +129,65 @@ function extractFromPage(contentUrl, metaTitle) {
   });
 }
 
-// Deep page resolution pipeline to trace actual video URLs past redirection layers
-function resolveStreamSource(url) {
-  if (/\.(mp4|mkv|m3u8)/.test(url.toLowerCase())) {
+// --- Dedicated Streamtape Extraction Engine ---
+
+function resolveStreamtape(url) {
+  // If we already intercepted a hotlink directly, pass it straight through
+  if (url.includes("tapecontent.net/radosgw/")) {
     return Promise.resolve(url);
   }
-  return fetchText(url).then(function(html) {
-    var $ = cheerio.load(html);
-    var foundUrl = "";
 
-    // Parse internal deep layers looking for native source variables or configurations
-    $("video source, video").each(function(_, el) {
-      var src = $(el).attr("src");
-      if (src) foundUrl = fixUrl(src, url);
+  // Convert default links to embedded variant paths for easier parsing
+  var embedUrl = url.replace("/v/", "/e/");
+  
+  return fetchText(embedUrl).then(function(html) {
+    // Locate the hidden JavaScript token allocation strings Streamtape uses
+    var match = html.match(/document\.getElementById\('robotlink'\)\.innerHTML\s*=\s*['"]([^'"]+)['"]/i);
+    if (!match) return null;
+
+    var parts = match[1].split("+");
+    var finalPath = "";
+
+    parts.forEach(function(part) {
+      var clean = part.replace(/['"\s]/g, "");
+      if (clean.indexOf("substring") > -1) {
+        // Evaluate dynamic string slice offsets used to fool simple scrapers
+        var subMatch = clean.match(/.*?substring\((\d+)\)/);
+        if (subMatch) {
+          var index = parseInt(subMatch[1], 10);
+          finalPath += clean.split(".substring")[0].substring(index);
+        }
+      } else {
+        finalPath += clean;
+      }
     });
 
-    if (!foundUrl) {
-      $("iframe[src]").each(function(_, el) {
-        var src = $(el).attr("src") || "";
-        if (/\.(mp4|mkv|m3u8)/.test(src.toLowerCase())) foundUrl = fixUrl(src, url);
-      });
-    }
+    if (!finalPath) return null;
+    
+    // Add custom dynamic security generation parameters required by Streamtape CDNs
+    var streamToken = html.match(/&token=([A-Za-z0-9_-]+)/);
+    var tokenSuffix = streamToken ? "&token=" + streamToken[1] : "";
 
-    // Try tracking setup script configuration blocks if standard tags are empty
-    if (!foundUrl) {
-      var scriptContent = "";
-      $("script").each(function(_, el) {
-        scriptContent += $(el).html() || "";
-      });
-      var fileMatch = scriptContent.match(/file\s*:\s*["'](http[^"']+)["']/i) || 
-                      scriptContent.match(/source\s*:\s*["'](http[^"']+)["']/i);
-      if (fileMatch) foundUrl = fileMatch[1];
-    }
-
-    return foundUrl || null;
+    var realStreamUrl = "https:" + finalPath + tokenSuffix + "&stream=1";
+    return realStreamUrl;
   }).catch(function() {
     return null;
   });
 }
 
-// --- Core Exports Interface ---
+// --- Nuvio Entry Points ---
 
 function getStreams(tmdbId, mediaType, season, episode) {
   return getTmdbMeta(tmdbId, mediaType).then(function(tmdbData) {
     if (!tmdbData.title) return [];
     
     var searchQuery = tmdbData.title;
-    // Append serialization indicators for TV show logic
     if ((mediaType === "tv" || mediaType === "series") && season && episode) {
       searchQuery += " S" + (season < 10 ? "0" + season : season) + "E" + (episode < 10 ? "0" + episode : episode);
     }
 
     return searchContent(searchQuery).then(function(contentUrl) {
       if (!contentUrl) {
-        // Fallback search strictly utilizing name title if precise serialization queries fail
         return searchContent(tmdbData.title).then(function(fallbackUrl) {
           if (!fallbackUrl) return [];
           return extractFromPage(fallbackUrl, tmdbData.title);

@@ -4,7 +4,7 @@
 // - Header: Purstream | Quality | Language (No Emojis)         //
 // - Line 1: 🎬 Movie Name - Year (or S/E info)                  //
 // - Line 2: 🔥 Quality | 🔊 LangType | 🗣️ Flags                 //
-// - Line 3: 🎯 Format • Codec | 🎧 AAC | Duration              //
+// - Line 3: 🎯 Format • Codec | 🎧 AAC | ⏳ Duration              //
 // ============================================================= //
 
 var DOMAINS_URL = 'https://raw.githubusercontent.com/wooodyhood/nuvio-repo/main/domains.json';
@@ -92,7 +92,7 @@ function buildPurstreamTitle(meta, res, lang, format, season, episode, epInfo, r
   // Line 2: 🔥 Quality | 🌐 LangType | 🗣️ Flags
   var line2 = qIcon + ' ' + cleanRes + ' | 🔊 ' + displayLang + ' | 🗣️ ' + flags;
   
-  // Line 3: 🎯 Format • Codec | 🎧 AAC | Duration
+  // Line 3: 🎯 Format • Codec | 🎧 AAC | ⏳ Duration
   var formatUpper = (format || 'M3U8').toUpperCase();
   var codecVal = 'H.264';
   if (searchPool.indexOf("HEVC") !== -1 || searchPool.indexOf("X265") !== -1 || searchPool.indexOf("H265") !== -1) {

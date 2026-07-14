@@ -1,9 +1,10 @@
 // ============================================================= //
 // Provider Nuvio : Purstream.art (VF/VOSTFR/MULTI)             //
-// Version : 4.2.0                                              //
-// - Header: Purstream - Quality                                //
+// Version : 4.3.0                                              //
+// - Header: Purstream | Quality | Language (No Emojis)         //
 // - Line 1: 🎬 Movie Name - Year (or S/E info)                  //
-// - Line 2: 📺 Res | 🌍 Lang | 💾 Size | 🎞️ Format | ⏱️ Duration  //
+// - Line 2: 🔥 Quality | 🌐 LangType | 🔊 Flags                 //
+// - Line 3: 🎯 Format • Codec | 🎧 AAC | Duration              //
 // ============================================================= //
 
 var DOMAINS_URL = 'https://raw.githubusercontent.com/wooodyhood/nuvio-repo/main/domains.json';
@@ -66,38 +67,21 @@ function getEpisodeInfo(tmdbId, season, episode) {
 
 function buildPurstreamTitle(meta, res, lang, format, season, episode, epInfo, rawText) {
   var cleanRes = res.toLowerCase().replace(/p/g, "") + "p";
-  var qIcon = (cleanRes.indexOf('2160') !== -1 || cleanRes.indexOf('4k') !== -1) ? '🌟' : '📺';
+  var qIcon = '🔥'; // Fixed fire emoji per your specs
   
-  if (cleanRes.indexOf('1080') !== -1) {
-    qIcon = '🔥';
-  }
-  
-  var lIcon = '🇫🇷';
   var displayLang = 'VF';
-  var check = (lang || "").toUpperCase();
+  var flags = '🇫🇷';
   var searchPool = (String(rawText) + " " + String(lang)).toUpperCase();
   
-  if (searchPool.indexOf('MULTI') !== -1) {
-    lIcon = '🌍';
-    displayLang = 'MULTI';
+  if (searchPool.indexOf('MULTI') !== -1 || searchPool.indexOf('DUAL') !== -1) {
+    displayLang = 'Dual-Audio';
+    flags = '🇺🇸 • 🇫🇷';
   } else if (searchPool.indexOf('VOST') !== -1) {
-    lIcon = '🔡';
     displayLang = 'VOSTFR';
-  } else if (searchPool.indexOf('DUAL') !== -1) {
-    lIcon = '🔊';
-    displayLang = 'DUAL';
+    flags = '🇺🇸 • 🇫🇷';
   }
   
-  // Extract Size if present in raw label text
-  var sizeStr = "Variable Size";
-  if (rawText) {
-    var szMatch = String(rawText).match(/(\d+(?:\.\d+)?\s*(?:GB|MB|gb|mb))/);
-    if (szMatch) {
-      sizeStr = szMatch[1].toUpperCase();
-    }
-  }
-  
-  // Line 1: Identity
+  // Line 1: Identity (Untouched)
   var line1 = '🎬 ';
   if (season && episode) {
     line1 += 'S' + season + ' E' + episode + (epInfo && epInfo.name ? ' - ' + epInfo.name : '') + ' | ' + meta.enName;
@@ -105,23 +89,25 @@ function buildPurstreamTitle(meta, res, lang, format, season, episode, epInfo, r
     line1 += meta.enName + (meta.year ? ' - ' + meta.year : '');
   }
   
-  // Line 2: Technical Specs
-  var columns = [
-    qIcon + ' ' + cleanRes,
-    lIcon + ' ' + displayLang,
-    '💾 ' + sizeStr,
-    '🎞️ ' + (format || 'M3U8').toUpperCase()
-  ];
+  // Line 2: 🔥 Quality | 🌐 LangType | 🔊 Flags
+  var line2 = qIcon + ' ' + cleanRes + ' | 🌐 ' + displayLang + ' | 🔊 ' + flags;
   
-  var finalDur = (epInfo && epInfo.duration) ? epInfo.duration : meta.duration;
-  if (finalDur) {
-    columns.push('⏱️ ' + finalDur);
+  // Line 3: 🎯 Format • Codec | 🎧 AAC | Duration
+  var formatUpper = (format || 'M3U8').toUpperCase();
+  var codecVal = 'H.264';
+  if (searchPool.indexOf("HEVC") !== -1 || searchPool.indexOf("X265") !== -1 || searchPool.indexOf("H265") !== -1) {
+    codecVal = 'H.265';
   }
   
-  return line1 + '\n' + columns.join(' | ');
+  var finalDur = (epInfo && epInfo.duration) ? epInfo.duration : meta.duration;
+  var durationStr = finalDur ? ' | ' + finalDur : '';
+  
+  var line3 = '🎯 ' + formatUpper + ' • ' + codecVal + ' | 🎧 AAC' + durationStr;
+  
+  return line1 + '\n' + line2 + '\n' + line3;
 }
 
-// ─── API & Domain Logic (Untouched) ──────────────────────────
+// ─── API & Domain Logic ──────────────────────────
 
 function detectPurstreamDomain() {
   if (_cachedEndpoint) {
@@ -254,7 +240,7 @@ function parseLang(name) {
   var n = (name || '').toUpperCase();
   if (n.indexOf('VOSTFR') !== -1) return 'VOSTFR';
   if (n.indexOf('VF') !== -1) return 'VF';
-  return 'MULTI';
+  return 'Dual-Audio';
 }
 
 function parseQuality(name) {

@@ -89,8 +89,8 @@ function buildPurstreamTitle(meta, res, lang, format, season, episode, epInfo, r
     line1 += meta.enName + (meta.year ? ' - ' + meta.year : '');
   }
   
-  // Line 2: 🔥 Quality | 🌐 LangType | 🔊 Flags
-  var line2 = qIcon + ' ' + cleanRes + ' | 🌐 ' + displayLang + ' | 🔊 ' + flags;
+  // Line 2: 🔥 Quality | 🌐 LangType | 🗣️ Flags
+  var line2 = qIcon + ' ' + cleanRes + ' | 🔊 ' + displayLang + ' | 🗣️ ' + flags;
   
   // Line 3: 🎯 Format • Codec | 🎧 AAC | Duration
   var formatUpper = (format || 'M3U8').toUpperCase();

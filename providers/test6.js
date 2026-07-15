@@ -1,26 +1,30 @@
-'
 // =============================================================
-// Provider Nuvio : Cinepulse.vc (VF/VOSTFR/MULTI)
-// Version : 1.0.0 — API native + obfuscation répliquée depuis le bundle client
+// Provider Nuvio : Cinepulse.mx (VF/VOSTFR/MULTI)
+// Version : 1.0.6 — Final Production Alignment
 // =============================================================
 
 var https = require('https');
 var zlib = require('zlib');
 
-var CP_API_HOST = 'apiapi.cinepulse.mx';
+var CP_API_HOST = 'apiapi.cinepulse.mx'; 
 var CP_REFERER = 'https://cinepulse.mx/';
 var CP_ORIGIN = 'https://cinepulse.mx';
 var CP_VERSION = '3.5.2';
-var CP_SCREEN = Buffer.from('1920x1080').toString('base64');
-var CP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
+// Standardized screen size and User Agent from your working browser screenshot
+var CP_SCREEN = 'MzYweDgwNA=='; 
+var CP_UA = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36';
+
+// Your active, verified 30-day refresh token
 var REFRESH_TOKEN = process.env.CINEPULSE_REFRESH_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjYzdhZDZhMS05MGFjLTRmZGEtOTJlNS05Y2JjYjY0YzYzNTkiLCBzZXNzaW9uSWQiOiIxN2VjMzk4OC1mYzQxLTRlMzctOGE1My03Y2E3OTM2NmZiOGYiLCJpYXQiOjE3ODQwNzYyNDksImV4cCI6MTc4NjY2ODI0OSwiYXVkIjoiY2luZXB1bHNlLWZyb250ZW5kIiwiaXNzIjoiY2luZXB1bHNlLWJhY2tlbmQtYXBpIn0.sG-Vd5im67FBS45D6HQxYgjh9is55RHGtyatHhb9g6E';
 
 var _accessToken = null;
 var _tokenExpiry = 0;
-var _profileId = null;
 
-// ── Obfuscation (répliquée exactement depuis le bundle client v3.5.2) ──────────
+// Hardcoded Profile ID verified from your storage screenshots
+var _profileId = '8b592a92-7f73-43d4-9ef3-44aec27b9246';
+
+// ── Obfuscation (Replicated exactly from bundle) ─────────────────────────────
 function generateRandomKey(len) {
   len = len || 8;
   var chars = 'abceghjklmnopqrtuvwxyzABCEGHIJKLMNOPQRTUVWXYZ0123456789';
@@ -67,7 +71,8 @@ function encodeValue(val, type) {
 
 function obfuscateParams(params) {
   var t = {};
-  t[generateRandomKey()] = encodeValue(Date.now() + 60000, 'exp');
+  // Added buffer padding to expiration to protect against system clock sync lag
+  t[generateRandomKey()] = encodeValue(Date.now() + 120000, 'exp');
   var km = { tmdbId: 'id', type: 'type', season: 'season', episode: 'episode', sessionId: 'sid' };
   var keys = Object.keys(params);
   for (var i = 0; i < keys.length; i++) {
@@ -84,7 +89,7 @@ function obfuscateParams(params) {
   return t;
 }
 
-// ── Requête HTTPS JSON (http/1.1, compatible Node.js natif) ─────────────────────
+// ── Requête HTTPS ─────────────────────────────────────────────────────────────
 function httpsRequest(method, path, extraHeaders, body) {
   return new Promise(function(resolve, reject) {
     var bodyStr = body ? JSON.stringify(body) : null;
@@ -97,10 +102,9 @@ function httpsRequest(method, path, extraHeaders, body) {
         'Referer': CP_REFERER,
         'Origin': CP_ORIGIN,
         'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'fr-FR,fr;q=0.9',
+        'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
         'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Host': CP_API_HOST
+        'Connection': 'keep-alive'
       }, extraHeaders || {}, bodyStr ? {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(bodyStr)
@@ -129,53 +133,46 @@ function httpsRequest(method, path, extraHeaders, body) {
   });
 }
 
-// ── Gestion du token d'accès (auto-refresh) ─────────────────────────────────────
+// ── Gestion du token d'accès ─────────────────────────────────────────────────────
 function getAccessToken() {
   var now = Date.now();
   if (_accessToken && now < _tokenExpiry - 30000) return Promise.resolve(_accessToken);
   return httpsRequest('POST', '/api/v2/auth/refresh-auth-token', {}, { refreshToken: REFRESH_TOKEN })
     .then(function(data) {
-      if (data.type !== 'success' || !data.data) throw new Error('token refresh failed: ' + JSON.stringify(data).slice(0, 100));
+      if (data.type !== 'success' || !data.data) {
+        throw new Error('Token refresh failed: ' + JSON.stringify(data).slice(0, 150));
+      }
       _accessToken = data.data.items.accessToken;
       _tokenExpiry = Date.now() + 870000;
       return _accessToken;
     });
 }
 
-function getProfileId(accessToken) {
-  if (_profileId) return Promise.resolve(_profileId);
-  return httpsRequest('GET', '/api/v2/profiles', { 'Authorization': 'Bearer ' + accessToken })
-    .then(function(data) {
-      var profiles = data.data && data.data.items && data.data.items.profiles;
-      if (!profiles || !profiles.length) throw new Error('aucun profil trouvé');
-      _profileId = profiles[0].id;
-      return _profileId;
-    });
-}
-
 // ── Récupération des streams ─────────────────────────────────────────────────────
 function getStreams(tmdbId, mediaType, season, episode) {
   return getAccessToken().then(function(token) {
-    return getProfileId(token).then(function(profileId) {
-      var params = { tmdbId: tmdbId, type: mediaType === 'tv' ? 'tv' : 'movie' };
-      if (mediaType === 'tv' && season != null) params.season = season;
-      if (mediaType === 'tv' && episode != null) params.episode = episode;
+    var params = { tmdbId: tmdbId, type: mediaType === 'tv' ? 'tv' : 'movie' };
+    if (mediaType === 'tv' && season != null) params.season = season;
+    if (mediaType === 'tv' && episode != null) params.episode = episode;
 
-      var obf = obfuscateParams(params);
-      var qs = Object.keys(obf).map(function(k) {
-        return encodeURIComponent(k) + '=' + encodeURIComponent(obf[k]);
-      }).join('&');
+    var obf = obfuscateParams(params);
+    var qs = Object.keys(obf).map(function(k) {
+      return encodeURIComponent(k) + '=' + encodeURIComponent(obf[k]);
+    }).join('&');
 
-      return httpsRequest('GET', '/watch/sources?' + qs, {
-        'Authorization': 'Bearer ' + token,
-        'X-Profile-Id': profileId,
-        'X-Client-Version': CP_VERSION,
-        'X-Screen-Size': CP_SCREEN,
-        'X-Request-Time': String(Date.now())
-      });
+    return httpsRequest('GET', '/watch/sources?' + qs, {
+      'Authorization': 'Bearer ' + token,
+      'X-Profile-Id': _profileId,
+      'X-Client-Version': CP_VERSION,
+      'X-Screen-Size': CP_SCREEN,
+      'X-Request-Time': String(Date.now()),
+      'X-Requested-With': 'cinepulse.frontend'
     });
   }).then(function(data) {
-    if (data.type !== 'success' || !data.data || !Array.isArray(data.data.items)) return [];
+    if (data.type !== 'success' || !data.data || !Array.isArray(data.data.items)) {
+      console.warn("No streams found or unexpected payload format:", JSON.stringify(data).slice(0, 200));
+      return [];
+    }
     var results = [];
     var items = data.data.items;
     for (var i = 0; i < items.length; i++) {
@@ -191,7 +188,10 @@ function getStreams(tmdbId, mediaType, season, episode) {
       });
     }
     return results;
-  }).catch(function() { return []; });
+  }).catch(function(err) { 
+    console.error("Cinepulse Fetch Failure:", err.message || err);
+    return []; 
+  });
 }
 
 if (typeof module !== 'undefined' && module.exports) {

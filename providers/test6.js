@@ -21,7 +21,7 @@ var _accessToken = null;
 var _tokenExpiry = 0;
 
 // Hardcoded Profile ID to bypass the dynamic lookup issue
-var _profileId = '8b592a92-7f73-43d4-9ef3-44aec27b9246';
+var _profileId = 'cc7ad6a1-90ac-4fda-92e5-9cbcb64c6359';
 
 // ── Obfuscation (répliquée exactement depuis le bundle client v3.5.2) ──────────
 function generateRandomKey(len) {

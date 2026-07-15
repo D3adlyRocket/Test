@@ -1,23 +1,27 @@
 // =============================================================
-// Provider Nuvio : Cinepulse.vc (VF/VOSTFR/MULTI)
-// Version : 1.0.0 — API native + obfuscation répliquée depuis le bundle client
+// Provider Nuvio : Cinepulse.lol (VF/VOSTFR/MULTI)
+// Version : 1.0.1 — API native + Profile & Token Fix
 // =============================================================
 
 var https = require('https');
 var zlib = require('zlib');
 
-var CP_API_HOST = 'apiapi.cinepulse.mx';
-var CP_REFERER = 'https://cinepulse.mx/';
-var CP_ORIGIN = 'https://cinepulse.mx';
+// Updated to the active API Gateway and Website Domains
+var CP_API_HOST = 'apiapi.cinepulse.mx'; 
+var CP_REFERER = 'https://cinepulse.lol/';
+var CP_ORIGIN = 'https://cinepulse.lol';
 var CP_VERSION = '3.5.2';
 var CP_SCREEN = Buffer.from('1920x1080').toString('base64');
 var CP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
+// Your valid 1-month refresh token (expires May 15, 2026)
 var REFRESH_TOKEN = process.env.CINEPULSE_REFRESH_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjYzdhZDZhMS05MGFjLTRmZGEtOTJlNS05Y2JjYjY0YzYzNTkiLCJzZXNzaW9uSWQiOiIxN2VjMzk4OC1mYzQxLTRlMzctOGE1My03Y2E3OTM2NmZiOGYiLCJpYXQiOjE3ODQwNzYyNDksImV4cCI6MTc4NjY2ODI0OSwiYXVkIjoiY2luZXB1bHNlLWZyb250ZW5kIiwiaXNzIjoiY2luZXB1bHNlLWJhY2tlbmQtYXBpIn0.sG-Vd5im67FBS45D6HQxYgjh9is55RHGtyatHhb9g6E';
 
 var _accessToken = null;
 var _tokenExpiry = 0;
-var _profileId = null;
+
+// Hardcoded Profile ID to bypass the dynamic lookup issue
+var _profileId = '8b592a92-7f73-43d4-9ef3-44aec27b9246';
 
 // ── Obfuscation (répliquée exactement depuis le bundle client v3.5.2) ──────────
 function generateRandomKey(len) {
@@ -134,47 +138,39 @@ function getAccessToken() {
   if (_accessToken && now < _tokenExpiry - 30000) return Promise.resolve(_accessToken);
   return httpsRequest('POST', '/api/v2/auth/refresh-auth-token', {}, { refreshToken: REFRESH_TOKEN })
     .then(function(data) {
-      if (data.type !== 'success' || !data.data) throw new Error('token refresh failed: ' + JSON.stringify(data).slice(0, 100));
+      if (data.type !== 'success' || !data.data) {
+        throw new Error('Token refresh failed: ' + JSON.stringify(data).slice(0, 150));
+      }
       _accessToken = data.data.items.accessToken;
       _tokenExpiry = Date.now() + 870000;
       return _accessToken;
     });
 }
 
-function getProfileId(accessToken) {
-  if (_profileId) return Promise.resolve(_profileId);
-  return httpsRequest('GET', '/api/v2/profiles', { 'Authorization': 'Bearer ' + accessToken })
-    .then(function(data) {
-      var profiles = data.data && data.data.items && data.data.items.profiles;
-      if (!profiles || !profiles.length) throw new Error('aucun profil trouvé');
-      _profileId = profiles[0].id;
-      return _profileId;
-    });
-}
-
 // ── Récupération des streams ─────────────────────────────────────────────────────
 function getStreams(tmdbId, mediaType, season, episode) {
   return getAccessToken().then(function(token) {
-    return getProfileId(token).then(function(profileId) {
-      var params = { tmdbId: tmdbId, type: mediaType === 'tv' ? 'tv' : 'movie' };
-      if (mediaType === 'tv' && season != null) params.season = season;
-      if (mediaType === 'tv' && episode != null) params.episode = episode;
+    var params = { tmdbId: tmdbId, type: mediaType === 'tv' ? 'tv' : 'movie' };
+    if (mediaType === 'tv' && season != null) params.season = season;
+    if (mediaType === 'tv' && episode != null) params.episode = episode;
 
-      var obf = obfuscateParams(params);
-      var qs = Object.keys(obf).map(function(k) {
-        return encodeURIComponent(k) + '=' + encodeURIComponent(obf[k]);
-      }).join('&');
+    var obf = obfuscateParams(params);
+    var qs = Object.keys(obf).map(function(k) {
+      return encodeURIComponent(k) + '=' + encodeURIComponent(obf[k]);
+    }).join('&');
 
-      return httpsRequest('GET', '/watch/sources?' + qs, {
-        'Authorization': 'Bearer ' + token,
-        'X-Profile-Id': profileId,
-        'X-Client-Version': CP_VERSION,
-        'X-Screen-Size': CP_SCREEN,
-        'X-Request-Time': String(Date.now())
-      });
+    return httpsRequest('GET', '/watch/sources?' + qs, {
+      'Authorization': 'Bearer ' + token,
+      'X-Profile-Id': _profileId,
+      'X-Client-Version': CP_VERSION,
+      'X-Screen-Size': CP_SCREEN,
+      'X-Request-Time': String(Date.now())
     });
   }).then(function(data) {
-    if (data.type !== 'success' || !data.data || !Array.isArray(data.data.items)) return [];
+    if (data.type !== 'success' || !data.data || !Array.isArray(data.data.items)) {
+      console.warn("API returned structure success=false or missing items:", JSON.stringify(data).slice(0, 200));
+      return [];
+    }
     var results = [];
     var items = data.data.items;
     for (var i = 0; i < items.length; i++) {
@@ -190,7 +186,11 @@ function getStreams(tmdbId, mediaType, season, episode) {
       });
     }
     return results;
-  }).catch(function() { return []; });
+  }).catch(function(err) { 
+    // This will print error diagnostics to your terminal instead of failing silently
+    console.error("Cinepulse Fetch Failure:", err.message || err);
+    return []; 
+  });
 }
 
 if (typeof module !== 'undefined' && module.exports) {

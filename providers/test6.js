@@ -1,30 +1,45 @@
 // =============================================================
 // Provider Nuvio : Cinepulse.mx (VF/VOSTFR/MULTI)
-// Version : 1.0.6 — Final Production Alignment
+// Version : 1.1.0 — Native Settings & Metadata Integration
 // =============================================================
 
 var https = require('https');
 var zlib = require('zlib');
+
+const TMDB_API_KEY = '6e6ab700b6477171ee6c23d504b1e9cb';
+const TMDB_BASE = 'https://api.themoviedb.org/3';
 
 var CP_API_HOST = 'apiapi.cinepulse.mx'; 
 var CP_REFERER = 'https://cinepulse.mx/';
 var CP_ORIGIN = 'https://cinepulse.mx';
 var CP_VERSION = '3.5.2';
 
-// Standardized screen size and User Agent from your working browser screenshot
 var CP_SCREEN = 'MzYweDgwNA=='; 
 var CP_UA = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36';
 
-// Your active, verified 30-day refresh token
-var REFRESH_TOKEN = process.env.CINEPULSE_REFRESH_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjYzdhZDZhMS05MGFjLTRmZGEtOTJlNS05Y2JjYjY0YzYzNTkiLCBzZXNzaW9uSWQiOiIxN2VjMzk4OC1mYzQxLTRlMzctOGE1My03Y2E3OTM2NmZiOGYiLCJpYXQiOjE3ODQwNzYyNDksImV4cCI6MTc4NjY2ODI0OSwiYXVkIjoiY2luZXB1bHNlLWZyb250ZW5kIiwiaXNzIjoiY2luZXB1bHNlLWJhY2tlbmQtYXBpIn0.sG-Vd5im67FBS45D6HQxYgjh9is55RHGtyatHhb9g6E';
+// Global defaults (replaces manual hardcoding)
+var DEFAULTS = {
+  refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjYzdhZDZhMS05MGFjLTRmZGEtOTJlNS05Y2JjYjY0YzYzNTkiLCBzZXNzaW9uSWQiOiIxN2VjMzk4OC1mYzQxLTRlMzctOGE1My03Y2E3OTM2NmZiOGYiLCJpYXQiOjE3ODQwNzYyNDksImV4cCI6MTc4NjY2ODI0OSwiYXVkIjoiY2luZXB1bHNlLWZyb250ZW5kIiwiaXNzIjoiY2luZXB1bHNlLWJhY2tlbmQtYXBpIn0.sG-Vd5im67FBS45D6HQxYgjh9is55RHGtyatHhb9g6E',
+  profileId: '8b592a92-7f73-43d4-9ef3-44aec27b9246'
+};
 
 var _accessToken = null;
 var _tokenExpiry = 0;
 
-// Hardcoded Profile ID verified from your storage screenshots
-var _profileId = '8b592a92-7f73-43d4-9ef3-44aec27b9246';
+// ── Dynamically Retrieve Settings ──────────────────────────────────────────
+function getSettings() {
+  const s =
+    (typeof globalThis !== 'undefined' && globalThis.SCRAPER_SETTINGS) ||
+    (typeof global !== 'undefined' && global.SCRAPER_SETTINGS) ||
+    (typeof window !== 'undefined' && window.SCRAPER_SETTINGS) ||
+    {};
+  return {
+    refreshToken: String(s.refreshToken || DEFAULTS.refreshToken || '').trim(),
+    profileId: String(s.profileId || DEFAULTS.profileId || '').trim()
+  };
+}
 
-// ── Obfuscation (Replicated exactly from bundle) ─────────────────────────────
+// ── Obfuscation Engine ──────────────────────────────────────────────────────
 function generateRandomKey(len) {
   len = len || 8;
   var chars = 'abceghjklmnopqrtuvwxyzABCEGHIJKLMNOPQRTUVWXYZ0123456789';
@@ -71,7 +86,6 @@ function encodeValue(val, type) {
 
 function obfuscateParams(params) {
   var t = {};
-  // Added buffer padding to expiration to protect against system clock sync lag
   t[generateRandomKey()] = encodeValue(Date.now() + 120000, 'exp');
   var km = { tmdbId: 'id', type: 'type', season: 'season', episode: 'episode', sessionId: 'sid' };
   var keys = Object.keys(params);
@@ -89,7 +103,7 @@ function obfuscateParams(params) {
   return t;
 }
 
-// ── Requête HTTPS ─────────────────────────────────────────────────────────────
+// ── Native HTTPS Request ──────────────────────────────────────────────────────
 function httpsRequest(method, path, extraHeaders, body) {
   return new Promise(function(resolve, reject) {
     var bodyStr = body ? JSON.stringify(body) : null;
@@ -133,11 +147,12 @@ function httpsRequest(method, path, extraHeaders, body) {
   });
 }
 
-// ── Gestion du token d'accès ─────────────────────────────────────────────────────
+// ── Auth Token Auto-Refresh ───────────────────────────────────────────────────
 function getAccessToken() {
+  var settings = getSettings();
   var now = Date.now();
   if (_accessToken && now < _tokenExpiry - 30000) return Promise.resolve(_accessToken);
-  return httpsRequest('POST', '/api/v2/auth/refresh-auth-token', {}, { refreshToken: REFRESH_TOKEN })
+  return httpsRequest('POST', '/api/v2/auth/refresh-auth-token', {}, { refreshToken: settings.refreshToken })
     .then(function(data) {
       if (data.type !== 'success' || !data.data) {
         throw new Error('Token refresh failed: ' + JSON.stringify(data).slice(0, 150));
@@ -148,52 +163,113 @@ function getAccessToken() {
     });
 }
 
-// ── Récupération des streams ─────────────────────────────────────────────────────
-function getStreams(tmdbId, mediaType, season, episode) {
-  return getAccessToken().then(function(token) {
-    var params = { tmdbId: tmdbId, type: mediaType === 'tv' ? 'tv' : 'movie' };
-    if (mediaType === 'tv' && season != null) params.season = season;
-    if (mediaType === 'tv' && episode != null) params.episode = episode;
+// ── Metadata Lookup ───────────────────────────────────────────────────────────
+function getTMDBDetails(tmdbId, mediaType) {
+  const endpoint = mediaType === 'tv' ? 'tv' : 'movie';
+  const url = TMDB_BASE + '/' + endpoint + '/' + tmdbId + '?api_key=' + TMDB_API_KEY;
 
-    var obf = obfuscateParams(params);
-    var qs = Object.keys(obf).map(function(k) {
-      return encodeURIComponent(k) + '=' + encodeURIComponent(obf[k]);
-    }).join('&');
-
-    return httpsRequest('GET', '/watch/sources?' + qs, {
-      'Authorization': 'Bearer ' + token,
-      'X-Profile-Id': _profileId,
-      'X-Client-Version': CP_VERSION,
-      'X-Screen-Size': CP_SCREEN,
-      'X-Request-Time': String(Date.now()),
-      'X-Requested-With': 'cinepulse.frontend'
-    });
-  }).then(function(data) {
-    if (data.type !== 'success' || !data.data || !Array.isArray(data.data.items)) {
-      console.warn("No streams found or unexpected payload format:", JSON.stringify(data).slice(0, 200));
-      return [];
-    }
-    var results = [];
-    var items = data.data.items;
-    for (var i = 0; i < items.length; i++) {
-      var s = items[i];
-      if (!s.url) continue;
-      var lang = (s.language || '').toUpperCase();
-      var quality = s.quality || 'HD';
-      var langIcon = lang === 'VF' ? '🇫🇷' : lang === 'VOSTFR' ? '🔡' : lang === 'MULTI' ? '🌐' : '🎬';
-      results.push({
-        name: 'Cinepulse \u2022 ' + quality,
-        title: langIcon + ' ' + lang + ' | \uD83D\uDCFA ' + quality + ' | ' + (s.type || 'hls').toUpperCase(),
-        url: s.url
+  return new Promise(function(resolve, reject) {
+    https.get(url, { headers: { Accept: 'application/json' } }, function(res) {
+      var chunks = [];
+      res.on('data', function(c) { chunks.push(c); });
+      res.on('end', function() {
+        try {
+          var data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+          resolve(data);
+        } catch(e) { reject(e); }
       });
-    }
-    return results;
-  }).catch(function(err) { 
-    console.error("Cinepulse Fetch Failure:", err.message || err);
-    return []; 
+    }).on('error', reject);
   });
 }
 
+// ── Stream Fetcher Execution ──────────────────────────────────────────────────
+function getStreams(tmdbId, mediaType, season, episode) {
+  mediaType = mediaType || 'movie';
+  var settings = getSettings();
+
+  return getTMDBDetails(tmdbId, mediaType)
+    .then(function(metadata) {
+      if (!metadata) throw new Error('Metadata query failed');
+
+      return getAccessToken().then(function(token) {
+        var params = { tmdbId: Number(tmdbId), type: mediaType === 'tv' ? 'tv' : 'movie' };
+        if (mediaType === 'tv' && season != null) params.season = Number(season);
+        if (mediaType === 'tv' && episode != null) params.episode = Number(episode);
+
+        var obf = obfuscateParams(params);
+        var qs = Object.keys(obf).map(function(k) {
+          return encodeURIComponent(k) + '=' + encodeURIComponent(obf[k]);
+        }).join('&');
+
+        return httpsRequest('GET', '/watch/sources?' + qs, {
+          'Authorization': 'Bearer ' + token,
+          'X-Profile-Id': settings.profileId,
+          'X-Client-Version': CP_VERSION,
+          'X-Screen-Size': CP_SCREEN,
+          'X-Request-Time': String(Date.now()),
+          'X-Requested-With': 'cinepulse.frontend'
+        });
+      });
+    })
+    .then(function(data) {
+      if (data.type !== 'success' || !data.data || !Array.isArray(data.data.items)) {
+        console.warn("No streams found or unexpected payload:", JSON.stringify(data).slice(0, 200));
+        return [];
+      }
+      var results = [];
+      var items = data.data.items;
+      for (var i = 0; i < items.length; i++) {
+        var s = items[i];
+        if (!s.url) continue;
+        var lang = (s.language || '').toUpperCase();
+        var quality = s.quality || 'HD';
+        var langIcon = lang === 'VF' ? '🇫🇷' : lang === 'VOSTFR' ? '🔡' : lang === 'MULTI' ? '🌐' : '🎬';
+        results.push({
+          name: 'Cinepulse \u2022 ' + quality,
+          title: langIcon + ' ' + lang + ' | \uD83D\uDCFA ' + quality + ' | ' + (s.type || 'hls').toUpperCase(),
+          url: s.url
+        });
+      }
+      return results;
+    })
+    .catch(function(err) { 
+      console.error("Cinepulse Fetch Failure:", err.message || err);
+      return []; 
+    });
+}
+
+// ── Setting Configurations UI Layout ──────────────────────────────────────────
+function onSettings() {
+  return Promise.resolve([
+    { type: 'header', label: 'Cinepulse Session Credentials' },
+    {
+      type: 'info',
+      label: 'To update your session, copy the parameters from your browser DevTools Local Storage.'
+    },
+    {
+      type: 'text',
+      isPassword: true,
+      key: 'refreshToken',
+      label: 'Refresh Token',
+      placeholder: 'Paste the 30-day refreshToken JWT...',
+      description: 'Used to automatically refresh the short-term API Bearer Token.'
+    },
+    {
+      type: 'text',
+      key: 'profileId',
+      label: 'Profile ID',
+      placeholder: '8b592a92-7f73-43d4-9ef3-44aec27b9246',
+      description: 'Your specific profile ID string (must align with your User session).'
+    }
+  ]);
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams: getStreams };
+  module.exports = {
+    getStreams: getStreams,
+    onSettings: onSettings
+  };
+} else if (typeof global !== 'undefined') {
+  global.getStreams = getStreams;
+  global.onSettings = onSettings;
 }

@@ -2,7 +2,7 @@
 // Provider Nuvio : Movix (VF/VOSTFR français)                  //
 // Version : 4.6.1                                              //
 // - Header: Movix | Quality | Language (No Emojis)             //
-// - Line 1: 🎬 Movie Name - Year (or S/E info)                  //
+// - Line 1: 🍿 Movie Name - Year (or S/E info)                  //
 // - Line 2: ⚡ Quality | 💬 LangType | 🎵 Flags                 //
 // - Line 3: 💿 Format • Codec | 🎧 AAC | Duration              //
 // ============================================================= //
@@ -79,7 +79,7 @@ function buildTitle(meta, res, lang, format, size, extra, season, episode, epInf
   }
   
   // Line 1: Identity (Untouched)
-  var line1 = '🎬 ';
+  var line1 = '🍿 ';
   if (season && episode) {
     line1 += 'S' + season + ' E' + episode + (epInfo && epInfo.name ? ' - ' + epInfo.name : '') + ' | ' + meta.name;
   } else {

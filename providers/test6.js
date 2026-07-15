@@ -1,29 +1,25 @@
+'
 // =============================================================
-// Provider Nuvio : Cinepulse.mx (VF/VOSTFR/MULTI)
-// Version : 1.0.3 — Verified Headers from Network Log
+// Provider Nuvio : Cinepulse.vc (VF/VOSTFR/MULTI)
+// Version : 1.0.0 — API native + obfuscation répliquée depuis le bundle client
 // =============================================================
 
 var https = require('https');
 var zlib = require('zlib');
 
-// Match domains directly to the active screenshot
-var CP_API_HOST = 'apiapi.cinepulse.mx'; 
+var CP_API_HOST = 'apiapi.cinepulse.mx';
 var CP_REFERER = 'https://cinepulse.mx/';
 var CP_ORIGIN = 'https://cinepulse.mx';
 var CP_VERSION = '3.5.2';
+var CP_SCREEN = Buffer.from('1920x1080').toString('base64');
+var CP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-// Matches the exact mobile screen resolution from your screenshot (360x804)
-var CP_SCREEN = 'MzYweDgwNA=='; 
-var CP_UA = 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Mobile Safari/537.36';
-
-// Your active, verified 30-day refresh token
 var REFRESH_TOKEN = process.env.CINEPULSE_REFRESH_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjYzdhZDZhMS05MGFjLTRmZGEtOTJlNS05Y2JjYjY0YzYzNTkiLCBzZXNzaW9uSWQiOiIxN2VjMzk4OC1mYzQxLTRlMzctOGE1My03Y2E3OTM2NmZiOGYiLCJpYXQiOjE3ODQwNzYyNDksImV4cCI6MTc4NjY2ODI0OSwiYXVkIjoiY2luZXB1bHNlLWZyb250ZW5kIiwiaXNzIjoiY2luZXB1bHNlLWJhY2tlbmQtYXBpIn0.sG-Vd5im67FBS45D6HQxYgjh9is55RHGtyatHhb9g6E';
+';
 
 var _accessToken = null;
 var _tokenExpiry = 0;
-
-// Your verified Profile ID
-var _profileId = '8b592a92-7f73-43d4-9ef3-44aec27b9246';
+var _profileId = null;
 
 // ── Obfuscation (répliquée exactement depuis le bundle client v3.5.2) ──────────
 function generateRandomKey(len) {
@@ -102,10 +98,10 @@ function httpsRequest(method, path, extraHeaders, body) {
         'Referer': CP_REFERER,
         'Origin': CP_ORIGIN,
         'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-GB,en-US;q=0.9,en;q=0.8',
+        'Accept-Language': 'fr-FR,fr;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive'
-        // Host header deleted to let Node generate it dynamically
+        'Connection': 'keep-alive',
+        'Host': CP_API_HOST
       }, extraHeaders || {}, bodyStr ? {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(bodyStr)
@@ -140,40 +136,47 @@ function getAccessToken() {
   if (_accessToken && now < _tokenExpiry - 30000) return Promise.resolve(_accessToken);
   return httpsRequest('POST', '/api/v2/auth/refresh-auth-token', {}, { refreshToken: REFRESH_TOKEN })
     .then(function(data) {
-      if (data.type !== 'success' || !data.data) {
-        throw new Error('Token refresh failed: ' + JSON.stringify(data).slice(0, 150));
-      }
+      if (data.type !== 'success' || !data.data) throw new Error('token refresh failed: ' + JSON.stringify(data).slice(0, 100));
       _accessToken = data.data.items.accessToken;
       _tokenExpiry = Date.now() + 870000;
       return _accessToken;
     });
 }
 
+function getProfileId(accessToken) {
+  if (_profileId) return Promise.resolve(_profileId);
+  return httpsRequest('GET', '/api/v2/profiles', { 'Authorization': 'Bearer ' + accessToken })
+    .then(function(data) {
+      var profiles = data.data && data.data.items && data.data.items.profiles;
+      if (!profiles || !profiles.length) throw new Error('aucun profil trouvé');
+      _profileId = profiles[0].id;
+      return _profileId;
+    });
+}
+
 // ── Récupération des streams ─────────────────────────────────────────────────────
 function getStreams(tmdbId, mediaType, season, episode) {
   return getAccessToken().then(function(token) {
-    var params = { tmdbId: tmdbId, type: mediaType === 'tv' ? 'tv' : 'movie' };
-    if (mediaType === 'tv' && season != null) params.season = season;
-    if (mediaType === 'tv' && episode != null) params.episode = episode;
+    return getProfileId(token).then(function(profileId) {
+      var params = { tmdbId: tmdbId, type: mediaType === 'tv' ? 'tv' : 'movie' };
+      if (mediaType === 'tv' && season != null) params.season = season;
+      if (mediaType === 'tv' && episode != null) params.episode = episode;
 
-    var obf = obfuscateParams(params);
-    var qs = Object.keys(obf).map(function(k) {
-      return encodeURIComponent(k) + '=' + encodeURIComponent(obf[k]);
-    }).join('&');
+      var obf = obfuscateParams(params);
+      var qs = Object.keys(obf).map(function(k) {
+        return encodeURIComponent(k) + '=' + encodeURIComponent(obf[k]);
+      }).join('&');
 
-    return httpsRequest('GET', '/watch/sources?' + qs, {
-      'Authorization': 'Bearer ' + token,
-      'X-Profile-Id': _profileId,
-      'X-Client-Version': CP_VERSION,
-      'X-Screen-Size': CP_SCREEN,
-      'X-Request-Time': String(Date.now()),
-      'X-Requested-With': 'cinepulse.frontend' // Added directly from your screenshot
+      return httpsRequest('GET', '/watch/sources?' + qs, {
+        'Authorization': 'Bearer ' + token,
+        'X-Profile-Id': profileId,
+        'X-Client-Version': CP_VERSION,
+        'X-Screen-Size': CP_SCREEN,
+        'X-Request-Time': String(Date.now())
+      });
     });
   }).then(function(data) {
-    if (data.type !== 'success' || !data.data || !Array.isArray(data.data.items)) {
-      console.warn("API returned structure success=false or missing items:", JSON.stringify(data).slice(0, 200));
-      return [];
-    }
+    if (data.type !== 'success' || !data.data || !Array.isArray(data.data.items)) return [];
     var results = [];
     var items = data.data.items;
     for (var i = 0; i < items.length; i++) {
@@ -189,10 +192,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       });
     }
     return results;
-  }).catch(function(err) { 
-    console.error("Cinepulse Fetch Failure:", err.message || err);
-    return []; 
-  });
+  }).catch(function() { return []; });
 }
 
 if (typeof module !== 'undefined' && module.exports) {

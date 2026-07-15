@@ -8,8 +8,8 @@ var zlib = require('zlib');
 
 // Updated to the active API Gateway and Website Domains
 var CP_API_HOST = 'apiapi.cinepulse.mx'; 
-var CP_REFERER = 'https://cinepulse.lol/';
-var CP_ORIGIN = 'https://cinepulse.lol';
+var CP_REFERER = 'https://cinepulse.mx/';
+var CP_ORIGIN = 'https://cinepulse.mx';
 var CP_VERSION = '3.5.2';
 var CP_SCREEN = Buffer.from('1920x1080').toString('base64');
 var CP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';

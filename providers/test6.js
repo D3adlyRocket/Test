@@ -1,12 +1,12 @@
 // =============================================================
-// Provider Nuvio : Cinepulse.lol (VF/VOSTFR/MULTI)
-// Version : 1.0.1 — API native + Profile & Token Fix
+// Provider Nuvio : Cinepulse.mx (VF/VOSTFR/MULTI)
+// Version : 1.0.2 — Final Header Alignment Fix
 // =============================================================
 
 var https = require('https');
 var zlib = require('zlib');
 
-// Updated to the active API Gateway and Website Domains
+// Domains matching the active Network screenshot
 var CP_API_HOST = 'apiapi.cinepulse.mx'; 
 var CP_REFERER = 'https://cinepulse.mx/';
 var CP_ORIGIN = 'https://cinepulse.mx';
@@ -14,13 +14,13 @@ var CP_VERSION = '3.5.2';
 var CP_SCREEN = Buffer.from('1920x1080').toString('base64');
 var CP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
-// Your valid 1-month refresh token (expires May 15, 2026)
-var REFRESH_TOKEN = process.env.CINEPULSE_REFRESH_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjYzdhZDZhMS05MGFjLTRmZGEtOTJlNS05Y2JjYjY0YzYzNTkiLCJzZXNzaW9uSWQiOiIxN2VjMzk4OC1mYzQxLTRlMzctOGE1My03Y2E3OTM2NmZiOGYiLCJpYXQiOjE3ODQwNzYyNDksImV4cCI6MTc4NjY2ODI0OSwiYXVkIjoiY2luZXB1bHNlLWZyb250ZW5kIiwiaXNzIjoiY2luZXB1bHNlLWJhY2tlbmQtYXBpIn0.sG-Vd5im67FBS45D6HQxYgjh9is55RHGtyatHhb9g6E';
+// Your active, verified 1-month refresh token (expires Aug 14, 2026)
+var REFRESH_TOKEN = process.env.CINEPULSE_REFRESH_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJjYzdhZDZhMS05MGFjLTRmZGEtOTJlNS05Y2JjYjY0YzYzNTkiLCBzZXNzaW9uSWQiOiIxN2VjMzk4OC1mYzQxLTRlMzctOGE1My03Y2E3OTM2NmZiOGYiLCJpYXQiOjE3ODQwNzYyNDksImV4cCI6MTc4NjY2ODI0OSwiYXVkIjoiY2luZXB1bHNlLWZyb250ZW5kIiwiaXNzIjoiY2luZXB1bHNlLWJhY2tlbmQtYXBpIn0.sG-Vd5im67FBS45D6HQxYgjh9is55RHGtyatHhb9g6E';
 
 var _accessToken = null;
 var _tokenExpiry = 0;
 
-// Hardcoded Profile ID to bypass the dynamic lookup issue
+// Hardcoded Profile ID verified from your network screenshot
 var _profileId = '8b592a92-7f73-43d4-9ef3-44aec27b9246';
 
 // ── Obfuscation (répliquée exactement depuis le bundle client v3.5.2) ──────────
@@ -102,8 +102,8 @@ function httpsRequest(method, path, extraHeaders, body) {
         'Accept': 'application/json, text/plain, */*',
         'Accept-Language': 'fr-FR,fr;q=0.9',
         'Accept-Encoding': 'gzip, deflate, br',
-        'Connection': 'keep-alive',
-        'Host': CP_API_HOST
+        'Connection': 'keep-alive'
+        // Host header was removed to let Node generate it dynamically
       }, extraHeaders || {}, bodyStr ? {
         'Content-Type': 'application/json',
         'Content-Length': Buffer.byteLength(bodyStr)
@@ -164,7 +164,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
       'X-Profile-Id': _profileId,
       'X-Client-Version': CP_VERSION,
       'X-Screen-Size': CP_SCREEN,
-      'X-Request-Time': String(Date.now())
+      'X-Request-Time': String(Date.now()),
+      'X-Requested-With': 'cinepulse.frontend' // Added directly from your network screenshot
     });
   }).then(function(data) {
     if (data.type !== 'success' || !data.data || !Array.isArray(data.data.items)) {
@@ -187,7 +188,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
     }
     return results;
   }).catch(function(err) { 
-    // This will print error diagnostics to your terminal instead of failing silently
     console.error("Cinepulse Fetch Failure:", err.message || err);
     return []; 
   });

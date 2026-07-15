@@ -1,9 +1,9 @@
 // ============================================================= //
 // Provider Nuvio : Cinepulse.mx (VF/VOSTFR/MULTI)               //
-// Version : 1.4.0 — Authenticated Purstream-Engine Hybrid       //
+// Version : 1.4.5 — Authenticated Purstream Hybrid with PIN Code //
 // ============================================================= //
 
-const CP_API_BASE = 'https://apiapi.cinepulse.mx'; // Base host without trailing slash
+const CP_API_BASE = 'https://apiapi.cinepulse.mx'; 
 const CP_REFERER = 'https://cinepulse.mx/';
 const CP_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const TMDB_KEY = 'f3d757824f08ea2cff45eb8f47ca3a1e';
@@ -33,12 +33,13 @@ function getSettings() {
   return {
     email: String(s.email || '').trim(),
     password: String(s.password || '').trim(),
+    pin: String(s.pin || '').trim(),
     profileId: String(s.profileId || DEFAULTS.profileId || '').trim(),
     refreshToken: String(s.refreshToken || s.token || DEFAULTS.refreshToken || '').trim()
   };
 }
 
-// ─── Authentication Gateway ──────────────────────────────────
+// ─── Authentication & PIN Verification Gateway ────────────────
 
 function performEmailLogin(settings) {
   console.log("Cinepulse Auth: Logging in via Email...");
@@ -65,8 +66,9 @@ function performEmailLogin(settings) {
     
     _accessToken = data.data.items.accessToken;
     _refreshToken = data.data.items.refreshToken;
-    _tokenExpiry = Date.now() + 870000; // 14.5 minutes
+    _tokenExpiry = Date.now() + 870000; // Token active for 14.5 mins
 
+    // Select profile
     if (settings.profileId) {
       _profileId = settings.profileId;
     } else if (data.data.items.profiles && data.data.items.profiles.length > 0) {
@@ -75,13 +77,36 @@ function performEmailLogin(settings) {
       _profileId = DEFAULTS.profileId;
     }
 
-    console.log("Cinepulse Auth: Session established. Active Profile: " + _profileId);
+    // ─── PIN Unlock Chain ───
+    if (settings.pin) {
+      console.log("Cinepulse Auth: Profile PIN detected. Attempting to unlock profile ID: " + _profileId);
+      return fetch(CP_API_BASE + '/api/v2/auth/profile/' + _profileId + '/verify-pin', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': CP_UA,
+          'Referer': CP_REFERER,
+          'Authorization': 'Bearer ' + _accessToken
+        },
+        body: JSON.stringify({ pin: settings.pin })
+      })
+      .then(function(pinRes) {
+        if (!pinRes.ok) {
+          console.warn("Cinepulse Auth: PIN code verification rejected by the server. Proceeding with raw session.");
+        } else {
+          console.log("Cinepulse Auth: PIN successfully verified. Profile streams unlocked.");
+        }
+        return { accessToken: _accessToken, profileId: _profileId };
+      });
+    }
+
+    console.log("Cinepulse Auth: Session established without PIN lock.");
     return { accessToken: _accessToken, profileId: _profileId };
   });
 }
 
 function performTokenRefresh(rToken, settings) {
-  console.log("Cinepulse Auth: Refreshing Token...");
+  console.log("Cinepulse Auth: Silently refreshing token...");
   return fetch(CP_API_BASE + '/api/v2/auth/refresh-auth-token', {
     method: 'POST',
     headers: {
@@ -92,7 +117,7 @@ function performTokenRefresh(rToken, settings) {
     body: JSON.stringify({ refreshToken: rToken })
   })
   .then(function(res) {
-    if (!res.ok) throw new Error("Refresh failed");
+    if (!res.ok) throw new Error("Refresh expired or rejected.");
     return res.json();
   })
   .then(function(data) {
@@ -102,7 +127,7 @@ function performTokenRefresh(rToken, settings) {
       _profileId = settings.profileId || _profileId || DEFAULTS.profileId;
       return { accessToken: _accessToken, profileId: _profileId };
     }
-    throw new Error("Invalid token payload");
+    throw new Error("Invalid payload mapping");
   });
 }
 
@@ -110,12 +135,12 @@ function getSession() {
   const settings = getSettings();
   const now = Date.now();
 
-  // 1. Return current memory cache if valid
+  // 1. Cached Session
   if (_accessToken && _profileId && now < _tokenExpiry - 30000) {
     return Promise.resolve({ accessToken: _accessToken, profileId: _profileId });
   }
 
-  // 2. Try Email & Password Login if specified
+  // 2. Email Login
   if (settings.email && settings.password) {
     const activeRefresh = _refreshToken || settings.refreshToken;
     if (activeRefresh) {
@@ -126,15 +151,15 @@ function getSession() {
     return performEmailLogin(settings);
   }
 
-  // 3. Fallback to manual refresh token in Settings
+  // 3. Fallback
   if (settings.refreshToken) {
     return performTokenRefresh(settings.refreshToken, settings);
   }
 
-  return Promise.reject(new Error("No credentials configured in Nuvio settings. Please set up your Cinepulse account."));
+  return Promise.reject(new Error("Missing credentials. Configure your Cinepulse login fields."));
 }
 
-// ─── TMDB Helpers ────────────────────────────────────────────
+// ─── TMDB Metadata Lookup ────────────────────────────────────
 
 function getTmdbDetails(tmdbId, type) {
   var url = 'https://api.themoviedb.org/3/' + (type === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=fr-FR';
@@ -170,7 +195,7 @@ function getEpisodeInfo(tmdbId, season, episode) {
     .catch(function() { return null; });
 }
 
-// ─── UI Helper: Two-Line Title Builder ───────────────────────
+// ─── Title Interface Formatter ───────────────────────────────
 
 function buildTitle(meta, res, lang, format, season, episode, epInfo, rawText) {
   var cleanRes = res.toLowerCase().replace(/p/g, "") + "p";
@@ -395,7 +420,7 @@ function onSettings() {
     { type: 'header', label: 'Cinepulse Login Credentials' },
     {
       type: 'info',
-      label: 'Using account credentials guarantees automatic token handling and continuous stream links.'
+      label: 'Email and Password are required. If your profile is protected by a PIN, please supply it below.'
     },
     {
       type: 'text',
@@ -412,21 +437,21 @@ function onSettings() {
       placeholder: '••••••••',
       description: 'Your secure Cinepulse account password.'
     },
-    { type: 'header', label: 'Profiles & Tuning (Optional)' },
+    {
+      type: 'text',
+      isPassword: true,
+      key: 'pin',
+      label: 'Profile PIN Code',
+      placeholder: '1234',
+      description: 'The 4-digit PIN lock code for your default viewing profile.'
+    },
+    { type: 'header', label: 'Profiles Tuning (Optional)' },
     {
       type: 'text',
       key: 'profileId',
       label: 'Profile ID Bypass',
       placeholder: '8b592a92-7f73-43d4-9ef3-44aec27b9246',
-      description: 'Optional. Leave blank to automatically select the primary user profile.'
-    },
-    {
-      type: 'text',
-      isPassword: true,
-      key: 'refreshToken',
-      label: 'Manual Refresh Token (Backup)',
-      placeholder: 'eyJhbGciOi...',
-      description: 'Optional backup refresh token bypass.'
+      description: 'Optional override. Leave blank to let the system auto-resolve your default profile.'
     }
   ]);
 }

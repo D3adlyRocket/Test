@@ -1,446 +1,170 @@
-var cheerio = require('cheerio-without-node-native');
+"use strict";
 
-var BASE_URL = 'https://huhu.to';
-var API_KEY = 'TC2AJpYciVIFw6POgjNpiJfsnSnw';
-var LOKKE_PING_URL = 'https://www.lokke.app/api/app/ping';
-var OHA_RESOLVE_URL = 'https://huhu.to/web-vod/mediaurl-resolve.json';
-var OHA_ITEM_URL = 'https://huhu.to/mediaurl-item.json';
-var OHA_SOURCE_URL = 'https://huhu.to/mediaurl-source.json';
+const VIDUP_API = "https://vidup.to";
+const DECRYPT_API = "https://enc-dec.app/api";
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 
-var DEFAULT_HEADERS = {
-    'Authorization': 'Bearer ' + API_KEY,
-    'Accept': 'application/json',
-    'Origin': BASE_URL,
-    'Referer': BASE_URL + '/'
+const BASE_HEADERS = {
+  "User-Agent": USER_AGENT,
+  "Referer": `${VIDUP_API}/`,
+  "X-Requested-With": "XMLHttpRequest"
 };
 
-// Known Voe mirror domains that need to be rewritten to voe.sx
-var VOE_MIRRORS = [
-    '19turanosephantasia.com', '20demidistance9elongations.com', '30sensualizeexpression.com',
-    '321naturelikefurfuroid.com', '35volitantplimsoles5.com', '449unceremoniousnasoseptal.com',
-    '745mingiestblissfully.com', 'adrianmissionminute.com', 'alleneconomicmatter.com',
-    'antecoxalbobbing1010.com', 'apinchcaseation.com', 'audaciousdefaulthouse.com',
-    'availedsmallest.com', 'bigclatterhomesguideservice.com', 'boonlessbestselling244.com',
-    'bradleyviewdoctor.com', 'brittneystandardwestern.com', 'brucevotewithin.com',
-    'charlestoughrace.com', 'christopheruntilpoint.com', 'chromotypic.com',
-    'chuckle-tube.com', 'cindyeyefinal.com', 'counterclockwisejacky.com',
-    'crownmakermacaronicism.com', 'crystaltreatmenteast.com', 'cyamidpulverulence530.com',
-    'diananatureforeign.com', 'donaldlineelse.com', 'edwardarriveoften.com',
-    'erikcoldperson.com', 'figeterpiazine.com', 'fittingcentermondaysunday.com',
-    'fraudclatterflyingcar.com', 'gamoneinterrupted.com', 'generatesnitrosate.com',
-    'goofy-banana.com', 'graceaddresscommunity.com', 'greaseball6eventual20.com',
-    'guidon40hyporadius9.com', 'heatherdiscussionwhen.com', 'housecardsummerbutton.com',
-    'jamessoundcost.com', 'jamiesamewalk.com', 'jasminetesttry.com',
-    'jayservicestuff.com', 'jennifercertaindevelopment.com', 'jilliandescribecompany.com',
-    'johnalwayssame.com', 'jonathansociallike.com', 'josephseveralconcern.com',
-    'kathleenmemberhistory.com', 'kellywhatcould.com', 'kennethofficialitem.com',
-    'kinoger.ru', 'kristiesoundsimply.com', 'lancewhosedifficult.com',
-    'launchreliantcleaverriver.com', 'lauradaydo.com', 'lisatrialidea.com',
-    'loriwithinfamily.com', 'lukecomparetwo.com', 'lukesitturn.com',
-    'mariatheserepublican.com', 'matriculant401merited.com', 'maxfinishseveral.com',
-    'metagnathtuggers.com', 'michaelapplysome.com', 'mikaylaarealike.com',
-    'nathanfromsubject.com', 'nectareousoverelate.com', 'nonesnanking.com',
-    'paulkitchendark.com', 'realfinanceblogcenter.com', 'rebeccaneverbase.com',
-    'reputationsheriffkennethsand.com', 'richardsignfish.com', 'roberteachfinal.com',
-    'robertordercharacter.com', 'robertplacespace.com', 'sandratableother.com',
-    'sandrataxeight.com', 'scatch176duplicities.com', 'sethniceletter.com',
-    'shannonpersonalcost.com', 'simpulumlamerop.com', 'smoki.cc',
-    'stevenimaginelittle.com', 'strawberriesporail.com', 'telyn610zoanthropy.com',
-    'timberwoodanotia.com', 'toddpartneranimal.com', 'toxitabellaeatrebates306.com',
-    'uptodatefinishconferenceroom.com', 'v-o-e-unblock.com', 'valeronevijao.com',
-    'walterprettytheir.com', 'wolfdyslectic.com', 'yodelswartlike.com'
-];
-
-// Extracts a clean domain name from a full URL string
-function extractDomain(url) {
-    if (!url || typeof url !== 'string') return 'Server';
-    var matches = url.match(/^https?:\/\/([^/?#]+)(?:[/?#]|$)/i);
-    var domain = matches && matches[1];
-    if (domain) {
-        return domain.replace(/^www\./i, '');
-    }
-    return 'Server';
+function getLangCode(langName) {
+  if (!langName) return "en";
+  const mapping = {
+    "english": "en", "spanish": "es", "french": "fr", "german": "de", "italian": "it",
+    "portuguese": "pt", "arabic": "ar", "japanese": "ja", "korean": "ko", "hindi": "hi",
+    "thai": "th", "turkish": "tr", "dutch": "nl", "swedish": "sv", "danish": "da",
+    "norwegian": "no", "polish": "pl", "romanian": "ro", "czech": "cs", "hungarian": "hu",
+    "greek": "el", "ukrainian": "uk", "russian": "ru", "hebrew": "he", "indonesian": "id",
+    "malay": "ms", "vietnamese": "vi", "persian": "fa", "chinese": "zh", "zh-tw": "zh-tw",
+    "bengali": "bn", "tamil": "ta", "telugu": "te", "malayalam": "ml", "kannada": "kn",
+    "sinhala": "si"
+  };
+  return mapping[langName.toLowerCase().trim()] || "en";
 }
 
-// Standardizes miscellaneous Doodstream variations to the exact https://dood.yt/w/ID format
-function normalizeDoodUrl(url) {
-    if (!url || typeof url !== 'string') return url;
-    
-    // Checks host against your comprehensive Doodstream pattern list
-    var isDood = url.match(/dood|do[0-9]go|doood|dooood|ds2play|ds2video|dsvplay|d0o0d|do0od|d0000d|d000d|myvidplay|vidply|all3do|doply|vide0|vvide0|d-s/i);
-    if (isDood) {
-        // Extracts the alphanumeric media ID out of paths like /d/ID, /e/ID, /w/ID or directly from raw pathing
-        var match = url.match(/\/[dew]\/([a-zA-Z0-9]+)/) || url.match(/\/([a-zA-Z0-9]+)(?:\?|$)/);
-        if (match && match[1]) {
-            return 'https://dood.yt/w/' + match[1];
-        }
-    }
-    return url;
+// ─── UI Helper: Multi-Line Metadata Layout Engine ────────────
+
+function buildDropdownMetadata(tmdbId, mediaType, seasonNum, episodeNum, serverName, finalUrl, subtitles) {
+  var title = mediaType === "tv" ? "Series Collection" : "Feature Presentation";
+  var line1 = "🎬 " + title;
+  if (mediaType === "tv" && seasonNum != null && episodeNum != null) {
+    line1 += " | S" + String(seasonNum).padStart(2, '0') + "E" + String(episodeNum).padStart(2, '0');
+  }
+
+  var displayLang = "Original";
+  var flags = "🇺🇸";
+  
+  if (subtitles && subtitles.length > 1) {
+    displayLang = "Dual-Audio";
+    flags = "🇺🇸 • 🇫🇷";
+  }
+
+  var searchPool = String(finalUrl).toLowerCase();
+  var normQual = "1080p";
+  if (searchPool.indexOf("2160") !== -1 || searchPool.indexOf("4k") !== -1) normQual = "2160p";
+  else if (searchPool.indexOf("720") !== -1) normQual = "720p";
+
+  var line2 = "🛸 " + normQual + " | 🗺️ " + displayLang + " | 📣 " + flags;
+
+  var formatUpper = "M3U8";
+  if (searchPool.indexOf(".mp4") !== -1) formatUpper = "MP4";
+  
+  var codecVal = "H.264";
+  if (searchPool.indexOf("hevc") !== -1 || searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1) {
+    codecVal = "H.265";
+  }
+
+  var line3 = "🧬 " + formatUpper + " • " + codecVal + " | 🎧 AAC";
+
+  return line1 + "\n" + line2 + "\n" + line3;
 }
 
-// Rewrites Voe links and known Voe mirrors to use the base voe.sx domain cleanly
-function normalizeVoeUrl(url) {
-    if (!url || typeof url !== 'string') return url;
-    
-    var host = extractDomain(url);
-    var isVoeMirror = VOE_MIRRORS.indexOf(host) !== -1 || url.indexOf('voe') !== -1;
-    
-    if (isVoeMirror) {
-        var match = url.match(/(?:\/voe)?\/([a-zA-Z0-9]+)(?:\?|$)/);
-        if (match && match[1]) {
-            return 'https://voe.sx/' + match[1];
-        }
-    }
-    return url;
-}
+async function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
+  try {
+    const pageUrl = (mediaType === "tv" && seasonNum != null) ? `${VIDUP_API}/tv/${tmdbId}/${seasonNum}/${episodeNum}` : `${QORVA_API}/movie/${tmdbId}`;
+    const pageRes = await fetch(pageUrl, { headers: BASE_HEADERS });
+    if (!pageRes.ok) throw new Error(`Page HTTP ${pageRes.status}`);
+    const pageText = await pageRes.text();
 
-function getLokkeHandshakePayload() {
-    return {
-        token: 'VKm7XwPbumwb9aeGoVi1fHa6ut1v41a5s6t-yzVQ4qZfN-VwHrdLcD18xPpL4qdzY92xAJiWD_7UZshSngIn_GTbU1uPRTuGFqYQCOBkXzu9YOUPV-u-EbB1WaSZjd6srGhQ',
-        reason: 'app-blur',
-        locale: 'de',
-        theme: 'dark',
-        metadata: {
-            device: { 
-                type: 'Handset', 
-                brand: 'Apple', 
-                model: 'iPhone 15 Pro', 
-                name: 'iPhone', 
-                uniqueId: 'E9B56A1F-810A-4C23-9D22-C8542FBB0D1C' 
-            },
-            os: { name: 'ios', version: '18.7.7', abis: ['ARM64E'], host: 'unknown' },
-            app: { platform: 'ios', version: '1.0.2', buildId: '1.0.2', engine: 'jsc', installer: 'TestFlight' },
-            version: { package: 'app.lokke.main', binary: '1.0.2', js: '1.0.4' },
-        },
-        appFocusTime: 0,
-        playerActive: false,
-        playDuration: 0,
-        devMode: true,
-        hasAddon: true,
-        castConnected: false,
-        package: 'app.lokke.main',
-        version: '1.0.4',
-        process: 'app',
-        firstAppStart: Date.now(),
-        lastAppStart: Date.now(),
-        ipLocation: null,
-        adblockEnabled: true,
-        proxy: { supported: ['openvpn'], engine: 'openvpn', enabled: false, autoServer: true, id: 'fi-hel' },
-        iap: { supported: true, error: 'No in-app payment subscriptions found' }
-    };
-}
+    const encMatch = pageText.match(/\\"en\\":\\"(.*?)\\"/);
+    const enc = encMatch ? encMatch[1] : null;
+    if (!enc) throw new Error("Could not find enc token in page");
 
-// Executes the recursive Oha Task loop for URLs requiring client-side page fetching (like Voe)
-function handleOhaTaskLoop(ohaResult, ohaHeaders) {
-    if (!ohaResult || ohaResult.kind !== 'taskRequest') {
-        return Promise.resolve(ohaResult);
-    }
+    const encRes = await fetch(
+      `${DECRYPT_API}/enc-vidup?text=${encodeURIComponent(enc)}`, 
+      { headers: BASE_HEADERS }
+    );
+    if (!encRes.ok) throw new Error(`enc-vidup HTTP ${encRes.status}`);
+    const encData = await encRes.json();
+    if (encData.status !== 200 || !encData.result) return [];
 
-    var taskData = ohaResult.data || {};
-    var targetUrl = taskData.url;
-    var params = taskData.params || {};
-    var targetHeaders = params.headers || {};
-    var method = params.method || 'GET';
+    const { servers: serversUrl, stream: streamUrl, token } = encData.result;
+    if (!serversUrl || !streamUrl || !token) return [];
 
-    var requestHeaders = Object.assign({}, targetHeaders, {
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7'
+    const postHeaders = { ...BASE_HEADERS, "X-CSRF-Token": token };
+    const serversEncRes = await fetch(serversUrl, { method: "POST", headers: postHeaders });
+    if (!serversEncRes.ok) throw new Error(`servers HTTP ${serversEncRes.status}`);
+    const serversEncText = await serversEncRes.text();
+
+    const decServersRes = await fetch(`${DECRYPT_API}/dec-vidup`, { 
+      method: "POST", 
+      headers: { ...postHeaders, "Content-Type": "application/json" }, 
+      body: JSON.stringify({ text: serversEncText }) 
     });
+    if (!decServersRes.ok) throw new Error(`dec-vidup servers HTTP ${decServersRes.status}`);
+    const decServersData = await decServersRes.json();
+    if (decServersData.status !== 200 || !decServersData.result) return [];
 
-    return fetch(targetUrl, {
-        method: method,
-        headers: requestHeaders
-    })
-    .then(function(clientRes) {
-        return clientRes.text().then(function(responseText) {
-            var responseHeaders = {};
-            if (typeof clientRes.headers.entries === 'function') {
-                for (var pair of clientRes.headers.entries()) {
-                    responseHeaders[pair[0]] = pair[1];
-                }
-            }
+    const serverList = decServersData.result;
+    const allStreams = [];
 
-            var taskResponsePayload = {
-                kind: "taskResponse",
-                id: ohaResult.id,
-                data: {
-                    type: "fetch",
-                    status: clientRes.status,
-                    url: clientRes.url,
-                    headers: responseHeaders,
-                    text: responseText
-                }
-            };
+    await Promise.all(serverList.map(async (server) => {
+      try {
+        const { data: serverData, name: serverName = "Vidup" } = server;
+        if (!serverData) return;
 
-            return fetch(OHA_RESOLVE_URL, {
-                method: 'POST',
-                headers: ohaHeaders,
-                body: JSON.stringify(taskResponsePayload)
-            });
+        const streamEncRes = await fetch(`${streamUrl}/${serverData}`, { method: "POST", headers: postHeaders });
+        if (!streamEncRes.ok) return;
+        const streamEncText = await streamEncRes.text();
+
+        const finalDecRes = await fetch(`${DECRYPT_API}/dec-vidup`, { 
+          method: "POST", 
+          headers: { ...postHeaders, "Content-Type": "application/json" }, 
+          body: JSON.stringify({ text: streamEncText }) 
         });
-    })
-    .then(function(nextRes) { return nextRes.json(); })
-    .then(function(nextOhaResult) {
-        return handleOhaTaskLoop(nextOhaResult, ohaHeaders);
-    });
-}
+        if (!finalDecRes.ok) return;
+        const finalData = await finalDecRes.json();
+        if (finalData.status !== 200 || !finalData.result) return;
 
-function resolveDirectMediaUrl(targetHostUrl, itemLanguage) {
-    var finalTargetUrl = normalizeDoodUrl(targetHostUrl);
-    finalTargetUrl = normalizeVoeUrl(finalTargetUrl);
+        const { url: finalUrl, tracks = [] } = finalData.result;
+        if (!finalUrl) return;
 
-    return fetch(LOKKE_PING_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'Lokke/1.0.2 (iPhone; CPU iPhone OS 18_7_7 like Mac OS X)'
-        },
-        body: JSON.stringify(getLokkeHandshakePayload())
-    })
-    .then(function(res) { return res.json(); })
-    .then(function(lokkeData) {
-        var signature = lokkeData && lokkeData.addonSig;
-        if (!signature) throw new Error('OhaTo: Signature validation failed');
+        const subtitles = tracks
+          .filter(t => t.file?.startsWith("https://"))
+          .map(t => ({
+            url: t.file,
+            language: getLangCode(t.label),
+            name: t.label || "Unknown",
+            headers: { "Referer": `${VIDUP_API}/` }
+          }));
 
-        var ohaHeaders = {
-            'Content-Type': 'application/json',
-            'mediaurl-signature': signature,
-            'User-Agent': 'MediaUrl/2',
-            'Accept-Language': 'de-DE,de;q=0.9',
-            'Accept': '*/*'
-        };
+        var searchPool = String(finalUrl).toLowerCase();
+        var normQual = "1080p";
+        if (searchPool.indexOf("2160") !== -1 || searchPool.indexOf("4k") !== -1) normQual = "2160p";
+        else if (searchPool.indexOf("720") !== -1) normQual = "720p";
 
-        var ohaInputPayload = {
-            language: itemLanguage || 'de',
-            region: 'CH',
-            url: finalTargetUrl,
-            clientVersion: '3.0.2'
-        };
+        var displayLang = "Original";
+        if (subtitles && subtitles.length > 1) displayLang = "Dual-Audio";
 
-        return fetch(OHA_RESOLVE_URL, {
-            method: 'POST',
-            headers: ohaHeaders,
-            body: JSON.stringify(ohaInputPayload)
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(initialOhaResult) {
-            return handleOhaTaskLoop(initialOhaResult, ohaHeaders);
+        var dropdownTitle = buildDropdownMetadata(tmdbId, mediaType, seasonNum, episodeNum, serverName, finalUrl, subtitles);
+
+        allStreams.push({
+          name: "Vidup | " + normQual + " | " + displayLang,
+          title: dropdownTitle,
+          size: dropdownTitle,
+          description: dropdownTitle,
+          url: finalUrl,
+          quality: "",
+          language: "",
+          headers: { 
+            "Referer": `${VIDUP_API}/`, 
+            "Origin": VIDUP_API, 
+            "User-Agent": USER_AGENT 
+          },
+          subtitles,
+          provider: "vidup"
         });
-    })
-    .then(function(ohaResult) {
-        if (!ohaResult) return finalTargetUrl;
-        
-        var resolvedUrl = ohaResult.url || ohaResult.file || ohaResult.stream || 
-                          (ohaResult.streams && ohaResult.streams[0] && ohaResult.streams[0].url) || 
-                          (ohaResult.links && ohaResult.links[0]) || finalTargetUrl;
-        return resolvedUrl;
-    })
-    .catch(function() {
-        return finalTargetUrl;
-    });
-}
+      } catch (_) {}
+    }));
 
-function getFinalRedirect(url) {
-    return fetch(url, {
-        method: 'GET',
-        headers: DEFAULT_HEADERS,
-        redirect: 'follow'
-    })
-    .then(function(res) { return res.url; })
-    .catch(function() { return url; });
-}
-
-function handleLegacyLinksFlow(ohaId) {
-    var linksUrl = BASE_URL + '/web-vod/api/links?id=' + ohaId;
-
-    return fetch(linksUrl, { headers: DEFAULT_HEADERS })
-        .then(function(res) { return res.json(); })
-        .then(function(links) {
-            if (!Array.isArray(links) || links.length === 0) return [];
-
-            var promises = links.map(function(link) {
-                if (!link.url) return Promise.resolve(null);
-
-                var streamApiUrl = BASE_URL + '/web-vod/api/get?link=' + encodeURIComponent(link.url);
-
-                return getFinalRedirect(streamApiUrl)
-                    .then(function(finalUrl) {
-                        var language = 'de';
-                        if (link.languages && link.languages[0]) {
-                            language = link.languages[0];
-                        } else if (link.language) {
-                            language = link.language;
-                        }
-
-                        var qualityTag = link.tag || 'HD';
-                        var cleanUrl = normalizeVoeUrl(normalizeDoodUrl(finalUrl));
-                        var hostDomain = extractDomain(cleanUrl);
-
-                        return resolveDirectMediaUrl(cleanUrl, language).then(function(directUrl) {
-                            return {
-                                name: language.toUpperCase() + ' - ' + qualityTag,
-                                title: '',
-                                url: directUrl,
-                                quality: qualityTag,
-                                size: hostDomain,
-                                headers: {
-                                    'User-Agent': 'MediaUrl/2',
-                                    'Referer': 'https://dood.li/'
-                                },
-                                provider: 'ohato'
-                            };
-                        });
-                    })
-                    .catch(function() { return null; });
-            });
-
-            return Promise.all(promises);
-        })
-        .then(function(results) {
-            return results.filter(function(item) { return item !== null; });
-        })
-        .catch(function() { return []; });
-}
-
-function handleLokkeFlow(movieData) {
-    return fetch(LOKKE_PING_URL, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'User-Agent': 'Lokke/1.0.2 (iPhone; CPU iPhone OS 18_7_7 like Mac OS X)'
-        },
-        body: JSON.stringify(getLokkeHandshakePayload())
-    })
-    .then(function(res) { return res.json(); })
-    .then(function(lokkeResp) {
-        var signature = lokkeResp && lokkeResp.addonSig;
-        if (!signature) throw new Error('Missing Lokke Signature');
-
-        var ohaHeaders = {
-            'Content-Type': 'application/json',
-            'mediaurl-signature': signature,
-            'User-Agent': 'MediaUrl/2',
-            'Accept-Language': 'de-DE,de;q=0.9',
-            'Accept': '*/*'
-        };
-
-        var itemPayload = {
-            language: movieData.language,
-            region: movieData.region,
-            type: movieData.type,
-            ids: movieData.ids,
-            name: movieData.name,
-            episode: movieData.episode,
-            clientVersion: movieData.clientVersion
-        };
-
-        return fetch(OHA_ITEM_URL, {
-            method: 'POST',
-            headers: ohaHeaders,
-            body: JSON.stringify(itemPayload)
-        })
-        .then(function() {
-            return fetch(OHA_SOURCE_URL, {
-                method: 'POST',
-                headers: ohaHeaders,
-                body: JSON.stringify(movieData)
-            });
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(finalData) {
-            var candidates = Array.isArray(finalData) 
-                ? finalData 
-                : (finalData.streams || finalData.sources || finalData.items || []);
-
-            var streamPromises = candidates.map(function(s) {
-                var urlStr = s && (s.url || s.file || s.source || s.stream);
-                if (!urlStr) return Promise.resolve(null);
-
-                var language = 'de';
-                if (s.languages && s.languages[0]) {
-                    language = s.languages[0];
-                } else if (s.language || s.lang) {
-                    language = s.language || s.lang;
-                } else if (movieData.language) {
-                    language = movieData.language;
-                }
-
-                var qualityTag = s.tag || s.quality || 'HD';
-                var cleanUrl = normalizeVoeUrl(normalizeDoodUrl(urlStr));
-                var hostDomain = extractDomain(cleanUrl);
-
-                return resolveDirectMediaUrl(cleanUrl, language).then(function(directUrl) {
-                    return {
-                        name: language.toUpperCase() + ' - ' + qualityTag,
-                        title: '',
-                        url: directUrl,
-                        quality: qualityTag,
-                        size: hostDomain,
-                        headers: {
-                            'User-Agent': 'MediaUrl/2',
-                            'Referer': BASE_URL + '/'
-                        },
-                        provider: 'ohato'
-                    };
-                });
-            });
-
-            return Promise.all(streamPromises);
-        })
-        .then(function(resolvedStreams) {
-            return resolvedStreams.filter(function(item) { return item !== null; });
-        });
-    })
-    .catch(function() { return []; });
-}
-
-function getStreams(tmdbId, type, season, episode) {
-    var isSeries = (type === 'series' || type === 'show' || type === 'tv');
-    var ohaId = isSeries ? 'series.' + tmdbId + '.' + season + '.' + (episode || 1) : 'movie.' + tmdbId;
-    var infoUrl = BASE_URL + '/web-vod/api/info?id=' + ohaId;
-
-    return fetch(infoUrl, { headers: DEFAULT_HEADERS })
-        .then(function(res) {
-            if (!res.ok) return null;
-            return res.json();
-        })
-        .then(function(vodData) {
-            if (!vodData) {
-                return handleLegacyLinksFlow(ohaId);
-            }
-
-            var dynamicMovieData = {
-                language: 'de',
-                region: 'CH',
-                type: isSeries ? 'series' : 'movie',
-                ids: {
-                    tmdb_id: String(vodData.tmdb_id || vodData.tmdbId || tmdbId),
-                    imdb_id: String(vodData.imdb_id || vodData.imdbId || '')
-                },
-                name: (vodData.name || vodData.title || 'Media Title'),
-                originalName: vodData.original_name || vodData.originalTitle || vodData.name || vodData.title,
-                releaseDate: vodData.release_date || vodData.releaseDate,
-                nameTranslations: vodData.nameTranslations || { de: vodData.name || vodData.title },
-                episode: isSeries ? {
-                    ids: {
-                        tmdb_episode_id:
-                            (vodData.episode && (vodData.episode.tmdb_episode_id || vodData.episode.tmdbEpisodeId)) ||
-                            vodData.tmdb_episode_id || vodData.tmdbEpisodeId || undefined
-                    },
-                    name: (vodData.episode && (vodData.episode.name || vodData.episode.title)) || undefined,
-                    releaseDate: (vodData.episode && (vodData.episode.release_date || vodData.episode.releaseDate)) || undefined,
-                    season: season,
-                    episode: episode || 1
-                } : {},
-                clientVersion: '3.0.2'
-            };
-
-            return handleLokkeFlow(dynamicMovieData);
-        })
-        .catch(function(err) {
-            console.log('[OHA.TO] Error: ' + err.message);
-            return [];
-        });
+    const seen = new Set();
+    return allStreams.filter(s => !seen.has(s.url) && seen.add(s.url));
+  } catch (e) {
+    return [];
+  }
 }
 
 module.exports = { getStreams };

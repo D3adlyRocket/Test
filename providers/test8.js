@@ -1,130 +1,110 @@
 "use strict";
 
-const QORVA_API   = "https://vidup.to";
-const DECRYPT_API = "https://enc-dec.app/api";
-const USER_AGENT  = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
+const PROVIDER_NAME = "2Peckle";
+const CINESCRAPE_BASE = "https://pengu.uk/%7B%22source_2peckle%22%3A%22on%22%2C%22res_2160%22%3A%22on%22%2C%22res_1080%22%3A%22on%22%2C%22res_720%22%3A%22on%22%2C%22disable_direct%22%3A%22on%22%7D";
+const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
-const BASE_HEADERS = {
-  "User-Agent": USER_AGENT,
-  "Referer": `${QORVA_API}/`,
-  "X-Requested-With": "XMLHttpRequest"
-};
+async function getStreams(tmdbId, mediaType, season, episode) {
+  const isSeries = mediaType === 'tv' || mediaType === 'series';
+  const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
-function getLangCode(langName) {
-  if (!langName) return "en";
-  const mapping = {
-    "english": "en", "spanish": "es", "french": "fr", "german": "de",
-    "italian": "it", "portuguese": "pt", "arabic": "ar", "japanese": "ja",
-    "korean": "ko", "hindi": "hi", "thai": "th", "turkish": "tr",
-    "dutch": "nl", "swedish": "sv", "danish": "da", "norwegian": "no",
-    "polish": "pl", "romanian": "ro", "czech": "cs", "hungarian": "hu",
-    "greek": "el", "ukrainian": "uk", "russian": "ru", "hebrew": "he",
-    "indonesian": "id", "malay": "ms", "vietnamese": "vi", "persian": "fa",
-    "chinese": "zh", "zh-tw": "zh-tw", "bengali": "bn", "tamil": "ta",
-    "telugu": "te", "malayalam": "ml", "kannada": "kn", "sinhala": "si"
-  };
-  return mapping[langName.toLowerCase().trim()] || "en";
-}
-
-async function getStreams(tmdbId, mediaType, seasonNum = null, episodeNum = null) {
   try {
-    const pageUrl = (mediaType === "tv" && seasonNum != null)
-      ? `${QORVA_API}/tv/${tmdbId}/${seasonNum}/${episodeNum}`
-      : `${QORVA_API}/movie/${tmdbId}`;
+    // 1. Fetch metadata from TMDB
+    const meta = await fetch(tmdbUrl).then(r => r.json());
+    const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
+    if (!imdbId) return [];
 
-    const pageRes = await fetch(pageUrl, { headers: BASE_HEADERS });
-    if (!pageRes.ok) throw new Error(`Page HTTP ${pageRes.status}`);
-    const pageText = await pageRes.text();
+    const titleName = meta.title || meta.name || "Movie/Show";
+    const releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
 
-    const encMatch = pageText.match(/\\"en\\":\\"(.*?)\\"/);
-    const enc = encMatch ? encMatch[1] : null;
-    if (!enc) throw new Error("Could not find enc token in page");
+    // 2. Fetch the stream data from CineScrape
+    const streamUrl = isSeries 
+      ? `${CINESCRAPE_BASE}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json` 
+      : `${CINESCRAPE_BASE}/stream/movie/${imdbId}.json`;
 
-    const encRes = await fetch(
-      `${DECRYPT_API}/enc-vidup?text=${encodeURIComponent(enc)}`,
-      { headers: BASE_HEADERS }
-    );
-    if (!encRes.ok) throw new Error(`enc-vidup HTTP ${encRes.status}`);
-    const encData = await encRes.json();
-
-    if (encData.status !== 200 || !encData.result) return [];
-    const { servers: serversUrl, stream: streamUrl, token } = encData.result;
-    if (!serversUrl || !streamUrl || !token) return [];
-
-    const postHeaders = { ...BASE_HEADERS, "X-CSRF-Token": token };
-
-    const serversEncRes = await fetch(serversUrl, { method: "POST", headers: postHeaders });
-    if (!serversEncRes.ok) throw new Error(`servers HTTP ${serversEncRes.status}`);
-    const serversEncText = await serversEncRes.text();
-
-    const decServersRes = await fetch(`${DECRYPT_API}/dec-vidup`, {
-      method: "POST",
-      headers: { ...postHeaders, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: serversEncText })
-    });
-    if (!decServersRes.ok) throw new Error(`dec-vidup servers HTTP ${decServersRes.status}`);
-    const decServersData = await decServersRes.json();
-
-    if (decServersData.status !== 200 || !decServersData.result) return [];
-    const serverList = decServersData.result;
+    const data = await fetch(streamUrl).then(r => r.json());
+    if (!data?.streams || data.streams.length === 0) return [];
 
     const allStreams = [];
 
-    await Promise.all(serverList.map(async (server) => {
-      try {
-        const { data: serverData, name: serverName = "Vidup" } = server;
-        if (!serverData) return;
+    // 3. Map language tags
+    data.streams.forEach(s => {
+      // Exclude blocked link domain entirely
+      if (s.url && s.url.includes("bcdnxw.hakunaymatata.com")) {
+        return;
+      }
 
-        const streamEncRes = await fetch(`${streamUrl}/${serverData}`, {
-          method: "POST",
-          headers: postHeaders
+      const titleText = (s.title || s.description || "").toLowerCase();
+      let detectedLang = "English 🇺🇸";
+
+      if (/multi|dual|🌐/.test(titleText)) {
+        detectedLang = "Multi-Audio 🌐";
+      } else if (/hindi|hin/.test(titleText)) {
+        detectedLang = "Hindi 🇮🇳";
+      }
+
+      allStreams.push({ ...s, lang: detectedLang });
+    });
+
+    const result = [];
+    const grouped = {};
+
+    // 4. Run the grouping routine
+    allStreams.forEach(item => {
+      const title = (item.title || "").toLowerCase();
+      const res = /2160|4k/.test(title) ? "2160p" : /1080/.test(title) ? "1080p" : /720/.test(title) ? "720p" : /480/.test(title) ? "480p" : "1080p";
+      const key = `${res}-${item.lang}`;
+
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(item);
+    });
+
+    // 5. Generate final multi-line output results across TV & Mobile
+    Object.entries(grouped).forEach(([key, items]) => {
+      const [res, lang] = key.split("-");
+      items.forEach(item => {
+        const rawText = (item.title || item.description || "").toLowerCase();
+
+        // Safe fallback text parsers
+        const sizeMatch = item.title ? item.title.match(/(\d+(?:\.\d+)?\s*(?:GB|MB))/i) : null;
+        const sizeStr = sizeMatch ? sizeMatch[1] : "1.99 GB";
+        const formatStr = /\b(mp4|avi|m4v)\b/.test(rawText) ? "MP4" : "MKV";
+
+        // Clean language text variant by removing emojis for standard alignment
+        const cleanLangText = lang.replace(/[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD00-\uDFFF]/g, '').trim();
+
+        // Custom multi-line presentation layout
+        const fullLayout = `🎬 ${titleName} - (${releaseYear})\n` +
+                           `💎 ${res} | 🔊 ${cleanLangText} | 💾 ${sizeStr}\n` +
+                           `🎞️ ${formatStr} | ⛓️‍💥 2Peckle`;
+
+        result.push({
+          name: `${PROVIDER_NAME} | ${res} | ${lang}`,
+          title: fullLayout,
+          size: fullLayout,
+          description: fullLayout,
+          url: item.url,
+          behaviorHints: {
+            proxyHeaders: {
+              request: {
+                "Referer": "https://stremio-moviebox-1.onrender.com/"
+              }
+            }
+          }
         });
-        if (!streamEncRes.ok) return;
-        const streamEncText = await streamEncRes.text();
+      });
+    });
 
-        const finalDecRes = await fetch(`${DECRYPT_API}/dec-vidup`, {
-          method: "POST",
-          headers: { ...postHeaders, "Content-Type": "application/json" },
-          body: JSON.stringify({ text: streamEncText })
-        });
-        if (!finalDecRes.ok) return;
-        const finalData = await finalDecRes.json();
-
-        if (finalData.status !== 200 || !finalData.result) return;
-        const { url: finalUrl, tracks = [] } = finalData.result;
-        if (!finalUrl) return;
-
-        const subtitles = tracks
-          .filter(t => t.file?.startsWith("https://"))
-          .map(t => ({
-            url: t.file,
-            language: getLangCode(t.label),
-            name: t.label || "Unknown",
-            headers: { "Referer": `${QORVA_API}/` }
-          }));
-
-        allStreams.push({
-          name: `Qorva. • ${serverName}`,
-          title: serverName,
-          url: finalUrl,
-          quality: "1080p",
-          headers: {
-            "Referer": `${QORVA_API}/`,
-            "Origin": QORVA_API,
-            "User-Agent": USER_AGENT
-          },
-          subtitles,
-          provider: "vidup"
-        });
-      } catch (_) {}
-    }));
-
-    const seen = new Set();
-    return allStreams.filter(s => !seen.has(s.url) && seen.add(s.url));
-
-  } catch (e) {
+    return result;
+  } catch (err) {
+    console.error("Global processing failure context:", err);
     return [];
   }
 }
 
-module.exports = { getStreams };
+// Export declarations matching your runtime constraints
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+}

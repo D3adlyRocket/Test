@@ -2,7 +2,7 @@
 
 const PROVIDER_NAME = "2Peckle";
 
-// Combined profile URL utilizing the validated session token
+// 🌟 Trick the backend: Utilizing your verified MovieBox token to authenticate your 2Peckle stream provider
 const CINESCRAPE_BASE = "https://pengu.uk/%7B%22source_2peckle%22%3A%22on%22%2C%22res_2160%22%3A%22on%22%2C%22res_1080%22%3A%22on%22%2C%22res_720%22%3A%22on%22%2C%22disable_direct%22%3A%22on%22%2C%22auth_token%22%3A%22NriJwCIiwWhJc07cueA0WvE7FmXHUYyoclm6rRDt2dA%22%7D";
 
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
@@ -25,11 +25,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       ? `${CINESCRAPE_BASE}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json` 
       : `${CINESCRAPE_BASE}/stream/movie/${imdbId}.json`;
 
+    // 🌟 Enforce Referer structures to simulate MovieBox client origin
     const data = await fetch(streamUrl, {
       headers: {
-        "Referer": "https://pengu.uk/",
-        "Origin": "https://pengu.uk",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        "Referer": "https://stremio-moviebox-1.onrender.com/",
+        "Origin": "https://stremio-moviebox-1.onrender.com",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       }
     }).then(r => r.json());
     
@@ -94,10 +95,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             notWebReady: true,
             proxyHeaders: {
               request: {
-                // 🌟 Match the verification host tied directly to your auth_token session profile
+                // 🌟 Trick the validation server to assume requests are verified from MovieBox
                 "Referer": "https://stremio-moviebox-1.onrender.com/",
                 "Origin": "https://stremio-moviebox-1.onrender.com",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
               }
             }
           }

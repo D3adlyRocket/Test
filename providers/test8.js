@@ -17,19 +17,25 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const titleName = meta.title || meta.name || "Movie/Show";
     const releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
 
-    // 2. Fetch the stream data from CineScrape
+    // 2. Fetch the stream data from CineScrape (with required Referer validation headers)
     const streamUrl = isSeries 
       ? `${CINESCRAPE_BASE}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json` 
       : `${CINESCRAPE_BASE}/stream/movie/${imdbId}.json`;
 
-    const data = await fetch(streamUrl).then(r => r.json());
+    // 🌟 Crucial fix: Injecting the expected Referer into the scraping request context
+    const data = await fetch(streamUrl, {
+      headers: {
+        "Referer": "https://pengu.uk/",
+        "Origin": "https://pengu.uk"
+      }
+    }).then(r => r.json());
+    
     if (!data?.streams || data.streams.length === 0) return [];
 
     const allStreams = [];
 
     // 3. Map language tags
     data.streams.forEach(s => {
-      // Exclude blocked link domain entirely
       if (s.url && s.url.includes("bcdnxw.hakunaymatata.com")) {
         return;
       }
@@ -65,15 +71,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       items.forEach(item => {
         const rawText = (item.title || item.description || "").toLowerCase();
 
-        // Safe fallback text parsers
         const sizeMatch = item.title ? item.title.match(/(\d+(?:\.\d+)?\s*(?:GB|MB))/i) : null;
         const sizeStr = sizeMatch ? sizeMatch[1] : "1.99 GB";
         const formatStr = /\b(mp4|avi|m4v)\b/.test(rawText) ? "MP4" : "MKV";
 
-        // Clean language text variant by removing emojis for standard alignment
         const cleanLangText = lang.replace(/[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD00-\uDFFF]/g, '').trim();
 
-        // Custom multi-line presentation layout
         const fullLayout = `🎬 ${titleName} - (${releaseYear})\n` +
                            `💎 ${res} | 🔊 ${cleanLangText} | 💾 ${sizeStr}\n` +
                            `🎞️ ${formatStr} | ⛓️‍💥 2Peckle`;
@@ -87,7 +90,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           behaviorHints: {
             proxyHeaders: {
               request: {
-                "Referer": "https://stremio-moviebox-1.onrender.com/"
+                "Referer": "https://pengu.uk/"
               }
             }
           }
@@ -102,7 +105,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   }
 }
 
-// Export declarations matching your runtime constraints
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { getStreams };
 } else {

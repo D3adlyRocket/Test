@@ -2,7 +2,7 @@
 
 const PROVIDER_NAME = "2Peckle";
 
-// 🌟 Grafted your working MovieBox auth_token into the 2Peckle config URL
+// Combined profile URL utilizing the validated session token
 const CINESCRAPE_BASE = "https://pengu.uk/%7B%22source_2peckle%22%3A%22on%22%2C%22res_2160%22%3A%22on%22%2C%22res_1080%22%3A%22on%22%2C%22res_720%22%3A%22on%22%2C%22disable_direct%22%3A%22on%22%2C%22auth_token%22%3A%22NriJwCIiwWhJc07cueA0WvE7FmXHUYyoclm6rRDt2dA%22%7D";
 
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
@@ -20,7 +20,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const titleName = meta.title || meta.name || "Movie/Show";
     const releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
 
-    // 2. Fetch the stream data from CineScrape (injecting Referer/Origin headers)
+    // 2. Fetch the stream data from CineScrape
     const streamUrl = isSeries 
       ? `${CINESCRAPE_BASE}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json` 
       : `${CINESCRAPE_BASE}/stream/movie/${imdbId}.json`;
@@ -28,7 +28,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const data = await fetch(streamUrl, {
       headers: {
         "Referer": "https://pengu.uk/",
-        "Origin": "https://pengu.uk"
+        "Origin": "https://pengu.uk",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
       }
     }).then(r => r.json());
     
@@ -93,9 +94,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             notWebReady: true,
             proxyHeaders: {
               request: {
-                "Referer": "https://pengu.uk/",
-                "Origin": "https://pengu.uk",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                // 🌟 Match the verification host tied directly to your auth_token session profile
+                "Referer": "https://stremio-moviebox-1.onrender.com/",
+                "Origin": "https://stremio-moviebox-1.onrender.com",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
               }
             }
           }

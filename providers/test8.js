@@ -1,13 +1,13 @@
 "use strict";
 
-const MANIFEST_STREAM_BASE = "https://hfip-nuvio-hub-private.hf.space/stream";
+const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
   
   try {
-    // 1. Fetch deep metadata from TMDB
+    // 1. Convert the TMDB ID to an IMDb ID (ttXXXXXXX)
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
     const meta = await fetch(tmdbUrl).then(r => r.json());
     
@@ -24,7 +24,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       runtimeStr = `${meta.episode_run_time[0]} min`;
     }
 
-    // 2. Format the streaming endpoint path
+    // 2. Format the streaming endpoint path for csx-stremio
     const formattedId = isSeries 
       ? `${imdbId}:${season || 1}:${episode || 1}` 
       : `${imdbId}`;
@@ -50,15 +50,15 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const filteredStreams = [];
 
-    // 4. Parse, filter, and format for cross-device compatibility
+    // 4. Parse, filter strictly for BollyFlix, and format
     data.streams.forEach(stream => {
       const nameText = (stream.name || "").toLowerCase();
       const titleText = (stream.title || "").toLowerCase();
       const rawTextCombined = `${nameText} ${titleText}`;
 
-      // Filter: Keep only HDGharTV
-      const matchesHDGharTV = nameText.includes("hdghartv") || titleText.includes("hdghartv");
-      if (!matchesHDGharTV) return;
+      // Filter: Keep ONLY BollyFlix links
+      const matchesBollyFlix = nameText.includes("bollyflix") || titleText.includes("bollyflix");
+      if (!matchesBollyFlix) return;
 
       // Filter: Keep only 4K, 1080p, and 720p
       const is4K = /\b(2160p|4k)\b/i.test(rawTextCombined);
@@ -69,36 +69,35 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       let resLabel = "1080p";
       let resEmoji = "🔥";
-      if (is4K) { resLabel = "2160p"; resEmoji = "🌟"; }
-      else if (is720) { resLabel = "720p"; resEmoji = "💎"; }
+      if (is4K) { resLabel = "2160p"; resEmoji = "💎"; }
+      else if (is720) { resLabel = "720p"; resEmoji = "🎬"; }
 
-      // Language tracking (Defaulting to Dual-Audio as requested)
-      let detectedLang = "Dual-Audio";
+      // Language tracking (Defaulting to Dual-Audio)
+      let detectedLang = "Dual-Audio 🌐";
       if (/hindi|hin|🇮🇳/.test(rawTextCombined) && !/multi|dual/.test(rawTextCombined)) {
         detectedLang = "Hindi 🇮🇳";
       }
 
-      // Format mapping fix (Handles .m3u8 manifests natively as HLS protocol)
+      // Format mapping (Handles .m3u8 manifests as HLS protocol)
       const isM3U8 = stream.url && stream.url.includes(".m3u8");
       const formatStr = isM3U8 ? "HLS" : (/\b(mp4|avi|m4v)\b/.test(rawTextCombined) ? "MP4" : "MKV");
       const codecStr = /\b(hevc|x265|h265)\b/.test(rawTextCombined) ? "x.265" : "x.264";
       const streamTech = isM3U8 ? "HLS" : "Direct";
       const audioCodec = /\b(ddp|dd\+|eac3|dolby)\b/.test(rawTextCombined) ? "E-AC3" : /\b(ac3|dolby)\b/.test(rawTextCombined) ? "AC3" : "AAC";
 
-      // Build layouts
+      // Build device layouts
       const subLine1 = isSeries 
         ? `🎦 ${titleName} - (${releaseYear}) | S${season || 1}E${episode || 1}`
         : `🎦 ${titleName} - (${releaseYear})`;
 
-      // Cleaned Line 2 (Removed literal string 'Quality')
       const layoutDescription = 
         `${subLine1}\n` +
         `${resEmoji} ${resLabel} | 🔊 ${detectedLang} | ⏳ ${runtimeStr}\n` +
         `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 🎧 ${audioCodec}\n` +
-        `🛰️ Source: HDGharTV`;
+        `🛰️ Source: BollyFlix`;
 
       filteredStreams.push({
-        name: `HDGharTV | ${resLabel} | Dual-Audio`,
+        name: `BollyFlix | ${resLabel} | Dual-Audio`,
         title: layoutDescription,
         description: layoutDescription,
         size: layoutDescription,
@@ -110,7 +109,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     return filteredStreams;
 
   } catch (err) {
-    console.error("Failed to construct cross-device layouts:", err);
+    console.error("Failed to fetch or filter BollyFlix streams:", err);
     return [];
   }
 }

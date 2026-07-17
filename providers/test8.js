@@ -11,14 +11,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
     const meta = await fetch(tmdbUrl).then(r => r.json());
     
-    // Extract the IMDb ID from the metadata response
     const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
     if (!imdbId) {
       console.error(`Could not find a matching IMDb ID for TMDB ID: ${tmdbId}`);
       return [];
     }
 
-    // 2. Format the ID endpoint path for the Stremio Addon backend standard
+    // 2. Format the ID endpoint path
     const formattedId = isSeries 
       ? `${imdbId}:${season || 1}:${episode || 1}` 
       : `${imdbId}`;
@@ -44,20 +43,19 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const filteredStreams = [];
 
-    // 4. Parse and filter the results
+    // 4. Parse and filter the results strictly for HDGharTV
     data.streams.forEach(stream => {
       const nameText = (stream.name || "").toLowerCase();
       const titleText = (stream.title || "").toLowerCase();
 
-      // Check for provider variants (CineScrape / HDGharTV)
-      const matchesCineScrape = nameText.includes("cinescrape") || titleText.includes("cinescrape");
+      // Strict validation: Must match HDGharTV (CineScrape is ignored/dropped)
       const matchesHDGharTV = nameText.includes("hdghartv") || titleText.includes("hdghartv");
 
-      if (!matchesCineScrape && !matchesHDGharTV) {
-        return; // Drop anything else
+      if (!matchesHDGharTV) {
+        return; // Drop the link immediately if it isn't HDGharTV
       }
 
-      // Check resolutions
+      // Check resolutions (4K, 1080p, 720p)
       const is4K = /\b(2160p|4k)\b/i.test(titleText) || /\b(2160p|4k)\b/i.test(nameText);
       const is1080 = /\b(1080p)\b/i.test(titleText) || /\b(1080p)\b/i.test(nameText);
       const is720 = /\b(720p)\b/i.test(titleText) || /\b(720p)\b/i.test(nameText);
@@ -71,11 +69,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (is4K) displayResolution = "4K 💎";
       else if (is720) displayResolution = "720p 🎬";
 
-      const activeProvider = matchesHDGharTV ? "HDGharTV" : "CineScrape";
-
       filteredStreams.push({
-        name: `[${activeProvider}] ${displayResolution}`,
-        title: stream.title || `${activeProvider} Stream`,
+        name: `[HDGharTV] ${displayResolution}`,
+        title: stream.title || `HDGharTV Stream`,
         url: stream.url,
         behaviorHints: stream.behaviorHints || {}
       });

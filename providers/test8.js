@@ -1,19 +1,32 @@
 "use strict";
 
 const MANIFEST_STREAM_BASE = "https://hfip-nuvio-hub-private.hf.space/stream";
+const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
   
-  // Format the ID correctly for Nuvio/Stremio standards
-  const formattedId = isSeries 
-    ? `${tmdbId}:${season || 1}:${episode || 1}` 
-    : `${tmdbId}`;
-
-  const typePath = isSeries ? 'series' : 'movie';
-  const url = `${MANIFEST_STREAM_BASE}/${typePath}/${encodeURIComponent(formattedId)}.json`;
-
   try {
+    // 1. Convert the TMDB ID to an IMDb ID (ttXXXXXXX)
+    const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
+    const meta = await fetch(tmdbUrl).then(r => r.json());
+    
+    // Extract the IMDb ID from the metadata response
+    const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
+    if (!imdbId) {
+      console.error(`Could not find a matching IMDb ID for TMDB ID: ${tmdbId}`);
+      return [];
+    }
+
+    // 2. Format the ID endpoint path for the Stremio Addon backend standard
+    const formattedId = isSeries 
+      ? `${imdbId}:${season || 1}:${episode || 1}` 
+      : `${imdbId}`;
+
+    const typePath = isSeries ? 'series' : 'movie';
+    const url = `${MANIFEST_STREAM_BASE}/${typePath}/${encodeURIComponent(formattedId)}.json`;
+
+    // 3. Make the stream lookup request
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -31,35 +44,33 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const filteredStreams = [];
 
+    // 4. Parse and filter the results
     data.streams.forEach(stream => {
       const nameText = (stream.name || "").toLowerCase();
       const titleText = (stream.title || "").toLowerCase();
 
-      // Strict validation for provider matches
+      // Check for provider variants (CineScrape / HDGharTV)
       const matchesCineScrape = nameText.includes("cinescrape") || titleText.includes("cinescrape");
       const matchesHDGharTV = nameText.includes("hdghartv") || titleText.includes("hdghartv");
 
-      // Filter: Stream MUST belong to either CineScrape or HDGharTV
       if (!matchesCineScrape && !matchesHDGharTV) {
-        return; 
+        return; // Drop anything else
       }
 
-      // Resolution identification
+      // Check resolutions
       const is4K = /\b(2160p|4k)\b/i.test(titleText) || /\b(2160p|4k)\b/i.test(nameText);
       const is1080 = /\b(1080p)\b/i.test(titleText) || /\b(1080p)\b/i.test(nameText);
       const is720 = /\b(720p)\b/i.test(titleText) || /\b(720p)\b/i.test(nameText);
 
-      // Filter: Resolution MUST be 4K, 1080p, or 720p
       if (!is4K && !is1080 && !is720) {
-        return; 
+        return; // Drop unsupported resolutions
       }
 
-      // Assign display tags based on detected resolution
+      // Set clean display labels
       let displayResolution = "1080p";
       if (is4K) displayResolution = "4K 💎";
       else if (is720) displayResolution = "720p 🎬";
 
-      // Match display prefix badge based on the matched provider
       const activeProvider = matchesHDGharTV ? "HDGharTV" : "CineScrape";
 
       filteredStreams.push({

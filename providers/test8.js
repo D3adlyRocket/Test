@@ -1,22 +1,28 @@
 "use strict";
 
-const PROVIDER_NAME = "CineScrape - HDGharTV";
 const MANIFEST_STREAM_BASE = "https://hfip-nuvio-hub-private.hf.space/stream";
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
   
-  // 1. Construct the stream endpoint based on standard Stremio formatting
-  let streamUrl;
-  if (isSeries) {
-    streamUrl = `${MANIFEST_STREAM_BASE}/series/${tmdbId}:${season || 1}:${episode || 1}.json`;
-  } else {
-    streamUrl = `${MANIFEST_STREAM_BASE}/movie/${tmdbId}.json`;
-  }
+  // Format the ID correctly for Nuvio/Stremio standards
+  const formattedId = isSeries 
+    ? `${tmdbId}:${season || 1}:${episode || 1}` 
+    : `${tmdbId}`;
+
+  const typePath = isSeries ? 'series' : 'movie';
+  const url = `${MANIFEST_STREAM_BASE}/${typePath}/${encodeURIComponent(formattedId)}.json`;
 
   try {
-    // 2. Fetch all streams from the private hub manifest
-    const response = await fetch(streamUrl);
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+      }
+    });
+
+    if (!response.ok) return [];
     const data = await response.json();
     
     if (!data || !data.streams || data.streams.length === 0) {
@@ -25,34 +31,40 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const filteredStreams = [];
 
-    // 3. Loop through and filter out unwanted providers and resolutions
     data.streams.forEach(stream => {
       const nameText = (stream.name || "").toLowerCase();
       const titleText = (stream.title || "").toLowerCase();
 
-      // Filter Condition 1: Must be from CineScrape - HDGharTV
-      if (!nameText.includes("hdghartv") && !titleText.includes("hdghartv")) {
-        return; // Skip this stream
+      // Strict validation for provider matches
+      const matchesCineScrape = nameText.includes("cinescrape") || titleText.includes("cinescrape");
+      const matchesHDGharTV = nameText.includes("hdghartv") || titleText.includes("hdghartv");
+
+      // Filter: Stream MUST belong to either CineScrape or HDGharTV
+      if (!matchesCineScrape && !matchesHDGharTV) {
+        return; 
       }
 
-      // Filter Condition 2: Must match allowed resolutions (4K/2160p, 1080p, 720p)
-      const has4K = /2160p|4k/i.test(titleText) || /2160p|4k/i.test(nameText);
-      const has1080 = /1080p/i.test(titleText) || /1080p/i.test(nameText);
-      const has720 = /720p/i.test(titleText) || /720p/i.test(nameText);
+      // Resolution identification
+      const is4K = /\b(2160p|4k)\b/i.test(titleText) || /\b(2160p|4k)\b/i.test(nameText);
+      const is1080 = /\b(1080p)\b/i.test(titleText) || /\b(1080p)\b/i.test(nameText);
+      const is720 = /\b(720p)\b/i.test(titleText) || /\b(720p)\b/i.test(nameText);
 
-      if (!has4K && !has1080 && !has720) {
-        return; // Skip 480p or lower / unlabelled streams
+      // Filter: Resolution MUST be 4K, 1080p, or 720p
+      if (!is4K && !is1080 && !is720) {
+        return; 
       }
 
-      // Determine clean label for resolution
-      let resolutionLabel = "1080p";
-      if (has4K) resolutionLabel = "4K 💎";
-      else if (has720) resolutionLabel = "720p 🎬";
+      // Assign display tags based on detected resolution
+      let displayResolution = "1080p";
+      if (is4K) displayResolution = "4K 💎";
+      else if (is720) displayResolution = "720p 🎬";
 
-      // 4. Format and add your clean, chosen links to the final output list
+      // Match display prefix badge based on the matched provider
+      const activeProvider = matchesHDGharTV ? "HDGharTV" : "CineScrape";
+
       filteredStreams.push({
-        name: `[${PROVIDER_NAME}] ${resolutionLabel}`,
-        title: stream.title,
+        name: `[${activeProvider}] ${displayResolution}`,
+        title: stream.title || `${activeProvider} Stream`,
         url: stream.url,
         behaviorHints: stream.behaviorHints || {}
       });
@@ -61,7 +73,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     return filteredStreams;
 
   } catch (err) {
-    console.error("Error filtering the Nuvio Hub manifest streams:", err);
+    console.error("Failed to fetch or filter manifest streams:", err);
     return [];
   }
 }

@@ -72,14 +72,17 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (is4K) { resLabel = "2160p"; resEmoji = "💎"; }
       else if (is720) { resLabel = "720p"; resEmoji = "🎬"; }
 
-      // Info parsing
-      let detectedLang = "English 🇺🇸";
-      if (/multi|dual|🌐/.test(rawTextCombined)) detectedLang = "Multi-Audio 🌐";
-      else if (/hindi|hin|🇮🇳/.test(rawTextCombined)) detectedLang = "Hindi 🇮🇳";
+      // Language tracking (Defaulting to Dual-Audio as requested)
+      let detectedLang = "Dual-Audio";
+      if (/hindi|hin|🇮🇳/.test(rawTextCombined) && !/multi|dual/.test(rawTextCombined)) {
+        detectedLang = "Hindi 🇮🇳";
+      }
 
-      const formatStr = /\b(mp4|avi|m4v)\b/.test(rawTextCombined) ? "MP4" : "MKV";
+      // Format mapping fix (Handles .m3u8 manifests natively as HLS protocol)
+      const isM3U8 = stream.url && stream.url.includes(".m3u8");
+      const formatStr = isM3U8 ? "HLS" : (/\b(mp4|avi|m4v)\b/.test(rawTextCombined) ? "MP4" : "MKV");
       const codecStr = /\b(hevc|x265|h265)\b/.test(rawTextCombined) ? "x.265" : "x.264";
-      const streamTech = stream.url && stream.url.includes(".m3u8") ? "HLS" : "Direct";
+      const streamTech = isM3U8 ? "HLS" : "Direct";
       const audioCodec = /\b(ddp|dd\+|eac3|dolby)\b/.test(rawTextCombined) ? "E-AC3" : /\b(ac3|dolby)\b/.test(rawTextCombined) ? "AC3" : "AAC";
 
       // Build layouts
@@ -87,16 +90,15 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         ? `🎦 ${titleName} - (${releaseYear}) | S${season || 1}E${episode || 1}`
         : `🎦 ${titleName} - (${releaseYear})`;
 
+      // Cleaned Line 2 (Removed literal string 'Quality')
       const layoutDescription = 
         `${subLine1}\n` +
-        `${resEmoji} ${resLabel} Quality | 🔊 ${detectedLang} | ⏳ ${runtimeStr}\n` +
+        `${resEmoji} ${resLabel} | 🔊 ${detectedLang} | ⏳ ${runtimeStr}\n` +
         `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 🎧 ${audioCodec}\n` +
         `🛰️ Source: HDGharTV`;
 
-      // Assigning layoutDescription to title, description, and size ensures 
-      // rendering across TV, Desktop, and Mobile versions of Stremio.
       filteredStreams.push({
-        name: `HDGharTV | ${resLabel} | Original`,
+        name: `HDGharTV | ${resLabel} | Dual-Audio`,
         title: layoutDescription,
         description: layoutDescription,
         size: layoutDescription,

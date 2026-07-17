@@ -3,11 +3,39 @@
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
+// Helper function to extract Source and Size directly from the streaming URL
+function parseUrlMetadata(urlStr) {
+  const url = (urlStr || "").toLowerCase();
+  
+  // 1. Identify Source based on URL properties
+  let source = "BollyFlix"; // default fallback
+  if (url.includes("gdindex") || url.includes("cf")) {
+    source = "GDIndex CF";
+  } else if (url.includes("instantdl") || url.includes("idl")) {
+    source = "Instant DL";
+  } else if (url.includes("fastcloud") || url.includes("cloud")) {
+    source = "FastCloud";
+  }
+
+  // 2. Identify Size from URL patterns (e.g., "movie.name.2.4gb.mkv" or similar parameters)
+  let sizeStr = "N/A GB";
+  const gbMatch = url.match(/(\d+(?:\.\d+)?)\s*gb/);
+  const mbMatch = url.match(/(\d+)\s*mb/);
+  
+  if (gbMatch) {
+    sizeStr = `${gbMatch[1]} GB`;
+  } else if (mbMatch) {
+    sizeStr = `${(parseInt(mbMatch[1], 10) / 1024).toFixed(2)} GB`;
+  }
+
+  return { source, sizeStr };
+}
+
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
   
   try {
-    // 1. Convert the TMDB ID to an IMDb ID (ttXXXXXXX)
+    // 1. Fetch deep metadata from TMDB
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
     const meta = await fetch(tmdbUrl).then(r => r.json());
     
@@ -48,55 +76,72 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       return [];
     }
 
-    const filteredStreams = [];
+    const processedStreams = [];
 
-    // 4. Parse, filter strictly for BollyFlix, and format
+    // 4. Parse, analyze properties, and build metadata layouts
     data.streams.forEach(stream => {
       const nameText = (stream.name || "").toLowerCase();
       const titleText = (stream.title || "").toLowerCase();
       const rawTextCombined = `${nameText} ${titleText}`;
 
+      // Tweak 4: Filter out GoFile streams entirely or keep specifically designated sources
+      if (stream.url && stream.url.toLowerCase().includes("gofile")) {
+        return; 
+      }
+
       // Filter: Keep ONLY BollyFlix links
       const matchesBollyFlix = nameText.includes("bollyflix") || titleText.includes("bollyflix");
       if (!matchesBollyFlix) return;
 
-      // Filter: Keep only 4K, 1080p, and 720p
-      const is4K = /\b(2160p|4k)\b/i.test(rawTextCombined);
-      const is1080 = /\b(1080p)\b/i.test(rawTextCombined);
-      const is720 = /\b(720p)\b/i.test(rawTextCombined);
-
-      if (!is4K && !is1080 && !is720) return;
-
+      // Quality Rank Assignment
+      let rank = 0; // lower fallback rank
       let resLabel = "1080p";
       let resEmoji = "🔥";
-      if (is4K) { resLabel = "2160p"; resEmoji = "💎"; }
-      else if (is720) { resLabel = "720p"; resEmoji = "🎬"; }
-
-      // Language tracking (Defaulting to Dual-Audio)
-      let detectedLang = "Dual-Audio 🌐";
-      if (/hindi|hin|🇮🇳/.test(rawTextCombined) && !/multi|dual/.test(rawTextCombined)) {
-        detectedLang = "Hindi 🇮🇳";
+      
+      if (/\b(2160p|4k)\b/i.test(rawTextCombined)) {
+        resLabel = "2160p";
+        resEmoji = "💎";
+        rank = 3; // Top priority sorting rank
+      } else if (/\b(1080p)\b/i.test(rawTextCombined)) {
+        resLabel = "1080p";
+        resEmoji = "🔥";
+        rank = 2;
+      } else if (/\b(720p)\b/i.test(rawTextCombined)) {
+        resLabel = "720p";
+        resEmoji = "🎬";
+        rank = 1;
+      } else {
+        return; // Ignore other lower/unlabeled resolutions
       }
 
-      // Format mapping (Handles .m3u8 manifests as HLS protocol)
+      // Tweak 2: Explicit multi-language labeling inside subheading description
+      let detectedLang = "Hindi 🇮🇳 • English 🇺🇸";
+      if (/telugu/i.test(rawTextCombined)) detectedLang = "Hindi 🇮🇳 • Telugu 🏹";
+      else if (/tamil/i.test(rawTextCombined)) detectedLang = "Hindi 🇮🇳 • Tamil 🐯";
+
+      // Parse container metadata formats
       const isM3U8 = stream.url && stream.url.includes(".m3u8");
       const formatStr = isM3U8 ? "HLS" : (/\b(mp4|avi|m4v)\b/.test(rawTextCombined) ? "MP4" : "MKV");
       const codecStr = /\b(hevc|x265|h265)\b/.test(rawTextCombined) ? "x.265" : "x.264";
       const streamTech = isM3U8 ? "HLS" : "Direct";
-      const audioCodec = /\b(ddp|dd\+|eac3|dolby)\b/.test(rawTextCombined) ? "E-AC3" : /\b(ac3|dolby)\b/.test(rawTextCombined) ? "AC3" : "AAC";
+
+      // Tweak 3 & 4: Pull analytical properties directly via URL parameters
+      const parsedMeta = parseUrlMetadata(stream.url);
 
       // Build device layouts
       const subLine1 = isSeries 
         ? `🎦 ${titleName} - (${releaseYear}) | S${season || 1}E${episode || 1}`
         : `🎦 ${titleName} - (${releaseYear})`;
 
+      // Modified Subheading layout blocks mapping your requested variables
       const layoutDescription = 
         `${subLine1}\n` +
         `${resEmoji} ${resLabel} | 🔊 ${detectedLang} | ⏳ ${runtimeStr}\n` +
-        `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 🎧 ${audioCodec}\n` +
-        `🛰️ Source: BollyFlix`;
+        `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 💾 ${parsedMeta.sizeStr}\n` +
+        `🛰️ Source: ${parsedMeta.source}`;
 
-      filteredStreams.push({
+      processedStreams.push({
+        rank: rank, // track internal score for sorting priority later
         name: `BollyFlix | ${resLabel} | Dual-Audio`,
         title: layoutDescription,
         description: layoutDescription,
@@ -106,10 +151,14 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       });
     });
 
-    return filteredStreams;
+    // Tweak 1: Strict array structural sort (Descending: 2160p -> 1080p -> 720p)
+    processedStreams.sort((a, b) => b.rank - a.rank);
+
+    // Strip internal sorting ranks from final objects delivered to player layout engine
+    return processedStreams.map(({ rank, ...cleanStream }) => cleanStream);
 
   } catch (err) {
-    console.error("Failed to fetch or filter BollyFlix streams:", err);
+    console.error("Failed to execute sorted BollyFlix layouts:", err);
     return [];
   }
 }

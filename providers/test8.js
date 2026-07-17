@@ -7,17 +7,26 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
   
   try {
-    // 1. Convert the TMDB ID to an IMDb ID (ttXXXXXXX)
+    // 1. Fetch deep metadata from TMDB for the titles, year, and duration runtime
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
     const meta = await fetch(tmdbUrl).then(r => r.json());
     
     const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
-    if (!imdbId) {
-      console.error(`Could not find a matching IMDb ID for TMDB ID: ${tmdbId}`);
-      return [];
+    if (!imdbId) return [];
+
+    // Extract basic title elements
+    const titleName = meta.title || meta.name || "Unknown Title";
+    const releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
+    
+    // Extract runtime/duration format
+    let runtimeStr = "N/A";
+    if (!isSeries && meta.runtime) {
+      runtimeStr = `${meta.runtime} min`;
+    } else if (isSeries && meta.episode_run_time && meta.episode_run_time.length > 0) {
+      runtimeStr = `${meta.episode_run_time[0]} min`;
     }
 
-    // 2. Format the ID endpoint path
+    // 2. Format the streaming endpoint path
     const formattedId = isSeries 
       ? `${imdbId}:${season || 1}:${episode || 1}` 
       : `${imdbId}`;
@@ -43,35 +52,54 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const filteredStreams = [];
 
-    // 4. Parse and filter the results strictly for HDGharTV
+    // 4. Parse, identify properties, and display layout blocks
     data.streams.forEach(stream => {
       const nameText = (stream.name || "").toLowerCase();
       const titleText = (stream.title || "").toLowerCase();
+      const rawTextCombined = `${nameText} ${titleText}`;
 
-      // Strict validation: Must match HDGharTV (CineScrape is ignored/dropped)
+      // Drop anything that isn't HDGharTV
       const matchesHDGharTV = nameText.includes("hdghartv") || titleText.includes("hdghartv");
+      if (!matchesHDGharTV) return;
 
-      if (!matchesHDGharTV) {
-        return; // Drop the link immediately if it isn't HDGharTV
-      }
+      // Quality matching logic
+      const is4K = /\b(2160p|4k)\b/i.test(rawTextCombined);
+      const is1080 = /\b(1080p)\b/i.test(rawTextCombined);
+      const is720 = /\b(720p)\b/i.test(rawTextCombined);
 
-      // Check resolutions (4K, 1080p, 720p)
-      const is4K = /\b(2160p|4k)\b/i.test(titleText) || /\b(2160p|4k)\b/i.test(nameText);
-      const is1080 = /\b(1080p)\b/i.test(titleText) || /\b(1080p)\b/i.test(nameText);
-      const is720 = /\b(720p)\b/i.test(titleText) || /\b(720p)\b/i.test(nameText);
+      if (!is4K && !is1080 && !is720) return; // Ignore other resolutions
 
-      if (!is4K && !is1080 && !is720) {
-        return; // Drop unsupported resolutions
-      }
+      let resLabel = "1080p";
+      let resEmoji = "🔥";
+      if (is4K) { resLabel = "2160p"; resEmoji = "💎"; }
+      else if (is720) { resLabel = "720p"; resEmoji = "🎬"; }
 
-      // Set clean display labels
-      let displayResolution = "1080p";
-      if (is4K) displayResolution = "4K 💎";
-      else if (is720) displayResolution = "720p 🎬";
+      // Language tracking regex
+      let detectedLang = "English 🇺🇸";
+      if (/multi|dual|🌐/.test(rawTextCombined)) detectedLang = "Multi-Audio 🌐";
+      else if (/hindi|hin|🇮🇳/.test(rawTextCombined)) detectedLang = "Hindi 🇮🇳";
+
+      // Video format parameters
+      const formatStr = /\b(mp4|avi|m4v)\b/.test(rawTextCombined) ? "MP4" : "MKV";
+      const codecStr = /\b(hevc|x265|h265)\b/.test(rawTextCombined) ? "x.265" : "x.264";
+      const streamTech = stream.url && stream.url.includes(".m3u8") ? "HLS" : "Direct";
+      const audioCodec = /\b(ddp|dd\+|eac3|dolby)\b/.test(rawTextCombined) ? "E-AC3" : /\b(ac3|dolby)\b/.test(rawTextCombined) ? "AC3" : "AAC";
+
+      // Subheading Line 1 conditional assignment
+      const subLine1 = isSeries 
+        ? `🎦 ${titleName} - (${releaseYear}) | S${season || 1}E${episode || 1}`
+        : `🎦 ${titleName} - (${releaseYear})`;
+
+      // Assemble layout matching your precise parameters
+      const layoutDescription = 
+        `${subLine1}\n` +
+        `${resEmoji} ${resLabel} Quality | 🔊 ${detectedLang} | ⏳ ${runtimeStr}\n` +
+        `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 🎧 ${audioCodec}\n` +
+        `🛰️ Source: HDGharTV`;
 
       filteredStreams.push({
-        name: `[HDGharTV] ${displayResolution}`,
-        title: stream.title || `HDGharTV Stream`,
+        name: `HDGharTV | ${resLabel} | Original`,
+        title: layoutDescription,
         url: stream.url,
         behaviorHints: stream.behaviorHints || {}
       });
@@ -80,7 +108,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     return filteredStreams;
 
   } catch (err) {
-    console.error("Failed to fetch or filter manifest streams:", err);
+    console.error("Failed to construct device layouts:", err);
     return [];
   }
 }

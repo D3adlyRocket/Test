@@ -69,8 +69,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       let resLabel = "1080p";
       let resEmoji = "🔥";
-      if (is4K) { resLabel = "2160p"; resEmoji = "💎"; }
-      else if (is720) { resLabel = "720p"; resEmoji = "🎬"; }
+      if (is4K) { resLabel = "2160p"; resEmoji = "🌟"; }
+      else if (is720) { resLabel = "720p"; resEmoji = "💎"; }
 
       // Language tracking (Defaulting to Dual-Audio as requested)
       let detectedLang = "Dual-Audio";

@@ -3,7 +3,6 @@
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 
-// Safe size parser filtering out any tiny file fragments under 0.50 GB
 function parseSize(textCombined) {
   if (!textCombined) return "N/A GB";
   
@@ -29,7 +28,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   let targetId = tmdbId;
   
   try {
-    // If it's a numeric TMDB ID, safely find the IMDb ID equivalent
     if (typeof tmdbId === 'number' || (typeof tmdbId === 'string' && !tmdbId.startsWith('tt'))) {
       const extUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
       const extData = await fetch(extUrl).then(r => r.json()).catch(() => null);
@@ -38,7 +36,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       }
     }
 
-    // Format the path using our resolved ID
     const formattedId = isSeries 
       ? `${targetId}:${season || 1}:${episode || 1}` 
       : `${targetId}`;
@@ -63,7 +60,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
-    // Server tracking per resolution tier
     const serverTracker = {
       "2160p": {},
       "1080p": {},
@@ -76,16 +72,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       const nameText = stream.name || "";
       const titleText = stream.title || "";
       const urlStr = stream.url || "";
-      
-      // Analyze the ENTIRE payload string including full routing URL
       const combinedLower = `${nameText} ${titleText} ${urlStr}`.toLowerCase();
 
-      // STRICT EXCLUSIONS: Block GoFile, MoviesDrive, and VidLink completely
       if (combinedLower.includes("gofile")) return;
       if (combinedLower.includes("moviesdrive")) return;
       if (combinedLower.includes("vidlink")) return;
 
-      // Identify quality tags accurately across text metadata and URL structure
       let rank = 0;
       let resLabel = "";
       let resEmoji = "";
@@ -103,11 +95,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         resEmoji = "🎬";
         rank = 1;
       } else {
-        // Block 480p, SD, or hidden low-resolution links that don't match our criteria
         return;
       }
 
-      // Explicitly reject if an underlying 480p string is masking inside a link parameter
       if (/\b(480p)\b/i.test(combinedLower)) return;
 
       const extractedSize = parseSize(titleText);
@@ -128,13 +118,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       serverTracker[resLabel][sourceBase]++;
       const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
 
-      // Extract clear title parameters from the text layout blocks
+      // Clean Title Extraction (removing IMAX from line 1 seamlessly)
       let cleanTitleLine = "🎦 Stream Asset";
       const titleMatch = titleText.match(/\]\s*([^\\{}|]+)\s*(?:\(\d{4}\)|\{\b)/i);
       if (titleMatch && titleMatch[1]) {
-        cleanTitleLine = `🎦 ${titleMatch[1].trim()}`;
+        cleanTitleLine = `🎦 ${titleMatch[1].replace(/\bimax\b/i, '').replace(/\s+/g, ' ').trim()}`;
       } else {
-        const segment = titleText.split('\n')[0].replace(/\[.*?\]/g, '').trim();
+        const segment = titleText.split('\n')[0].replace(/\[.*?\]/g, '').replace(/\bimax\b/i, '').replace(/\s+/g, ' ').trim();
         if (segment) cleanTitleLine = `🎦 ${segment}`;
       }
 
@@ -146,16 +136,40 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (combinedLower.includes("telugu")) detectedLang = "Hindi 🇮🇳 • Telugu 🏹";
       else if (combinedLower.includes("tamil")) detectedLang = "Hindi 🇮🇳 • Tamil 🐯";
 
+      // Streaming & Container Formats
       const isM3U8 = urlStr.includes(".m3u8");
       const formatStr = isM3U8 ? "HLS" : (/\b(mp4|avi|m4v)\b/.test(combinedLower) ? "MP4" : "MKV");
-      const codecStr = /\b(hevc|x265|h265)\b/.test(combinedLower) ? "x.265" : "x.264";
-      const streamTech = isM3U8 ? "HLS" : "Direct";
+
+      // Dynamic Subheading Line 3 Logic (IMAX and 10bit Processing)
+      const has10bit = combinedLower.includes("10bit") || combinedLower.includes("10-bit");
+      const hasIMAX = combinedLower.includes("imax");
+      
+      let line3Middle = "";
+      if (has10bit && hasIMAX) {
+        line3Middle = "🌈 10bit • 👁️ IMAX";
+      } else if (has10bit) {
+        line3Middle = "🌈 10bit • 🎥 x.265";
+      } else if (hasIMAX) {
+        line3Middle = "👁️ IMAX • 🎥 x.264";
+      } else {
+        const codecStr = /\b(hevc|x265|h265)\b/.test(combinedLower) ? "x.265" : "x.264";
+        const streamTech = isM3U8 ? "HLS" : "Direct";
+        line3Middle = `🎥 ${codecStr} • ${streamTech}`;
+      }
+
+      // Dynamic Subheading Line 4 Logic (Source Typings)
+      let ripType = "WEB-DL";
+      if (combinedLower.includes("webrip") || combinedLower.includes("web-rip")) {
+        ripType = "WEB-RIP";
+      } else if (combinedLower.includes("bluray") || combinedLower.includes("hdtv")) {
+        ripType = "BRRip";
+      }
 
       const layoutDescription = 
         `${cleanTitleLine}\n` +
         `${resEmoji} ${resLabel} | 🔊 ${detectedLang}\n` +
-        `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 💾 ${extractedSize}\n` +
-        `🛰️ Source: ${finalSourceLabel}`;
+        `⚡ ${formatStr} | ${line3Middle} | 💾 ${extractedSize}\n` +
+        `🛰️ Source: ${finalSourceLabel} | 📥 ${ripType}`;
 
       processedStreams.push({
         rank: rank,

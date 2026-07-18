@@ -1,7 +1,6 @@
 "use strict";
 
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
-const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 function parseSize(textCombined) {
   if (!textCombined) return "N/A GB";
@@ -25,44 +24,12 @@ function parseSize(textCombined) {
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
-  let titleName = "Unknown Title";
-  let releaseYear = "2026";
-  let runtimeStr = "N/A";
-  let searchId = tmdbId;
-
+  
   try {
-    // 1. Safe Metadata Extraction
-    // If tmdbId is an IMDb ID string (starts with tt), parse it dynamically via find
-    if (typeof tmdbId === 'string' && tmdbId.startsWith('tt')) {
-      const findUrl = `https://api.themoviedb.org/3/find/${tmdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
-      const findData = await fetch(findUrl).then(r => r.json()).catch(() => null);
-      const meta = isSeries ? findData?.tv_results?.[0] : findData?.movie_results?.[0];
-      if (meta) {
-        titleName = meta.title || meta.name || titleName;
-        releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
-      }
-    } else {
-      // If native numeric TMDB ID, extract using primary metadata routes
-      const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
-      const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
-      if (meta) {
-        titleName = meta.title || meta.name || titleName;
-        releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
-        if (!isSeries && meta.runtime) runtimeStr = `${meta.runtime} min`;
-        else if (isSeries && meta.episode_run_time?.[0]) runtimeStr = `${meta.episode_run_time[0]} min`;
-        
-        // Use verified external tracking ID if available
-        if (meta.external_ids?.imdb_id || meta.imdb_id) {
-          searchId = meta.external_ids?.imdb_id || meta.imdb_id;
-        }
-      }
-    }
-
-    // 2. Direct Fallback Stream URL Constructor
-    // Ensures if the fallback above leaves searchId numeric, it still sends a valid request
+    // 1. Bypass TMDB entirely to prevent lookups from breaking the stream fetch
     const formattedId = isSeries 
-      ? `${searchId}:${season || 1}:${episode || 1}` 
-      : `${searchId}`;
+      ? `${tmdbId}:${season || 1}:${episode || 1}` 
+      : `${tmdbId}`;
 
     const typePath = isSeries ? 'series' : 'movie';
     const url = `${MANIFEST_STREAM_BASE}/${typePath}/${encodeURIComponent(formattedId)}.json`;
@@ -84,7 +51,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
-    // Independent multi-dimensional tracking context per format tier
+    // Server tracking per resolution tier
     const serverTracker = {
       "2160p": {},
       "1080p": {},
@@ -103,7 +70,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (combinedLower.includes("gofile")) return;
       if (combinedLower.includes("moviesdrive")) return;
 
-      // Extract quality properties
+      // Quality Rank Assignments
       let rank = 0;
       let resLabel = "1080p";
       let resEmoji = "🔥";
@@ -128,7 +95,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       const extractedSize = parseSize(titleText);
 
-      // Clean Source mapping match filters
+      // Map base provider source names
       let sourceBase = "BollyFlix Mirror";
       if (combinedLower.includes("instant dl") || combinedLower.includes("instantdl") || combinedLower.includes("instant")) {
         sourceBase = "Instant DL";
@@ -138,13 +105,29 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         sourceBase = "GDIndex CF";
       }
 
-      // Initialize counter parameters safely
+      // Initialize counter per quality tier dynamically
       if (!serverTracker[resLabel][sourceBase]) {
         serverTracker[resLabel][sourceBase] = 0;
       }
 
       serverTracker[resLabel][sourceBase]++;
       const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
+
+      // Extract title names safely directly from incoming payload titles
+      let cleanTitleLine = "🎦 Stream Asset";
+      const titleMatch = titleText.match(/\]\s*([^\\{}|]+)\s*(?:\(\d{4}\)|\{\b)/i);
+      if (titleMatch && titleMatch[1]) {
+        cleanTitleLine = `🎦 ${titleMatch[1].trim()}`;
+      } else {
+        // Fallback layout clean up if regex doesn't match clean title elements
+        const segment = titleText.split('\n')[0].replace(/\[.*?\]/g, '').trim();
+        if (segment) cleanTitleLine = `🎦 ${segment}`;
+      }
+
+      // Append season data if working with a tv series mapping context
+      if (isSeries) {
+        cleanTitleLine += ` | S${season || 1}E${episode || 1}`;
+      }
 
       let detectedLang = "Hindi 🇮🇳 • English 🇺🇸";
       if (combinedLower.includes("telugu")) detectedLang = "Hindi 🇮🇳 • Telugu 🏹";
@@ -155,13 +138,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       const codecStr = /\b(hevc|x265|h265)\b/.test(combinedLower) ? "x.265" : "x.264";
       const streamTech = isM3U8 ? "HLS" : "Direct";
 
-      const subLine1 = isSeries 
-        ? `🎦 ${titleName} - (${releaseYear}) | S${season || 1}E${episode || 1}`
-        : `🎦 ${titleName} - (${releaseYear})`;
-
       const layoutDescription = 
-        `${subLine1}\n` +
-        `${resEmoji} ${resLabel} | 🔊 ${detectedLang} | ⏳ ${runtimeStr}\n` +
+        `${cleanTitleLine}\n` +
+        `${resEmoji} ${resLabel} | 🔊 ${detectedLang}\n` +
         `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 💾 ${extractedSize}\n` +
         `🛰️ Source: ${finalSourceLabel}`;
 
@@ -180,7 +159,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     return processedStreams.map(({ rank, ...cleanStream }) => cleanStream);
 
   } catch (err) {
-    console.error("Layout failure:", err);
+    console.error("Layout engine error:", err);
     return [];
   }
 }

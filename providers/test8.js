@@ -1,6 +1,7 @@
 "use strict";
 
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
+const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
 function parseSize(textCombined) {
   if (!textCombined) return "N/A GB";
@@ -24,12 +25,22 @@ function parseSize(textCombined) {
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
+  let targetId = tmdbId;
   
   try {
-    // 1. Bypass TMDB entirely to prevent lookups from breaking the stream fetch
+    // If it's a numeric TMDB ID, safely find the IMDb ID equivalent
+    if (typeof tmdbId === 'number' || (typeof tmdbId === 'string' && !tmdbId.startsWith('tt'))) {
+      const extUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
+      const extData = await fetch(extUrl).then(r => r.json()).catch(() => null);
+      if (extData && extData.imdb_id) {
+        targetId = extData.imdb_id;
+      }
+    }
+
+    // Format the path using our resolved ID
     const formattedId = isSeries 
-      ? `${tmdbId}:${season || 1}:${episode || 1}` 
-      : `${tmdbId}`;
+      ? `${targetId}:${season || 1}:${episode || 1}` 
+      : `${targetId}`;
 
     const typePath = isSeries ? 'series' : 'movie';
     const url = `${MANIFEST_STREAM_BASE}/${typePath}/${encodeURIComponent(formattedId)}.json`;
@@ -51,7 +62,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
-    // Server tracking per resolution tier
     const serverTracker = {
       "2160p": {},
       "1080p": {},
@@ -70,7 +80,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (combinedLower.includes("gofile")) return;
       if (combinedLower.includes("moviesdrive")) return;
 
-      // Quality Rank Assignments
       let rank = 0;
       let resLabel = "1080p";
       let resEmoji = "🔥";
@@ -95,7 +104,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       const extractedSize = parseSize(titleText);
 
-      // Map base provider source names
       let sourceBase = "BollyFlix Mirror";
       if (combinedLower.includes("instant dl") || combinedLower.includes("instantdl") || combinedLower.includes("instant")) {
         sourceBase = "Instant DL";
@@ -105,7 +113,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         sourceBase = "GDIndex CF";
       }
 
-      // Initialize counter per quality tier dynamically
       if (!serverTracker[resLabel][sourceBase]) {
         serverTracker[resLabel][sourceBase] = 0;
       }
@@ -113,18 +120,16 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       serverTracker[resLabel][sourceBase]++;
       const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
 
-      // Extract title names safely directly from incoming payload titles
+      // Extract title asset clean string directly from response headers safely
       let cleanTitleLine = "🎦 Stream Asset";
       const titleMatch = titleText.match(/\]\s*([^\\{}|]+)\s*(?:\(\d{4}\)|\{\b)/i);
       if (titleMatch && titleMatch[1]) {
         cleanTitleLine = `🎦 ${titleMatch[1].trim()}`;
       } else {
-        // Fallback layout clean up if regex doesn't match clean title elements
         const segment = titleText.split('\n')[0].replace(/\[.*?\]/g, '').trim();
         if (segment) cleanTitleLine = `🎦 ${segment}`;
       }
 
-      // Append season data if working with a tv series mapping context
       if (isSeries) {
         cleanTitleLine += ` | S${season || 1}E${episode || 1}`;
       }

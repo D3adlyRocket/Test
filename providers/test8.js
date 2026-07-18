@@ -1,7 +1,7 @@
 "use strict";
 
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
-const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
+const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 
 function parseSize(textCombined) {
   if (!textCombined) return "N/A GB";

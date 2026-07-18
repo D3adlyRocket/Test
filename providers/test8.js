@@ -3,39 +3,25 @@
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
-// Helper function to extract Source and Size directly from the streaming URL
-function parseUrlMetadata(urlStr) {
-  const url = (urlStr || "").toLowerCase();
-  
-  // 1. Identify Source based on URL properties
-  let source = "BollyFlix"; // default fallback
-  if (url.includes("gdindex") || url.includes("cf")) {
-    source = "GDIndex CF";
-  } else if (url.includes("instantdl") || url.includes("idl")) {
-    source = "Instant DL";
-  } else if (url.includes("fastcloud") || url.includes("cloud")) {
-    source = "FastCloud";
-  }
-
-  // 2. Identify Size from URL patterns (e.g., "movie.name.2.4gb.mkv" or similar parameters)
-  let sizeStr = "N/A GB";
-  const gbMatch = url.match(/(\d+(?:\.\d+)?)\s*gb/);
-  const mbMatch = url.match(/(\d+)\s*mb/);
+// Helper function to extract file sizes from any available text fields
+function parseSize(textCombined) {
+  // Matches patterns like 1.4GB, 700MB, 1.4 GB, etc.
+  const gbMatch = textCombined.match(/(\d+(?:\.\d+)?)\s*gb/i);
+  const mbMatch = textCombined.match(/(\d+)\s*mb/i);
   
   if (gbMatch) {
-    sizeStr = `${gbMatch[1]} GB`;
+    return `${gbMatch[1]} GB`;
   } else if (mbMatch) {
-    sizeStr = `${(parseInt(mbMatch[1], 10) / 1024).toFixed(2)} GB`;
+    return `${(parseInt(mbMatch[1], 10) / 1024).toFixed(2)} GB`;
   }
-
-  return { source, sizeStr };
+  return "N/A GB";
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
   
   try {
-    // 1. Fetch deep metadata from TMDB
+    // 1. Fetch metadata from TMDB
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
     const meta = await fetch(tmdbUrl).then(r => r.json());
     
@@ -52,7 +38,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       runtimeStr = `${meta.episode_run_time[0]} min`;
     }
 
-    // 2. Format the streaming endpoint path for csx-stremio
+    // 2. Format endpoint path
     const formattedId = isSeries 
       ? `${imdbId}:${season || 1}:${episode || 1}` 
       : `${imdbId}`;
@@ -60,7 +46,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const typePath = isSeries ? 'series' : 'movie';
     const url = `${MANIFEST_STREAM_BASE}/${typePath}/${encodeURIComponent(formattedId)}.json`;
 
-    // 3. Make the stream lookup request
+    // 3. Request stream payload
     const response = await fetch(url, {
       method: 'GET',
       headers: {
@@ -77,71 +63,89 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     }
 
     const processedStreams = [];
+    
+    // Counters to track server splits per source type dynamically
+    const serverCounters = {
+      "GDIndex CF": 0,
+      "Instant DL": 0,
+      "FastCloud": 0,
+      "BollyFlix Mirror": 0
+    };
 
-    // 4. Parse, analyze properties, and build metadata layouts
+    // 4. Parse layout elements
     data.streams.forEach(stream => {
-      const nameText = (stream.name || "").toLowerCase();
-      const titleText = (stream.title || "").toLowerCase();
-      const rawTextCombined = `${nameText} ${titleText}`;
+      const nameText = (stream.name || "");
+      const titleText = (stream.title || "");
+      const urlStr = (stream.url || "");
+      const combinedLower = `${nameText} ${titleText} ${urlStr}`.toLowerCase();
 
-      // Tweak 4: Filter out GoFile streams entirely or keep specifically designated sources
-      if (stream.url && stream.url.toLowerCase().includes("gofile")) {
-        return; 
-      }
+      // Exclude GoFile links completely
+      if (combinedLower.includes("gofile")) return;
 
-      // Filter: Keep ONLY BollyFlix links
-      const matchesBollyFlix = nameText.includes("bollyflix") || titleText.includes("bollyflix");
-      if (!matchesBollyFlix) return;
+      // Filter: Ensure it belongs to BollyFlix
+      if (!combinedLower.includes("bollyflix")) return;
 
-      // Quality Rank Assignment
-      let rank = 0; // lower fallback rank
+      // Quality Rank Matcher
+      let rank = 0;
       let resLabel = "1080p";
       let resEmoji = "🔥";
       
-      if (/\b(2160p|4k)\b/i.test(rawTextCombined)) {
+      if (/\b(2160p|4k)\b/i.test(combinedLower)) {
         resLabel = "2160p";
         resEmoji = "💎";
-        rank = 3; // Top priority sorting rank
-      } else if (/\b(1080p)\b/i.test(rawTextCombined)) {
+        rank = 3;
+      } else if (/\b(1080p)\b/i.test(combinedLower)) {
         resLabel = "1080p";
         resEmoji = "🔥";
         rank = 2;
-      } else if (/\b(720p)\b/i.test(rawTextCombined)) {
+      } else if (/\b(720p)\b/i.test(combinedLower)) {
         resLabel = "720p";
         resEmoji = "🎬";
         rank = 1;
       } else {
-        return; // Ignore other lower/unlabeled resolutions
+        return; // Ignore other sizes
       }
 
-      // Tweak 2: Explicit multi-language labeling inside subheading description
-      let detectedLang = "Hindi 🇮🇳 • English 🇺🇸";
-      if (/telugu/i.test(rawTextCombined)) detectedLang = "Hindi 🇮🇳 • Telugu 🏹";
-      else if (/tamil/i.test(rawTextCombined)) detectedLang = "Hindi 🇮🇳 • Tamil 🐯";
+      // Extract accurate sizing from all metadata parameters combined
+      const extractedSize = parseSize(`${nameText} ${titleText}`);
 
-      // Parse container metadata formats
-      const isM3U8 = stream.url && stream.url.includes(".m3u8");
-      const formatStr = isM3U8 ? "HLS" : (/\b(mp4|avi|m4v)\b/.test(rawTextCombined) ? "MP4" : "MKV");
-      const codecStr = /\b(hevc|x265|h265)\b/.test(rawTextCombined) ? "x.265" : "x.264";
+      // Identify Source dynamically without dropping unrecognized domains
+      let sourceBase = "BollyFlix Mirror";
+      if (combinedLower.includes("gdindex") || combinedLower.includes("cf")) {
+        sourceBase = "GDIndex CF";
+      } else if (combinedLower.includes("instantdl") || combinedLower.includes("idl")) {
+        sourceBase = "Instant DL";
+      } else if (combinedLower.includes("fastcloud") || combinedLower.includes("cloud")) {
+        sourceBase = "FastCloud";
+      }
+
+      // Increment tracker and assign Server indices
+      serverCounters[sourceBase]++;
+      const finalSourceLabel = `${sourceBase} - Server ${serverCounters[sourceBase]}`;
+
+      // Language layout configs
+      let detectedLang = "Hindi 🇮🇳 • English 🇺🇸";
+      if (combinedLower.includes("telugu")) detectedLang = "Hindi 🇮🇳 • Telugu 🏹";
+      else if (combinedLower.includes("tamil")) detectedLang = "Hindi 🇮🇳 • Tamil 🐯";
+
+      // Streaming tech matching
+      const isM3U8 = urlStr.includes(".m3u8");
+      const formatStr = isM3U8 ? "HLS" : (/\b(mp4|avi|m4v)\b/.test(combinedLower) ? "MP4" : "MKV");
+      const codecStr = /\b(hevc|x265|h265)\b/.test(combinedLower) ? "x.265" : "x.264";
       const streamTech = isM3U8 ? "HLS" : "Direct";
 
-      // Tweak 3 & 4: Pull analytical properties directly via URL parameters
-      const parsedMeta = parseUrlMetadata(stream.url);
-
-      // Build device layouts
       const subLine1 = isSeries 
         ? `🎦 ${titleName} - (${releaseYear}) | S${season || 1}E${episode || 1}`
         : `🎦 ${titleName} - (${releaseYear})`;
 
-      // Modified Subheading layout blocks mapping your requested variables
       const layoutDescription = 
         `${subLine1}\n` +
         `${resEmoji} ${resLabel} | 🔊 ${detectedLang} | ⏳ ${runtimeStr}\n` +
-        `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 💾 ${parsedMeta.sizeStr}\n` +
-        `🛰️ Source: ${parsedMeta.source}`;
+        `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 💾 ${extractedSize}\n` +
+        `🛰️ Source: ${finalSourceLabel}`;
 
       processedStreams.push({
-        rank: rank, // track internal score for sorting priority later
+        rank: rank,
         name: `BollyFlix | ${resLabel} | Dual-Audio`,
         title: layoutDescription,
         description: layoutDescription,
@@ -151,14 +155,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       });
     });
 
-    // Tweak 1: Strict array structural sort (Descending: 2160p -> 1080p -> 720p)
+    // Sort order: Highest quality first (Descending)
     processedStreams.sort((a, b) => b.rank - a.rank);
 
-    // Strip internal sorting ranks from final objects delivered to player layout engine
     return processedStreams.map(({ rank, ...cleanStream }) => cleanStream);
 
   } catch (err) {
-    console.error("Failed to execute sorted BollyFlix layouts:", err);
+    console.error("Failed to fetch sorted data maps:", err);
     return [];
   }
 }

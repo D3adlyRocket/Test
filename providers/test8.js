@@ -3,7 +3,6 @@
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
-// Safe size parser filtering out any tiny file fragments under 0.50 GB
 function parseSize(textCombined) {
   if (!textCombined) return "N/A GB";
   
@@ -26,17 +25,16 @@ function parseSize(textCombined) {
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
-  let imdbId = "";
   let titleName = "Unknown Title";
   let releaseYear = "2026";
   let runtimeStr = "N/A";
+  let searchId = tmdbId;
 
   try {
-    // 1. Robust ID Handling: Check if input is already an IMDb ID (starts with 'tt')
+    // 1. Safe Metadata Extraction
+    // If tmdbId is an IMDb ID string (starts with tt), parse it dynamically via find
     if (typeof tmdbId === 'string' && tmdbId.startsWith('tt')) {
-      imdbId = tmdbId;
-      // Fetch cosmetic info using find endpoint
-      const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+      const findUrl = `https://api.themoviedb.org/3/find/${tmdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
       const findData = await fetch(findUrl).then(r => r.json()).catch(() => null);
       const meta = isSeries ? findData?.tv_results?.[0] : findData?.movie_results?.[0];
       if (meta) {
@@ -44,27 +42,27 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
       }
     } else {
-      // Input is a numeric TMDB ID
-      const extUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
-      const extData = await fetch(extUrl).then(r => r.json()).catch(() => null);
-      imdbId = extData?.imdb_id;
-
-      const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+      // If native numeric TMDB ID, extract using primary metadata routes
+      const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
       const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
       if (meta) {
         titleName = meta.title || meta.name || titleName;
         releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
         if (!isSeries && meta.runtime) runtimeStr = `${meta.runtime} min`;
         else if (isSeries && meta.episode_run_time?.[0]) runtimeStr = `${meta.episode_run_time[0]} min`;
+        
+        // Use verified external tracking ID if available
+        if (meta.external_ids?.imdb_id || meta.imdb_id) {
+          searchId = meta.external_ids?.imdb_id || meta.imdb_id;
+        }
       }
     }
 
-    if (!imdbId) return [];
-
-    // 2. Build the exact streaming path request
+    // 2. Direct Fallback Stream URL Constructor
+    // Ensures if the fallback above leaves searchId numeric, it still sends a valid request
     const formattedId = isSeries 
-      ? `${imdbId}:${season || 1}:${episode || 1}` 
-      : `${imdbId}`;
+      ? `${searchId}:${season || 1}:${episode || 1}` 
+      : `${searchId}`;
 
     const typePath = isSeries ? 'series' : 'movie';
     const url = `${MANIFEST_STREAM_BASE}/${typePath}/${encodeURIComponent(formattedId)}.json`;
@@ -86,7 +84,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
-    // Dynamic tracker schema to protect against undefined key crashes
+    // Independent multi-dimensional tracking context per format tier
     const serverTracker = {
       "2160p": {},
       "1080p": {},
@@ -101,11 +99,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       const urlStr = stream.url || "";
       const combinedLower = `${nameText} ${titleText}`.toLowerCase();
 
-      // STRICT EXCLUSIONS: Block GoFile and MoviesDrive links entirely
+      // Strict Exclusions
       if (combinedLower.includes("gofile")) return;
       if (combinedLower.includes("moviesdrive")) return;
 
-      // Extract resolution tier labels cleanly
+      // Extract quality properties
       let rank = 0;
       let resLabel = "1080p";
       let resEmoji = "🔥";
@@ -130,7 +128,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       const extractedSize = parseSize(titleText);
 
-      // Map providers specifically matching core keywords from screenshots
+      // Clean Source mapping match filters
       let sourceBase = "BollyFlix Mirror";
       if (combinedLower.includes("instant dl") || combinedLower.includes("instantdl") || combinedLower.includes("instant")) {
         sourceBase = "Instant DL";
@@ -140,12 +138,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         sourceBase = "GDIndex CF";
       }
 
-      // Safeguard: Initialize counter dynamically if it doesn't exist yet
+      // Initialize counter parameters safely
       if (!serverTracker[resLabel][sourceBase]) {
         serverTracker[resLabel][sourceBase] = 0;
       }
 
-      // Increment sequence contextual numbering safely
       serverTracker[resLabel][sourceBase]++;
       const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
 
@@ -179,12 +176,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       });
     });
 
-    // Enforce high-to-low quality sort sequencing constraint
     processedStreams.sort((a, b) => b.rank - a.rank);
     return processedStreams.map(({ rank, ...cleanStream }) => cleanStream);
 
   } catch (err) {
-    console.error("Critical layout processing failure:", err);
+    console.error("Layout failure:", err);
     return [];
   }
 }

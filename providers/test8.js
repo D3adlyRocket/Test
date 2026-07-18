@@ -26,29 +26,42 @@ function parseSize(textCombined) {
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
-  
-  try {
-    // Fixed: Deep-query TMDB external_ids endpoint directly to avoid missing fresh IMDb keys
-    const extUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
-    const extData = await fetch(extUrl).then(r => r.json()).catch(() => null);
-    
-    const imdbId = extData?.imdb_id;
-    if (!imdbId) return [];
+  let imdbId = "";
+  let titleName = "Unknown Title";
+  let releaseYear = "2026";
+  let runtimeStr = "N/A";
 
-    // Fetch cosmetic naming metadata from main TMDB endpoint
-    const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
-    
-    const titleName = meta?.title || meta?.name || "Unknown Title";
-    const releaseYear = meta?.release_date ? meta.release_date.split('-')[0] : (meta?.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
-    
-    let runtimeStr = "N/A";
-    if (!isSeries && meta?.runtime) {
-      runtimeStr = `${meta.runtime} min`;
-    } else if (isSeries && meta?.episode_run_time && meta.episode_run_time.length > 0) {
-      runtimeStr = `${meta.episode_run_time[0]} min`;
+  try {
+    // 1. Robust ID Handling: Check if input is already an IMDb ID (starts with 'tt')
+    if (typeof tmdbId === 'string' && tmdbId.startsWith('tt')) {
+      imdbId = tmdbId;
+      // Fetch cosmetic info using find endpoint
+      const findUrl = `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`;
+      const findData = await fetch(findUrl).then(r => r.json()).catch(() => null);
+      const meta = isSeries ? findData?.tv_results?.[0] : findData?.movie_results?.[0];
+      if (meta) {
+        titleName = meta.title || meta.name || titleName;
+        releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
+      }
+    } else {
+      // Input is a numeric TMDB ID
+      const extUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
+      const extData = await fetch(extUrl).then(r => r.json()).catch(() => null);
+      imdbId = extData?.imdb_id;
+
+      const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+      const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
+      if (meta) {
+        titleName = meta.title || meta.name || titleName;
+        releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
+        if (!isSeries && meta.runtime) runtimeStr = `${meta.runtime} min`;
+        else if (isSeries && meta.episode_run_time?.[0]) runtimeStr = `${meta.episode_run_time[0]} min`;
+      }
     }
 
+    if (!imdbId) return [];
+
+    // 2. Build the exact streaming path request
     const formattedId = isSeries 
       ? `${imdbId}:${season || 1}:${episode || 1}` 
       : `${imdbId}`;
@@ -73,11 +86,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
-    // Counter isolated per Quality + Provider grouping to clean up Server allocations
+    // Dynamic tracker schema to protect against undefined key crashes
     const serverTracker = {
-      "2160p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0 },
-      "1080p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0 },
-      "720p":  { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0 }
+      "2160p": {},
+      "1080p": {},
+      "720p":  {}
     };
 
     data.streams.forEach(stream => {
@@ -92,7 +105,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (combinedLower.includes("gofile")) return;
       if (combinedLower.includes("moviesdrive")) return;
 
-      // Extract quality categories cleanly
+      // Extract resolution tier labels cleanly
       let rank = 0;
       let resLabel = "1080p";
       let resEmoji = "🔥";
@@ -116,11 +129,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       }
 
       const extractedSize = parseSize(titleText);
-      if (extractedSize === "N/A GB") return; // Ignore residual trailer/sample file sizes
 
-      // Map providers specifically matching core keywords
-      let sourceBase = "";
-      if (combinedLower.includes("instant dl") || combinedLower.includes("instantdl") || combinedLower.includes("gdfx instant") || combinedLower.includes("gdflix instant")) {
+      // Map providers specifically matching core keywords from screenshots
+      let sourceBase = "BollyFlix Mirror";
+      if (combinedLower.includes("instant dl") || combinedLower.includes("instantdl") || combinedLower.includes("instant")) {
         sourceBase = "Instant DL";
       } else if (combinedLower.includes("fastcloud") || combinedLower.includes("fast cloud")) {
         sourceBase = "FastCloud";
@@ -128,10 +140,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         sourceBase = "GDIndex CF";
       }
 
-      // Drop anything that doesn't belong to the core targeted sources
-      if (!sourceBase) return;
+      // Safeguard: Initialize counter dynamically if it doesn't exist yet
+      if (!serverTracker[resLabel][sourceBase]) {
+        serverTracker[resLabel][sourceBase] = 0;
+      }
 
-      // Increment tracking indicators strictly bound inside quality context groups
+      // Increment sequence contextual numbering safely
       serverTracker[resLabel][sourceBase]++;
       const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
 
@@ -165,12 +179,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       });
     });
 
-    // Enforce 2160p -> 1080p -> 720p sort ordering constraints
+    // Enforce high-to-low quality sort sequencing constraint
     processedStreams.sort((a, b) => b.rank - a.rank);
     return processedStreams.map(({ rank, ...cleanStream }) => cleanStream);
 
   } catch (err) {
-    console.error("Critical routing breakdown failed:", err);
+    console.error("Critical layout processing failure:", err);
     return [];
   }
 }

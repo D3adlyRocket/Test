@@ -61,7 +61,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
-    // Using simple standalone tracking variables to avoid lookup crashes
+    // Server counts track globally across the iteration block
     let gdCount = 0;
     let idlCount = 0;
     let cloudCount = 0;
@@ -75,8 +75,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       const urlStr = stream.url || "";
       const combinedLower = `${nameText} ${titleText} ${urlStr}`.toLowerCase();
 
+      // GoFile - Excluded
       if (combinedLower.includes("gofile")) return;
-      if (!combinedLower.includes("bollyflix")) return;
 
       let rank = 0;
       let resLabel = "1080p";
@@ -100,14 +100,15 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       const extractedSize = parseSize(`${nameText} ${titleText}`);
 
+      // Improved URL Matching logic targeting unique path variants
       let finalSourceLabel = "BollyFlix Mirror";
-      if (combinedLower.includes("gdindex") || combinedLower.includes("cf")) {
+      if (combinedLower.includes("gdindex") || combinedLower.includes("cf.") || combinedLower.includes("workers.dev")) {
         gdCount++;
         finalSourceLabel = `GDIndex CF - Server ${gdCount}`;
-      } else if (combinedLower.includes("instantdl") || combinedLower.includes("idl")) {
+      } else if (combinedLower.includes("instantdl") || combinedLower.includes("idl") || combinedLower.includes("dl.")) {
         idlCount++;
         finalSourceLabel = `Instant DL - Server ${idlCount}`;
-      } else if (combinedLower.includes("fastcloud") || combinedLower.includes("cloud")) {
+      } else if (combinedLower.includes("fastcloud") || combinedLower.includes("fast.") || combinedLower.includes("cloud")) {
         cloudCount++;
         finalSourceLabel = `FastCloud - Server ${cloudCount}`;
       } else {

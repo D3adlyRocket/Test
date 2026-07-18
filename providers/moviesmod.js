@@ -12,7 +12,7 @@ async function onSettings() {
 const PROVIDER_NAME = "MovieBox";
 // Configured with your requested MovieBox endpoint (manifest.json trimmed for path appending)
 const MOVIEBOX_BASE = "https://pengu.uk/%7B%22source_moviebox%22%3A%22on%22%2C%22res_1080%22%3A%22on%22%2C%22disable_direct%22%3A%22on%22%2C%22auth_token%22%3A%22NriJwCIiwWhJc07cueA0WvE7FmXHUYyoclm6rRDt2dA%22%7D";
-const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
+const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';

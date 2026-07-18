@@ -1,139 +1,184 @@
 "use strict";
 
-// 1. Settings Layout configuration for Audio Preferences
-async function onSettings() {
-    return [
-        { type: "header", label: "Audio Preferences" },
-        { type: "toggle", key: "langEnglish", label: "Enable English 🇺🇸", defaultValue: true },
-        { type: "toggle", key: "langHindi", label: "Enable Hindi 🇮🇳", defaultValue: true }
-    ];
-}
-
-const PROVIDER_NAME = "MovieBox";
-// Configured with your requested MovieBox endpoint (manifest.json trimmed for path appending)
-const MOVIEBOX_BASE = "https://pengu.uk/%7B%22source_moviebox%22%3A%22on%22%2C%22res_1080%22%3A%22on%22%2C%22disable_direct%22%3A%22on%22%2C%22auth_token%22%3A%22NriJwCIiwWhJc07cueA0WvE7FmXHUYyoclm6rRDt2dA%22%7D";
+const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+
+// Safe size parser filtering out any tiny file fragments under 0.50 GB
+function parseSize(textCombined) {
+  if (!textCombined) return "N/A GB";
+  
+  const bracketMatch = textCombined.match(/\[(\d+(?:\.\d+)?)\s*(gb|mb)\]/i);
+  if (bracketMatch) {
+    const val = parseFloat(bracketMatch[1]);
+    if (bracketMatch[2].toLowerCase() === 'gb') return `${val} GB`;
+    return `${(val / 1024).toFixed(2)} GB`;
+  }
+
+  const standardMatch = textCombined.match(/\b(\d+(?:\.\d+)?)\s*(gb|mb)\b/i);
+  if (standardMatch) {
+    const val = parseFloat(standardMatch[1]);
+    if (standardMatch[2].toLowerCase() === 'gb' && val >= 0.5) return `${val} GB`;
+    if (standardMatch[2].toLowerCase() === 'mb' && val > 500) return `${(val / 1024).toFixed(2)} GB`;
+  }
+
+  return "N/A GB";
+}
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
-  const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
-
+  let targetId = tmdbId;
+  
   try {
-    const settings = globalThis.SCRAPER_SETTINGS || {};
-    const showEnglish = settings.langEnglish !== false;
-    const showHindi = settings.langHindi !== false;
+    // If it's a numeric TMDB ID, safely find the IMDb ID equivalent
+    if (typeof tmdbId === 'number' || (typeof tmdbId === 'string' && !tmdbId.startsWith('tt'))) {
+      const extUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
+      const extData = await fetch(extUrl).then(r => r.json()).catch(() => null);
+      if (extData && extData.imdb_id) {
+        targetId = extData.imdb_id;
+      }
+    }
 
-    // 2. Fetch metadata from TMDB
-    const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
-    const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id || tmdbId;
+    // Format the path using our resolved ID
+    const formattedId = isSeries 
+      ? `${targetId}:${season || 1}:${episode || 1}` 
+      : `${targetId}`;
 
-    const titleName = meta?.title || meta?.name || "Movie/Show";
-    const releaseYear = meta?.release_date ? meta.release_date.split('-')[0] : (meta?.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
+    const typePath = isSeries ? 'series' : 'movie';
+    const url = `${MANIFEST_STREAM_BASE}/${typePath}/${encodeURIComponent(formattedId)}.json`;
 
-    // 3. Fetch the stream data from your specified MovieBox URL endpoint
-    const streamUrl = isSeries 
-      ? `${MOVIEBOX_BASE}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
-      : `${MOVIEBOX_BASE}/stream/movie/${imdbId}.json`;
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
+      }
+    }).catch(() => null);
 
-    const data = await fetch(streamUrl).then(r => r.json()).catch(() => null);
-    if (!data?.streams || data.streams.length === 0) return [];
+    if (!response || !response.ok) return [];
+    const data = await response.json().catch(() => null);
+    
+    if (!data || !data.streams || data.streams.length === 0) {
+      return [];
+    }
 
-    const allStreams = [];
+    const processedStreams = [];
+    
+    // Server tracking per resolution tier
+    const serverTracker = {
+      "2160p": {},
+      "1080p": {},
+      "720p":  {}
+    };
 
-    // 4. Map language tags and filter using your configuration preferences
-    data.streams.forEach(s => {
-      if (!s) return;
-      const titleText = (s.title || s.description || s.name || "").toLowerCase();
+    data.streams.forEach(stream => {
+      if (!stream || !stream.url) return;
       
-      let detectedLang = "English 🇺🇲";
-      let isHindiStream = false;
+      const nameText = stream.name || "";
+      const titleText = stream.title || "";
+      const urlStr = stream.url || "";
       
-      if (/hindi|hin|dual/.test(titleText)) {
-        detectedLang = "Hindi 🇮🇳";
-        isHindiStream = true;
-      } else if (/multi|🌐/.test(titleText)) {
-        detectedLang = "Multi 🌐";
+      // Analyze the ENTIRE payload string including full routing URL
+      const combinedLower = `${nameText} ${titleText} ${urlStr}`.toLowerCase();
+
+      // STRICT EXCLUSIONS: Block GoFile, MoviesDrive, and VidLink completely
+      if (combinedLower.includes("gofile")) return;
+      if (combinedLower.includes("moviesdrive")) return;
+      if (combinedLower.includes("vidlink")) return;
+
+      // Identify quality tags accurately across text metadata and URL structure
+      let rank = 0;
+      let resLabel = "";
+      let resEmoji = "";
+      
+      if (/\b(2160p|4k)\b/i.test(combinedLower)) {
+        resLabel = "2160p";
+        resEmoji = "💎";
+        rank = 3;
+      } else if (/\b(1080p)\b/i.test(combinedLower)) {
+        resLabel = "1080p";
+        resEmoji = "🔥";
+        rank = 2;
+      } else if (/\b(720p)\b/i.test(combinedLower)) {
+        resLabel = "720p";
+        resEmoji = "🎬";
+        rank = 1;
+      } else {
+        // Block 480p, SD, or hidden low-resolution links that don't match our criteria
+        return;
       }
 
-      if (isHindiStream && !showHindi) return;
-      if (!isHindiStream && !showEnglish) return;
+      // Explicitly reject if an underlying 480p string is masking inside a link parameter
+      if (/\b(480p)\b/i.test(combinedLower)) return;
 
-      allStreams.push({ ...s, lang: detectedLang });
-    });
+      const extractedSize = parseSize(titleText);
 
-    const result = [];
-    const grouped = {};
+      let sourceBase = "BollyFlix Mirror";
+      if (combinedLower.includes("instant dl") || combinedLower.includes("instantdl") || combinedLower.includes("instant")) {
+        sourceBase = "Instant DL";
+      } else if (combinedLower.includes("fastcloud") || combinedLower.includes("fast cloud")) {
+        sourceBase = "FastCloud";
+      } else if (combinedLower.includes("gdindex") || combinedLower.includes("cf")) {
+        sourceBase = "GDIndex CF";
+      }
 
-    // 5. Group elements cleanly by quality tags
-    allStreams.forEach(item => {
-      const title = (item.title || item.description || item.name || "").toLowerCase();
-      const res = /2160|4k/.test(title) ? "2160p" : 
-                  /1080/.test(title) ? "1080p" : 
-                  /720/.test(title)  ? "720p"  : 
-                  /480/.test(title)  ? "480p"  : "1080p";
-      
-      const key = `${res}-${item.lang}`;
-      if (!grouped[key]) grouped[key] = [];
-      grouped[key].push(item);
-    });
+      if (!serverTracker[resLabel][sourceBase]) {
+        serverTracker[resLabel][sourceBase] = 0;
+      }
 
-    // 6. Generate final cross-platform presentation layout structure
-    Object.entries(grouped).forEach(([key, items]) => {
-      const [res, lang] = key.split("-");
-      
-      items.forEach(item => {
-        const rawText = (item.title || item.description || item.name || "").toLowerCase();
+      serverTracker[resLabel][sourceBase]++;
+      const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
 
-        // Advanced size detection extraction logic
-        let sizeStr = "Unknown Size";
-        const sizeMatch = (item.title || item.description || item.name || "").match(/(\d+(?:\.\d+)?\s*(?:GB|MB|gb|mb))/i);
-        if (sizeMatch) {
-          sizeStr = sizeMatch[1].toUpperCase();
-        } else if (item.size) {
-          const bytes = parseInt(item.size, 10);
-          if (!isNaN(bytes) && bytes > 0) {
-            sizeStr = bytes > 1024 * 1024 * 1024 
-              ? `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB` 
-              : `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
-          }
-        }
+      // Extract clear title parameters from the text layout blocks
+      let cleanTitleLine = "🎦 Stream Asset";
+      const titleMatch = titleText.match(/\]\s*([^\\{}|]+)\s*(?:\(\d{4}\)|\{\b)/i);
+      if (titleMatch && titleMatch[1]) {
+        cleanTitleLine = `🎦 ${titleMatch[1].trim()}`;
+      } else {
+        const segment = titleText.split('\n')[0].replace(/\[.*?\]/g, '').trim();
+        if (segment) cleanTitleLine = `🎦 ${segment}`;
+      }
 
-        const formatStr = /\b(mp4|avi|m4v)\b/.test(rawText) ? "MP4" : "MKV";
-        const cleanLangText = lang.replace(/[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD00-\uDFFF]/g, '').trim();
+      if (isSeries) {
+        cleanTitleLine += ` | S${season || 1}E${episode || 1}`;
+      }
 
-        // Standardized multi-line presentation design layout
-        const fullLayout = 
-          `🎬 ${titleName} - (${releaseYear})\n` +
-          `💎 ${res} | 🔊 ${cleanLangText} | 💾 ${sizeStr}\n` +
-          `🎞️ ${formatStr} | ⛓️‍💥 MovieBox`;
+      let detectedLang = "Hindi 🇮🇳 • English 🇺🇸";
+      if (combinedLower.includes("telugu")) detectedLang = "Hindi 🇮🇳 • Telugu 🏹";
+      else if (combinedLower.includes("tamil")) detectedLang = "Hindi 🇮🇳 • Tamil 🐯";
 
-        result.push({
-          name: `${PROVIDER_NAME} | ${res} | ${lang}`,
-          title: fullLayout,
-          size: fullLayout,
-          description: fullLayout,
-          url: item.url,
-          behaviorHints: {
-            proxyHeaders: {
-              request: {
-                "Referer": "https://stremio-moviebox-1.onrender.com/"
-              }
-            }
-          }
-        });
+      const isM3U8 = urlStr.includes(".m3u8");
+      const formatStr = isM3U8 ? "HLS" : (/\b(mp4|avi|m4v)\b/.test(combinedLower) ? "MP4" : "MKV");
+      const codecStr = /\b(hevc|x265|h265)\b/.test(combinedLower) ? "x.265" : "x.264";
+      const streamTech = isM3U8 ? "HLS" : "Direct";
+
+      const layoutDescription = 
+        `${cleanTitleLine}\n` +
+        `${resEmoji} ${resLabel} | 🔊 ${detectedLang}\n` +
+        `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 💾 ${extractedSize}\n` +
+        `🛰️ Source: ${finalSourceLabel}`;
+
+      processedStreams.push({
+        rank: rank,
+        name: `BollyFlix | ${resLabel} | Dual-Audio`,
+        title: layoutDescription,
+        description: layoutDescription,
+        size: layoutDescription,
+        url: stream.url,
+        behaviorHints: stream.behaviorHints || {}
       });
     });
 
-    return result;
+    processedStreams.sort((a, b) => b.rank - a.rank);
+    return processedStreams.map(({ rank, ...cleanStream }) => cleanStream);
+
   } catch (err) {
-    console.error("Global processing failure context:", err);
+    console.error("Layout engine error:", err);
     return [];
   }
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { getStreams, onSettings };
+  module.exports = { getStreams };
 } else {
-    global.getStreams = getStreams;
-    global.onSettings = onSettings;
+  global.getStreams = getStreams;
 }

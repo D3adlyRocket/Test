@@ -3,11 +3,10 @@
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
-// Extracts precise file sizes directly from the stream title layout text
+// Safe size parser filtering out any tiny file fragments under 0.50 GB
 function parseSize(textCombined) {
   if (!textCombined) return "N/A GB";
   
-  // Look for bracketed size formats like [1.13GB] or [2.71GB]
   const bracketMatch = textCombined.match(/\[(\d+(?:\.\d+)?)\s*(gb|mb)\]/i);
   if (bracketMatch) {
     const val = parseFloat(bracketMatch[1]);
@@ -15,12 +14,11 @@ function parseSize(textCombined) {
     return `${(val / 1024).toFixed(2)} GB`;
   }
 
-  // Standard match fallback if brackets are missing
   const standardMatch = textCombined.match(/\b(\d+(?:\.\d+)?)\s*(gb|mb)\b/i);
   if (standardMatch) {
     const val = parseFloat(standardMatch[1]);
-    if (standardMatch[2].toLowerCase() === 'gb') return `${val} GB`;
-    return `${(val / 1024).toFixed(2)} GB`;
+    if (standardMatch[2].toLowerCase() === 'gb' && val >= 0.5) return `${val} GB`;
+    if (standardMatch[2].toLowerCase() === 'mb' && val > 500) return `${(val / 1024).toFixed(2)} GB`;
   }
 
   return "N/A GB";
@@ -30,20 +28,24 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
   
   try {
-    const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
-    const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
+    // Fixed: Deep-query TMDB external_ids endpoint directly to avoid missing fresh IMDb keys
+    const extUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
+    const extData = await fetch(extUrl).then(r => r.json()).catch(() => null);
     
-    if (!meta) return [];
-    const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
+    const imdbId = extData?.imdb_id;
     if (!imdbId) return [];
 
-    const titleName = meta.title || meta.name || "Unknown Title";
-    const releaseYear = meta.release_date ? meta.release_date.split('-')[0] : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
+    // Fetch cosmetic naming metadata from main TMDB endpoint
+    const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`;
+    const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
+    
+    const titleName = meta?.title || meta?.name || "Unknown Title";
+    const releaseYear = meta?.release_date ? meta.release_date.split('-')[0] : (meta?.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
     
     let runtimeStr = "N/A";
-    if (!isSeries && meta.runtime) {
+    if (!isSeries && meta?.runtime) {
       runtimeStr = `${meta.runtime} min`;
-    } else if (isSeries && meta.episode_run_time && meta.episode_run_time.length > 0) {
+    } else if (isSeries && meta?.episode_run_time && meta.episode_run_time.length > 0) {
       runtimeStr = `${meta.episode_run_time[0]} min`;
     }
 
@@ -71,11 +73,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
-    // Multi-dimensional server context counter block
+    // Counter isolated per Quality + Provider grouping to clean up Server allocations
     const serverTracker = {
-      "2160p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0, "BollyFlix Mirror": 0 },
-      "1080p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0, "BollyFlix Mirror": 0 },
-      "720p":  { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0, "BollyFlix Mirror": 0 }
+      "2160p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0 },
+      "1080p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0 },
+      "720p":  { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0 }
     };
 
     data.streams.forEach(stream => {
@@ -86,10 +88,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       const urlStr = stream.url || "";
       const combinedLower = `${nameText} ${titleText}`.toLowerCase();
 
-      // Explicitly exclude GoFile streams as requested
+      // STRICT EXCLUSIONS: Block GoFile and MoviesDrive links entirely
       if (combinedLower.includes("gofile")) return;
+      if (combinedLower.includes("moviesdrive")) return;
 
-      // Extract quality labels natively
+      // Extract quality categories cleanly
       let rank = 0;
       let resLabel = "1080p";
       let resEmoji = "🔥";
@@ -107,18 +110,17 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         resEmoji = "🎬";
         rank = 1;
       } else {
-        // Safe layout fallback if quality is completely unlabelled
         resLabel = "1080p";
         resEmoji = "🔥";
         rank = 2;
       }
 
-      // Read bracket size directly from the original stream.title metadata
       const extractedSize = parseSize(titleText);
+      if (extractedSize === "N/A GB") return; // Ignore residual trailer/sample file sizes
 
-      // Map providers cleanly using the original addon labels shown in your screenshots
-      let sourceBase = "BollyFlix Mirror";
-      if (combinedLower.includes("instant dl") || combinedLower.includes("instantdl") || combinedLower.includes("gdflix instant")) {
+      // Map providers specifically matching core keywords
+      let sourceBase = "";
+      if (combinedLower.includes("instant dl") || combinedLower.includes("instantdl") || combinedLower.includes("gdfx instant") || combinedLower.includes("gdflix instant")) {
         sourceBase = "Instant DL";
       } else if (combinedLower.includes("fastcloud") || combinedLower.includes("fast cloud")) {
         sourceBase = "FastCloud";
@@ -126,11 +128,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         sourceBase = "GDIndex CF";
       }
 
-      // Increment tracking variables isolated to specific quality and source groups
+      // Drop anything that doesn't belong to the core targeted sources
+      if (!sourceBase) return;
+
+      // Increment tracking indicators strictly bound inside quality context groups
       serverTracker[resLabel][sourceBase]++;
       const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
 
-      // Language tag settings
       let detectedLang = "Hindi 🇮🇳 • English 🇺🇸";
       if (combinedLower.includes("telugu")) detectedLang = "Hindi 🇮🇳 • Telugu 🏹";
       else if (combinedLower.includes("tamil")) detectedLang = "Hindi 🇮🇳 • Tamil 🐯";
@@ -161,12 +165,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       });
     });
 
-    // Ensure 2160p displays at the top down to 720p
+    // Enforce 2160p -> 1080p -> 720p sort ordering constraints
     processedStreams.sort((a, b) => b.rank - a.rank);
     return processedStreams.map(({ rank, ...cleanStream }) => cleanStream);
 
   } catch (err) {
-    console.error("Failed to map explicit provider structures:", err);
+    console.error("Critical routing breakdown failed:", err);
     return [];
   }
 }

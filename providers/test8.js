@@ -3,26 +3,26 @@
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
-// Restored and fine-tuned size parser
+// Extracts precise file sizes directly from the stream title layout text
 function parseSize(textCombined) {
   if (!textCombined) return "N/A GB";
-  const cleanText = textCombined.toLowerCase();
   
-  const matches = cleanText.match(/\b(\d+(?:\.\d+)?)\s*(gb|mb)\b/g);
-  if (matches) {
-    for (let m of matches) {
-      const parts = m.match(/(\d+(?:\.\d+)?)\s*(gb|mb)/);
-      if (parts) {
-        const val = parseFloat(parts[1]);
-        const unit = parts[2];
-        if (unit === 'gb' && val > 0.15) {
-          return `${val} GB`;
-        } else if (unit === 'mb' && val > 100) {
-          return `${(val / 1024).toFixed(2)} GB`;
-        }
-      }
-    }
+  // Look for bracketed size formats like [1.13GB] or [2.71GB]
+  const bracketMatch = textCombined.match(/\[(\d+(?:\.\d+)?)\s*(gb|mb)\]/i);
+  if (bracketMatch) {
+    const val = parseFloat(bracketMatch[1]);
+    if (bracketMatch[2].toLowerCase() === 'gb') return `${val} GB`;
+    return `${(val / 1024).toFixed(2)} GB`;
   }
+
+  // Standard match fallback if brackets are missing
+  const standardMatch = textCombined.match(/\b(\d+(?:\.\d+)?)\s*(gb|mb)\b/i);
+  if (standardMatch) {
+    const val = parseFloat(standardMatch[1]);
+    if (standardMatch[2].toLowerCase() === 'gb') return `${val} GB`;
+    return `${(val / 1024).toFixed(2)} GB`;
+  }
+
   return "N/A GB";
 }
 
@@ -71,7 +71,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
-    // Server tracker grouping
+    // Multi-dimensional server context counter block
     const serverTracker = {
       "2160p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0, "BollyFlix Mirror": 0 },
       "1080p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0, "BollyFlix Mirror": 0 },
@@ -84,14 +84,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       const nameText = stream.name || "";
       const titleText = stream.title || "";
       const urlStr = stream.url || "";
-      const combinedLower = `${nameText} ${titleText} ${urlStr}`.toLowerCase();
+      const combinedLower = `${nameText} ${titleText}`.toLowerCase();
 
-      // GoFile - Excluded
+      // Explicitly exclude GoFile streams as requested
       if (combinedLower.includes("gofile")) return;
 
-      // STRICTLY Pick up BollyFlix links only (Blocks MoviesDrive, VidLink, etc.)
-      if (!combinedLower.includes("bollyflix")) return;
-
+      // Extract quality labels natively
       let rank = 0;
       let resLabel = "1080p";
       let resEmoji = "🔥";
@@ -109,28 +107,30 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         resEmoji = "🎬";
         rank = 1;
       } else {
-        // Fallback quality grouping so unlabelled links aren't discarded completely
+        // Safe layout fallback if quality is completely unlabelled
         resLabel = "1080p";
         resEmoji = "🔥";
         rank = 2;
       }
 
-      const extractedSize = parseSize(`${nameText} ${titleText}`);
+      // Read bracket size directly from the original stream.title metadata
+      const extractedSize = parseSize(titleText);
 
-      // Map base server naming structures
+      // Map providers cleanly using the original addon labels shown in your screenshots
       let sourceBase = "BollyFlix Mirror";
-      if (combinedLower.includes("gdindex") || combinedLower.includes("cf.") || combinedLower.includes("workers.dev")) {
-        sourceBase = "GDIndex CF";
-      } else if (combinedLower.includes("instantdl") || combinedLower.includes("idl") || combinedLower.includes("dl.")) {
+      if (combinedLower.includes("instant dl") || combinedLower.includes("instantdl") || combinedLower.includes("gdflix instant")) {
         sourceBase = "Instant DL";
-      } else if (combinedLower.includes("fastcloud") || combinedLower.includes("fast.") || combinedLower.includes("cloud")) {
+      } else if (combinedLower.includes("fastcloud") || combinedLower.includes("fast cloud")) {
         sourceBase = "FastCloud";
+      } else if (combinedLower.includes("gdindex") || combinedLower.includes("cf")) {
+        sourceBase = "GDIndex CF";
       }
 
-      // Increment sequence contextually
+      // Increment tracking variables isolated to specific quality and source groups
       serverTracker[resLabel][sourceBase]++;
       const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
 
+      // Language tag settings
       let detectedLang = "Hindi 🇮🇳 • English 🇺🇸";
       if (combinedLower.includes("telugu")) detectedLang = "Hindi 🇮🇳 • Telugu 🏹";
       else if (combinedLower.includes("tamil")) detectedLang = "Hindi 🇮🇳 • Tamil 🐯";
@@ -161,11 +161,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       });
     });
 
+    // Ensure 2160p displays at the top down to 720p
     processedStreams.sort((a, b) => b.rank - a.rank);
     return processedStreams.map(({ rank, ...cleanStream }) => cleanStream);
 
   } catch (err) {
-    console.error("Failed to fetch sorted data maps:", err);
+    console.error("Failed to map explicit provider structures:", err);
     return [];
   }
 }

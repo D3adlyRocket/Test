@@ -3,6 +3,7 @@
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 
+// Safe size parser filtering out any tiny file fragments under 0.50 GB
 function parseSize(textCombined) {
   if (!textCombined) return "N/A GB";
   
@@ -62,6 +63,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
+    // Server tracking per resolution tier
     const serverTracker = {
       "2160p": {},
       "1080p": {},
@@ -74,15 +76,19 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       const nameText = stream.name || "";
       const titleText = stream.title || "";
       const urlStr = stream.url || "";
-      const combinedLower = `${nameText} ${titleText}`.toLowerCase();
+      
+      // Analyze the ENTIRE payload string including full routing URL
+      const combinedLower = `${nameText} ${titleText} ${urlStr}`.toLowerCase();
 
-      // Strict Exclusions
+      // STRICT EXCLUSIONS: Block GoFile, MoviesDrive, and VidLink completely
       if (combinedLower.includes("gofile")) return;
       if (combinedLower.includes("moviesdrive")) return;
+      if (combinedLower.includes("vidlink")) return;
 
+      // Identify quality tags accurately across text metadata and URL structure
       let rank = 0;
-      let resLabel = "1080p";
-      let resEmoji = "🔥";
+      let resLabel = "";
+      let resEmoji = "";
       
       if (/\b(2160p|4k)\b/i.test(combinedLower)) {
         resLabel = "2160p";
@@ -97,10 +103,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         resEmoji = "🎬";
         rank = 1;
       } else {
-        resLabel = "1080p";
-        resEmoji = "🔥";
-        rank = 2;
+        // Block 480p, SD, or hidden low-resolution links that don't match our criteria
+        return;
       }
+
+      // Explicitly reject if an underlying 480p string is masking inside a link parameter
+      if (/\b(480p)\b/i.test(combinedLower)) return;
 
       const extractedSize = parseSize(titleText);
 
@@ -120,7 +128,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       serverTracker[resLabel][sourceBase]++;
       const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
 
-      // Extract title asset clean string directly from response headers safely
+      // Extract clear title parameters from the text layout blocks
       let cleanTitleLine = "🎦 Stream Asset";
       const titleMatch = titleText.match(/\]\s*([^\\{}|]+)\s*(?:\(\d{4}\)|\{\b)/i);
       if (titleMatch && titleMatch[1]) {

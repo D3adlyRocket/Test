@@ -3,12 +3,11 @@
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
-// Improved size parsing to prevent matching tiny random numbers like 0.04 or 0.09
+// Restored and fine-tuned size parser
 function parseSize(textCombined) {
   if (!textCombined) return "N/A GB";
   const cleanText = textCombined.toLowerCase();
   
-  // Find all instances matching GB or MB
   const matches = cleanText.match(/\b(\d+(?:\.\d+)?)\s*(gb|mb)\b/g);
   if (matches) {
     for (let m of matches) {
@@ -16,7 +15,6 @@ function parseSize(textCombined) {
       if (parts) {
         const val = parseFloat(parts[1]);
         const unit = parts[2];
-        // Filter out obvious false positives under 0.15 GB unless it's MB converted
         if (unit === 'gb' && val > 0.15) {
           return `${val} GB`;
         } else if (unit === 'mb' && val > 100) {
@@ -73,7 +71,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
-    // Multi-dimensional tracking layout to reset server sequences per Quality + Provider grouping
+    // Server tracker grouping
     const serverTracker = {
       "2160p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0, "BollyFlix Mirror": 0 },
       "1080p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0, "BollyFlix Mirror": 0 },
@@ -90,6 +88,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       // GoFile - Excluded
       if (combinedLower.includes("gofile")) return;
+
+      // STRICTLY Pick up BollyFlix links only (Blocks MoviesDrive, VidLink, etc.)
+      if (!combinedLower.includes("bollyflix")) return;
 
       let rank = 0;
       let resLabel = "1080p";
@@ -108,12 +109,15 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         resEmoji = "🎬";
         rank = 1;
       } else {
-        return; 
+        // Fallback quality grouping so unlabelled links aren't discarded completely
+        resLabel = "1080p";
+        resEmoji = "🔥";
+        rank = 2;
       }
 
       const extractedSize = parseSize(`${nameText} ${titleText}`);
 
-      // Map base server naming structures accurately based on common CDN keywords
+      // Map base server naming structures
       let sourceBase = "BollyFlix Mirror";
       if (combinedLower.includes("gdindex") || combinedLower.includes("cf.") || combinedLower.includes("workers.dev")) {
         sourceBase = "GDIndex CF";
@@ -123,7 +127,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         sourceBase = "FastCloud";
       }
 
-      // Track server numbering isolated entirely to that quality tier and source base
+      // Increment sequence contextually
       serverTracker[resLabel][sourceBase]++;
       const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
 

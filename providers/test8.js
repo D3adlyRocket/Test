@@ -3,15 +3,27 @@
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
+// Improved size parsing to prevent matching tiny random numbers like 0.04 or 0.09
 function parseSize(textCombined) {
   if (!textCombined) return "N/A GB";
-  const gbMatch = textCombined.match(/(\d+(?:\.\d+)?)\s*gb/i);
-  const mbMatch = textCombined.match(/(\d+)\s*mb/i);
+  const cleanText = textCombined.toLowerCase();
   
-  if (gbMatch) {
-    return `${gbMatch[1]} GB`;
-  } else if (mbMatch) {
-    return `${(parseInt(mbMatch[1], 10) / 1024).toFixed(2)} GB`;
+  // Find all instances matching GB or MB
+  const matches = cleanText.match(/\b(\d+(?:\.\d+)?)\s*(gb|mb)\b/g);
+  if (matches) {
+    for (let m of matches) {
+      const parts = m.match(/(\d+(?:\.\d+)?)\s*(gb|mb)/);
+      if (parts) {
+        const val = parseFloat(parts[1]);
+        const unit = parts[2];
+        // Filter out obvious false positives under 0.15 GB unless it's MB converted
+        if (unit === 'gb' && val > 0.15) {
+          return `${val} GB`;
+        } else if (unit === 'mb' && val > 100) {
+          return `${(val / 1024).toFixed(2)} GB`;
+        }
+      }
+    }
   }
   return "N/A GB";
 }
@@ -61,11 +73,12 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
-    // Server counts track globally across the iteration block
-    let gdCount = 0;
-    let idlCount = 0;
-    let cloudCount = 0;
-    let mirrorCount = 0;
+    // Multi-dimensional tracking layout to reset server sequences per Quality + Provider grouping
+    const serverTracker = {
+      "2160p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0, "BollyFlix Mirror": 0 },
+      "1080p": { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0, "BollyFlix Mirror": 0 },
+      "720p":  { "GDIndex CF": 0, "Instant DL": 0, "FastCloud": 0, "BollyFlix Mirror": 0 }
+    };
 
     data.streams.forEach(stream => {
       if (!stream || !stream.url) return;
@@ -100,21 +113,19 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
       const extractedSize = parseSize(`${nameText} ${titleText}`);
 
-      // Improved URL Matching logic targeting unique path variants
-      let finalSourceLabel = "BollyFlix Mirror";
+      // Map base server naming structures accurately based on common CDN keywords
+      let sourceBase = "BollyFlix Mirror";
       if (combinedLower.includes("gdindex") || combinedLower.includes("cf.") || combinedLower.includes("workers.dev")) {
-        gdCount++;
-        finalSourceLabel = `GDIndex CF - Server ${gdCount}`;
+        sourceBase = "GDIndex CF";
       } else if (combinedLower.includes("instantdl") || combinedLower.includes("idl") || combinedLower.includes("dl.")) {
-        idlCount++;
-        finalSourceLabel = `Instant DL - Server ${idlCount}`;
+        sourceBase = "Instant DL";
       } else if (combinedLower.includes("fastcloud") || combinedLower.includes("fast.") || combinedLower.includes("cloud")) {
-        cloudCount++;
-        finalSourceLabel = `FastCloud - Server ${cloudCount}`;
-      } else {
-        mirrorCount++;
-        finalSourceLabel = `BollyFlix Mirror - Server ${mirrorCount}`;
+        sourceBase = "FastCloud";
       }
+
+      // Track server numbering isolated entirely to that quality tier and source base
+      serverTracker[resLabel][sourceBase]++;
+      const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
 
       let detectedLang = "Hindi 🇮🇳 • English 🇺🇸";
       if (combinedLower.includes("telugu")) detectedLang = "Hindi 🇮🇳 • Telugu 🏹";

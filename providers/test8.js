@@ -3,9 +3,8 @@
 const MANIFEST_STREAM_BASE = "https://arunjunan07-csx-stremio.hf.space/stream";
 const TMDB_API_KEY = "6e6ab700b6477171ee6c23d504b1e9cb";
 
-// Helper function to extract file sizes from any available text fields
 function parseSize(textCombined) {
-  // Matches patterns like 1.4GB, 700MB, 1.4 GB, etc.
+  if (!textCombined) return "N/A GB";
   const gbMatch = textCombined.match(/(\d+(?:\.\d+)?)\s*gb/i);
   const mbMatch = textCombined.match(/(\d+)\s*mb/i);
   
@@ -21,10 +20,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
   
   try {
-    // 1. Fetch metadata from TMDB
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
-    const meta = await fetch(tmdbUrl).then(r => r.json());
+    const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
     
+    if (!meta) return [];
     const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
     if (!imdbId) return [];
 
@@ -38,7 +37,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       runtimeStr = `${meta.episode_run_time[0]} min`;
     }
 
-    // 2. Format endpoint path
     const formattedId = isSeries 
       ? `${imdbId}:${season || 1}:${episode || 1}` 
       : `${imdbId}`;
@@ -46,17 +44,16 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const typePath = isSeries ? 'series' : 'movie';
     const url = `${MANIFEST_STREAM_BASE}/${typePath}/${encodeURIComponent(formattedId)}.json`;
 
-    // 3. Request stream payload
     const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Accept': 'application/json',
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
       }
-    });
+    }).catch(() => null);
 
-    if (!response.ok) return [];
-    const data = await response.json();
+    if (!response || !response.ok) return [];
+    const data = await response.json().catch(() => null);
     
     if (!data || !data.streams || data.streams.length === 0) {
       return [];
@@ -64,28 +61,23 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const processedStreams = [];
     
-    // Counters to track server splits per source type dynamically
-    const serverCounters = {
-      "GDIndex CF": 0,
-      "Instant DL": 0,
-      "FastCloud": 0,
-      "BollyFlix Mirror": 0
-    };
+    // Using simple standalone tracking variables to avoid lookup crashes
+    let gdCount = 0;
+    let idlCount = 0;
+    let cloudCount = 0;
+    let mirrorCount = 0;
 
-    // 4. Parse layout elements
     data.streams.forEach(stream => {
-      const nameText = (stream.name || "");
-      const titleText = (stream.title || "");
-      const urlStr = (stream.url || "");
+      if (!stream || !stream.url) return;
+      
+      const nameText = stream.name || "";
+      const titleText = stream.title || "";
+      const urlStr = stream.url || "";
       const combinedLower = `${nameText} ${titleText} ${urlStr}`.toLowerCase();
 
-      // Exclude GoFile links completely
       if (combinedLower.includes("gofile")) return;
-
-      // Filter: Ensure it belongs to BollyFlix
       if (!combinedLower.includes("bollyflix")) return;
 
-      // Quality Rank Matcher
       let rank = 0;
       let resLabel = "1080p";
       let resEmoji = "🔥";
@@ -103,32 +95,30 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         resEmoji = "🎬";
         rank = 1;
       } else {
-        return; // Ignore other sizes
+        return; 
       }
 
-      // Extract accurate sizing from all metadata parameters combined
       const extractedSize = parseSize(`${nameText} ${titleText}`);
 
-      // Identify Source dynamically without dropping unrecognized domains
-      let sourceBase = "BollyFlix Mirror";
+      let finalSourceLabel = "BollyFlix Mirror";
       if (combinedLower.includes("gdindex") || combinedLower.includes("cf")) {
-        sourceBase = "GDIndex CF";
+        gdCount++;
+        finalSourceLabel = `GDIndex CF - Server ${gdCount}`;
       } else if (combinedLower.includes("instantdl") || combinedLower.includes("idl")) {
-        sourceBase = "Instant DL";
+        idlCount++;
+        finalSourceLabel = `Instant DL - Server ${idlCount}`;
       } else if (combinedLower.includes("fastcloud") || combinedLower.includes("cloud")) {
-        sourceBase = "FastCloud";
+        cloudCount++;
+        finalSourceLabel = `FastCloud - Server ${cloudCount}`;
+      } else {
+        mirrorCount++;
+        finalSourceLabel = `BollyFlix Mirror - Server ${mirrorCount}`;
       }
 
-      // Increment tracker and assign Server indices
-      serverCounters[sourceBase]++;
-      const finalSourceLabel = `${sourceBase} - Server ${serverCounters[sourceBase]}`;
-
-      // Language layout configs
       let detectedLang = "Hindi 🇮🇳 • English 🇺🇸";
       if (combinedLower.includes("telugu")) detectedLang = "Hindi 🇮🇳 • Telugu 🏹";
       else if (combinedLower.includes("tamil")) detectedLang = "Hindi 🇮🇳 • Tamil 🐯";
 
-      // Streaming tech matching
       const isM3U8 = urlStr.includes(".m3u8");
       const formatStr = isM3U8 ? "HLS" : (/\b(mp4|avi|m4v)\b/.test(combinedLower) ? "MP4" : "MKV");
       const codecStr = /\b(hevc|x265|h265)\b/.test(combinedLower) ? "x.265" : "x.264";
@@ -155,9 +145,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       });
     });
 
-    // Sort order: Highest quality first (Descending)
     processedStreams.sort((a, b) => b.rank - a.rank);
-
     return processedStreams.map(({ rank, ...cleanStream }) => cleanStream);
 
   } catch (err) {

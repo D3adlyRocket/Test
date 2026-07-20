@@ -1,313 +1,197 @@
+"use strict";
 
-// providers/jellyfin.js
-// Jellyfin Personal Provider - kompatibel dengan index.js
-// Hermes JS Compatible (no async/await, no modern array methods)
-// v1.6.0 - Fallback by title with year filter
+const MANIFEST_BASE_URL = "https://animestream-addon.keypop3750.workers.dev/sm=https|rp=t0-free-rpdb|tp=q_4k,q_1080,a_dual,n_3";
+const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 
-var SERVER = "https://spread.thepebbles.tech";
-var TOKEN = "5a5d5c9c400a48a098554ffcc7524e06";
-var USER_ID = "684edc4317c4491095c3a7c37587c7c4";
+function parseSize(textCombined) {
+  if (!textCombined) return "N/A GB";
+  
+  const bracketMatch = textCombined.match(/\[(\d+(?:\.\d+)?)\s*(gb|mb)\]/i);
+  if (bracketMatch) {
+    const val = parseFloat(bracketMatch[1]);
+    if (bracketMatch[2].toLowerCase() === 'gb') return `${val} GB`;
+    return `${(val / 1024).toFixed(2)} GB`;
+  }
 
-// ─── Core Fetch ─────────────────────────────────────────────────────────────
-function _get(path) {
-  var sep = path.indexOf("?") >= 0 ? "&" : "?";
-  var url = SERVER + path + sep + "api_key=" + TOKEN;
-  console.log("[JELLYFIN] Fetch URL: " + url);
-  return fetch(url, {
-    headers: {
-      "X-Emby-Token": TOKEN,
-      "Accept": "application/json"
-    }
-  }).then(function(r) {
-    if (!r.ok) throw new Error("HTTP " + r.status + " — " + url);
-    return r.json();
-  });
+  const standardMatch = textCombined.match(/\b(\d+(?:\.\d+)?)\s*(gb|mb)\b/i);
+  if (standardMatch) {
+    const val = parseFloat(standardMatch[1]);
+    if (standardMatch[2].toLowerCase() === 'gb' && val >= 0.5) return `${val} GB`;
+    if (standardMatch[2].toLowerCase() === 'mb' && val > 500) return `${(val / 1024).toFixed(2)} GB`;
+  }
+
+  return "N/A GB";
 }
 
-// ─── Helper: Cek kecocokan ProviderIds ──────────────────────────────────────
-function _itemMatchesProviderId(item, id) {
-  if (!item.ProviderIds) return false;
-  var keys = Object.keys(item.ProviderIds);
-  for (var i = 0; i < keys.length; i++) {
-    if (item.ProviderIds[keys[i]] === id) {
-      console.log("[JELLYFIN] Provider match: " + keys[i] + " = " + id + " for item " + item.Name);
-      return true;
-    }
-  }
-  return false;
-}
-
-function _filterItemsById(items, id) {
-  var matched = [];
-  for (var i = 0; i < items.length; i++) {
-    if (_itemMatchesProviderId(items[i], id)) matched.push(items[i]);
-  }
-  console.log("[JELLYFIN] Filtered " + items.length + " items, found " + matched.length + " matching ID " + id);
-  return matched;
-}
-
-// ─── Filter by title & year ─────────────────────────────────────────────────
-function _filterItemsByTitleAndYear(items, title, year) {
-  if (!title) return [];
-  var lowerTitle = title.toLowerCase();
-  var candidates = [];
-
-  // Tahap 1: cocokkan judul
-  for (var i = 0; i < items.length; i++) {
-    if (items[i].Name && items[i].Name.toLowerCase() === lowerTitle) {
-      candidates.push(items[i]);
-    }
-  }
-  console.log("[JELLYFIN] Title filter found " + candidates.length + " items matching \"" + title + "\"");
-
-  if (candidates.length === 0) return [];
-
-  // Jika ada tahun, coba filter berdasarkan ProductionYear
-  if (year) {
-    var yearMatches = [];
-    for (var j = 0; j < candidates.length; j++) {
-      var prodYear = candidates[j].ProductionYear;
-      if (prodYear && prodYear == year) {
-        console.log("[JELLYFIN] Year match: " + candidates[j].Name + " (" + prodYear + ")");
-        yearMatches.push(candidates[j]);
+async function getStreams(tmdbId, mediaType, season, episode) {
+  const isSeries = mediaType === 'tv' || mediaType === 'series';
+  let targetId = tmdbId;
+  
+  try {
+    if (typeof tmdbId === 'number' || (typeof tmdbId === 'string' && !tmdbId.startsWith('tt'))) {
+      const extUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
+      const extData = await fetch(extUrl).then(r => r.json()).catch(() => null);
+      if (extData && extData.imdb_id) {
+        targetId = extData.imdb_id;
       }
     }
-    if (yearMatches.length > 0) {
-      console.log("[JELLYFIN] Found " + yearMatches.length + " items with matching year " + year);
-      return yearMatches;
-    }
-    console.log("[JELLYFIN] No exact year match, falling back to all title-matched items");
-  }
-  // Jika tidak ada tahun atau tidak ada yang cocok tahun, kembalikan semua yang judulnya cocok
-  return candidates;
-}
 
-// ─── Stream Helpers ─────────────────────────────────────────────────────────
-function _parseQuality(mediaStreams) {
-  for (var i = 0; i < mediaStreams.length; i++) {
-    var s = mediaStreams[i];
-    if (s.Type === "Video") {
-      var h = s.Height || 0;
-      if (h >= 2160) return "4K";
-      if (h >= 1080) return "1080p";
-      if (h >= 720) return "720p";
-      if (h >= 480) return "480p";
-      return h > 0 ? h + "p" : "SD";
-    }
-  }
-  return "Unknown";
-}
+    // Adapt layout query construction to point to the new workers manifest architecture
+    const formattedId = isSeries 
+      ? `${targetId}:${season || 1}:${episode || 1}` 
+      : `${targetId}`;
 
-function _parseCodec(mediaStreams) {
-  for (var i = 0; i < mediaStreams.length; i++) {
-    if (mediaStreams[i].Type === "Video") return (mediaStreams[i].Codec || "").toUpperCase();
-  }
-  return "";
-}
+    const typePath = isSeries ? 'series' : 'movie';
+    const streamUrl = `${MANIFEST_BASE_URL}/stream/${typePath}/${encodeURIComponent(formattedId)}.json`;
 
-function _parseHDR(mediaStreams) {
-  for (var i = 0; i < mediaStreams.length; i++) {
-    var s = mediaStreams[i];
-    if (s.Type === "Video" && s.VideoRangeType && s.VideoRangeType !== "SDR") return s.VideoRangeType;
-  }
-  return "";
-}
-
-function _buildStreams(item) {
-  var result = [];
-  if (!item || !item.Id) return result;
-  console.log("[JELLYFIN] Building streams for item: " + item.Name + " (" + (item.ProductionYear || '?') + ") (ID: " + item.Id + ")");
-  var sources = item.MediaSources;
-
-  if (!sources || sources.length === 0) {
-    result.push({
-      name: "🎬 Jellyfin",
-      title: "Direct Stream",
-      url: SERVER + "/Videos/" + item.Id + "/stream?api_key=" + TOKEN + "&static=true",
-      quality: "Unknown"
-    });
-    return result;
-  }
-
-  for (var i = 0; i < sources.length; i++) {
-    var src = sources[i];
-    var ms = src.MediaStreams || [];
-    var quality = _parseQuality(ms);
-    var codec   = _parseCodec(ms);
-    var hdr     = _parseHDR(ms);
-
-    var label = quality;
-    if (codec) label += " · " + codec;
-    if (hdr)   label += " · " + hdr;
-    if (src.Size) {
-      var gb = Math.round(src.Size / 1073741824 * 10) / 10;
-      label += " · " + gb + " GB";
-    }
-
-    var streamUrl = SERVER + "/Videos/" + item.Id + "/stream" +
-      "?api_key=" + TOKEN +
-      "&static=true" +
-      "&MediaSourceId=" + encodeURIComponent(src.Id || item.Id);
-
-    result.push({
-      name: "🎬 Jellyfin",
-      title: label,
-      url: streamUrl,
-      quality: quality
-    });
-  }
-  return result;
-}
-
-// ─── Search by ID (with manual filter) ──────────────────────────────────────
-function _searchByProvider(id, includeItemTypes, additionalParams) {
-  var prefixes = (id && id.toString().indexOf("tt") === 0) ? ["Imdb.", "imdb."] : ["Tmdb.", "tmdb."];
-  var attempt = 0;
-
-  function tryNext() {
-    if (attempt >= prefixes.length) {
-      console.log("[JELLYFIN] ID search exhausted.");
-      return Promise.resolve([]);
-    }
-    var prefix = prefixes[attempt];
-    var providerQuery = prefix + id;
-    console.log("[JELLYFIN] Attempt " + (attempt+1) + " with prefix: " + prefix);
-    var path = "/Users/" + USER_ID + "/Items" +
-      "?Recursive=true" +
-      "&IncludeItemTypes=" + encodeURIComponent(includeItemTypes) +
-      "&Fields=MediaSources,MediaStreams,ProviderIds,Path" +
-      "&AnyProviderIdEquals=" + encodeURIComponent(providerQuery) +
-      (additionalParams ? additionalParams : "");
-
-    return _get(path).then(function(data) {
-      if (!data || !data.Items) {
-        attempt++;
-        return tryNext();
+    const response = await fetch(streamUrl, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
       }
-      var filtered = _filterItemsById(data.Items, id);
-      if (filtered.length > 0) return filtered;
-      attempt++;
-      return tryNext();
-    });
-  }
+    }).catch(() => null);
 
-  return tryNext().then(function(filtered) {
-    if (filtered.length === 0) {
-      console.log("[JELLYFIN] No item found by ID.");
+    if (!response || !response.ok) return [];
+    const data = await response.json().catch(() => null);
+    
+    if (!data || !data.streams || data.streams.length === 0) {
       return [];
     }
-    if (filtered.length > 1) {
-      console.warn("[JELLYFIN] Warning: Multiple items match ID, using first.");
-    }
-    return filtered;
-  });
-}
 
-// ─── Search by title (with optional year) ───────────────────────────────────
-function _searchByTitle(title, includeItemTypes, year) {
-  console.log("[JELLYFIN] Falling back to title search: \"" + title + "\"" + (year ? " (year: " + year + ")" : ""));
-  // Tambahkan Fields=ProductionYear agar tahun tersedia
-  var path = "/Users/" + USER_ID + "/Items" +
-    "?Recursive=true" +
-    "&IncludeItemTypes=" + encodeURIComponent(includeItemTypes) +
-    "&searchTerm=" + encodeURIComponent(title) +
-    "&Fields=ProviderIds,MediaSources,MediaStreams,ProductionYear";
+    const processedStreams = [];
+    
+    const serverTracker = {
+      "2160p": {},
+      "1080p": {},
+      "720p":  {}
+    };
 
-  return _get(path).then(function(data) {
-    if (!data || !data.Items || !data.Items.length) return [];
-    return _filterItemsByTitleAndYear(data.Items, title, year);
-  });
-}
+    data.streams.forEach(stream => {
+      if (!stream || !stream.url) return;
+      
+      const nameText = stream.name || "";
+      const titleText = stream.title || "";
+      const urlStr = stream.url || "";
+      const combinedLower = `${nameText} ${titleText} ${urlStr}`.toLowerCase();
 
-// ─── Movie ──────────────────────────────────────────────────────────────────
-function _getMovie(id, title, year) {
-  return _searchByProvider(id, "Movie", "&Fields=MediaSources,MediaStreams").then(function(filtered) {
-    if (filtered.length > 0) {
-      var item = filtered[0];
-      console.log("[JELLYFIN] Selected movie by ID: " + item.Name + " (" + (item.ProductionYear || '?') + ")");
-      return _buildStreams(item);
-    }
-    if (title) {
-      return _searchByTitle(title, "Movie", year).then(function(titleMatches) {
-        if (titleMatches.length === 0) {
-          console.log("[JELLYFIN] Movie not found by title.");
-          return [];
-        }
-        var item = titleMatches[0];
-        console.log("[JELLYFIN] Selected movie by title: " + item.Name + " (" + (item.ProductionYear || '?') + ")");
-        return _buildStreams(item);
+      // Strict Exclusions
+      if (combinedLower.includes("gofile")) return;
+      if (combinedLower.includes("moviesdrive")) return;
+      if (combinedLower.includes("vidlink")) return;
+
+      let rank = 0;
+      let resLabel = "";
+      let resEmoji = "";
+      
+      if (/\b(2160p|4k)\b/i.test(combinedLower)) {
+        resLabel = "2160p";
+        resEmoji = "💎";
+        rank = 3;
+      } else if (/\b(1080p)\b/i.test(combinedLower)) {
+        resLabel = "1080p";
+        resEmoji = "🔥";
+        rank = 2;
+      } else if (/\b(720p)\b/i.test(combinedLower)) {
+        resLabel = "720p";
+        resEmoji = "🎬";
+        rank = 1;
+      } else {
+        return;
+      }
+
+      if (/\b(480p)\b/i.test(combinedLower)) return;
+
+      const extractedSize = parseSize(titleText);
+
+      let sourceBase = "BollyFlix Mirror";
+      if (combinedLower.includes("instant dl") || combinedLower.includes("instantdl") || combinedLower.includes("instant")) {
+        sourceBase = "Instant DL";
+      } else if (combinedLower.includes("fastcloud") || combinedLower.includes("fast cloud")) {
+        sourceBase = "FastCloud";
+      } else if (combinedLower.includes("gdindex") || combinedLower.includes("cf")) {
+        sourceBase = "GDIndex CF";
+      }
+
+      if (!serverTracker[resLabel][sourceBase]) {
+        serverTracker[resLabel][sourceBase] = 0;
+      }
+
+      serverTracker[resLabel][sourceBase]++;
+      const finalSourceLabel = `${sourceBase} - Server ${serverTracker[resLabel][sourceBase]}`;
+
+      let cleanTitleLine = "🎦 Stream Asset";
+      const titleMatch = titleText.match(/\]\s*([^\\{}|]+)\s*(?:\(\d{4}\)|\{\b)/i);
+      if (titleMatch && titleMatch[1]) {
+        cleanTitleLine = `🎦 ${titleMatch[1].replace(/\bimax\b/i, '').replace(/\s+/g, ' ').trim()}`;
+      } else {
+        const segment = titleText.split('\n')[0].replace(/\[.*?\]/g, '').replace(/\bimax\b/i, '').replace(/\s+/g, ' ').trim();
+        if (segment) cleanTitleLine = `🎦 ${segment}`;
+      }
+
+      if (isSeries) {
+        cleanTitleLine += ` | S${season || 1}E${episode || 1}`;
+      }
+
+      let detectedLang = "Hindi 🇮🇳 • English 🇺🇸";
+      if (combinedLower.includes("telugu")) detectedLang = "Hindi 🇮🇳 • Telugu 🏹";
+      else if (combinedLower.includes("tamil")) detectedLang = "Hindi 🇮🇳 • Tamil 🐯";
+
+      const isM3U8 = urlStr.includes(".m3u8");
+      const formatStr = isM3U8 ? "HLS" : (/\b(mp4|avi|m4v)\b/.test(combinedLower) ? "MP4" : "MKV");
+
+      // IMAX and 10bit Processing Layout Strings
+      const has10bit = combinedLower.includes("10bit") || combinedLower.includes("10-bit");
+      const hasIMAX = combinedLower.includes("imax");
+      
+      let line3Middle = "";
+      if (has10bit && hasIMAX) {
+        line3Middle = "🌈 10bit • 👁️ IMAX";
+      } else if (has10bit) {
+        line3Middle = "🌈 10bit • 🎥 x.265";
+      } else if (hasIMAX) {
+        line3Middle = "👁️ IMAX • 🎥 x.264";
+      } else {
+        const codecStr = /\b(hevc|x265|h265)\b/.test(combinedLower) ? "x.265" : "x.264";
+        const streamTech = isM3U8 ? "HLS" : "Direct";
+        line3Middle = `🎥 ${codecStr} • ${streamTech}`;
+      }
+
+      let ripType = "WEB-DL";
+      if (combinedLower.includes("webrip") || combinedLower.includes("web-rip")) {
+        ripType = "WEB-RIP";
+      } else if (combinedLower.includes("bluray") || combinedLower.includes("hdtv")) {
+        ripType = "BRRip";
+      }
+
+      const layoutDescription = 
+        `${cleanTitleLine}\n` +
+        `${resEmoji} ${resLabel} | 🔊 ${detectedLang}\n` +
+        `⚡ ${formatStr} | ${line3Middle} | 💾 ${extractedSize}\n` +
+        `🛰️ Source: ${finalSourceLabel} | 📥 ${ripType}`;
+
+      processedStreams.push({
+        rank: rank,
+        name: `BollyFlix | ${resLabel} | Dual-Audio`,
+        title: layoutDescription,
+        description: layoutDescription,
+        size: layoutDescription,
+        url: stream.url,
+        behaviorHints: stream.behaviorHints || {}
       });
-    }
-    return [];
-  });
-}
-
-// ─── Series ─────────────────────────────────────────────────────────────────
-function _getEpisode(id, season, episode, title, year) {
-  return _searchByProvider(id, "Series", "").then(function(filtered) {
-    if (filtered.length === 0) {
-      if (title) {
-        return _searchByTitle(title, "Series", year).then(function(titleMatches) {
-          if (titleMatches.length === 0) {
-            console.log("[JELLYFIN] Series not found by title.");
-            return [];
-          }
-          var series = titleMatches[0];
-          console.log("[JELLYFIN] Found series by title: " + series.Name + " (" + (series.ProductionYear || '?') + ")");
-          return _getEpisodesForSeries(series, season, episode);
-        });
-      }
-      return [];
-    }
-    var series = filtered[0];
-    console.log("[JELLYFIN] Found series by ID: " + series.Name);
-    return _getEpisodesForSeries(series, season, episode);
-  });
-}
-
-function _getEpisodesForSeries(series, season, episode) {
-  var epPath = "/Shows/" + series.Id +
-    "/Episodes?Season=" + season +
-    "&UserId=" + USER_ID +
-    "&Fields=MediaSources,MediaStreams";
-
-  return _get(epPath).then(function(epData) {
-    if (!epData || !epData.Items || !epData.Items.length) {
-      console.log("[JELLYFIN] No episodes found for season " + season);
-      return [];
-    }
-    console.log("[JELLYFIN] Episodes count for season " + season + ": " + epData.Items.length);
-    for (var i = 0; i < epData.Items.length; i++) {
-      var ep = epData.Items[i];
-      if (ep.IndexNumber == episode) {
-        console.log("[JELLYFIN] Found episode S" + season + "E" + episode + " -> " + ep.Name);
-        return _buildStreams(ep);
-      }
-    }
-    console.warn("[JELLYFIN] Episode S" + season + "E" + episode + " not found");
-    return [];
-  });
-}
-
-// ─── Main Handler ──────────────────────────────────────────────────────────
-function getStreams(imdbId, type, season, episode, title, year) {
-  console.log("[JELLYFIN] Request: type=" + type + " id=" + imdbId + " S=" + season + " E=" + episode + " title=" + (title || "none") + " year=" + (year || "none"));
-  if (!imdbId && !title) {
-    console.error("[JELLYFIN] No ID or title provided");
-    return Promise.resolve([]);
-  }
-
-  if (type === "movie") {
-    return _getMovie(imdbId, title, year).catch(function(err) {
-      console.error("[JELLYFIN] Movie error:", err.message);
-      return [];
     });
-  } else {
-    return _getEpisode(imdbId, season, episode, title, year).catch(function(err) {
-      console.error("[JELLYFIN] Series error:", err.message);
-      return [];
-    });
+
+    processedStreams.sort((a, b) => b.rank - a.rank);
+    return processedStreams.map(({ rank, ...cleanStream }) => cleanStream);
+
+  } catch (err) {
+    console.error("Layout engine error:", err);
+    return [];
   }
 }
 
-module.exports = { getStreams: getStreams };
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+}

@@ -237,16 +237,17 @@ function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken
             const qEmoji = getQualityEmoji(normalizedQuality);
             const formattedSize = formatFileSize(sizeText || file.file_size);
 
-            // Subheading Block Layout Design
-            let line1 = mediaType === "tv" 
+            // Constructing Universal Multi-line Layout
+            const headerRow = `ShowBox | ${normalizedQuality} | ${cookieLabel}`;
+            const line1 = mediaType === "tv" 
               ? `🎬 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""}) | S${String(seasonNum).padStart(2, "0")} E${String(episodeNum).padStart(2, "0")}`
               : `🍿 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""})`;
-            let line2 = `${qEmoji} ${normalizedQuality} | 💾 ${formattedSize}`;
-            let line3 = `🔗 ${file.file_name || "Direct File"} | 🍪 ${cookieLabel}`;
+            const line2 = `${qEmoji} ${normalizedQuality} | 💾 ${formattedSize}`;
+            const line3 = `🔗 ${file.file_name || "Direct File"} | 🍪 ${cookieLabel}`;
 
             streams.push({
-              name: `ShowBox | ${normalizedQuality} | ${cookieLabel}`,
-              title: `${line1}\n${line2}\n${line3}`,
+              name: `${headerRow}\n${line1}\n${line2}\n${line3}`,
+              title: `${headerRow}\n${line1}\n${line2}\n${line3}`,
               url: streamUrl,
               quality: normalizedQuality,
               size: formattedSize,
@@ -283,16 +284,17 @@ function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNu
             displayProvider += ` V${versionIndex + 1}`;
           }
 
-          // Subheading Block Layout Design
-          let line1 = mediaType === "tv" 
+          // Constructing Universal Multi-line Layout
+          const headerRow = `${displayProvider} | ${normalizedQuality} | ${cookieLabel}`;
+          const line1 = mediaType === "tv" 
             ? `🎬 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""}) | S${String(seasonNum).padStart(2, "0")} E${String(episodeNum).padStart(2, "0")}`
             : `🍿 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""})`;
-          let line2 = `${qEmoji} ${normalizedQuality} | 💾 ${formattedSize}`;
-          let line3 = `🔗 Stream Link | 🍪 ${cookieLabel}`;
+          const line2 = `${qEmoji} ${normalizedQuality} | 💾 ${formattedSize}`;
+          const line3 = `🔗 Stream Link | 🍪 ${cookieLabel}`;
           
           streams.push({
-            name: `${displayProvider} | ${normalizedQuality} | ${cookieLabel}`,
-            title: `${line1}\n${line2}\n${line3}`,
+            name: `${headerRow}\n${line1}\n${line2}\n${line3}`,
+            title: `${headerRow}\n${line1}\n${line2}\n${line3}`,
             url: link.url,
             quality: normalizedQuality,
             size: formattedSize,

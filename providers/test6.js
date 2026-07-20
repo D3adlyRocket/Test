@@ -30,7 +30,8 @@ const WORKING_HEADERS = {
   "Content-Type": "application/json"
 };
 
-// Helper to grab corresponding badge emoji for resolution
+// --- EMOJI & METADATA PARSING HELPERS ---
+
 function getQualityEmoji(quality) {
   switch (quality) {
     case "Original": return "✨";
@@ -42,6 +43,82 @@ function getQualityEmoji(quality) {
     default: return "📼";
   }
 }
+
+function getFileContainerFormat(str) {
+  if (!str) return "📦 MKV";
+  const upper = str.toUpperCase();
+  if (upper.includes(".MP4") || upper.includes("MP4")) return "📦 MP4";
+  if (upper.includes(".AVI") || upper.includes("AVI")) return "📦 AVI";
+  if (upper.includes(".TS") || upper.includes("M2TS")) return "📦 TS";
+  return "📦 MKV";
+}
+
+function parseFilenameMetadata(str) {
+  if (!str) return { line3: "🎬 Standard Release", source: "📥 WEB-DL" };
+  const upper = str.toUpperCase();
+
+  // 1. Video Codec
+  let codec = "";
+  if (upper.includes("HEVC") || upper.includes("H265") || upper.includes("H.265") || upper.includes("X265")) {
+    codec = "🎞️ HEVC";
+  } else if (upper.includes("AVC") || upper.includes("H264") || upper.includes("H.264") || upper.includes("X264")) {
+    codec = "🎞️ H.264";
+  } else if (upper.includes("AV1")) {
+    codec = "🎞️ AV1";
+  }
+
+  // 2. Dynamic Range / Color
+  let hdr = "";
+  if (upper.includes("DV") || upper.includes("DOLBY VISION") || upper.includes("DOLBYVISION")) {
+    hdr = "🌈 DV";
+  } else if (upper.includes("HDR10+")) {
+    hdr = "✨ HDR10+";
+  } else if (upper.includes("HDR10")) {
+    hdr = "✨ HDR10";
+  } else if (upper.includes("HDR")) {
+    hdr = "✨ HDR";
+  } else if (upper.includes("SDR")) {
+    hdr = "📺 SDR";
+  }
+
+  // 3. Audio Codecs & Channels
+  let audio = "";
+  if (upper.includes("ATMOS")) {
+    audio = "🔊 Atmos";
+  } else if (upper.includes("DDP5.1") || upper.includes("DD+5.1") || upper.includes("EAC3 5.1")) {
+    audio = "🎧 DDP 5.1";
+  } else if (upper.includes("DDP7.1") || upper.includes("DD+7.1") || upper.includes("EAC3 7.1")) {
+    audio = "🎧 DDP 7.1";
+  } else if (upper.includes("DD5.1") || upper.includes("AC3 5.1") || upper.includes("5.1")) {
+    audio = "🎧 DD 5.1";
+  } else if (upper.includes("AAC")) {
+    audio = "🎧 AAC";
+  } else if (upper.includes("DTS")) {
+    audio = "🎧 DTS";
+  }
+
+  // Combine Line 3 items dynamically
+  const line3Parts = [codec, hdr, audio].filter(Boolean);
+  const line3 = line3Parts.length > 0 ? line3Parts.join(" | ") : "🎞️ H.264 | 📺 SDR | 🎧 Stereo";
+
+  // 4. Source Quality (Line 4)
+  let source = "📥 WEB-DL";
+  if (upper.includes("BLURAY") || upper.includes("BLU-RAY") || upper.includes("BDREMUX")) {
+    source = "📥 BluRay";
+  } else if (upper.includes("WEBRIP") || upper.includes("WEB-RIP")) {
+    source = "📥 WEB-Rip";
+  } else if (upper.includes("TELESYNC") || upper.includes("TS") || upper.includes("CAM")) {
+    source = "📥 TELESYNC";
+  } else if (upper.includes("HDTV")) {
+    source = "📥 HDTV";
+  } else if (upper.includes("WEBDL") || upper.includes("WEB-DL")) {
+    source = "📥 WEB-DL";
+  }
+
+  return { line3, source };
+}
+
+// --- TOKEN & SETTING PARSERS ---
 
 function parseSingleToken(rawToken) {
   if (!rawToken) return "";
@@ -175,6 +252,8 @@ function getTMDBDetails(tmdbId, mediaType) {
   });
 }
 
+// --- STREAM EXTRACTION & SCRAPING ---
+
 function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken, cookieLabel, mediaInfo) {
   return __async(this, null, function* () {
     const streams = [];
@@ -236,18 +315,25 @@ function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken
             const normalizedQuality = getQualityFromName(qualityLabel);
             const qEmoji = getQualityEmoji(normalizedQuality);
             const formattedSize = formatFileSize(sizeText || file.file_size);
+            const formatExt = getFileContainerFormat(file.file_name || streamUrl);
 
-            // Constructing Universal Multi-line Layout
+            // Parse URL/Filename string for codec, audio, source info
+            const parsedMeta = parseFilenameMetadata(file.file_name || streamUrl);
+
+            // 1. Header Line (Top Header Only)
             const headerRow = `ShowBox | ${normalizedQuality} | ${cookieLabel}`;
+
+            // 2. Subheadings
             const line1 = mediaType === "tv" 
               ? `🎬 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""}) | S${String(seasonNum).padStart(2, "0")} E${String(episodeNum).padStart(2, "0")}`
               : `🍿 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""})`;
-            const line2 = `${qEmoji} ${normalizedQuality} | 💾 ${formattedSize}`;
-            const line3 = `🔗 ${file.file_name || "Direct File"} | 🍪 ${cookieLabel}`;
+            const line2 = `${qEmoji} ${normalizedQuality} | 💾 ${formattedSize} | ${formatExt}`;
+            const line3 = parsedMeta.line3;
+            const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
 
             streams.push({
-              name: `${headerRow}\n${line1}\n${line2}\n${line3}`,
-              title: `${headerRow}\n${line1}\n${line2}\n${line3}`,
+              name: headerRow,
+              title: `${line1}\n${line2}\n${line3}\n${line4}`,
               url: streamUrl,
               quality: normalizedQuality,
               size: formattedSize,
@@ -278,23 +364,30 @@ function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNu
           const qEmoji = getQualityEmoji(normalizedQuality);
           const linkSize = link.size || versionSize;
           const formattedSize = formatFileSize(linkSize);
-          
+          const formatExt = getFileContainerFormat(link.url);
+
+          // Parse URL string for codec, audio, source info
+          const parsedMeta = parseFilenameMetadata(link.url);
+
           let displayProvider = `ShowBox`;
           if (data.versions.length > 1) {
             displayProvider += ` V${versionIndex + 1}`;
           }
 
-          // Constructing Universal Multi-line Layout
+          // 1. Header Line (Top Header Only)
           const headerRow = `${displayProvider} | ${normalizedQuality} | ${cookieLabel}`;
+
+          // 2. Subheadings
           const line1 = mediaType === "tv" 
             ? `🎬 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""}) | S${String(seasonNum).padStart(2, "0")} E${String(episodeNum).padStart(2, "0")}`
             : `🍿 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""})`;
-          const line2 = `${qEmoji} ${normalizedQuality} | 💾 ${formattedSize}`;
-          const line3 = `🔗 Stream Link | 🍪 ${cookieLabel}`;
-          
+          const line2 = `${qEmoji} ${normalizedQuality} | 💾 ${formattedSize} | ${formatExt}`;
+          const line3 = parsedMeta.line3;
+          const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
+
           streams.push({
-            name: `${headerRow}\n${line1}\n${line2}\n${line3}`,
-            title: `${headerRow}\n${line1}\n${line2}\n${line3}`,
+            name: headerRow,
+            title: `${line1}\n${line2}\n${line3}\n${line4}`,
             url: link.url,
             quality: normalizedQuality,
             size: formattedSize,

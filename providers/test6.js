@@ -318,7 +318,6 @@ function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken
 
             const parsedMeta = parseFilenameMetadata(file.file_name || streamUrl);
 
-            // Construct full multi-line block inside description
             const headerRow = `ShowBox | ${normalizedQuality} | ${cookieLabel}`;
             const line1 = mediaType === "tv" 
               ? `🎬 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""}) | S${String(seasonNum).padStart(2, "0")} E${String(episodeNum).padStart(2, "0")}`
@@ -327,15 +326,14 @@ function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken
             const line3 = parsedMeta.line3;
             const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
 
-            const fullFormattedText = `${line1}\n${line2}\n${line3}\n${line4}`;
-
             streams.push({
               name: headerRow,
-              title: fullFormattedText,
-              description: fullFormattedText,
+              title: `${line1}\n${line2}\n${line3}\n${line4}`,
               url: streamUrl,
               headers: videoHeaders,
-              provider: "showbox"
+              behaviorHints: {
+                notWebReady: false
+              }
             });
           }
         });
@@ -378,15 +376,13 @@ function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNu
           const line3 = parsedMeta.line3;
           const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
 
-          const fullFormattedText = `${line1}\n${line2}\n${line3}\n${line4}`;
-
           streams.push({
             name: headerRow,
-            title: fullFormattedText,
-            description: fullFormattedText,
+            title: `${line1}\n${line2}\n${line3}\n${line4}`,
             url: link.url,
-            provider: "showbox",
-            speed: link.speed || null
+            behaviorHints: {
+              notWebReady: false
+            }
           });
         });
       }
@@ -462,13 +458,6 @@ function getStreams(tmdbId, mediaType = "movie", seasonNum = null, episodeNum = 
         console.log(`[ShowBox] Found ${cookieStreams.length} links for ${cookieLabel}`);
         allCombinedStreams = allCombinedStreams.concat(cookieStreams);
       }
-      
-      allCombinedStreams.sort(function(a, b) {
-        const qualityOrder = {
-          "Original": 6, "4K": 5, "1440p": 4, "1080p": 3, "720p": 2, "480p": 1, "360p": 0, "240p": -1, "Unknown": -2
-        };
-        return (qualityOrder[b.quality] || -2) - (qualityOrder[a.quality] || -2);
-      });
       
       return allCombinedStreams;
     } catch (error) {

@@ -54,7 +54,7 @@ function getFileContainerFormat(str) {
 }
 
 function parseFilenameMetadata(str) {
-  if (!str) return { line3: "🎬 Standard Release", source: "📥 WEB-DL" };
+  if (!str) return { line3: "🎞️ H.264 | 📺 SDR | 🎧 Stereo", source: "📥 WEB-DL" };
   const upper = str.toUpperCase();
 
   // 1. Video Codec
@@ -97,11 +97,10 @@ function parseFilenameMetadata(str) {
     audio = "🎧 DTS";
   }
 
-  // Combine Line 3 items dynamically
   const line3Parts = [codec, hdr, audio].filter(Boolean);
   const line3 = line3Parts.length > 0 ? line3Parts.join(" | ") : "🎞️ H.264 | 📺 SDR | 🎧 Stereo";
 
-  // 4. Source Quality (Line 4)
+  // 4. Source Quality
   let source = "📥 WEB-DL";
   if (upper.includes("BLURAY") || upper.includes("BLU-RAY") || upper.includes("BDREMUX")) {
     source = "📥 BluRay";
@@ -317,13 +316,10 @@ function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken
             const formattedSize = formatFileSize(sizeText || file.file_size);
             const formatExt = getFileContainerFormat(file.file_name || streamUrl);
 
-            // Parse URL/Filename string for codec, audio, source info
             const parsedMeta = parseFilenameMetadata(file.file_name || streamUrl);
 
-            // 1. Header Line (Top Header Only)
+            // Construct full multi-line block inside description
             const headerRow = `ShowBox | ${normalizedQuality} | ${cookieLabel}`;
-
-            // 2. Subheadings
             const line1 = mediaType === "tv" 
               ? `🎬 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""}) | S${String(seasonNum).padStart(2, "0")} E${String(episodeNum).padStart(2, "0")}`
               : `🍿 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""})`;
@@ -331,12 +327,13 @@ function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken
             const line3 = parsedMeta.line3;
             const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
 
+            const fullFormattedText = `${line1}\n${line2}\n${line3}\n${line4}`;
+
             streams.push({
               name: headerRow,
-              title: `${line1}\n${line2}\n${line3}\n${line4}`,
+              title: fullFormattedText,
+              description: fullFormattedText,
               url: streamUrl,
-              quality: normalizedQuality,
-              size: formattedSize,
               headers: videoHeaders,
               provider: "showbox"
             });
@@ -366,7 +363,6 @@ function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNu
           const formattedSize = formatFileSize(linkSize);
           const formatExt = getFileContainerFormat(link.url);
 
-          // Parse URL string for codec, audio, source info
           const parsedMeta = parseFilenameMetadata(link.url);
 
           let displayProvider = `ShowBox`;
@@ -374,10 +370,7 @@ function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNu
             displayProvider += ` V${versionIndex + 1}`;
           }
 
-          // 1. Header Line (Top Header Only)
           const headerRow = `${displayProvider} | ${normalizedQuality} | ${cookieLabel}`;
-
-          // 2. Subheadings
           const line1 = mediaType === "tv" 
             ? `🎬 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""}) | S${String(seasonNum).padStart(2, "0")} E${String(episodeNum).padStart(2, "0")}`
             : `🍿 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""})`;
@@ -385,12 +378,13 @@ function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNu
           const line3 = parsedMeta.line3;
           const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
 
+          const fullFormattedText = `${line1}\n${line2}\n${line3}\n${line4}`;
+
           streams.push({
             name: headerRow,
-            title: `${line1}\n${line2}\n${line3}\n${line4}`,
+            title: fullFormattedText,
+            description: fullFormattedText,
             url: link.url,
-            quality: normalizedQuality,
-            size: formattedSize,
             provider: "showbox",
             speed: link.speed || null
           });

@@ -326,13 +326,16 @@ function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken
             const line3 = parsedMeta.line3;
             const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
 
-            const subheadings = `${line1}\n${line2}\n${line3}\n${line4}`;
+            const details = `${line1}\n${line2}\n${line3}\n${line4}`;
 
             streams.push({
               name: headerRow,
-              description: subheadings,
-              title: subheadings,
+              title: details,
+              size: details,
+              description: details,
               url: streamUrl,
+              quality: "",
+              language: "",
               headers: videoHeaders
             });
           }
@@ -376,13 +379,16 @@ function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNu
           const line3 = parsedMeta.line3;
           const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
 
-          const subheadings = `${line1}\n${line2}\n${line3}\n${line4}`;
+          const details = `${line1}\n${line2}\n${line3}\n${line4}`;
 
           streams.push({
             name: headerRow,
-            description: subheadings,
-            title: subheadings,
-            url: link.url
+            title: details,
+            size: details,
+            description: details,
+            url: link.url,
+            quality: "",
+            language: ""
           });
         });
       }

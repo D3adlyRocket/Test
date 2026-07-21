@@ -1,11 +1,7 @@
 // ============================================================= //
 // Provider Nuvio : DesiFlix (Indian Movies & TV Series)        //
-// Version : 1.0.0                                              //
+// Version : 1.1.0                                              //
 // Endpoint : https://desiflix.stremioaddon.workers.dev         //
-// - Header: DesiFlix | Quality | Language                      //
-// - Line 1: 🍿 Title - Year (or S/E info)                       //
-// - Line 2: 🌟 Quality | 🔈 LangType | 💾 Size / Source        //
-// - Line 3: 🎞️ Format • Codec | 🎧 AAC                         //
 // ============================================================= //
 
 var PROVIDER_NAME = "DesiFlix";
@@ -58,6 +54,25 @@ async function getTMDBDetails(tmdbId, mediaType) {
 
 // ─── Metadata & Title Layout Engine ───────────────────────────
 
+function parseLanguage(searchPool) {
+  if (searchPool.indexOf("multi") !== -1) return "Multi-Audio";
+  
+  var hasEnglish = searchPool.indexOf("english") !== -1 || searchPool.indexOf("eng") !== -1;
+  var hasHindi = searchPool.indexOf("hindi") !== -1 || searchPool.indexOf("hin") !== -1;
+  
+  if ((hasEnglish && hasHindi) || searchPool.indexOf("dual") !== -1) {
+    return "Dual-Audio";
+  }
+  if (hasHindi) return "Hindi";
+  if (hasEnglish) return "English";
+  if (searchPool.indexOf("tamil") !== -1) return "Tamil";
+  if (searchPool.indexOf("telugu") !== -1) return "Telugu";
+  if (searchPool.indexOf("malayalam") !== -1) return "Malayalam";
+  if (searchPool.indexOf("kannada") !== -1) return "Kannada";
+  
+  return "Original";
+}
+
 function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, streamObj) {
   var title = tmdbInfo.title || "DesiFlix Title";
   var yearStr = tmdbInfo.year ? " (" + tmdbInfo.year + ")" : "";
@@ -76,29 +91,56 @@ function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, stream
   if (normQual.indexOf("2160") !== -1 || normQual.indexOf("4k") !== -1) qIcon = "🌟";
   else if (normQual.indexOf("1080") !== -1) qIcon = "🔥";
 
-  var langStr = "Hindi";
-  if (searchPool.indexOf("multi") !== -1) langStr = "Multi-Audio";
-  else if (searchPool.indexOf("dual") !== -1) langStr = "Dual-Audio";
-  else if (searchPool.indexOf("tamil") !== -1) langStr = "Tamil";
-  else if (searchPool.indexOf("telugu") !== -1) langStr = "Telugu";
-  else if (searchPool.indexOf("malayalam") !== -1) langStr = "Malayalam";
-  else if (searchPool.indexOf("kannada") !== -1) langStr = "Kannada";
-
+  var langStr = parseLanguage(searchPool);
   var szMatch = searchPool.match(/(\d+(?:\.\d+)?\s*(?:gb|mb))/i);
-  var sizeStr = szMatch ? szMatch[1].toUpperCase() : "Direct Stream";
+  var sizeStr = szMatch ? szMatch[1].toUpperCase() : "Variable Size";
 
-  var line2 = qIcon + " " + normQual + " | 🔈 " + langStr + " | 💾 " + sizeStr;
+  var line2 = qIcon + " " + normQual + " | 💾 " + sizeStr + " | 🔊 " + langStr;
 
-  // Subheading Line 3
-  var formatVal = (streamObj.url && streamObj.url.indexOf(".mp4") !== -1) ? "MP4" : "HTTP";
-  var codecVal = "H.264";
-  if (searchPool.indexOf("hevc") !== -1 || searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1) {
-    codecVal = "H.265";
+  // Subheading Line 3: 🎥 Video Codec | 🎧 Audio Codec | 🔊 Atmos (Optional)
+  var codecVal = "x264";
+  if (searchPool.indexOf("hevc") !== -1 && (searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1)) {
+    codecVal = "HEVC x265";
+  } else if (searchPool.indexOf("hevc") !== -1) {
+    codecVal = "HEVC x264";
+  } else if (searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1) {
+    codecVal = "x265";
   }
 
-  var line3 = "🎞️ " + formatVal + " • " + codecVal + " | 🎧 AAC";
+  var audioCodec = "AAC";
+  if (searchPool.indexOf("ddp5.1") !== -1 || searchPool.indexOf("ddp 5.1") !== -1) audioCodec = "DDP5.1";
+  else if (searchPool.indexOf("dd5.1") !== -1 || searchPool.indexOf("5.1") !== -1) audioCodec = "DD5.1";
+  else if (searchPool.indexOf("7.1") !== -1) audioCodec = "7.1";
+  else if (searchPool.indexOf("truehd") !== -1) audioCodec = "TrueHD";
 
-  return line1 + "\n" + line2 + "\n" + line3;
+  var atmosTag = searchPool.indexOf("atmos") !== -1 ? " | 🔊 Atmos" : "";
+  var line3 = "🎥 " + codecVal + " | 🎧 " + audioCodec + atmosTag;
+
+  // Subheading Line 4: Source | Format | Color / HDR
+  var sourceVal = "📥 WEB-DL";
+  if (searchPool.indexOf("web-rip") !== -1 || searchPool.indexOf("webrip") !== -1) sourceVal = "🌐 WEB-RIP";
+  else if (searchPool.indexOf("bluray") !== -1) sourceVal = "💿 BluRay";
+  else if (searchPool.indexOf("hdrip") !== -1) sourceVal = "📺 HD-RIP";
+
+  var formatVal = (streamObj.url && streamObj.url.indexOf(".mp4") !== -1) ? "MP4" : "MKV";
+
+  var colorVal = "SDR";
+  if (searchPool.indexOf("10bit") !== -1 || searchPool.indexOf("10-bit") !== -1) {
+    colorVal = searchPool.indexOf("hdr") !== -1 ? "10bit HDR" : "10bit";
+  } else if (searchPool.indexOf("hdr10+") !== -1) {
+    colorVal = "HDR10+";
+  } else if (searchPool.indexOf("hdr") !== -1) {
+    colorVal = "HDR";
+  } else if (searchPool.indexOf("dv") !== -1 || searchPool.indexOf("dolby vision") !== -1) {
+    colorVal = "Dolby Vision";
+  }
+
+  var line4 = sourceVal + " | 📦 " + formatVal + " | 🌈 " + colorVal;
+
+  // Subheading Line 5: Provider
+  var line5 = "📎 " + PROVIDER_NAME;
+
+  return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
 }
 
 // ─── Main Stream Method ───────────────────────────────────────
@@ -110,7 +152,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   var tmdbInfo = await getTMDBDetails(tmdbId, mediaType);
   var queryId = tmdbInfo.imdbId || tmdbId;
 
-  // Build Stremio Addon Resource URL
   var streamEndpoint = "";
   if (isTv) {
     var sNum = season != null ? season : 1;
@@ -123,7 +164,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   log("Fetching streams from: " + streamEndpoint);
   var resData = await fetchJson(streamEndpoint);
   
-  // If query using IMDb ID returned no results, attempt fallback with raw TMDB ID
   if ((!resData || !resData.streams || !resData.streams.length) && tmdbInfo.imdbId) {
     var fallbackEndpoint = isTv 
       ? DESIFLIX_BASE + "/stream/series/" + tmdbId + ":" + (season || 1) + ":" + (episode || 1) + ".json"
@@ -146,18 +186,14 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     if (!streamUrl || seen[streamUrl]) continue;
     seen[streamUrl] = true;
 
-    var rawText = ((st.title || "") + " " + (st.name || "")).toLowerCase();
+    var rawText = ((st.title || "") + " " + (st.name || "") + " " + streamUrl).toLowerCase();
     
     var normQual = "1080p";
     if (rawText.indexOf("2160") !== -1 || rawText.indexOf("4k") !== -1) normQual = "2160p";
     else if (rawText.indexOf("720") !== -1) normQual = "720p";
     else if (rawText.indexOf("480") !== -1) normQual = "480p";
 
-    var displayLang = "Original";
-    if (rawText.indexOf("multi") !== -1) displayLang = "Multi-Audio";
-    else if (rawText.indexOf("dual") !== -1) displayLang = "Dual-Audio";
-    else if (rawText.indexOf("hindi") !== -1) displayLang = "Hindi";
-
+    var displayLang = parseLanguage(rawText);
     var metadata = buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, st);
 
     out.push({

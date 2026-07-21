@@ -326,14 +326,14 @@ function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken
             const line3 = parsedMeta.line3;
             const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
 
+            const subheadings = `${line1}\n${line2}\n${line3}\n${line4}`;
+
             streams.push({
               name: headerRow,
-              title: `${line1}\n${line2}\n${line3}\n${line4}`,
+              description: subheadings,
+              title: subheadings,
               url: streamUrl,
-              headers: videoHeaders,
-              behaviorHints: {
-                notWebReady: false
-              }
+              headers: videoHeaders
             });
           }
         });
@@ -376,13 +376,13 @@ function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNu
           const line3 = parsedMeta.line3;
           const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
 
+          const subheadings = `${line1}\n${line2}\n${line3}\n${line4}`;
+
           streams.push({
             name: headerRow,
-            title: `${line1}\n${line2}\n${line3}\n${line4}`,
-            url: link.url,
-            behaviorHints: {
-              notWebReady: false
-            }
+            description: subheadings,
+            title: subheadings,
+            url: link.url
           });
         });
       }

@@ -44,6 +44,19 @@ function getQualityEmoji(quality) {
   }
 }
 
+// Extracts real resolution tag from string (e.g. 2160p, 1080p) for Original quality
+function getSubheadingQualityLabel(quality, rawStr) {
+  if (quality === "Original" && rawStr) {
+    const match = rawStr.match(/(\d{3,4})[pP]/);
+    if (match) {
+      return `✨ ${match[1]}p`;
+    }
+    return "✨ Original";
+  }
+  const emoji = getQualityEmoji(quality);
+  return `${emoji} ${quality}`;
+}
+
 function getFileContainerFormat(str) {
   if (!str) return "📦 MKV";
   const upper = str.toUpperCase();
@@ -103,13 +116,13 @@ function parseFilenameMetadata(str) {
   // 4. Source Quality
   let source = "📥 WEB-DL";
   if (upper.includes("BLURAY") || upper.includes("BLU-RAY") || upper.includes("BDREMUX")) {
-    source = "📥 BluRay";
+    source = "💿 BluRay";
   } else if (upper.includes("WEBRIP") || upper.includes("WEB-RIP")) {
-    source = "📥 WEB-Rip";
+    source = "🌐 WEB-Rip";
   } else if (upper.includes("TELESYNC") || upper.includes("TS") || upper.includes("CAM")) {
-    source = "📥 TELESYNC";
+    source = "📺 TELESYNC";
   } else if (upper.includes("HDTV")) {
-    source = "📥 HDTV";
+    source = "📺 HDTV";
   } else if (upper.includes("WEBDL") || upper.includes("WEB-DL")) {
     source = "📥 WEB-DL";
   }
@@ -253,7 +266,7 @@ function getTMDBDetails(tmdbId, mediaType) {
 
 // --- STREAM EXTRACTION & SCRAPING ---
 
-function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken, cookieLabel, mediaInfo) {
+function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken, cookieIndex, mediaInfo) {
   return __async(this, null, function* () {
     const streams = [];
     try {
@@ -312,19 +325,19 @@ function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken
           const sizeText = $quality.find(".size").text().trim();
           if (streamUrl) {
             const normalizedQuality = getQualityFromName(qualityLabel);
-            const qEmoji = getQualityEmoji(normalizedQuality);
+            const subQualityTag = getSubheadingQualityLabel(normalizedQuality, file.file_name || streamUrl);
             const formattedSize = formatFileSize(sizeText || file.file_size);
             const formatExt = getFileContainerFormat(file.file_name || streamUrl);
 
             const parsedMeta = parseFilenameMetadata(file.file_name || streamUrl);
 
-            const headerRow = `ShowBox | ${normalizedQuality} | ${cookieLabel}`;
+            const headerRow = `ShowBox | ${normalizedQuality} | Cookie ${cookieIndex}`;
             const line1 = mediaType === "tv" 
               ? `🎬 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""}) | S${String(seasonNum).padStart(2, "0")} E${String(episodeNum).padStart(2, "0")}`
               : `🍿 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""})`;
-            const line2 = `${qEmoji} ${normalizedQuality} | 💾 ${formattedSize} | ${formatExt}`;
+            const line2 = `${subQualityTag} | 💾 ${formattedSize} | ${formatExt}`;
             const line3 = parsedMeta.line3;
-            const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
+            const line4 = `${parsedMeta.source} | 🍪 Cookie #${cookieIndex}`;
 
             const details = `${line1}\n${line2}\n${line3}\n${line4}`;
 
@@ -348,7 +361,7 @@ function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken
   });
 }
 
-function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNum, cookieLabel) {
+function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNum, cookieIndex) {
   const streams = [];
   try {
     if (!data || !data.success || !data.versions || !Array.isArray(data.versions)) return streams;
@@ -359,7 +372,7 @@ function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNu
         version.links.forEach(function(link) {
           if (!link.url) return;
           const normalizedQuality = getQualityFromName(link.quality || "Unknown");
-          const qEmoji = getQualityEmoji(normalizedQuality);
+          const subQualityTag = getSubheadingQualityLabel(normalizedQuality, link.url);
           const linkSize = link.size || versionSize;
           const formattedSize = formatFileSize(linkSize);
           const formatExt = getFileContainerFormat(link.url);
@@ -371,13 +384,13 @@ function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNu
             displayProvider += ` V${versionIndex + 1}`;
           }
 
-          const headerRow = `${displayProvider} | ${normalizedQuality} | ${cookieLabel}`;
+          const headerRow = `${displayProvider} | ${normalizedQuality} | Cookie ${cookieIndex}`;
           const line1 = mediaType === "tv" 
             ? `🎬 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""}) | S${String(seasonNum).padStart(2, "0")} E${String(episodeNum).padStart(2, "0")}`
             : `🍿 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""})`;
-          const line2 = `${qEmoji} ${normalizedQuality} | 💾 ${formattedSize} | ${formatExt}`;
+          const line2 = `${subQualityTag} | 💾 ${formattedSize} | ${formatExt}`;
           const line3 = parsedMeta.line3;
-          const line4 = `${parsedMeta.source} | 🍪 ${cookieLabel}`;
+          const line4 = `${parsedMeta.source} | 🍪 Cookie #${cookieIndex}`;
 
           const details = `${line1}\n${line2}\n${line3}\n${line4}`;
 
@@ -418,13 +431,13 @@ function getStreams(tmdbId, mediaType = "movie", seasonNum = null, episodeNum = 
       const mediaInfo = yield getTMDBDetails(tmdbId, mediaType);
       
       for (let i = 0; i < rawTokens.length; i++) {
-        const cookieLabel = `Cookie ${i + 1}`;
+        const cookieIndex = i + 1;
         const currentRawToken = rawTokens[i];
         const uiToken = parseSingleToken(currentRawToken);
         
         if (!uiToken) continue;
         
-        console.log(`\n--- Processing ${cookieLabel} ---`);
+        console.log(`\n--- Processing Cookie ${cookieIndex} ---`);
         let cookieStreams = [];
         let proxyUrl;
         
@@ -443,7 +456,7 @@ function getStreams(tmdbId, mediaType = "movie", seasonNum = null, episodeNum = 
           const response = yield fetch(proxyUrl, { headers: WORKING_HEADERS });
           if (response.ok) {
             const data = yield response.json();
-            cookieStreams = processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNum, cookieLabel);
+            cookieStreams = processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNum, cookieIndex);
             if (data.id || data.mid) {
               showboxId = data.id || data.mid;
             } else if (data.data && (data.data.id || data.data.mid)) {
@@ -451,17 +464,17 @@ function getStreams(tmdbId, mediaType = "movie", seasonNum = null, episodeNum = 
             }
           }
         } catch (e) {
-          console.log(`[ShowBox] Proxy server lookup failed for ${cookieLabel}: ${e.message}`);
+          console.log(`[ShowBox] Proxy server lookup failed for Cookie ${cookieIndex}: ${e.message}`);
         }
         
         if (showboxId) {
-          const directStreams = yield extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken, cookieLabel, mediaInfo);
+          const directStreams = yield extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken, cookieIndex, mediaInfo);
           if (directStreams.length > 0) {
             cookieStreams = cookieStreams.concat(directStreams);
           }
         }
         
-        console.log(`[ShowBox] Found ${cookieStreams.length} links for ${cookieLabel}`);
+        console.log(`[ShowBox] Found ${cookieStreams.length} links for Cookie ${cookieIndex}`);
         allCombinedStreams = allCombinedStreams.concat(cookieStreams);
       }
       

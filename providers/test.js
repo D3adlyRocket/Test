@@ -1,4 +1,4 @@
-var PROVIDER_NAME = "🏹 MoviesHunt";
+var PROVIDER_NAME = "MoviesHunt";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var movieshuntBase = "https://movieshunt.run";
 var abhilinksBase = "https://abhilinks.site";
@@ -539,7 +539,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           var metadata = buildDropdownMetadata(tmdbInfo, normQual, size, fl2.type, false, null, null, rawPool, fl2.url);
 
           allStreams.push({
-            name: PROVIDER_NAME + " | " + normQual + " | " + displayLang,
+            name: 🏹PROVIDER_NAME + " | " + normQual + " | " + displayLang,
             title: metadata,
             size: metadata,
             description: metadata,

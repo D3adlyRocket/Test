@@ -476,9 +476,16 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           var fl = tvResults[ri][si];
           if (fl.quality === "480P" || fl.quality === "HD") continue;
 
+          var normQual = (fl.quality || "1080P").toUpperCase();
+          var poolStr = (matched.title || title) + " " + fl.url;
+          
+          var langLabel = "Hindi / English";
+          if (/multi/i.test(poolStr)) langLabel = "Multi-Audio";
+          else if (/dual/i.test(poolStr)) langLabel = "Dual-Audio";
+
           var dropdownMeta = buildDropdownMetadata(
             tmdbInfo,
-            fl.quality || "",
+            normQual,
             "",
             true,
             parsedSeason,
@@ -489,8 +496,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           );
 
           allStreams.push({
-            name: PROVIDER_NAME,
+            name: PROVIDER_NAME + " | " + normQual + " | " + langLabel,
             title: dropdownMeta,
+            description: dropdownMeta,
             url: fl.url,
             quality: fl.quality || "",
             headers: { Referer: movieshuntBase + "/", "User-Agent": currentUA }
@@ -535,9 +543,16 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           if (q === "480P" || q === "HD") continue;
           var size = qOpt.size || "";
 
+          var normQual = String(q).toUpperCase();
+          var poolStr = (matched.title || title) + " " + fl2.url;
+
+          var langLabel = "Hindi / English";
+          if (/multi/i.test(poolStr)) langLabel = "Multi-Audio";
+          else if (/dual/i.test(poolStr)) langLabel = "Dual-Audio";
+
           var dropdownMeta = buildDropdownMetadata(
             tmdbInfo,
-            q,
+            normQual,
             size,
             false,
             null,
@@ -548,8 +563,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           );
 
           allStreams.push({
-            name: PROVIDER_NAME,
+            name: PROVIDER_NAME + " | " + normQual + " | " + langLabel,
             title: dropdownMeta,
+            description: dropdownMeta,
             url: fl2.url,
             quality: q,
             size: size,

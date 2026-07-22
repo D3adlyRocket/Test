@@ -1,18 +1,29 @@
 "use strict";
 
-// 1. Settings Layout configuration for Audio Preferences
+// 1. Settings Layout configuration for Audio Preferences & Auth Token
 async function onSettings() {
     return [
         { type: "header", label: "Audio Preferences" },
         { type: "toggle", key: "langEnglish", label: "Enable English 🇺🇸", defaultValue: true },
-        { type: "toggle", key: "langHindi", label: "Enable Hindi 🇮🇳", defaultValue: true }
+        { type: "toggle", key: "langHindi", label: "Enable Hindi 🇮🇳", defaultValue: true },
+        { type: "header", label: "Authentication" },
+        { type: "text", key: "authToken", label: "MovieBox Auth Token", defaultValue: "" }
     ];
 }
 
 const PROVIDER_NAME = "MovieBox";
-// Configured with your requested MovieBox endpoint (manifest.json trimmed for path appending)
-const MOVIEBOX_BASE = "https://pengu.uk/%7B%22source_moviebox%22%3A%22on%22%2C%22res_1080%22%3A%22on%22%2C%22disable_direct%22%3A%22on%22%2C%22auth_token%22%3A%22XwZg2rLkLlbjXBeDVCyxgfHXjxN1ijLMkUuToW8KaKc%22%7D";
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+
+// Helper function to build the base MovieBox URL dynamically
+function getMovieBoxBaseUrl(token) {
+    const config = {
+        source_moviebox: "on",
+        res_1080: "on",
+        disable_direct: "on",
+        auth_token: token || ""
+    };
+    return `https://pengu.uk/${encodeURIComponent(JSON.stringify(config))}`;
+}
 
 async function getStreams(tmdbId, mediaType, season, episode) {
   const isSeries = mediaType === 'tv' || mediaType === 'series';
@@ -22,6 +33,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const settings = globalThis.SCRAPER_SETTINGS || {};
     const showEnglish = settings.langEnglish !== false;
     const showHindi = settings.langHindi !== false;
+    const userAuthToken = settings.authToken ? settings.authToken.trim() : "";
+
+    // Dynamically construct the base URL using the user's saved auth token
+    const movieboxBase = getMovieBoxBaseUrl(userAuthToken);
 
     // 2. Fetch metadata from TMDB
     const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
@@ -30,10 +45,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const titleName = meta?.title || meta?.name || "Movie/Show";
     const releaseYear = meta?.release_date ? meta.release_date.split('-')[0] : (meta?.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
 
-    // 3. Fetch the stream data from your specified MovieBox URL endpoint
+    // 3. Fetch the stream data from your dynamic MovieBox URL endpoint
     const streamUrl = isSeries 
-      ? `${MOVIEBOX_BASE}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
-      : `${MOVIEBOX_BASE}/stream/movie/${imdbId}.json`;
+      ? `${movieboxBase}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
+      : `${movieboxBase}/stream/movie/${imdbId}.json`;
 
     const data = await fetch(streamUrl).then(r => r.json()).catch(() => null);
     if (!data?.streams || data.streams.length === 0) return [];

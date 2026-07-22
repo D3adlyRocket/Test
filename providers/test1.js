@@ -1,7 +1,8 @@
 // ============================================================= //
 // Provider Nuvio : DesiFlix (Indian Movies & TV Series)        //
-// Version : 1.1.0                                              //
+// Version : 1.2.0                                              //
 // Endpoint : https://desiflix.stremioaddon.workers.dev         //
+// - Quality Priority Sorted: 2160p -> 1080p -> 720p -> 480p     //
 // ============================================================= //
 
 var PROVIDER_NAME = "DesiFlix";
@@ -52,7 +53,7 @@ async function getTMDBDetails(tmdbId, mediaType) {
   };
 }
 
-// ─── Metadata & Title Layout Engine ───────────────────────────
+// ─── Language & Metadata Engine ───────────────────────────────
 
 function parseLanguage(searchPool) {
   if (searchPool.indexOf("multi") !== -1) return "Multi-Audio";
@@ -97,7 +98,7 @@ function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, stream
 
   var line2 = qIcon + " " + normQual + " | 💾 " + sizeStr + " | 🔊 " + langStr;
 
-  // Subheading Line 3: 🎥 Video Codec | 🎧 Audio Codec | 🔊 Atmos (Optional)
+  // Subheading Line 3
   var codecVal = "x264";
   if (searchPool.indexOf("hevc") !== -1 && (searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1)) {
     codecVal = "HEVC x265";
@@ -116,7 +117,7 @@ function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, stream
   var atmosTag = searchPool.indexOf("atmos") !== -1 ? " | 🔊 Atmos" : "";
   var line3 = "🎥 " + codecVal + " | 🎧 " + audioCodec + atmosTag;
 
-  // Subheading Line 4: Source | Format | Color / HDR
+  // Subheading Line 4
   var sourceVal = "📥 WEB-DL";
   if (searchPool.indexOf("web-rip") !== -1 || searchPool.indexOf("webrip") !== -1) sourceVal = "🌐 WEB-RIP";
   else if (searchPool.indexOf("bluray") !== -1) sourceVal = "💿 BluRay";
@@ -137,7 +138,7 @@ function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, stream
 
   var line4 = sourceVal + " | 📦 " + formatVal + " | 🌈 " + colorVal;
 
-  // Subheading Line 5: Provider
+  // Subheading Line 5
   var line5 = "📎 " + PROVIDER_NAME;
 
   return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
@@ -211,7 +212,21 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     });
   }
 
-  log("Returning " + out.length + " streams");
+  // ── Priority & Resolution Sorter ──────────────────────────────
+  function getResolutionScore(nameStr) {
+    var pool = nameStr.toLowerCase();
+    if (pool.indexOf("2160p") !== -1 || pool.indexOf("4k") !== -1) return 2160;
+    if (pool.indexOf("1080p") !== -1) return 1080;
+    if (pool.indexOf("720p") !== -1) return 720;
+    if (pool.indexOf("480p") !== -1) return 480;
+    return 0;
+  }
+
+  out.sort(function(a, b) {
+    return getResolutionScore(b.name) - getResolutionScore(a.name);
+  });
+
+  log("Returning " + out.length + " sorted streams");
   return out;
 }
 

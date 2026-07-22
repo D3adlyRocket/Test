@@ -306,14 +306,14 @@ function extractSeasonLinks(html) {
 
 function parseLanguage(searchPool) {
   var pool = String(searchPool || "").toLowerCase();
-  var multiKeywords = ["multi", "hindi", "tamil", "telugu", "bengali", "malayalam", "kannada", "marathi", "punjabi"];
-  var count = 0;
-  for (var i = 0; i < multiKeywords.length; i++) {
-    if (pool.indexOf(multiKeywords[i]) !== -1) count++;
+  var extraLangs = ["tamil", "telugu", "bengali", "malayalam", "kannada", "marathi", "punjabi"];
+  var extraCount = 0;
+  for (var i = 0; i < extraLangs.length; i++) {
+    if (pool.indexOf(extraLangs[i]) !== -1) extraCount++;
   }
-  if (count > 2 || pool.indexOf("multi") !== -1) return "Multi-Audio";
-  if (count >= 2 || pool.indexOf("dual") !== -1) return "Dual-Audio";
-  return "Original";
+  if (extraCount >= 1 || pool.indexOf("multi") !== -1) return "Multi-Audio";
+  if (pool.indexOf("dual") !== -1 || (pool.indexOf("hindi") !== -1 && pool.indexOf("english") !== -1)) return "Dual-Audio";
+  return "Dual-Audio";
 }
 
 function buildDropdownMetadata(tmdbInfo, normQual, sizeText, serverType, isTV, season, episode, rawText, targetUrl) {
@@ -356,20 +356,27 @@ function buildDropdownMetadata(tmdbInfo, normQual, sizeText, serverType, isTV, s
 
   // Subheading Line 4
   var langStr = parseLanguage(searchPool);
-  var audioCodec = "AAC";
-  if (searchPool.indexOf("ddp5.1") !== -1 || searchPool.indexOf("ddp 5.1") !== -1) audioCodec = "DDP 5.1";
-  else if (searchPool.indexOf("truehd") !== -1) audioCodec = "True HD";
-  else if (searchPool.indexOf("dd5.1") !== -1 || searchPool.indexOf("5.1") !== -1) audioCodec = "DD 5.1";
+  
+  var audioCodecs = [];
+  if (searchPool.indexOf("ddp5.1") !== -1 || searchPool.indexOf("ddp 5.1") !== -1) audioCodecs.push("DDP5.1");
+  if (searchPool.indexOf("truehd") !== -1) audioCodecs.push("TrueHD");
+  if (searchPool.indexOf("dd5.1") !== -1 || searchPool.indexOf("5.1") !== -1) {
+    if (audioCodecs.indexOf("DDP5.1") === -1) audioCodecs.push("DD 5.1");
+  }
+  if (audioCodecs.length === 0) {
+    audioCodecs.push("AAC");
+  }
+  var audioCodecStr = audioCodecs.join(" • ");
 
   var atmosTag = searchPool.indexOf("atmos") !== -1 ? " | 🔊 Atmos" : "";
-  var line4 = "🔈 " + langStr + " | 🎧 " + audioCodec + atmosTag;
+  var line4 = "🔈 " + langStr + " | 🎧 " + audioCodecStr + atmosTag;
 
   // Subheading Line 5
-  var sourceVal = "WEB-DL";
-  if (searchPool.indexOf("web-rip") !== -1 || searchPool.indexOf("webrip") !== -1) sourceVal = "WEB-RIP";
-  else if (searchPool.indexOf("bluray") !== -1) sourceVal = "BluRay";
+  var sourceVal = "📥 WEB-DL";
+  if (searchPool.indexOf("web-rip") !== -1 || searchPool.indexOf("webrip") !== -1) sourceVal = "🌐 WEB-RIP";
+  else if (searchPool.indexOf("bluray") !== -1) sourceVal = "💿 Blu-Ray";
 
-  var line5 = "🔗 " + (serverType || "FSL") + " | 📥 " + sourceVal;
+  var line5 = "🔗 " + (serverType || "FSL") + " | " + sourceVal;
 
   return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
 }
@@ -477,7 +484,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           var metadata = buildDropdownMetadata(tmdbInfo, normQual, "", fl.type, true, parsedSeason, fl.episode, rawPool, fl.url);
 
           allStreams.push({
-            name: "🏹 " + PROVIDER_NAME + " | Quality " + normQual + " | Lang " + displayLang,
+            name: PROVIDER_NAME + " | " + normQual + " | " + displayLang,
             title: metadata,
             size: metadata,
             description: metadata,
@@ -532,7 +539,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           var metadata = buildDropdownMetadata(tmdbInfo, normQual, size, fl2.type, false, null, null, rawPool, fl2.url);
 
           allStreams.push({
-            name: "🏹 " + PROVIDER_NAME + " | Quality " + normQual + " | Lang " + displayLang,
+            name: PROVIDER_NAME + " | " + normQual + " | " + displayLang,
             title: metadata,
             size: metadata,
             description: metadata,

@@ -413,7 +413,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       var parsedSeason = season !== undefined && season !== null && season !== "undefined" ? parseInt(season) : null;
       var parsedEpisode = episode !== undefined && episode !== null && episode !== "undefined" ? parseInt(episode) : null;
 
-      var episodes = [];
       var seasonAbhiUrls = [];
 
       if (parsedSeason) {
@@ -500,8 +499,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             title: dropdownMeta,
             description: dropdownMeta,
             url: fl.url,
-            quality: fl.quality || "",
-            headers: { Referer: movieshuntBase + "/", "User-Agent": currentUA }
+            headers: { Referer: movieshuntBase + "/", "User-Agent": currentUA },
+            _sortQual: parseInt(normQual, 10) || 0
           });
         }
       }
@@ -567,9 +566,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
             title: dropdownMeta,
             description: dropdownMeta,
             url: fl2.url,
-            quality: q,
-            size: size,
-            headers: { Referer: movieshuntBase + "/", "User-Agent": currentUA }
+            headers: { Referer: movieshuntBase + "/", "User-Agent": currentUA },
+            _sortQual: parseInt(normQual, 10) || 0
           });
         }
       }
@@ -577,10 +575,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     allStreams = dedupe(allStreams);
     allStreams.sort(function(a, b) {
-      var qa = parseInt(a.quality, 10) || 0;
-      var qb = parseInt(b.quality, 10) || 0;
-      return qb - qa;
+      return (b._sortQual || 0) - (a._sortQual || 0);
     });
+
     if (allStreams.length > 0) {
       log("Returning " + allStreams.length + " streams from " + postUrl);
       return allStreams;

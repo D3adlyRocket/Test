@@ -1,4 +1,4 @@
-var PROVIDER_NAME = "MoviesHunt";
+var PROVIDER_NAME = "🏹 MoviesHunt";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var movieshuntBase = "https://movieshunt.run";
 var abhilinksBase = "https://abhilinks.site";

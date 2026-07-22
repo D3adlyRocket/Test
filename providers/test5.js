@@ -1,5 +1,10 @@
 "use strict";
 
+// Default fallback authentication token provided in your URL
+const DEFAULT_AUTH_TOKEN = "WOSeirx2P07GHmS88z0TfQPAaAffShHvxKGTjOVfbYs";
+const PROVIDER_NAME = "MovieBox";
+const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+
 // 1. Settings Layout configuration for Audio Preferences & Auth Token
 async function onSettings() {
     return [
@@ -7,20 +12,19 @@ async function onSettings() {
         { type: "toggle", key: "langEnglish", label: "Enable English 🇺🇸", defaultValue: true },
         { type: "toggle", key: "langHindi", label: "Enable Hindi 🇮🇳", defaultValue: true },
         { type: "header", label: "Authentication" },
-        { type: "text", key: "authToken", label: "MovieBox Auth Token", defaultValue: "" }
+        { type: "text", key: "authToken", label: "MovieBox Auth Token", defaultValue: DEFAULT_AUTH_TOKEN }
     ];
 }
 
-const PROVIDER_NAME = "MovieBox";
-const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-
-// Helper function to build the base MovieBox URL dynamically
+// Helper function to build the updated dynamic base URL
 function getMovieBoxBaseUrl(token) {
     const config = {
-        source_moviebox: "on",
+        source_2peckle: "on",
+        res_2160: "on",
         res_1080: "on",
+        res_720: "on",
         disable_direct: "on",
-        auth_token: token || ""
+        auth_token: token || DEFAULT_AUTH_TOKEN
     };
     return `https://pengu.uk/${encodeURIComponent(JSON.stringify(config))}`;
 }
@@ -33,9 +37,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const settings = globalThis.SCRAPER_SETTINGS || {};
     const showEnglish = settings.langEnglish !== false;
     const showHindi = settings.langHindi !== false;
-    const userAuthToken = settings.authToken ? settings.authToken.trim() : "";
+    const userAuthToken = (settings.authToken && settings.authToken.trim()) ? settings.authToken.trim() : DEFAULT_AUTH_TOKEN;
 
-    // Dynamically construct the base URL using the user's saved auth token
+    // Dynamically construct the base URL using current settings or the default token
     const movieboxBase = getMovieBoxBaseUrl(userAuthToken);
 
     // 2. Fetch metadata from TMDB

@@ -1,6 +1,6 @@
 // ============================================================= //
 // Provider Nuvio : PersianStremio                               //
-// Version : 1.3.0                                              //
+// Version : 1.4.0                                              //
 // Endpoint : https://persianstremio.vercel.app/manifest.json   //
 // ============================================================= //
 
@@ -52,12 +52,7 @@ async function getTMDBDetails(tmdbId, mediaType) {
   };
 }
 
-// ─── Language & Metadata Engine ───────────────────────────────
-
-function parseLanguageInfo(searchPool) {
-  // Always force Dual-Audio header and flags as requested
-  return { header: "Dual-Audio", flags: "🇺🇸 | 🇮🇷" };
-}
+// ─── Metadata Engine ──────────────────────────────────────────
 
 function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, streamObj) {
   var title = tmdbInfo.title || "PersianStremio Title";
@@ -73,7 +68,7 @@ function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, stream
     line1 += " 🔹 S" + season + "E" + episode;
   }
 
-  // Subheading Line 2: ✨ 2160p 💎 1080p 🔹🌙 WEB-DL/WEB-Rip/Blu-Ray
+  // Subheading Line 2: ✨ 2160p / 💎 1080p 🔹🌙 WEB-DL/WEB-Rip/Blu-Ray
   var qIcon = "💎 ";
   if (normQual.indexOf("2160") !== -1 || normQual.indexOf("4k") !== -1) qIcon = "✨ ";
 
@@ -102,17 +97,22 @@ function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, stream
   var formatVal = (streamObj.url && streamObj.url.indexOf(".mp4") !== -1) ? "MP4" : "MKV";
   var line3 = "✴️ " + colorVal + bitVal + " 🔹🧿 " + codecVal + " 🔹💠 " + formatVal;
 
-  // Subheading Line 4: 🇺🇸 | 🇮🇷 🔹 🔊 DDP5.1/DD/TrueHD 🔹 🎧 Atmos
-  var langInfo = parseLanguageInfo(searchPool);
-  
+  // Subheading Line 4: 🌍 Dual-Audio - 🇺🇸 | 🇮🇷 🔹🎧 DDP5.1/DD5.1/AAC 🔹🔊 TrueHD/Atmos
   var audioCodec = "AAC";
-  if (searchPool.indexOf("truehd") !== -1) audioCodec = "TrueHD";
-  else if (searchPool.indexOf("ddp5.1") !== -1 || searchPool.indexOf("ddp 5.1") !== -1) audioCodec = "DDP5.1";
-  else if (searchPool.indexOf("dd5.1") !== -1 || searchPool.indexOf("5.1") !== -1 || searchPool.indexOf("dd") !== -1) audioCodec = "DD";
+  if (searchPool.indexOf("ddp5.1") !== -1 || searchPool.indexOf("ddp 5.1") !== -1) {
+    audioCodec = "DDP5.1";
+  } else if (searchPool.indexOf("dd5.1") !== -1 || searchPool.indexOf("dd 5.1") !== -1 || searchPool.indexOf("5.1") !== -1) {
+    audioCodec = "DD5.1";
+  }
 
-  var line4 = langInfo.flags + " 🔹 🔊 " + audioCodec;
-  if (searchPool.indexOf("atmos") !== -1) {
-    line4 += " 🔹 🎧 Atmos";
+  var line4 = "🌍 Dual-Audio - 🇺🇸 | 🇮🇷 🔹🎧 " + audioCodec;
+
+  var extraAudio = [];
+  if (searchPool.indexOf("truehd") !== -1) extraAudio.push("TrueHD");
+  if (searchPool.indexOf("atmos") !== -1) extraAudio.push("Atmos");
+
+  if (extraAudio.length > 0) {
+    line4 += " 🔹🔊 " + extraAudio.join(" • ");
   }
 
   // Subheading Line 5: 🏛️ URL file name
@@ -176,11 +176,10 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     else if (rawText.indexOf("720") !== -1) normQual = "720p";
     else if (rawText.indexOf("480") !== -1) normQual = "480p";
 
-    var langInfo = parseLanguageInfo(rawText);
     var metadata = buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, st);
 
     out.push({
-      name: "🌸 " + PROVIDER_NAME + " | " + normQual + " | " + langInfo.header,
+      name: "🌸 " + PROVIDER_NAME + " | " + normQual + " | Dual-Audio",
       title: metadata,
       size: metadata,
       description: metadata,

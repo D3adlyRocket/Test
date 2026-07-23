@@ -1,6 +1,6 @@
 // ============================================================= //
 // Provider Nuvio : PersianStremio                               //
-// Version : 1.0.1                                              //
+// Version : 1.1.0                                              //
 // Endpoint : https://persianstremio.vercel.app/manifest.json   //
 // ============================================================= //
 
@@ -54,21 +54,28 @@ async function getTMDBDetails(tmdbId, mediaType) {
 
 // ─── Language & Metadata Engine ───────────────────────────────
 
-function parseLanguage(searchPool) {
+function parseLanguageInfo(searchPool) {
   var pool = String(searchPool || "").toLowerCase();
   
-  if (pool.indexOf("multi") !== -1) return "Multi-Audio";
+  if (pool.indexOf("multi") !== -1) {
+    return { header: "Multi-Audio", tag: "<MULTI> 🌍" };
+  }
   
   var hasPersian = pool.indexOf("persian") !== -1 || pool.indexOf("farsi") !== -1 || pool.indexOf("fa") !== -1 || pool.indexOf("dubbed") !== -1;
   var hasEnglish = pool.indexOf("english") !== -1 || pool.indexOf("eng") !== -1 || pool.indexOf("en") !== -1;
 
   if (pool.indexOf("dual") !== -1 || (hasPersian && hasEnglish)) {
-    return "Dual-Audio";
+    return { header: "Dual-Audio", tag: "<EN> 🇺🇸 • <FA> 🇮🇷" };
   }
-  if (hasPersian) return "Persian";
-  if (hasEnglish) return "English";
+  if (hasPersian) {
+    return { header: "Persian", tag: "<FA> 🇮🇷" };
+  }
+  if (hasEnglish) {
+    return { header: "English", tag: "<EN> 🇺🇸" };
+  }
 
-  return "Dual-Audio";
+  // Default fallback for Persian plugin content
+  return { header: "Dual-Audio", tag: "<EN> 🇺🇸 • <FA> 🇮🇷" };
 }
 
 function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, streamObj) {
@@ -79,16 +86,16 @@ function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, stream
   var searchPool = rawText.toLowerCase();
 
   // Subheading Line 1
-  var icon1 = isTv ? "🎬 " : "🍿 ";
+  var icon1 = isTv ? "📜 " : "🌴 ";
   var line1 = icon1 + title + yearStr;
   if (isTv && season != null && episode != null) {
     line1 += " | S" + String(season).padStart(2, "0") + " E" + String(episode).padStart(2, "0");
   }
 
   // Subheading Line 2
-  var qIcon = "💎";
-  if (normQual.indexOf("2160") !== -1 || normQual.indexOf("4k") !== -1) qIcon = "🌟";
-  else if (normQual.indexOf("1080") !== -1) qIcon = "🔥";
+  var qIcon = "✴️";
+  if (normQual.indexOf("2160") !== -1 || normQual.indexOf("4k") !== -1) qIcon = "✨";
+  else if (normQual.indexOf("1080") !== -1) qIcon = "🌸";
 
   var szMatch = searchPool.match(/(\d+(?:\.\d+)?\s*(?:gb|mb))/i);
   var sizeStr = szMatch ? szMatch[1].toUpperCase() : "Variable Size";
@@ -104,15 +111,15 @@ function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, stream
   var bitVal = "";
   if (searchPool.indexOf("10bit") !== -1 || searchPool.indexOf("10-bit") !== -1) bitVal = " • 10Bit";
 
-  var codecVal = "🎥 x264";
+  var codecVal = "🎬 x264";
   if (searchPool.indexOf("hevc") !== -1) codecVal = "⚡ HEVC";
-  else if (searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1) codecVal = "🎥 x265";
+  else if (searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1) codecVal = "🎬 x265";
 
   var formatVal = (streamObj.url && streamObj.url.indexOf(".mp4") !== -1) ? "MP4" : "MKV";
-  var line3 = "🌈 " + colorVal + bitVal + " | " + codecVal + " | 📦 " + formatVal;
+  var line3 = "🎨 " + colorVal + bitVal + " | " + codecVal + " | 📦 " + formatVal;
 
   // Subheading Line 4
-  var langStr = parseLanguage(searchPool);
+  var langInfo = parseLanguageInfo(searchPool);
   
   var audioCodecs = [];
   if (searchPool.indexOf("ddp5.1") !== -1 || searchPool.indexOf("ddp 5.1") !== -1) audioCodecs.push("DDP5.1");
@@ -126,14 +133,14 @@ function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, stream
   var audioCodecStr = audioCodecs.join(" • ");
 
   var atmosTag = searchPool.indexOf("atmos") !== -1 ? " | 🔊 Atmos" : "";
-  var line4 = "🔈 " + langStr + " | 🎧 " + audioCodecStr + atmosTag;
+  var line4 = "🔈 " + langInfo.tag + " | 🎧 " + audioCodecStr + atmosTag;
 
   // Subheading Line 5
   var sourceVal = "📥 WEB-DL";
   if (searchPool.indexOf("web-rip") !== -1 || searchPool.indexOf("webrip") !== -1) sourceVal = "🌐 WEB-RIP";
   else if (searchPool.indexOf("bluray") !== -1) sourceVal = "💿 Blu-Ray";
 
-  var line5 = "🔗 " + PROVIDER_NAME + " | " + sourceVal;
+  var line5 = "🕌 " + PROVIDER_NAME + " | " + sourceVal;
 
   return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
 }
@@ -188,11 +195,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     else if (rawText.indexOf("720") !== -1) normQual = "720p";
     else if (rawText.indexOf("480") !== -1) normQual = "480p";
 
-    var displayLang = parseLanguage(rawText);
+    var langInfo = parseLanguageInfo(rawText);
     var metadata = buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, st);
 
     out.push({
-      name: PROVIDER_NAME + " | " + normQual + " | " + displayLang,
+      name: PROVIDER_NAME + " | " + normQual + " | " + langInfo.header,
       title: metadata,
       size: metadata,
       description: metadata,

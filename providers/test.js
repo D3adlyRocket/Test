@@ -1,336 +1,231 @@
-/**
- * Videasy Scraper - HF Space Version
- * v2.7.1-worker-only-no-token
- */
+// ============================================================= //
+// Provider Nuvio : PersianStremio                               //
+// Version : 1.0.1                                              //
+// Endpoint : https://persianstremio.vercel.app/manifest.json   //
+// ============================================================= //
 
-const DECRYPT_API = 'https://enc-dec.app/api/dec-videasy';
+var PROVIDER_NAME = "PersianStremio";
+var PERSIAN_BASE = "https://persianstremio.vercel.app";
+var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var FETCH_TIMEOUT = 12000;
 
-const HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-  'Accept': 'application/json, text/plain, */*',
-  'Origin': 'https://player.videasy.to',
-  'Referer': 'https://player.videasy.to/'
-};
+var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
-const PLAYBACK_HEADERS = {
-  'Referer': 'https://player.videasy.to/',
-  'User-Agent': HEADERS['User-Agent']
-};
+function log(msg) { console.log("[" + PROVIDER_NAME + "] " + msg); }
+function err(msg) { console.error("[" + PROVIDER_NAME + "] " + msg); }
 
-const PROXY_BASE = 'https://prox-videasy-hf.python-hacking19.workers.dev/proxy';
+function raceTimeout(ms) {
+  return new Promise(function(_, reject) {
+    setTimeout(function() { reject(new Error("Timeout " + ms + "ms")); }, ms);
+  });
+}
 
-const SERVERS = {
-  Yoru:   { path: '/cdn/sources-with-title', legacyFormat: true },
-  MbFlix: { path: '/mb-flix/sources-with-title' },
-};
-
-const TIMEOUT_HTTP_FETCH  = 20000;
-const TIMEOUT_RESOLVE_URL = 15000;
-const TIMEOUT_TMDB        = 12000;
-
-const EXCLUDED_QUALITIES = ['360P', '240P', '144P'];
-
-async function httpFetch(url, options = {}, timeoutMs = TIMEOUT_HTTP_FETCH) {
+async function fetchJson(url) {
   try {
-    const response = await fetch(url, {
-      ...options,
-      signal: AbortSignal.timeout(timeoutMs)
-    });
-
-    const text = await response.text();
-
-    return {
-      ok: response.ok,
-      status: response.status,
-      url: response.url,
-      headers: response.headers,
-      text: async () => text,
-      json: async () => {
-        try {
-          return JSON.parse(text);
-        } catch (e) {
-          return {};
-        }
+    var req = fetch(url, {
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json"
       }
-    };
-  } catch (err) {
-    console.warn(`[VIDEASY] httpFetch failed for ${url}: ${err?.message || err}`);
-    return {
-      ok: false,
-      status: 0,
-      url,
-      headers: new Headers(),
-      text: async () => '',
-      json: async () => ({})
-    };
-  }
-}
-
-function isHttpUrl(url) {
-  return typeof url === 'string' && /^https?:///i.test(url);
-}
-
-function normalizeUrl(url) {
-  return String(url || '').trim().replace(/\/+$/, '');
-}
-
-function looksLikeDirectMedia(url) {
-  const clean = String(url || '').toLowerCase().split('?')[0].split('#')[0];
-  return clean.endsWith('.m3u8') || clean.endsWith('.mp4') || clean.endsWith('.mpd');
-}
-
-function shouldResolveUrl(url) {
-  if (!isHttpUrl(url)) return false;
-  if (looksLikeDirectMedia(url)) return false;
-
-  const lower = url.toLowerCase();
-  return (
-    lower.includes('/e/') ||
-    lower.includes('/embed') ||
-    lower.includes('playlist') ||
-    lower.includes('source') ||
-    lower.includes('play') ||
-    lower.includes('stream') ||
-    lower.includes('redirect')
-  );
-}
-
-async function resolveFinalUrl(url, timeoutMs = TIMEOUT_RESOLVE_URL) {
-  if (!shouldResolveUrl(url)) return url;
-
-  try {
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: PLAYBACK_HEADERS,
-      redirect: 'follow',
-      signal: AbortSignal.timeout(timeoutMs)
     });
-    return res.url || url;
+    var res = await Promise.race([req, raceTimeout(FETCH_TIMEOUT)]);
+    if (res && res.ok) return await res.json();
   } catch (e) {
-    return url;
+    err("fetch failed: " + url + " -> " + (e.message || ""));
   }
+  return null;
 }
 
-function getQualityRank(quality) {
-  const value = String(quality || 'Auto').toUpperCase();
-  if (value === '4K' || value === '2160P') return 7;
-  if (value === '1440P') return 6;
-  if (value === '1080P' || value === 'FHD') return 5;
-  if (value === '720P' || value === 'HD') return 4;
-  if (value === '576P') return 3;
-  if (value === '480P' || value === 'SD') return 2;
-  if (value === '360P') return 1;
-  return 0;
-}
+// ─── TMDB Details Fetcher ─────────────────────────────────────
 
-function sanitizeTitle(title) {
-  return String(title || '')
-    .replace(/'/g, '')
-    .replace(/"/g, '')
-    .replace(/[^\w\s\-.,:&]/g, '') // ✅ DIPERBAIKI
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function encodeTitle(title) {
-  return encodeURIComponent(encodeURIComponent(sanitizeTitle(title)));
-}
-
-function buildStreamObject(serverName, source, finalUrl) {
-  const quality = source.quality || 'Auto';
+async function getTMDBDetails(tmdbId, mediaType) {
+  var isTv = mediaType === "tv" || mediaType === "series";
+  var type = isTv ? "tv" : "movie";
+  var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY + "&append_to_response=external_ids";
+  var data = await fetchJson(url);
+  if (!data) return { title: "PersianStremio Title", year: "", imdbId: null };
 
   return {
-    name: `VIDEASY | Xyr0nX [${serverName.toUpperCase()}]`,
-    title: `Videasy | ${quality} | Server ${serverName}`,
-    url: finalUrl,
-    behaviorHints: {
-      notWebReady: true,
-      proxyHeaders: {
-        request: {
-          Referer: PLAYBACK_HEADERS.Referer,
-          'User-Agent': PLAYBACK_HEADERS['User-Agent']
-        }
-      },
-      bingeGroup: `videasy-${serverName.toLowerCase()}-${String(quality).toLowerCase()}`
-    }
+    title: (isTv ? data.name : data.title) || "PersianStremio Title",
+    year: (isTv ? (data.first_air_date || "") : (data.release_date || "")).split("-")[0],
+    imdbId: data.imdb_id || (data.external_ids && data.external_ids.imdb_id) || null
   };
 }
 
-async function decryptSources(encryptedText, mediaId) {
-  const decryptedResponse = await httpFetch(DECRYPT_API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text: encryptedText, id: mediaId })
-  }, TIMEOUT_HTTP_FETCH);
+// ─── Language & Metadata Engine ───────────────────────────────
 
-  const rawText = await decryptedResponse.text();
-  if (!rawText) return [];
+function parseLanguage(searchPool) {
+  var pool = String(searchPool || "").toLowerCase();
+  
+  if (pool.indexOf("multi") !== -1) return "Multi-Audio";
+  
+  var hasPersian = pool.indexOf("persian") !== -1 || pool.indexOf("farsi") !== -1 || pool.indexOf("fa") !== -1 || pool.indexOf("dubbed") !== -1;
+  var hasEnglish = pool.indexOf("english") !== -1 || pool.indexOf("eng") !== -1 || pool.indexOf("en") !== -1;
 
-  try {
-    const decrypted = JSON.parse(rawText);
-    const result = decrypted.result || decrypted;
-    if (!result || !Array.isArray(result.sources)) return [];
-    return result.sources;
-  } catch (e) {
-    return [];
+  if (pool.indexOf("dual") !== -1 || (hasPersian && hasEnglish)) {
+    return "Dual-Audio";
   }
+  if (hasPersian) return "Persian";
+  if (hasEnglish) return "English";
+
+  return "Dual-Audio";
 }
 
-async function fetchServerSources(serverName, config, details, season, episode) {
-  const startTime = Date.now();
-  const encodedTitle = encodeTitle(details.title);
+function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, streamObj) {
+  var title = tmdbInfo.title || "PersianStremio Title";
+  var yearStr = tmdbInfo.year ? " (" + tmdbInfo.year + ")" : "";
+  
+  var rawText = (streamObj.title || "") + " " + (streamObj.name || "") + " " + (streamObj.url || "");
+  var searchPool = rawText.toLowerCase();
 
-  console.log(`[VIDEASY] Server ${serverName}: query title="${sanitizeTitle(details.title)}"`);
-
-  if (!PROXY_BASE) {
-    console.warn('[VIDEASY] PROXY_BASE kosong, skip proxy');
-    return [];
+  // Subheading Line 1
+  var icon1 = isTv ? "🎬 " : "🍿 ";
+  var line1 = icon1 + title + yearStr;
+  if (isTv && season != null && episode != null) {
+    line1 += " | S" + String(season).padStart(2, "0") + " E" + String(episode).padStart(2, "0");
   }
 
-  const proxiedUrl = new URL(`${PROXY_BASE}${config.path}`);
-  proxiedUrl.searchParams.set('title', encodedTitle);
-  proxiedUrl.searchParams.set('mediaType', details.type);
-  proxiedUrl.searchParams.set('year', details.year || '');
-  proxiedUrl.searchParams.set('tmdbId', details.id || '');
-  proxiedUrl.searchParams.set('imdbId', details.imdbId || '');
+  // Subheading Line 2
+  var qIcon = "💎";
+  if (normQual.indexOf("2160") !== -1 || normQual.indexOf("4k") !== -1) qIcon = "🌟";
+  else if (normQual.indexOf("1080") !== -1) qIcon = "🔥";
 
-  if (details.type === 'tv') {
-    proxiedUrl.searchParams.set('seasonId', season);
-    proxiedUrl.searchParams.set('episodeId', episode);
+  var szMatch = searchPool.match(/(\d+(?:\.\d+)?\s*(?:gb|mb))/i);
+  var sizeStr = szMatch ? szMatch[1].toUpperCase() : "Variable Size";
+
+  var line2 = qIcon + " " + normQual + " | 💾 " + sizeStr;
+
+  // Subheading Line 3
+  var colorVal = "SDR";
+  if (searchPool.indexOf("hdr10+") !== -1) colorVal = "HDR10+";
+  else if (searchPool.indexOf("hdr10") !== -1) colorVal = "HDR10";
+  else if (searchPool.indexOf("hdr") !== -1) colorVal = "HDR";
+
+  var bitVal = "";
+  if (searchPool.indexOf("10bit") !== -1 || searchPool.indexOf("10-bit") !== -1) bitVal = " • 10Bit";
+
+  var codecVal = "🎥 x264";
+  if (searchPool.indexOf("hevc") !== -1) codecVal = "⚡ HEVC";
+  else if (searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1) codecVal = "🎥 x265";
+
+  var formatVal = (streamObj.url && streamObj.url.indexOf(".mp4") !== -1) ? "MP4" : "MKV";
+  var line3 = "🌈 " + colorVal + bitVal + " | " + codecVal + " | 📦 " + formatVal;
+
+  // Subheading Line 4
+  var langStr = parseLanguage(searchPool);
+  
+  var audioCodecs = [];
+  if (searchPool.indexOf("ddp5.1") !== -1 || searchPool.indexOf("ddp 5.1") !== -1) audioCodecs.push("DDP5.1");
+  if (searchPool.indexOf("truehd") !== -1) audioCodecs.push("TrueHD");
+  if (searchPool.indexOf("dd5.1") !== -1 || searchPool.indexOf("5.1") !== -1) {
+    if (audioCodecs.indexOf("DDP5.1") === -1) audioCodecs.push("DD 5.1");
   }
-
-  const encryptedResponse = await httpFetch(proxiedUrl.toString(), {
-    headers: { ...HEADERS }
-  }, TIMEOUT_HTTP_FETCH);
-
-  const encryptedText = await encryptedResponse.text();
-
-  if (!encryptedResponse.ok || !encryptedText || encryptedText.length < 20 || encryptedText.startsWith('<!')) {
-    console.warn(`[VIDEASY] Server ${serverName}: respons tidak valid (status ${encryptedResponse.status})`);
-    return [];
+  if (audioCodecs.length === 0) {
+    audioCodecs.push("AAC");
   }
+  var audioCodecStr = audioCodecs.join(" • ");
 
-  const sources = await decryptSources(encryptedText, details.id);
-  if (!sources.length) {
-    console.warn(`[VIDEASY] Server ${serverName}: decrypt menghasilkan 0 source`);
-    return [];
-  }
+  var atmosTag = searchPool.indexOf("atmos") !== -1 ? " | 🔊 Atmos" : "";
+  var line4 = "🔈 " + langStr + " | 🎧 " + audioCodecStr + atmosTag;
 
-  const resolvedStreams = await Promise.all(
-    sources.map(async (source) => {
-      if (!source || !isHttpUrl(source.url)) return null;
+  // Subheading Line 5
+  var sourceVal = "📥 WEB-DL";
+  if (searchPool.indexOf("web-rip") !== -1 || searchPool.indexOf("webrip") !== -1) sourceVal = "🌐 WEB-RIP";
+  else if (searchPool.indexOf("bluray") !== -1) sourceVal = "💿 Blu-Ray";
 
-      const candidateUrl = normalizeUrl(source.url);
-      const finalUrl = normalizeUrl(await resolveFinalUrl(candidateUrl, TIMEOUT_RESOLVE_URL));
-      if (!isHttpUrl(finalUrl)) return null;
+  var line5 = "🔗 " + PROVIDER_NAME + " | " + sourceVal;
 
-      return buildStreamObject(serverName, source, finalUrl);
-    })
-  );
-
-  const valid = resolvedStreams.filter(Boolean);
-  const elapsed = Date.now() - startTime;
-  console.log(`[VIDEASY] Server ${serverName}: ${valid.length} stream ditemukan (${elapsed}ms)`);
-
-  return valid;
+  return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
 }
 
-function dedupeStreams(streams) {
-  const seen = new Set();
+// ─── Main Stream Method ───────────────────────────────────────
 
-  return streams.filter((item) => {
-    if (!item || !isHttpUrl(item.url)) return false;
+async function getStreams(tmdbId, mediaType, season, episode) {
+  var isTv = mediaType === "tv" || mediaType === "series";
+  log("Request: tmdbId=" + tmdbId + " type=" + mediaType + " s=" + season + " e=" + episode);
 
-    const quality = item.title?.match(/Videasys|s([^|]+)s|/)?.[1] || 'Auto';
-    if (EXCLUDED_QUALITIES.includes(quality.toUpperCase())) {
-      console.log(`[VIDEASY] Skip stream kualitas ${quality} (filtered)`);
-      return false;
-    }
+  var tmdbInfo = await getTMDBDetails(tmdbId, mediaType);
+  var queryId = tmdbInfo.imdbId || tmdbId;
 
-    const cleanUrl = item.url.split('?')[0].split('#')[0].replace(/\/+$/, '');
-    const key = `${cleanUrl}|${quality}`;
+  var streamEndpoint = "";
+  if (isTv) {
+    var sNum = season != null ? season : 1;
+    var eNum = episode != null ? episode : 1;
+    streamEndpoint = PERSIAN_BASE + "/stream/series/" + queryId + ":" + sNum + ":" + eNum + ".json";
+  } else {
+    streamEndpoint = PERSIAN_BASE + "/stream/movie/" + queryId + ".json";
+  }
 
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+  log("Fetching streams from: " + streamEndpoint);
+  var resData = await fetchJson(streamEndpoint);
+  
+  if ((!resData || !resData.streams || !resData.streams.length) && tmdbInfo.imdbId) {
+    var fallbackEndpoint = isTv 
+      ? PERSIAN_BASE + "/stream/series/" + tmdbId + ":" + (season || 1) + ":" + (episode || 1) + ".json"
+      : PERSIAN_BASE + "/stream/movie/" + tmdbId + ".json";
+    log("Retrying with fallback endpoint: " + fallbackEndpoint);
+    resData = await fetchJson(fallbackEndpoint);
+  }
+
+  if (!resData || !resData.streams || !resData.streams.length) {
+    log("No streams returned from PersianStremio");
+    return [];
+  }
+
+  var out = [];
+  var seen = {};
+
+  for (var i = 0; i < resData.streams.length; i++) {
+    var st = resData.streams[i];
+    var streamUrl = st.url || st.externalUrl;
+    if (!streamUrl || seen[streamUrl]) continue;
+    seen[streamUrl] = true;
+
+    var rawText = ((st.title || "") + " " + (st.name || "") + " " + streamUrl).toLowerCase();
+    
+    var normQual = "1080p";
+    if (rawText.indexOf("2160") !== -1 || rawText.indexOf("4k") !== -1) normQual = "2160p";
+    else if (rawText.indexOf("720") !== -1) normQual = "720p";
+    else if (rawText.indexOf("480") !== -1) normQual = "480p";
+
+    var displayLang = parseLanguage(rawText);
+    var metadata = buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, st);
+
+    out.push({
+      name: PROVIDER_NAME + " | " + normQual + " | " + displayLang,
+      title: metadata,
+      size: metadata,
+      description: metadata,
+      url: streamUrl,
+      quality: "",
+      language: "",
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Referer": PERSIAN_BASE + "/"
+      }
+    });
+  }
+
+  // ── Priority & Resolution Sorter ──────────────────────────────
+  function getResolutionScore(nameStr) {
+    var pool = nameStr.toLowerCase();
+    if (pool.indexOf("2160p") !== -1 || pool.indexOf("4k") !== -1) return 2160;
+    if (pool.indexOf("1080p") !== -1) return 1080;
+    if (pool.indexOf("720p") !== -1) return 720;
+    if (pool.indexOf("480p") !== -1) return 480;
+    return 0;
+  }
+
+  out.sort(function(a, b) {
+    return getResolutionScore(b.name) - getResolutionScore(a.name);
   });
+
+  log("Returning " + out.length + " sorted streams");
+  return out;
 }
 
-function sortStreams(streams) {
-  return streams.sort((a, b) => {
-    const qa = a.title?.match(/Videasys|s([^|]+)s|/)?.[1] || 'Auto';
-    const qb = b.title?.match(/Videasys|s([^|]+)s|/)?.[1] || 'Auto';
-    return getQualityRank(qb) - getQualityRank(qa);
-  });
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { getStreams: getStreams };
+} else {
+  global.getStreams = getStreams;
 }
-
-async function resolveDetailsFromVideasyDb(imdbIdReq, isTv) {
-  const findUrl = `https://db.videasy.to/3/find/${imdbIdReq}?external_source=imdb_id&language=en`;
-
-  const findResponse = await httpFetch(findUrl, {
-    headers: {
-      'Origin': 'https://player.videasy.to',
-      'Referer': 'https://player.videasy.to/'
-    }
-  }, TIMEOUT_TMDB);
-
-  if (!findResponse.ok) return null;
-
-  const data = await findResponse.json();
-
-  const mediaData = isTv
-    ? (data?.tv_results?.[0] || data?.tv_episode_results?.[0])
-    : data?.movie_results?.[0];
-
-  if (!mediaData) return null;
-
-  return {
-    id: String(mediaData.id),
-    title: mediaData.title || mediaData.name || '',
-    year: (mediaData.release_date || mediaData.first_air_date || mediaData.air_date || '').split('-')[0],
-    imdbId: imdbIdReq,
-    type: isTv ? 'tv' : 'movie'
-  };
-}
-
-async function getStreams(providedId, mediaType, season, episode) {
-  if (!providedId) return [];
-
-  const isTv = mediaType === 'tv' || mediaType === 'series';
-  if (isTv && (season == null || episode == null)) return [];
-
-  const imdbIdReq = String(providedId).startsWith('tt')
-    ? String(providedId)
-    : `tt${providedId}`;
-
-  try {
-    let details = await resolveDetailsFromVideasyDb(imdbIdReq, isTv);
-
-    if (!details) {
-      details = {
-        id: '',
-        title: '',
-        year: '',
-        imdbId: imdbIdReq,
-        type: isTv ? 'tv' : 'movie'
-      };
-    }
-
-    const results = await Promise.all(
-      Object.entries(SERVERS).map(([serverName, config]) =>
-        fetchServerSources(serverName, config, details, season, episode)
-          .catch(() => [])
-      )
-    );
-
-    const allStreams = results.flat();
-    if (!allStreams.length) return [];
-
-    return sortStreams(dedupeStreams(allStreams));
-  } catch (err) {
-    console.error('[VIDEASY] Fatal Error:', err?.message || err);
-    return [];
-  }
-}
-
-module.exports = { getStreams };

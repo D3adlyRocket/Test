@@ -1,6 +1,6 @@
 // ============================================================= //
 // Provider Nuvio : PersianStremio                               //
-// Version : 1.2.0                                              //
+// Version : 1.3.0                                              //
 // Endpoint : https://persianstremio.vercel.app/manifest.json   //
 // ============================================================= //
 
@@ -55,25 +55,7 @@ async function getTMDBDetails(tmdbId, mediaType) {
 // ─── Language & Metadata Engine ───────────────────────────────
 
 function parseLanguageInfo(searchPool) {
-  var pool = String(searchPool || "").toLowerCase();
-  
-  if (pool.indexOf("multi") !== -1) {
-    return { header: "Multi-Audio", flags: "🌍" };
-  }
-  
-  var hasPersian = pool.indexOf("persian") !== -1 || pool.indexOf("farsi") !== -1 || pool.indexOf("fa") !== -1 || pool.indexOf("dubbed") !== -1;
-  var hasEnglish = pool.indexOf("english") !== -1 || pool.indexOf("eng") !== -1 || pool.indexOf("en") !== -1;
-
-  if (pool.indexOf("dual") !== -1 || (hasPersian && hasEnglish)) {
-    return { header: "Dual-Audio", flags: "🇺🇸 | 🇮🇷" };
-  }
-  if (hasPersian) {
-    return { header: "Persian", flags: "🇮🇷" };
-  }
-  if (hasEnglish) {
-    return { header: "English", flags: "🇺🇸" };
-  }
-
+  // Always force Dual-Audio header and flags as requested
   return { header: "Dual-Audio", flags: "🇺🇸 | 🇮🇷" };
 }
 

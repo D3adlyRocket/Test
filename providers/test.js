@@ -199,7 +199,7 @@ async function resolveTpiLink(tpiUrl) {
 
 async function serverHandler(id, server) {
   try {
-    const r = await Promise.race([fetch("https://new4.zinkcloud.net/server-handler.php", {
+    const r = await Promise.race([fetch("https://new3.zinkcloud.net/server-handler.php", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-Requested-With": "XMLHttpRequest", "User-Agent": currentUA },
       body: JSON.stringify({ server, random_id: id })

@@ -1,6 +1,6 @@
 // ============================================================= //
 // Provider Nuvio : PersianStremio                               //
-// Version : 1.4.0                                              //
+// Version : 1.5.0                                              //
 // Endpoint : https://persianstremio.vercel.app/manifest.json   //
 // ============================================================= //
 
@@ -36,12 +36,32 @@ async function fetchJson(url) {
   return null;
 }
 
-// ─── TMDB Details Fetcher ─────────────────────────────────────
+// ─── TMDB / IMDb Details Resolver ─────────────────────────────
 
 async function getTMDBDetails(tmdbId, mediaType) {
   var isTv = mediaType === "tv" || mediaType === "series";
+  var idStr = String(tmdbId || "");
+
+  // If input ID is already an IMDb ID (e.g. tt1234567)
+  if (idStr.indexOf("tt") === 0) {
+    var findUrl = "https://api.themoviedb.org/3/find/" + idStr + "?api_key=" + TMDB_API_KEY + "&external_source=imdb_id";
+    var findData = await fetchJson(findUrl);
+    if (findData) {
+      var item = isTv ? (findData.tv_results && findData.tv_results[0]) : (findData.movie_results && findData.movie_results[0]);
+      if (item) {
+        return {
+          title: (isTv ? item.name : item.title) || "PersianStremio Title",
+          year: (isTv ? (item.first_air_date || "") : (item.release_date || "")).split("-")[0],
+          imdbId: idStr
+        };
+      }
+    }
+    return { title: "PersianStremio Title", year: "", imdbId: idStr };
+  }
+
+  // If input ID is a TMDB numeric ID
   var type = isTv ? "tv" : "movie";
-  var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY + "&append_to_response=external_ids";
+  var url = "https://api.themoviedb.org/3/" + type + "/" + idStr + "?api_key=" + TMDB_API_KEY + "&append_to_response=external_ids";
   var data = await fetchJson(url);
   if (!data) return { title: "PersianStremio Title", year: "", imdbId: null };
 
@@ -52,13 +72,13 @@ async function getTMDBDetails(tmdbId, mediaType) {
   };
 }
 
-// ─── Metadata Engine ──────────────────────────────────────────
+// ─── Subheading Metadata Engine ───────────────────────────────
 
 function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, streamObj) {
   var title = tmdbInfo.title || "PersianStremio Title";
   var yearStr = tmdbInfo.year || "";
   
-  var rawText = (streamObj.title || "") + " " + (streamObj.name || "") + " " + (streamObj.url || "");
+  var rawText = (streamObj.title || "") + " " + (streamObj.name || "") + " " + (streamObj.description || "") + " " + (streamObj.url || "");
   var searchPool = rawText.toLowerCase();
 
   // Subheading Line 1: 📜 Movie Name 🔹Year / 📜 Series Name 🔹Year 🔹 S1E1
@@ -147,7 +167,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   log("Fetching streams from: " + streamEndpoint);
   var resData = await fetchJson(streamEndpoint);
   
-  if ((!resData || !resData.streams || !resData.streams.length) && tmdbInfo.imdbId) {
+  // Fallback check if primary lookup returned no streams
+  if ((!resData || !resData.streams || !resData.streams.length) && tmdbInfo.imdbId && tmdbInfo.imdbId !== tmdbId) {
     var fallbackEndpoint = isTv 
       ? PERSIAN_BASE + "/stream/series/" + tmdbId + ":" + (season || 1) + ":" + (episode || 1) + ".json"
       : PERSIAN_BASE + "/stream/movie/" + tmdbId + ".json";
@@ -169,7 +190,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     if (!streamUrl || seen[streamUrl]) continue;
     seen[streamUrl] = true;
 
-    var rawText = ((st.title || "") + " " + (st.name || "") + " " + streamUrl).toLowerCase();
+    var rawText = ((st.title || "") + " " + (st.name || "") + " " + (st.description || "") + " " + streamUrl).toLowerCase();
     
     var normQual = "1080p";
     if (rawText.indexOf("2160") !== -1 || rawText.indexOf("4k") !== -1) normQual = "2160p";

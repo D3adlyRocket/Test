@@ -1,237 +1,156 @@
-// ============================================================= //
-// Provider Nuvio : DesiFlix (Indian Movies & TV Series)        //
-// Version : 1.2.0                                              //
-// Endpoint : https://desiflix.stremioaddon.workers.dev         //
-// - Quality Priority Sorted: 2160p -> 1080p -> 720p -> 480p     //
-// ============================================================= //
 
-var PROVIDER_NAME = "DesiFlix";
-var DESIFLIX_BASE = "https://desiflix.stremioaddon.workers.dev";
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var FETCH_TIMEOUT = 12000;
+"use strict";
 
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
-
-function log(msg) { console.log("[" + PROVIDER_NAME + "] " + msg); }
-function err(msg) { console.error("[" + PROVIDER_NAME + "] " + msg); }
-
-function raceTimeout(ms) {
-  return new Promise(function(_, reject) {
-    setTimeout(function() { reject(new Error("Timeout " + ms + "ms")); }, ms);
-  });
-}
-
-async function fetchJson(url) {
-  try {
-    var req = fetch(url, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json"
-      }
-    });
-    var res = await Promise.race([req, raceTimeout(FETCH_TIMEOUT)]);
-    if (res && res.ok) return await res.json();
-  } catch (e) {
-    err("fetch failed: " + url + " -> " + (e.message || ""));
-  }
-  return null;
-}
-
-// ─── TMDB Details Fetcher ─────────────────────────────────────
-
-async function getTMDBDetails(tmdbId, mediaType) {
-  var isTv = mediaType === "tv" || mediaType === "series";
-  var type = isTv ? "tv" : "movie";
-  var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY + "&append_to_response=external_ids";
-  var data = await fetchJson(url);
-  if (!data) return { title: "DesiFlix Title", year: "", imdbId: null };
-
-  return {
-    title: (isTv ? data.name : data.title) || "DesiFlix Title",
-    year: (isTv ? (data.first_air_date || "") : (data.release_date || "")).split("-")[0],
-    imdbId: data.imdb_id || (data.external_ids && data.external_ids.imdb_id) || null
-  };
-}
-
-// ─── Language & Metadata Engine ───────────────────────────────
-
-function parseLanguage(searchPool) {
-  if (searchPool.indexOf("multi") !== -1) return "Multi-Audio";
-  
-  var hasEnglish = searchPool.indexOf("english") !== -1 || searchPool.indexOf("eng") !== -1;
-  var hasHindi = searchPool.indexOf("hindi") !== -1 || searchPool.indexOf("hin") !== -1;
-  
-  if ((hasEnglish && hasHindi) || searchPool.indexOf("dual") !== -1) {
-    return "Dual-Audio";
-  }
-  if (hasHindi) return "Hindi";
-  if (hasEnglish) return "English";
-  if (searchPool.indexOf("tamil") !== -1) return "Tamil";
-  if (searchPool.indexOf("telugu") !== -1) return "Telugu";
-  if (searchPool.indexOf("malayalam") !== -1) return "Malayalam";
-  if (searchPool.indexOf("kannada") !== -1) return "Kannada";
-  
-  return "Original";
-}
-
-function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, streamObj) {
-  var title = tmdbInfo.title || "DesiFlix Title";
-  var yearStr = tmdbInfo.year ? " (" + tmdbInfo.year + ")" : "";
-  
-  var rawText = (streamObj.title || "") + " " + (streamObj.name || "") + " " + (streamObj.url || "");
-  var searchPool = rawText.toLowerCase();
-
-  // Subheading Line 1
-  var line1 = "🍿 " + title + yearStr;
-  if (isTv && season != null && episode != null) {
-    line1 += " | S" + String(season).padStart(2, "0") + "E" + String(episode).padStart(2, "0");
-  }
-
-  // Subheading Line 2
-  var qIcon = "💎";
-  if (normQual.indexOf("2160") !== -1 || normQual.indexOf("4k") !== -1) qIcon = "🌟";
-  else if (normQual.indexOf("1080") !== -1) qIcon = "🔥";
-
-  var langStr = parseLanguage(searchPool);
-  var szMatch = searchPool.match(/(\d+(?:\.\d+)?\s*(?:gb|mb))/i);
-  var sizeStr = szMatch ? szMatch[1].toUpperCase() : "Variable Size";
-
-  var line2 = qIcon + " " + normQual + " | 💾 " + sizeStr + " | 🔊 " + langStr;
-
-  // Subheading Line 3
-  var codecVal = "x264";
-  if (searchPool.indexOf("hevc") !== -1 && (searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1)) {
-    codecVal = "HEVC x265";
-  } else if (searchPool.indexOf("hevc") !== -1) {
-    codecVal = "HEVC x264";
-  } else if (searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1) {
-    codecVal = "x265";
-  }
-
-  var audioCodec = "AAC";
-  if (searchPool.indexOf("ddp5.1") !== -1 || searchPool.indexOf("ddp 5.1") !== -1) audioCodec = "DDP5.1";
-  else if (searchPool.indexOf("dd5.1") !== -1 || searchPool.indexOf("5.1") !== -1) audioCodec = "DD5.1";
-  else if (searchPool.indexOf("7.1") !== -1) audioCodec = "7.1";
-  else if (searchPool.indexOf("truehd") !== -1) audioCodec = "TrueHD";
-
-  var atmosTag = searchPool.indexOf("atmos") !== -1 ? " | 🔊 Atmos" : "";
-  var line3 = "🎥 " + codecVal + " | 🎧 " + audioCodec + atmosTag;
-
-  // Subheading Line 4
-  var sourceVal = "📥 WEB-DL";
-  if (searchPool.indexOf("web-rip") !== -1 || searchPool.indexOf("webrip") !== -1) sourceVal = "🌐 WEB-RIP";
-  else if (searchPool.indexOf("bluray") !== -1) sourceVal = "💿 BluRay";
-  else if (searchPool.indexOf("hdrip") !== -1) sourceVal = "📺 HD-RIP";
-
-  var formatVal = (streamObj.url && streamObj.url.indexOf(".mp4") !== -1) ? "MP4" : "MKV";
-
-  var colorVal = "SDR";
-  if (searchPool.indexOf("10bit") !== -1 || searchPool.indexOf("10-bit") !== -1) {
-    colorVal = searchPool.indexOf("hdr") !== -1 ? "10bit HDR" : "10bit";
-  } else if (searchPool.indexOf("hdr10+") !== -1) {
-    colorVal = "HDR10+";
-  } else if (searchPool.indexOf("hdr") !== -1) {
-    colorVal = "HDR";
-  } else if (searchPool.indexOf("dv") !== -1 || searchPool.indexOf("dolby vision") !== -1) {
-    colorVal = "Dolby Vision";
-  }
-
-  var line4 = sourceVal + " | 📦 " + formatVal + " | 🌈 " + colorVal;
-
-  // Subheading Line 5
-  var line5 = "📎 " + PROVIDER_NAME;
-
-  return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
-}
-
-// ─── Main Stream Method ───────────────────────────────────────
+const HDGHARTV_API = "https://hdghartv.cc";
+const TMDB_BASE = "https://api.themoviedb.org/3";
+const TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
+const BASE_HEADERS = {
+  "User-Agent": UA,
+  "Referer": HDGHARTV_API + "/"
+};
 
 async function getStreams(tmdbId, mediaType, season, episode) {
-  var isTv = mediaType === "tv" || mediaType === "series";
-  log("Request: tmdbId=" + tmdbId + " type=" + mediaType + " s=" + season + " e=" + episode);
+  const isSeries = mediaType === 'tv' || mediaType === 'series';
+  const type = isSeries ? "series" : "movies";
 
-  var tmdbInfo = await getTMDBDetails(tmdbId, mediaType);
-  var queryId = tmdbInfo.imdbId || tmdbId;
+  try {
+    // 1. Fetch deep metadata from TMDB
+    const endpoint = isSeries ? "tv" : "movie";
+    const tmdbUrl = `${TMDB_BASE}/${endpoint}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=external_ids`;
+    const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
 
-  var streamEndpoint = "";
-  if (isTv) {
-    var sNum = season != null ? season : 1;
-    var eNum = episode != null ? episode : 1;
-    streamEndpoint = DESIFLIX_BASE + "/stream/series/" + queryId + ":" + sNum + ":" + eNum + ".json";
-  } else {
-    streamEndpoint = DESIFLIX_BASE + "/stream/movie/" + queryId + ".json";
-  }
+    if (!meta) return [];
 
-  log("Fetching streams from: " + streamEndpoint);
-  var resData = await fetchJson(streamEndpoint);
-  
-  if ((!resData || !resData.streams || !resData.streams.length) && tmdbInfo.imdbId) {
-    var fallbackEndpoint = isTv 
-      ? DESIFLIX_BASE + "/stream/series/" + tmdbId + ":" + (season || 1) + ":" + (episode || 1) + ".json"
-      : DESIFLIX_BASE + "/stream/movie/" + tmdbId + ".json";
-    log("Retrying with fallback endpoint: " + fallbackEndpoint);
-    resData = await fetchJson(fallbackEndpoint);
-  }
+    const titleName = meta.title || meta.name || "Unknown Title";
+    const releaseYear = meta.release_date 
+      ? meta.release_date.split('-')[0] 
+      : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
 
-  if (!resData || !resData.streams || !resData.streams.length) {
-    log("No streams returned from DesiFlix");
+    let runtimeStr = "N/A";
+    if (!isSeries && meta.runtime) {
+      runtimeStr = `${meta.runtime} min`;
+    } else if (isSeries && meta.episode_run_time && meta.episode_run_time.length > 0) {
+      runtimeStr = `${meta.episode_run_time[0]} min`;
+    }
+
+    // 2. Search HDGHARTV API for the corresponding media item
+    const searchRes = await fetch(
+      `${HDGHARTV_API}/api/search?q=${encodeURIComponent(titleName)}&type=all&page=1`,
+      { headers: BASE_HEADERS }
+    ).catch(() => null);
+
+    if (!searchRes || !searchRes.ok) return [];
+    const searchData = await searchRes.json().catch(() => null);
+    if (!searchData) return [];
+
+    const allItems = [...(searchData.movies || []), ...(searchData.series || [])];
+    const matched = allItems.find(item => item.tmdbId === Number(tmdbId));
+    if (!matched || !matched._id) return [];
+
+    // 3. Fetch link details
+    const detailsRes = await fetch(
+      `${HDGHARTV_API}/api/${type}/public/${matched._id}`,
+      { headers: BASE_HEADERS }
+    ).catch(() => null);
+
+    if (!detailsRes || !detailsRes.ok) return [];
+    const details = await detailsRes.json().catch(() => null);
+    if (!details) return [];
+
+    let links = [];
+    if (!isSeries) {
+      links = details.streamingLinks || [];
+    } else {
+      const targetSeason = (details.seasons || []).find(s => s.seasonNumber === Number(season));
+      if (!targetSeason) return [];
+      const targetEpisode = (targetSeason.episodes || []).find(e => e.episodeNumber === Number(episode));
+      if (!targetEpisode) return [];
+      links = targetEpisode.streamingLinks || [];
+    }
+
+    const filteredStreams = [];
+
+    // 4. Parse, filter, and apply the exact 4-line layout template
+    for (const link of links) {
+      if (!link || !link.url) continue;
+
+      const rawTextCombined = `${link.quality || ""} ${link.name || ""} ${link.url}`.toLowerCase();
+
+      // Filter: Keep only 4K (2160p), 1080p, and 720p
+      const is4K = /\b(2160p|4k)\b/i.test(rawTextCombined);
+      const is1080 = /\b(1080p)\b/i.test(rawTextCombined);
+      const is720 = /\b(720p)\b/i.test(rawTextCombined);
+
+      if (!is4K && !is1080 && !is720) continue;
+
+      let resLabel = "1080p";
+      let resEmoji = "🔥";
+      let rank = 2;
+
+      if (is4K) { 
+        resLabel = "2160p"; 
+        resEmoji = "💎"; 
+        rank = 3;
+      } else if (is720) { 
+        resLabel = "720p"; 
+        resEmoji = "🎬"; 
+        rank = 1;
+      }
+
+      // Language tracking (Defaulting to Dual-Audio)
+      let detectedLang = "Dual-Audio 🌐";
+      if (/hindi|hin|🇮🇳/.test(rawTextCombined) && !/multi|dual/.test(rawTextCombined)) {
+        detectedLang = "Hindi 🇮🇳";
+      }
+
+      // Codecs and stream format parsing
+      const isM3U8 = link.url.includes(".m3u8");
+      const formatStr = isM3U8 ? "HLS" : (/\b(mp4|avi|m4v)\b/.test(rawTextCombined) ? "MP4" : "MKV");
+      const codecStr = /\b(hevc|x265|h265)\b/.test(rawTextCombined) ? "x.265" : "x.264";
+      const streamTech = isM3U8 ? "HLS" : "Direct";
+      const audioCodec = /\b(ddp|dd\+|eac3|dolby)\b/.test(rawTextCombined) ? "E-AC3" : /\b(ac3|dolby)\b/.test(rawTextCombined) ? "AC3" : "AAC";
+
+      // Build identical 4-line layout
+      const subLine1 = isSeries 
+        ? `🎦 ${titleName} - (${releaseYear}) | S${season || 1}E${episode || 1}`
+        : `🎦 ${titleName} - (${releaseYear})`;
+
+      const layoutDescription = 
+        `${subLine1}\n` +
+        `${resEmoji} ${resLabel} | 🔊 ${detectedLang} | ⏳ ${runtimeStr}\n` +
+        `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 🎧 ${audioCodec}\n` +
+        `🛰️ Source: HDGharTV`;
+
+      filteredStreams.push({
+        rank: rank,
+        name: `HDGharTV | ${resLabel} | Dual-Audio`,
+        title: layoutDescription,
+        description: layoutDescription,
+        size: layoutDescription,
+        url: link.url,
+        headers: BASE_HEADERS,
+        behaviorHints: {
+          notSupported: false,
+          proxyHeaders: {
+            request: BASE_HEADERS
+          }
+        }
+      });
+    }
+
+    // Sort High to Low quality (2160p -> 1080p -> 720p)
+    filteredStreams.sort((a, b) => b.rank - a.rank);
+    return filteredStreams.map(({ rank, ...cleanStream }) => cleanStream);
+
+  } catch (err) {
+    console.error("Failed to construct layout from HDGHARTV endpoint:", err);
     return [];
   }
-
-  var out = [];
-  var seen = {};
-
-  for (var i = 0; i < resData.streams.length; i++) {
-    var st = resData.streams[i];
-    var streamUrl = st.url || st.externalUrl;
-    if (!streamUrl || seen[streamUrl]) continue;
-    seen[streamUrl] = true;
-
-    var rawText = ((st.title || "") + " " + (st.name || "") + " " + streamUrl).toLowerCase();
-    
-    var normQual = "1080p";
-    if (rawText.indexOf("2160") !== -1 || rawText.indexOf("4k") !== -1) normQual = "2160p";
-    else if (rawText.indexOf("720") !== -1) normQual = "720p";
-    else if (rawText.indexOf("480") !== -1) normQual = "480p";
-
-    var displayLang = parseLanguage(rawText);
-    var metadata = buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, st);
-
-    out.push({
-      name: PROVIDER_NAME + " | " + normQual + " | " + displayLang,
-      title: metadata,
-      size: metadata,
-      description: metadata,
-      url: streamUrl,
-      quality: "",
-      language: "",
-      headers: {
-        "User-Agent": USER_AGENT,
-        "Referer": DESIFLIX_BASE + "/"
-      }
-    });
-  }
-
-  // ── Priority & Resolution Sorter ──────────────────────────────
-  function getResolutionScore(nameStr) {
-    var pool = nameStr.toLowerCase();
-    if (pool.indexOf("2160p") !== -1 || pool.indexOf("4k") !== -1) return 2160;
-    if (pool.indexOf("1080p") !== -1) return 1080;
-    if (pool.indexOf("720p") !== -1) return 720;
-    if (pool.indexOf("480p") !== -1) return 480;
-    return 0;
-  }
-
-  out.sort(function(a, b) {
-    return getResolutionScore(b.name) - getResolutionScore(a.name);
-  });
-
-  log("Returning " + out.length + " sorted streams");
-  return out;
 }
 
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getStreams: getStreams };
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams };
 } else {
   global.getStreams = getStreams;
 }

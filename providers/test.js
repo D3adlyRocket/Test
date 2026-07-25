@@ -6,7 +6,7 @@
 
 var PROVIDER_NAME = "PersianStremio";
 var PERSIAN_BASE = "https://persianstremio.vercel.app";
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
+var TMDB_API_KEY = "307b7b8ef035c6aa336900aef4e203bd";
 var FETCH_TIMEOUT = 12000;
 
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";

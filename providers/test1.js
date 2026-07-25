@@ -1,156 +1,208 @@
+// ============================================================================
+// Nuvio Provider: SkTorrent
+// Description: Czech / Slovak torrent provider for Nuvio
+// Engine: Compatible with React Native Hermes (Promise-based)
+// ============================================================================
 
-"use strict";
+const SKTORRENT_BASE = 'https://sktorrent.eu/torrent';
+const SKTORRENT_TRACKER = 'http://ipv4announce.sktorrent.eu:6969/announce';
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36';
 
-const HDGHARTV_API = "https://hdghartv.cc";
-const TMDB_BASE = "https://api.themoviedb.org/3";
-const TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
-const BASE_HEADERS = {
-  "User-Agent": UA,
-  "Referer": HDGHARTV_API + "/"
-};
-
-async function getStreams(tmdbId, mediaType, season, episode) {
-  const isSeries = mediaType === 'tv' || mediaType === 'series';
-  const type = isSeries ? "series" : "movies";
-
-  try {
-    // 1. Fetch deep metadata from TMDB
-    const endpoint = isSeries ? "tv" : "movie";
-    const tmdbUrl = `${TMDB_BASE}/${endpoint}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=external_ids`;
-    const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
-
-    if (!meta) return [];
-
-    const titleName = meta.title || meta.name || "Unknown Title";
-    const releaseYear = meta.release_date 
-      ? meta.release_date.split('-')[0] 
-      : (meta.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
-
-    let runtimeStr = "N/A";
-    if (!isSeries && meta.runtime) {
-      runtimeStr = `${meta.runtime} min`;
-    } else if (isSeries && meta.episode_run_time && meta.episode_run_time.length > 0) {
-      runtimeStr = `${meta.episode_run_time[0]} min`;
-    }
-
-    // 2. Search HDGHARTV API for the corresponding media item
-    const searchRes = await fetch(
-      `${HDGHARTV_API}/api/search?q=${encodeURIComponent(titleName)}&type=all&page=1`,
-      { headers: BASE_HEADERS }
-    ).catch(() => null);
-
-    if (!searchRes || !searchRes.ok) return [];
-    const searchData = await searchRes.json().catch(() => null);
-    if (!searchData) return [];
-
-    const allItems = [...(searchData.movies || []), ...(searchData.series || [])];
-    const matched = allItems.find(item => item.tmdbId === Number(tmdbId));
-    if (!matched || !matched._id) return [];
-
-    // 3. Fetch link details
-    const detailsRes = await fetch(
-      `${HDGHARTV_API}/api/${type}/public/${matched._id}`,
-      { headers: BASE_HEADERS }
-    ).catch(() => null);
-
-    if (!detailsRes || !detailsRes.ok) return [];
-    const details = await detailsRes.json().catch(() => null);
-    if (!details) return [];
-
-    let links = [];
-    if (!isSeries) {
-      links = details.streamingLinks || [];
-    } else {
-      const targetSeason = (details.seasons || []).find(s => s.seasonNumber === Number(season));
-      if (!targetSeason) return [];
-      const targetEpisode = (targetSeason.episodes || []).find(e => e.episodeNumber === Number(episode));
-      if (!targetEpisode) return [];
-      links = targetEpisode.streamingLinks || [];
-    }
-
-    const filteredStreams = [];
-
-    // 4. Parse, filter, and apply the exact 4-line layout template
-    for (const link of links) {
-      if (!link || !link.url) continue;
-
-      const rawTextCombined = `${link.quality || ""} ${link.name || ""} ${link.url}`.toLowerCase();
-
-      // Filter: Keep only 4K (2160p), 1080p, and 720p
-      const is4K = /\b(2160p|4k)\b/i.test(rawTextCombined);
-      const is1080 = /\b(1080p)\b/i.test(rawTextCombined);
-      const is720 = /\b(720p)\b/i.test(rawTextCombined);
-
-      if (!is4K && !is1080 && !is720) continue;
-
-      let resLabel = "1080p";
-      let resEmoji = "🔥";
-      let rank = 2;
-
-      if (is4K) { 
-        resLabel = "2160p"; 
-        resEmoji = "💎"; 
-        rank = 3;
-      } else if (is720) { 
-        resLabel = "720p"; 
-        resEmoji = "🎬"; 
-        rank = 1;
-      }
-
-      // Language tracking (Defaulting to Dual-Audio)
-      let detectedLang = "Dual-Audio 🌐";
-      if (/hindi|hin|🇮🇳/.test(rawTextCombined) && !/multi|dual/.test(rawTextCombined)) {
-        detectedLang = "Hindi 🇮🇳";
-      }
-
-      // Codecs and stream format parsing
-      const isM3U8 = link.url.includes(".m3u8");
-      const formatStr = isM3U8 ? "HLS" : (/\b(mp4|avi|m4v)\b/.test(rawTextCombined) ? "MP4" : "MKV");
-      const codecStr = /\b(hevc|x265|h265)\b/.test(rawTextCombined) ? "x.265" : "x.264";
-      const streamTech = isM3U8 ? "HLS" : "Direct";
-      const audioCodec = /\b(ddp|dd\+|eac3|dolby)\b/.test(rawTextCombined) ? "E-AC3" : /\b(ac3|dolby)\b/.test(rawTextCombined) ? "AC3" : "AAC";
-
-      // Build identical 4-line layout
-      const subLine1 = isSeries 
-        ? `🎦 ${titleName} - (${releaseYear}) | S${season || 1}E${episode || 1}`
-        : `🎦 ${titleName} - (${releaseYear})`;
-
-      const layoutDescription = 
-        `${subLine1}\n` +
-        `${resEmoji} ${resLabel} | 🔊 ${detectedLang} | ⏳ ${runtimeStr}\n` +
-        `⚡ ${formatStr} | 🎥 ${codecStr} • ${streamTech} | 🎧 ${audioCodec}\n` +
-        `🛰️ Source: HDGharTV`;
-
-      filteredStreams.push({
-        rank: rank,
-        name: `HDGharTV | ${resLabel} | Dual-Audio`,
-        title: layoutDescription,
-        description: layoutDescription,
-        size: layoutDescription,
-        url: link.url,
-        headers: BASE_HEADERS,
-        behaviorHints: {
-          notSupported: false,
-          proxyHeaders: {
-            request: BASE_HEADERS
-          }
-        }
-      });
-    }
-
-    // Sort High to Low quality (2160p -> 1080p -> 720p)
-    filteredStreams.sort((a, b) => b.rank - a.rank);
-    return filteredStreams.map(({ rank, ...cleanStream }) => cleanStream);
-
-  } catch (err) {
-    console.error("Failed to construct layout from HDGHARTV endpoint:", err);
-    return [];
+// Safe Logger
+function log(msg) {
+  if (typeof console !== 'undefined' && console.log) {
+    console.log('[SkTorrent Provider] ' + msg);
   }
 }
 
+// Network Helpers
+function fetchText(url) {
+  return fetch(url, {
+    headers: {
+      'User-Agent': USER_AGENT,
+      'Accept': 'text/html,application/xhtml+xml',
+      'Accept-Language': 'cs,sk,en;q=0.8'
+    }
+  }).then(function (res) {
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.text();
+  });
+}
+
+function fetchJson(url) {
+  return fetch(url, {
+    headers: {
+      'User-Agent': USER_AGENT,
+      'Accept': 'application/json'
+    }
+  }).then(function (res) {
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  });
+}
+
+// Text Parsers & Sanitizers
+function decodeHtml(html) {
+  return String(html || '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#(\d+);/g, function (_, dec) { return String.fromCharCode(parseInt(dec, 10)); })
+    .replace(/&#x([0-9a-fA-F]+);/g, function (_, hex) { return String.fromCharCode(parseInt(hex, 16)); });
+}
+
+function stripTags(html) {
+  return decodeHtml(String(html || '').replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Quality & Metadata Detectors
+function getQualityFromTitle(title) {
+  var upper = String(title || '').toUpperCase();
+  if (/\b(2160P|4K|UHD)\b/.test(upper)) return '4K';
+  if (/\b(1440P|2K)\b/.test(upper)) return '1440p';
+  if (/\b(1080P|FHD|FULLHD)\b/.test(upper)) return '1080p';
+  if (/\b(720P|HDTV|WEBRIP|WEB-DL|HD)\b/.test(upper)) return '720p';
+  if (/\b(576P|DVDRIP|DVD)\b/.test(upper)) return '576p';
+  if (/\b480P\b/.test(upper)) return '480p';
+  if (/\b(CAM|TS|HDCAM)\b/.test(upper)) return 'CAM';
+  return '720p';
+}
+
+function buildMagnet(infoHash, name) {
+  var hash = String(infoHash || '').trim();
+  if (!/^[a-f0-9]{40}$/i.test(hash)) return null;
+  return 'magnet:?xt=urn:btih:' + hash + '&dn=' + encodeURIComponent(name || 'SkTorrent') + '&tr=' + encodeURIComponent(SKTORRENT_TRACKER);
+}
+
+function parseTorrentBlocks(html) {
+  var torrents = [];
+  var cellRegex = /<td\b[^>]*class\s*=\s*["']?lista["']?[^>]*>([\s\S]*?)(?=<td\b[^>]*class\s*=\s*["']?lista["']?|<\/tr>|<\/table>|$)/ig;
+  var block;
+
+  while ((block = cellRegex.exec(html)) !== null) {
+    var content = block[1];
+    var hashMatch = content.match(/details\.php\?[^"\s>]*?id=([a-f0-9]{40})/i);
+    if (!hashMatch) continue;
+
+    var linkMatch = content.match(/<a\b[^>]*href\s*=\s*["']?details\.php[^>]*>([\s\S]*?)<\/a>/i);
+    var titleAttr = linkMatch && linkMatch[0].match(/\btitle\s*=\s*["']([^"']+)["']/i);
+    
+    var torrentTitle = stripTags(linkMatch && linkMatch[1]);
+    if (!torrentTitle && titleAttr) {
+      torrentTitle = titleAttr[1].replace(/^Stiahni si\s+/i, '');
+    }
+    if (!torrentTitle) continue;
+
+    var sizeMatch = content.match(/Velkost\s+([^|<]+)/i);
+    var seedsMatch = content.match(/Odosielaju\s*:\s*(\d+)/i);
+    var peersMatch = content.match(/Stahuju\s*:\s*(\d+)/i);
+
+    var sizeStr = sizeMatch ? decodeHtml(sizeMatch[1]).trim() : 'Unknown';
+
+    torrents.push({
+      infoHash: hashMatch[1].toLowerCase(),
+      title: torrentTitle,
+      size: sizeStr,
+      seeds: seedsMatch ? parseInt(seedsMatch[1], 10) : 0,
+      peers: peersMatch ? parseInt(peersMatch[1], 10) : 0
+    });
+  }
+  return torrents;
+}
+
+// Media Info Resolvers
+function resolveMediaDetails(tmdbId, mediaType) {
+  var cinemetaType = mediaType === 'tv' ? 'series' : 'movie';
+  var url = 'https://v3-cinemeta.strem.io/meta/' + cinemetaType + '/' + tmdbId + '.json';
+
+  return fetchJson(url)
+    .then(function (data) {
+      if (data && data.meta) {
+        return {
+          title: data.meta.name,
+          year: data.meta.year ? parseInt(data.meta.year, 10) : null
+        };
+      }
+      return null;
+    })
+    .catch(function () {
+      return null;
+    });
+}
+
+function buildQuery(title, year, mediaType, season, episode) {
+  var cleanTitle = title.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+  
+  if (mediaType === 'tv' && season && episode) {
+    var s = String(season).padStart(2, '0');
+    var e = String(episode).padStart(2, '0');
+    return cleanTitle + ' S' + s + 'E' + e;
+  }
+  
+  if (year) {
+    return cleanTitle + ' ' + year;
+  }
+  
+  return cleanTitle;
+}
+
+// ============================================================================
+// Nuvio Main Entry Point
+// ============================================================================
+function getStreams(tmdbId, mediaType, season, episode) {
+  log('Searching streams for TMDB ID: ' + tmdbId + ' (' + mediaType + ')');
+
+  return resolveMediaDetails(tmdbId, mediaType)
+    .then(function (meta) {
+      if (!meta || !meta.title) {
+        log('Failed to resolve title for TMDB ID: ' + tmdbId);
+        return [];
+      }
+
+      var searchQuery = buildQuery(meta.title, meta.year, mediaType, season, episode);
+      var searchUrl = SKTORRENT_BASE + '/torrents_v2.php?search=' + encodeURIComponent(searchQuery);
+
+      log('Querying SkTorrent: ' + searchQuery);
+      return fetchText(searchUrl);
+    })
+    .then(function (html) {
+      if (!html) return [];
+
+      var torrents = parseTorrentBlocks(html);
+      log('Found ' + torrents.length + ' raw torrent results');
+
+      var streams = [];
+      for (var i = 0; i < torrents.length; i++) {
+        var t = torrents[i];
+        var magnet = buildMagnet(t.infoHash, t.title);
+        if (!magnet) continue;
+
+        var quality = getQualityFromTitle(t.title);
+
+        streams.push({
+          name: 'SkTorrent • ' + quality,
+          title: t.title + '\n👤 Seeders: ' + t.seeds + ' | Peer: ' + t.peers + ' | 💾 ' + t.size,
+          url: magnet,
+          quality: quality,
+          size: t.size
+        });
+      }
+
+      return streams;
+    })
+    .catch(function (err) {
+      log('Error during stream extraction: ' + err.message);
+      return [];
+    });
+}
+
+// Nuvio Module Export Specification
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
+  module.exports = { getStreams: getStreams };
 } else {
-  global.getStreams = getStreams;
+  globalThis.getStreams = getStreams;
 }

@@ -90,7 +90,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? "tv" : "movie"}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
     try {
-      // 1. Fetch metadata from TMDB
+      // 1. Fetch metadata from TMDB upfront
       const meta = yield fetch(tmdbUrl).then(r => r.json()).catch(() => null);
       const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id || tmdbId;
       const titleName = meta?.title || meta?.name || "Unknown Title";
@@ -98,7 +98,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         ? meta.release_date.split("-")[0]
         : (meta?.first_air_date ? meta.first_air_date.split("-")[0] : "2026");
 
-      // 2. Query Torrentio API endpoint with Debrid path segment
+      // 2. Query Torrentio API endpoint with optional Debrid path segment
       const debridSegment = getDebridPathSegment();
       const configPath = debridSegment ? `${debridSegment}/` : "";
       const streamType = isSeries ? `series/${imdbId}:${season || 1}:${episode || 1}` : `movie/${imdbId}`;
@@ -108,23 +108,25 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
       if (!data?.streams || data.streams.length === 0) return [];
 
       const result = [];
-      const { provider: activeProvider } = getDebridSettings();
 
-      // 3. Process Streams
+      // 3. Loop through streams and parse details
       data.streams.slice(0, 15).forEach(item => {
         if (!item) return;
 
         const rawText = (item.title || "").replace(/\n/g, " ");
         const cleanText = rawText.toUpperCase();
 
+        // Extract Seeders
         const seeders = rawText.match(/👤\s*(\d+)/)?.[1] || "0";
 
+        // Extract File Size
         let sizeStr = "Unknown Size";
         const sizeMatch = rawText.match(/([0-9.]+ ?[GM]B)/i);
         if (sizeMatch) {
           sizeStr = sizeMatch[1].toUpperCase();
         }
 
+        // Resolution & Custom Quality Emojis
         let res = "1080p";
         let qualityEmoji = "💎";
         if (cleanText.includes("2160P") || cleanText.includes("4K")) {
@@ -141,11 +143,13 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
           qualityEmoji = "📱";
         }
 
+        // Audio Tag Processing
         let audioTag = "English";
         if (cleanText.includes("DUAL") || cleanText.includes("DUAL-AUDIO")) audioTag = "Dual-Audio";
         else if (cleanText.includes("MULTI") || cleanText.includes("MULTILANG") || cleanText.includes("MULTI-AUDIO")) audioTag = "Multi-Audio";
         else if (cleanText.includes("HINDI")) audioTag = "Hindi";
 
+        // Video Tech Tags
         const techTags = [];
         if (cleanText.includes("DV") || cleanText.includes("DOLBY VISION")) techTags.push("DV");
         if (cleanText.includes("HDR10+")) techTags.push("HDR10+");
@@ -156,17 +160,28 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         techTags.push(audioTag);
         const restOfTitle = techTags.join(" • ");
 
-        let detectedProvider = activeProvider !== "none" ? activeProvider.toUpperCase() : PROVIDER_NAME;
+        // --- RESTORED EXACT ORIGINAL PROVIDER FILTERING ---
+        let detectedProvider = PROVIDER_NAME;
         const providerMatch = rawText.match(/\[(.*?)\]/);
         if (providerMatch && providerMatch[1]) {
           const candidate = providerMatch[1].trim();
+          // Skip match if it leaks video tags instead of real providers
           if (!/\d+P|HEVC|H264|WEB|BLURAY/i.test(candidate)) {
             detectedProvider = candidate;
           }
         }
+        if (detectedProvider === PROVIDER_NAME) {
+          if (cleanText.includes("RARBG")) detectedProvider = "RARBG";
+          else if (cleanText.includes("YTS")) detectedProvider = "YTS";
+          else if (cleanText.includes("PIRATEBAY") || cleanText.includes("TPB")) detectedProvider = "ThePirateBay";
+          else if (cleanText.includes("1337X")) detectedProvider = "1337x";
+          else if (cleanText.includes("EZTV")) detectedProvider = "EZTV";
+          else if (cleanText.includes("TGX")) detectedProvider = "TGX";
+        }
 
         const streamLink = item.url || (item.infoHash ? buildMagnet(item.infoHash) : "");
 
+        // Targeted Presentation Layout
         const line1 = isSeries ? `🎦 ${titleName} | S${season || 1} E${episode || 1}` : `🎬 ${titleName} - ${releaseYear}`;
         const line2 = `${qualityEmoji} ${res} | ${restOfTitle}`;
         const line3 = `👥 ${seeders} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;

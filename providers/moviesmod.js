@@ -14,15 +14,12 @@ async function onSettings() {
 const PROVIDER_NAME = "MovieBox";
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 
-// Helper function to build the base MovieBox URL dynamically
-function getMovieBoxBaseUrl(token) {
-    const config = {
-        source_moviebox: "on",
-        res_1080: "on",
-        disable_direct: "on",
-        auth_token: token || ""
-    };
-    return `https://pengu.uk/${encodeURIComponent(JSON.stringify(config))}`;
+// Updated target host configuration
+const BASE_MANIFEST_URL = "https://moviebox-cfa7.onrender.com/eyJyZXNvbHV0aW9uIjpbIjEwODBwIl0sImxhbmd1YWdlIjpbImVuIiwiaGkiLCJvcmlnIl0sInByb3h5X3VybCI6IiIsInByb3ZpZGVycyI6WyJtb2JpbGUiLCJ3ZWIiLCJsZWdhY3kiXSwibmFtZV90ZW1wbGF0ZSI6IvCfjqUgKip7cmVzb2x1dGlvbn0qKiIsInRpdGxlX3RlbXBsYXRlIjoi8J-UiiB7YXVkaW99IHwg8J-SviAqe3NpemV9KlxcbvCfkqwgU3Viczoge3N1YnRpdGxlc30ifQ";
+
+// Helper function to build the base MovieBox URL
+function getMovieBoxBaseUrl() {
+    return BASE_MANIFEST_URL;
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -33,10 +30,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const settings = globalThis.SCRAPER_SETTINGS || {};
     const showEnglish = settings.langEnglish !== false;
     const showHindi = settings.langHindi !== false;
-    const userAuthToken = settings.authToken ? settings.authToken.trim() : "";
 
-    // Dynamically construct the base URL using the user's saved auth token
-    const movieboxBase = getMovieBoxBaseUrl(userAuthToken);
+    // Base URL pointing to the specified host endpoint
+    const movieboxBase = getMovieBoxBaseUrl();
 
     // 2. Fetch metadata from TMDB
     const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
@@ -45,7 +41,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const titleName = meta?.title || meta?.name || "Movie/Show";
     const releaseYear = meta?.release_date ? meta.release_date.split('-')[0] : (meta?.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
 
-    // 3. Fetch the stream data from your dynamic MovieBox URL endpoint
+    // 3. Fetch the stream data from your updated MovieBox Stremio manifest route
     const streamUrl = isSeries 
       ? `${movieboxBase}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
       : `${movieboxBase}/stream/movie/${imdbId}.json`;
@@ -60,7 +56,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       if (!s) return;
       const titleText = (s.title || s.description || s.name || "").toLowerCase();
       
-      let detectedLang = "English 🇺🇲";
+      let detectedLang = "English 🇺🇸";
       let isHindiStream = false;
       
       if (/hindi|hin|dual/.test(titleText)) {
@@ -131,7 +127,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
           behaviorHints: {
             proxyHeaders: {
               request: {
-                "Referer": "https://stremio-moviebox-1.onrender.com/"
+                "Referer": "https://moviebox-cfa7.onrender.com/"
               }
             }
           }

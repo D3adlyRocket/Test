@@ -16,24 +16,50 @@ const TRACKERS = [
   "udp://exodus.desync.com:6969/announce"
 ];
 
-/**
- * Handle configuration settings provided by the app / user UI
- * @param {Object} settings
- * @param {string} [settings.debridProvider] - realdebrid|premiumize|alldebrid|debridlink|easydebrid|offcloud|torbox|putio|none
- * @param {string} [settings.debridKey] - User API Key / Token
- */
+// 1. DEFINE THE UI SETTINGS SCHEMA (tells the app what to render in the settings dialog)
+const settings = [
+  {
+    key: "debridProvider",
+    label: "Debrid Provider",
+    type: "select",
+    default: "none",
+    options: [
+      { label: "None", value: "none" },
+      { label: "RealDebrid", value: "realdebrid" },
+      { label: "Premiumize", value: "premiumize" },
+      { label: "AllDebrid", value: "alldebrid" },
+      { label: "DebridLink", value: "debridlink" },
+      { label: "EasyDebrid", value: "easydebrid" },
+      { label: "Offcloud", value: "offcloud" },
+      { label: "TorBox", value: "torbox" },
+      { label: "Put.io", value: "putio" }
+    ]
+  },
+  {
+    key: "debridKey",
+    label: "API Key / Token",
+    type: "text",
+    default: "",
+    placeholder: "Enter your Debrid API key"
+  }
+];
+
+// Active state holder
 let userSettings = {
   debridProvider: "none",
   debridKey: ""
 };
 
-function onSettings(settings = {}) {
-  if (typeof settings === "object" && settings !== null) {
-    if (settings.debridProvider) {
-      userSettings.debridProvider = String(settings.debridProvider).toLowerCase();
+/**
+ * Called by the app framework whenever settings are loaded or changed by the user
+ */
+function onSettings(newSettings = {}) {
+  if (typeof newSettings === "object" && newSettings !== null) {
+    if (newSettings.debridProvider) {
+      userSettings.debridProvider = String(newSettings.debridProvider).toLowerCase();
     }
-    if (settings.debridKey) {
-      userSettings.debridKey = String(settings.debridKey).trim();
+    if (newSettings.debridKey) {
+      userSettings.debridKey = String(newSettings.debridKey).trim();
     }
   }
 }
@@ -44,9 +70,6 @@ function buildMagnet(infoHash) {
   return `magnet:?xt=urn:btih:${infoHash}${tr}`;
 }
 
-/**
- * Builds the URL path prefix for Torrentio options
- */
 function getDebridPathSegment() {
   const provider = userSettings.debridProvider;
   const key = userSettings.debridKey;
@@ -55,20 +78,7 @@ function getDebridPathSegment() {
     return "";
   }
 
-  // Maps provider UI names to Torrentio's expected URL format
-  const providerMap = {
-    realdebrid: "realdebrid",
-    premiumize: "premiumize",
-    alldebrid: "alldebrid",
-    debridlink: "debridlink",
-    easydebrid: "easydebrid",
-    offcloud: "offcloud",
-    torbox: "torbox",
-    putio: "putio"
-  };
-
-  const mappedProvider = providerMap[provider] || provider;
-  return `${mappedProvider}=${key}`;
+  return `${provider}=${key}`;
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -76,7 +86,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? "tv" : "movie"}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
   try {
-    // 1. Fetch metadata from TMDB
     const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
     const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id || tmdbId;
     const titleName = meta?.title || meta?.name || "Unknown Title";
@@ -84,7 +93,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       ? meta.release_date.split("-")[0]
       : (meta?.first_air_date ? meta.first_air_date.split("-")[0] : "2026");
 
-    // 2. Query Torrentio API endpoint with optional Debrid Configuration
     const debridSegment = getDebridPathSegment();
     const configPath = debridSegment ? `${debridSegment}/` : "";
     const streamType = isSeries ? `series/${imdbId}:${season || 1}:${episode || 1}` : `movie/${imdbId}`;
@@ -95,24 +103,20 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
     const result = [];
 
-    // 3. Loop through streams and parse metadata
     data.streams.slice(0, 15).forEach(item => {
       if (!item) return;
 
       const rawText = (item.title || "").replace(/\n/g, " ");
       const cleanText = rawText.toUpperCase();
 
-      // Extract Seeders
       const seeders = rawText.match(/👤\s*(\d+)/)?.[1] || "0";
 
-      // Extract File Size
       let sizeStr = "Unknown Size";
       const sizeMatch = rawText.match(/([0-9.]+ ?[GM]B)/i);
       if (sizeMatch) {
         sizeStr = sizeMatch[1].toUpperCase();
       }
 
-      // Resolution & Custom Quality Emojis
       let res = "1080p";
       let qualityEmoji = "💎";
       if (cleanText.includes("2160P") || cleanText.includes("4K")) {
@@ -129,13 +133,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         qualityEmoji = "📱";
       }
 
-      // Audio Tag Processing
       let audioTag = "English";
       if (cleanText.includes("DUAL") || cleanText.includes("DUAL-AUDIO")) audioTag = "Dual-Audio";
       else if (cleanText.includes("MULTI") || cleanText.includes("MULTILANG") || cleanText.includes("MULTI-AUDIO")) audioTag = "Multi-Audio";
       else if (cleanText.includes("HINDI")) audioTag = "Hindi";
 
-      // Video Tech Tags
       const techTags = [];
       if (cleanText.includes("DV") || cleanText.includes("DOLBY VISION")) techTags.push("DV");
       if (cleanText.includes("HDR10+")) techTags.push("HDR10+");
@@ -146,7 +148,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       techTags.push(audioTag);
       const restOfTitle = techTags.join(" • ");
 
-      // Provider Detection
       let detectedProvider = userSettings.debridProvider !== "none" ? userSettings.debridProvider.toUpperCase() : PROVIDER_NAME;
       const providerMatch = rawText.match(/\[(.*?)\]/);
       if (providerMatch && providerMatch[1]) {
@@ -156,10 +157,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         }
       }
 
-      // Determine stream playback link (Debrid HTTP stream URL vs Magnet URI)
       const streamLink = item.url || (item.infoHash ? buildMagnet(item.infoHash) : "");
 
-      // Layout Formatting
       const line1 = isSeries ? `🎦 ${titleName} | S${season || 1} E${episode || 1}` : `🎬 ${titleName} - ${releaseYear}`;
       const line2 = `${qualityEmoji} ${res} | ${restOfTitle}`;
       const line3 = `👥 ${seeders} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
@@ -181,9 +180,11 @@ async function getStreams(tmdbId, mediaType, season, episode) {
   }
 }
 
+// 2. EXPORT THE SCHEMA alongside functions so the app can register the settings UI
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getStreams, onSettings };
+  module.exports = { getStreams, onSettings, settings };
 } else {
   global.getStreams = getStreams;
   global.onSettings = onSettings;
+  global.settings = settings;
 }

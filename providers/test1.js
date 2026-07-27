@@ -103,13 +103,6 @@ function getQualityRank(res) {
   return 0;
 }
 
-// Inverts numeric values so A-Z string sorting places highest values at the top
-function getInvertedSortPrefix(value, maxBaseline = 9999999, length = 8) {
-  const safeVal = Math.max(0, parseInt(value, 10) || 0);
-  const inverted = Math.max(0, maxBaseline - safeVal);
-  return String(inverted).padStart(length, '0');
-}
-
 // --- MAIN STREAM SCRAPER ---
 
 function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, userSettings = null) {
@@ -233,19 +226,14 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const line3 = `👤 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
-        // Compute Inverted A-Z Sort Key based on user's selected preference
-        let sortKeyPrefix = "";
-        if (settings.sortBy === "size") {
-          // Inverted rank for size (in MB units)
-          const sizeInMB = Math.floor(sizeBytes / (1024 * 1024));
-          sortKeyPrefix = getInvertedSortPrefix(sizeInMB, 99999999, 9);
+        // Calculate virtual size weight to force Nuvio's size-sorting engine to follow selected setting
+        let weightByteVal = sizeBytes;
+        if (settings.sortBy === "seeders") {
+          // Multiply seeders by 1 Terabyte weight so higher seeders dominate Nuvio's internal size sort
+          weightByteVal = (seedersNum * 1099511627776) + sizeBytes;
         } else if (settings.sortBy === "quality") {
-          const invQuality = getInvertedSortPrefix(qualityRank, 9, 2);
-          const invSeeds = getInvertedSortPrefix(seedersNum, 999999, 7);
-          sortKeyPrefix = `${invQuality}_${invSeeds}`;
-        } else {
-          // Default: Inverted rank for Most Seeders
-          sortKeyPrefix = getInvertedSortPrefix(seedersNum, 999999, 7);
+          // Weight quality rank heavily, then seeders
+          weightByteVal = (qualityRank * 1099511627776000) + (seedersNum * 1099511627776) + sizeBytes;
         }
 
         parsedStreams.push({
@@ -253,12 +241,17 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           sizeBytes: sizeBytes,
           qualityRank: qualityRank,
           data: {
-            // Invisible sort key prefix forces app's A-Z sorting engine to place highest values first
-            name: `${sortKeyPrefix} | ${PROVIDER_NAME} | 👤 ${seedersNum} | ${res.toUpperCase()}`,
+            name: `${PROVIDER_NAME} | 👤 ${seedersNum} | ${res.toUpperCase()}`,
             title: fullLayout,
             size: fullLayout,
             description: fullLayout,
-            url: streamLink
+            url: streamLink,
+            // Custom properties passed to Nuvio for client-side sorting engine
+            seeders: seedersNum,
+            seeds: seedersNum,
+            sizeBytes: weightByteVal,
+            bytes: weightByteVal,
+            fileSize: weightByteVal
           }
         });
       });

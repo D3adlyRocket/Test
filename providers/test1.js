@@ -45,7 +45,7 @@ function resolveSettings(extraConfig) {
     debridKey: "",
     language: "any",
     minQuality: "any",
-    sortBy: "any"
+    sortBy: "seeders"
   };
 
   try {
@@ -80,12 +80,34 @@ function buildMagnet(infoHash) {
   return `magnet:?xt=urn:btih:${infoHash}${tr}`;
 }
 
+// TorrentClaw pipe-delimited parameter encoder
 function buildPathSegment(settings) {
-  const parts = [];
-  if (settings.debridProvider && settings.debridProvider !== "none" && settings.debridKey) {
-    parts.push(`${settings.debridProvider}=${settings.debridKey}`);
+  const params = [];
+
+  if (settings.sortBy === "seeders") {
+    params.push("sort=seeders");
+  } else if (settings.sortBy === "quality") {
+    params.push("sort=qualityseeders");
+  } else if (settings.sortBy === "size") {
+    params.push("sort=size");
   }
-  return parts.length > 0 ? `${parts.join("|")}/` : "";
+
+  if (settings.minQuality && settings.minQuality !== "any") {
+    const q = settings.minQuality.toLowerCase();
+    if (q.includes("4k")) params.push("qualities=4k");
+    else if (q.includes("1080")) params.push("qualities=4k,1080p");
+    else if (q.includes("720")) params.push("qualities=4k,1080p,720p");
+  }
+
+  if (settings.language && settings.language !== "any") {
+    params.push(`languages=${settings.language.substring(0, 2).toLowerCase()}`);
+  }
+
+  if (settings.debridProvider && settings.debridProvider !== "none" && settings.debridKey) {
+    params.push(`${settings.debridProvider}=${settings.debridKey}`);
+  }
+
+  return params.length > 0 ? `${params.join("|")}/` : "";
 }
 
 function parseSizeBytes(rawText) {
@@ -100,10 +122,10 @@ function parseSizeBytes(rawText) {
 
 function getQualityRank(res) {
   const clean = String(res).toLowerCase();
-  if (clean.includes("2160") || clean.includes("4k")) return 4;
-  if (clean.includes("1080")) return 3;
-  if (clean.includes("720")) return 2;
-  if (clean.includes("480")) return 1;
+  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return 4;
+  if (clean.includes("1080") || clean.includes("fhd")) return 3;
+  if (clean.includes("720") || clean.includes("hd")) return 2;
+  if (clean.includes("480") || clean.includes("sd")) return 1;
   return 0;
 }
 
@@ -117,7 +139,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? "tv" : "movie"}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
     try {
-      // 1. Fetch TMDB details
+      // 1. Metadata request
       const meta = yield fetch(tmdbUrl).then(r => r.json()).catch(() => null);
       const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id || tmdbId;
       const titleName = meta?.title || meta?.name || "Unknown Title";
@@ -125,7 +147,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         ? meta.release_date.split("-")[0]
         : (meta?.first_air_date ? meta.first_air_date.split("-")[0] : "2026");
 
-      // 2. Query TorrentClaw API
+      // 2. Query TorrentClaw endpoint
       const pathSegment = buildPathSegment(settings);
       const streamType = isSeries ? `series/${imdbId}:${season || 1}:${episode || 1}` : `movie/${imdbId}`;
       const streamUrl = `${TORRENTCLAW_API}/${pathSegment}stream/${streamType}.json`;
@@ -135,43 +157,44 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
 
       let parsedStreams = [];
 
-      // 3. Process every stream
+      // 3. Process each stream item
       data.streams.forEach(item => {
         if (!item) return;
 
-        const rawText = (item.title || item.name || item.description || "").replace(/\n/g, " ");
-        const cleanText = rawText.toUpperCase();
+        // Combine all metadata fields to accurately extract quality tags
+        const rawName = item.name || "";
+        const rawTitle = item.title || "";
+        const rawDesc = item.description || "";
+        const combinedText = `${rawName} ${rawTitle} ${rawDesc}`.replace(/\n/g, " ");
+        const cleanText = combinedText.toUpperCase();
 
         // Extract seeders
-        const seedersNum = parseInt(rawText.match(/👤\s*(\d+)/)?.[1] || "0", 10);
+        const seedersNum = parseInt(combinedText.match(/👤\s*(\d+)/)?.[1] || "0", 10);
 
         // Extract size
         let sizeStr = "Unknown Size";
-        const sizeMatch = rawText.match(/([0-9.]+ ?[GM]B)/i);
+        const sizeMatch = combinedText.match(/([0-9.]+ ?[GM]B)/i);
         if (sizeMatch) {
           sizeStr = sizeMatch[1].toUpperCase();
         }
-        const sizeBytes = parseSizeBytes(rawText);
+        const sizeBytes = parseSizeBytes(combinedText);
 
-        // --- ACCURATE RESOLUTION DETECTION ---
-        let res = "Unknown";
+        // --- ACCURATE DYNAMIC RESOLUTION MATCHING ---
+        let res = "1080p";
         let qualityEmoji = "💎";
 
         if (cleanText.includes("2160P") || cleanText.includes("4K") || cleanText.includes("UHD")) {
           res = "2160p";
           qualityEmoji = "🔥";
+        } else if (cleanText.includes("720P") || cleanText.includes(" 720 ") || cleanText.includes("HDTV")) {
+          res = "720p";
+          qualityEmoji = "⚡";
+        } else if (cleanText.includes("480P") || cleanText.includes("SDTV") || cleanText.includes("CAM")) {
+          res = "480p";
+          qualityEmoji = "📱";
         } else if (cleanText.includes("1080P") || cleanText.includes("FHD")) {
           res = "1080p";
           qualityEmoji = "💎";
-        } else if (cleanText.includes("720P") || cleanText.includes("HD")) {
-          res = "720p";
-          qualityEmoji = "⚡";
-        } else if (cleanText.includes("480P") || cleanText.includes("SD")) {
-          res = "480p";
-          qualityEmoji = "📱";
-        } else {
-          // Fallback check if no resolution tag in title
-          res = "1080p";
         }
 
         const qualityRank = getQualityRank(res);
@@ -182,7 +205,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           if (qualityRank < reqRank) return;
         }
 
-        // Language detection
+        // Language matching
         let audioTag = "English";
         if (cleanText.includes("DUAL") || cleanText.includes("DUAL-AUDIO")) audioTag = "Dual-Audio";
         else if (cleanText.includes("MULTI") || cleanText.includes("MULTILANG") || cleanText.includes("MULTI-AUDIO")) audioTag = "Multi-Audio";
@@ -196,7 +219,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           }
         }
 
-        // Technical tags
+        // Tech tags
         const techTags = [];
         if (cleanText.includes("DV") || cleanText.includes("DOLBY VISION")) techTags.push("DV");
         if (cleanText.includes("HDR10+")) techTags.push("HDR10+");
@@ -209,21 +232,12 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
 
         // Provider Detection
         let detectedProvider = PROVIDER_NAME;
-        const providerMatch = rawText.match(/\[(.*?)\]/);
+        const providerMatch = combinedText.match(/\[(.*?)\]/);
         if (providerMatch && providerMatch[1]) {
           const candidate = providerMatch[1].trim();
           if (!/\d+P|HEVC|H264|WEB|BLURAY/i.test(candidate)) {
             detectedProvider = candidate;
           }
-        }
-        if (detectedProvider === PROVIDER_NAME) {
-          if (cleanText.includes("RARBG")) detectedProvider = "RARBG";
-          else if (cleanText.includes("YTS")) detectedProvider = "YTS";
-          else if (cleanText.includes("PIRATEBAY") || cleanText.includes("TPB")) detectedProvider = "ThePirateBay";
-          else if (cleanText.includes("1337X")) detectedProvider = "1337x";
-          else if (cleanText.includes("EZTV")) detectedProvider = "EZTV";
-          else if (cleanText.includes("TGX")) detectedProvider = "TGX";
-          else if (cleanText.includes("QXR")) detectedProvider = "QxR";
         }
 
         const streamLink = item.url || (item.infoHash ? buildMagnet(item.infoHash) : "");
@@ -249,26 +263,21 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         });
       });
 
-      // --- GUARANTEED DESCENDING SORTING ---
-      if (settings.sortBy === "seeders") {
-        // High seeders to Low seeders
-        parsedStreams.sort((a, b) => b.seeders - a.seeders);
-      } else if (settings.sortBy === "quality") {
-        // High quality rank to Low quality rank
+      // 4. CLIENT SORTING LOGIC
+      if (settings.sortBy === "quality") {
         parsedStreams.sort((a, b) => b.qualityRank - a.qualityRank || b.seeders - a.seeders);
       } else if (settings.sortBy === "size") {
-        // High size to Low size
         parsedStreams.sort((a, b) => b.sizeBytes - a.sizeBytes);
       } else {
-        // Default: Sort by highest seeders descending
+        // Default: Sort by seeders descending
         parsedStreams.sort((a, b) => b.seeders - a.seeders);
       }
 
-      // Float preferred language items to the top if set
       if (settings.language && settings.language !== "any") {
         parsedStreams.sort((a, b) => (b.isPreferredLanguage ? 1 : 0) - (a.isPreferredLanguage ? 1 : 0));
       }
 
+      // Map stream objects
       return parsedStreams.map(item => item.data);
     } catch (err) {
       console.error(`[${PROVIDER_NAME}] Execution error:`, err);
@@ -360,8 +369,7 @@ function onSettings() {
           { label: "Any", value: "any" },
           { label: "Quality Score (default)", value: "quality" },
           { label: "Most Seeders", value: "seeders" },
-          { label: "Largest Size", value: "size" },
-          { label: "Most Recent", value: "recent" }
+          { label: "Largest Size", value: "size" }
         ],
         default: "seeders"
       }

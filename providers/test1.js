@@ -80,7 +80,6 @@ function buildMagnet(infoHash) {
   return `magnet:?xt=urn:btih:${infoHash}${tr}`;
 }
 
-// Extract pure numeric bytes for strict size comparisons
 function parseSizeBytes(rawText, item) {
   if (typeof item?.size === "number" && item.size > 0) return Math.floor(item.size);
   if (typeof item?.bytes === "number" && item.bytes > 0) return Math.floor(item.bytes);
@@ -104,10 +103,11 @@ function getQualityRank(res) {
   return 0;
 }
 
-// Pad numbers with leading zeros so string/alphanumeric sorts behave like true numeric sorts
-function padDigits(num, digits = 8) {
-  const val = String(Math.max(0, parseInt(num, 10) || 0));
-  return val.padStart(digits, '0');
+// Inverts numeric values so A-Z string sorting places highest values at the top
+function getInvertedSortPrefix(value, maxBaseline = 9999999, length = 8) {
+  const safeVal = Math.max(0, parseInt(value, 10) || 0);
+  const inverted = Math.max(0, maxBaseline - safeVal);
+  return String(inverted).padStart(length, '0');
 }
 
 // --- MAIN STREAM SCRAPER ---
@@ -233,29 +233,37 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const line3 = `👤 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
+        // Compute Inverted A-Z Sort Key based on user's selected preference
+        let sortKeyPrefix = "";
+        if (settings.sortBy === "size") {
+          // Inverted rank for size (in MB units)
+          const sizeInMB = Math.floor(sizeBytes / (1024 * 1024));
+          sortKeyPrefix = getInvertedSortPrefix(sizeInMB, 99999999, 9);
+        } else if (settings.sortBy === "quality") {
+          const invQuality = getInvertedSortPrefix(qualityRank, 9, 2);
+          const invSeeds = getInvertedSortPrefix(seedersNum, 999999, 7);
+          sortKeyPrefix = `${invQuality}_${invSeeds}`;
+        } else {
+          // Default: Inverted rank for Most Seeders
+          sortKeyPrefix = getInvertedSortPrefix(seedersNum, 999999, 7);
+        }
+
         parsedStreams.push({
           seeders: seedersNum,
           sizeBytes: sizeBytes,
           qualityRank: qualityRank,
-          isPreferredLanguage: isPreferredLanguage,
           data: {
-            name: `${PROVIDER_NAME} | 👤 ${seedersNum} | ${res.toUpperCase()}`,
+            // Invisible sort key prefix forces app's A-Z sorting engine to place highest values first
+            name: `${sortKeyPrefix} | ${PROVIDER_NAME} | 👤 ${seedersNum} | ${res.toUpperCase()}`,
             title: fullLayout,
             size: fullLayout,
             description: fullLayout,
-            url: streamLink,
-            // Internal metadata fields for host app sorting
-            seeders: seedersNum,
-            seeds: seedersNum,
-            bytes: sizeBytes,
-            // Fixed-width padded strings to override string/alphanumeric UI sorting
-            sortSeedersPadded: padDigits(seedersNum, 8),
-            sortSizeBytesPadded: padDigits(sizeBytes, 15)
+            url: streamLink
           }
         });
       });
 
-      // Pure numerical sort
+      // Internal JS Array Sort
       parsedStreams.sort((a, b) => {
         if (settings.sortBy === "size") {
           return b.sizeBytes - a.sizeBytes;

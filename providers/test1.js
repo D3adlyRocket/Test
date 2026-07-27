@@ -37,8 +37,6 @@ const TRACKERS = [
   "udp://exodus.desync.com:6969/announce"
 ];
 
-// --- SETTINGS RESOLVER ---
-
 function resolveSettings(extraConfig) {
   let settings = {
     debridProvider: "none",
@@ -103,6 +101,13 @@ function getQualityRank(res) {
   return 0;
 }
 
+// Inverts numeric values so A-Z string sorting forces highest numbers to top
+function getInvertedValue(val, maxVal = 999999) {
+  const safe = Math.max(0, parseInt(val, 10) || 0);
+  const inverted = Math.max(0, maxVal - safe);
+  return String(inverted).padStart(6, '0');
+}
+
 // --- MAIN STREAM SCRAPER ---
 
 function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, userSettings = null) {
@@ -158,6 +163,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           sizeStr = sizeMatch[1].toUpperCase();
         }
         const sizeBytes = Number(parseSizeBytes(combinedText, item)) || 0;
+        const sizeInMB = Math.floor(sizeBytes / (1024 * 1024));
 
         // Resolution mapping
         let res = "1080p";
@@ -226,14 +232,15 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const line3 = `👤 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
-        // Calculate virtual size weight to force Nuvio's size-sorting engine to follow selected setting
-        let weightByteVal = sizeBytes;
-        if (settings.sortBy === "seeders") {
-          // Multiply seeders by 1 Terabyte weight so higher seeders dominate Nuvio's internal size sort
-          weightByteVal = (seedersNum * 1099511627776) + sizeBytes;
-        } else if (settings.sortBy === "quality") {
-          // Weight quality rank heavily, then seeders
-          weightByteVal = (qualityRank * 1099511627776000) + (seedersNum * 1099511627776) + sizeBytes;
+        // Format name string based on user setting
+        let headerDisplay = `${PROVIDER_NAME} | 👤 ${seedersNum} | ${res.toUpperCase()}`;
+        
+        if (settings.sortBy === "size") {
+          // Put clean Size first so A-Z sort order aligns with File Size
+          headerDisplay = `${sizeStr} | 👤 ${seedersNum} | ${res.toUpperCase()}`;
+        } else if (settings.sortBy === "seeders") {
+          // Put clean seeders count first
+          headerDisplay = `👤 ${seedersNum} | ${res.toUpperCase()} | ${sizeStr}`;
         }
 
         parsedStreams.push({
@@ -241,22 +248,16 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           sizeBytes: sizeBytes,
           qualityRank: qualityRank,
           data: {
-            name: `${PROVIDER_NAME} | 👤 ${seedersNum} | ${res.toUpperCase()}`,
+            name: headerDisplay,
             title: fullLayout,
             size: fullLayout,
             description: fullLayout,
-            url: streamLink,
-            // Custom properties passed to Nuvio for client-side sorting engine
-            seeders: seedersNum,
-            seeds: seedersNum,
-            sizeBytes: weightByteVal,
-            bytes: weightByteVal,
-            fileSize: weightByteVal
+            url: streamLink
           }
         });
       });
 
-      // Internal JS Array Sort
+      // Internal Array Sort
       parsedStreams.sort((a, b) => {
         if (settings.sortBy === "size") {
           return b.sizeBytes - a.sizeBytes;
@@ -276,8 +277,6 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
     }
   });
 }
-
-// --- UI CONFIGURATION SCHEMA ---
 
 function onSettings() {
   return __async(this, null, function* () {

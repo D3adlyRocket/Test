@@ -80,7 +80,7 @@ function buildMagnet(infoHash) {
   return `magnet:?xt=urn:btih:${infoHash}${tr}`;
 }
 
-// TorrentClaw pipe-delimited parameter encoder
+// Pipe-delimited parameter builder for TorrentClaw server-side requests
 function buildPathSegment(settings) {
   const params = [];
 
@@ -110,7 +110,8 @@ function buildPathSegment(settings) {
   return params.length > 0 ? `${params.join("|")}/` : "";
 }
 
-function parseSizeBytes(rawText) {
+function parseSizeBytes(rawText, item) {
+  if (typeof item?.size === "number" && item.size > 0) return item.size;
   const match = rawText.match(/([0-9.]+)\s*([GM]B)/i);
   if (!match) return 0;
   const num = parseFloat(match[1]);
@@ -139,7 +140,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? "tv" : "movie"}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
     try {
-      // 1. Metadata request
+      // 1. Fetch metadata
       const meta = yield fetch(tmdbUrl).then(r => r.json()).catch(() => null);
       const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id || tmdbId;
       const titleName = meta?.title || meta?.name || "Unknown Title";
@@ -157,29 +158,38 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
 
       let parsedStreams = [];
 
-      // 3. Process each stream item
+      // 3. Process each stream
       data.streams.forEach(item => {
         if (!item) return;
 
-        // Combine all metadata fields to accurately extract quality tags
         const rawName = item.name || "";
         const rawTitle = item.title || "";
         const rawDesc = item.description || "";
         const combinedText = `${rawName} ${rawTitle} ${rawDesc}`.replace(/\n/g, " ");
         const cleanText = combinedText.toUpperCase();
 
-        // Extract seeders
-        const seedersNum = parseInt(combinedText.match(/👤\s*(\d+)/)?.[1] || "0", 10);
+        // Robust seeder parsing (direct JSON field first, then regex)
+        let seedersNum = 0;
+        if (typeof item.seeders === "number") seedersNum = item.seeders;
+        else if (typeof item.seeds === "number") seedersNum = item.seeds;
+        else {
+          seedersNum = parseInt(
+            combinedText.match(/👤\s*(\d+)/)?.[1] || 
+            combinedText.match(/👥\s*(\d+)/)?.[1] || 
+            combinedText.match(/(\d+)\s*seed/i)?.[1] || "0", 
+            10
+          );
+        }
 
-        // Extract size
+        // Size parsing
         let sizeStr = "Unknown Size";
         const sizeMatch = combinedText.match(/([0-9.]+ ?[GM]B)/i);
         if (sizeMatch) {
           sizeStr = sizeMatch[1].toUpperCase();
         }
-        const sizeBytes = parseSizeBytes(combinedText);
+        const sizeBytes = parseSizeBytes(combinedText, item);
 
-        // --- ACCURATE DYNAMIC RESOLUTION MATCHING ---
+        // Resolution mapping
         let res = "1080p";
         let qualityEmoji = "💎";
 
@@ -214,7 +224,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         let isPreferredLanguage = false;
         if (settings.language && settings.language !== "any") {
           const langCode = settings.language.substring(0, 2).toUpperCase();
-          if (cleanText.includes(langCode) || cleanText.includes(audioTag.toUpperCase())) {
+          if (cleanText.includes(` ${langCode} `) || cleanText.includes(`LANGUAGE: ${langCode}`) || cleanText.includes(audioTag.toUpperCase())) {
             isPreferredLanguage = true;
           }
         }
@@ -245,7 +255,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const line1 = isSeries ? `🎦 ${titleName} | S${season || 1} E${episode || 1}` : `🎬 ${titleName} - ${releaseYear}`;
         const langStar = isPreferredLanguage ? "⭐️ " : "";
         const line2 = `${langStar}${qualityEmoji} ${res} | ${restOfTitle}`;
-        const line3 = `👥 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
+        const line3 = `👤 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
         parsedStreams.push({
@@ -263,21 +273,28 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         });
       });
 
-      // 4. CLIENT SORTING LOGIC
-      if (settings.sortBy === "quality") {
-        parsedStreams.sort((a, b) => b.qualityRank - a.qualityRank || b.seeders - a.seeders);
-      } else if (settings.sortBy === "size") {
-        parsedStreams.sort((a, b) => b.sizeBytes - a.sizeBytes);
-      } else {
-        // Default: Sort by seeders descending
-        parsedStreams.sort((a, b) => b.seeders - a.seeders);
-      }
+      // 4. UNIFIED SINGLE-PASS SORT COMPARATOR
+      parsedStreams.sort((a, b) => {
+        // First priority: Preferred Language (if user set a language filter)
+        if (settings.language && settings.language !== "any") {
+          if (a.isPreferredLanguage !== b.isPreferredLanguage) {
+            return b.isPreferredLanguage ? 1 : -1;
+          }
+        }
 
-      if (settings.language && settings.language !== "any") {
-        parsedStreams.sort((a, b) => (b.isPreferredLanguage ? 1 : 0) - (a.isPreferredLanguage ? 1 : 0));
-      }
+        // Second priority: User-selected primary sort mode
+        if (settings.sortBy === "size") {
+          if (b.sizeBytes !== a.sizeBytes) return b.sizeBytes - a.sizeBytes; // Largest size first
+        } else if (settings.sortBy === "quality") {
+          if (b.qualityRank !== a.qualityRank) return b.qualityRank - a.qualityRank; // Highest quality first
+        } else if (settings.sortBy === "seeders") {
+          if (b.seeders !== a.seeders) return b.seeders - a.seeders; // Most seeders first
+        }
 
-      // Map stream objects
+        // Final Tie-Breaker: Always sort by highest seeders descending
+        return b.seeders - a.seeders;
+      });
+
       return parsedStreams.map(item => item.data);
     } catch (err) {
       console.error(`[${PROVIDER_NAME}] Execution error:`, err);
@@ -366,9 +383,8 @@ function onSettings() {
         key: "sortBy",
         label: "Sort By",
         options: [
-          { label: "Any", value: "any" },
-          { label: "Quality Score (default)", value: "quality" },
-          { label: "Most Seeders", value: "seeders" },
+          { label: "Most Seeders (default)", value: "seeders" },
+          { label: "Quality Score", value: "quality" },
           { label: "Largest Size", value: "size" }
         ],
         default: "seeders"

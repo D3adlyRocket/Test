@@ -101,20 +101,6 @@ function getQualityRank(res) {
   return 0;
 }
 
-// Map 0-9 to unique unicode characters that sort properly but don't look like visible numbers
-const INVISIBLE_DIGITS = [
-  "\u2801", "\u2802", "\u2803", "\u2804", "\u2805", 
-  "\u2806", "\u2807", "\u2808", "\u2809", "\u280A"
-];
-
-function getInvertedSortTag(val, maxBaseline = 999999) {
-  const safeVal = Math.max(0, parseInt(val, 10) || 0);
-  const inverted = Math.max(0, maxBaseline - safeVal);
-  const str = String(inverted).padStart(6, '0');
-  
-  return str.split('').map(digit => INVISIBLE_DIGITS[parseInt(digit, 10)]).join('');
-}
-
 // --- MAIN STREAM SCRAPER ---
 
 function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, userSettings = null) {
@@ -170,7 +156,6 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           sizeStr = sizeMatch[1].toUpperCase();
         }
         const sizeBytes = Number(parseSizeBytes(combinedText, item)) || 0;
-        const sizeInMB = Math.floor(sizeBytes / (1024 * 1024));
 
         // Resolution mapping
         let res = "1080p";
@@ -222,43 +207,23 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         techTags.push(audioTag);
         const restOfTitle = techTags.join(" • ");
 
-        let detectedProvider = PROVIDER_NAME;
-        const providerMatch = combinedText.match(/\[(.*?)\]/);
-        if (providerMatch && providerMatch[1]) {
-          const candidate = providerMatch[1].trim();
-          if (!/\d+P|HEVC|H264|WEB|BLURAY/i.test(candidate)) {
-            detectedProvider = candidate;
-          }
-        }
-
         const streamLink = item.url || (item.infoHash ? buildMagnet(item.infoHash) : "");
 
         const line1 = isSeries ? `🎦 ${titleName} | S${season || 1} E${episode || 1}` : `🎬 ${titleName} - ${releaseYear}`;
         const langStar = isPreferredLanguage ? "⭐️ " : "";
         const line2 = `${langStar}${qualityEmoji} ${res} | ${restOfTitle}`;
-        const line3 = `👤 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
+        const line3 = `🌱 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${PROVIDER_NAME}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
-        // Generate invisible sort tag for client-side sorting
-        let sortTag = "";
-        if (settings.sortBy === "size") {
-          sortTag = getInvertedSortTag(sizeInMB, 999999);
-        } else if (settings.sortBy === "quality") {
-          sortTag = getInvertedSortTag((qualityRank * 10000) + seedersNum, 999999);
-        } else {
-          sortTag = getInvertedSortTag(seedersNum, 999999);
-        }
-
-        // Requested layout: TorrentClaw | Quality | 👤 Seeders
-        const requestedHeader = `${detectedProvider} | ${res.toUpperCase()} | 👤 ${seedersNum}`;
+        // Requested Header Layout: 🦞 TorrentClaw | Quality | 🌱Seeders
+        const headerLayout = `🦞 ${PROVIDER_NAME} | ${res.toUpperCase()} | 🌱${seedersNum}`;
 
         parsedStreams.push({
           seeders: seedersNum,
           sizeBytes: sizeBytes,
           qualityRank: qualityRank,
           data: {
-            // Invisible character prefix forces sorting without displaying bracketed numbers
-            name: `${sortTag}${requestedHeader}`,
+            name: headerLayout,
             title: fullLayout,
             size: fullLayout,
             description: fullLayout,

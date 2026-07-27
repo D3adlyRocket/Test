@@ -80,44 +80,18 @@ function buildMagnet(infoHash) {
   return `magnet:?xt=urn:btih:${infoHash}${tr}`;
 }
 
-// Pipe-delimited parameter builder for TorrentClaw server-side requests
-function buildPathSegment(settings) {
-  const params = [];
-
-  if (settings.sortBy === "seeders") {
-    params.push("sort=seeders");
-  } else if (settings.sortBy === "quality") {
-    params.push("sort=qualityseeders");
-  } else if (settings.sortBy === "size") {
-    params.push("sort=size");
-  }
-
-  if (settings.minQuality && settings.minQuality !== "any") {
-    const q = settings.minQuality.toLowerCase();
-    if (q.includes("4k")) params.push("qualities=4k");
-    else if (q.includes("1080")) params.push("qualities=4k,1080p");
-    else if (q.includes("720")) params.push("qualities=4k,1080p,720p");
-  }
-
-  if (settings.language && settings.language !== "any") {
-    params.push(`languages=${settings.language.substring(0, 2).toLowerCase()}`);
-  }
-
-  if (settings.debridProvider && settings.debridProvider !== "none" && settings.debridKey) {
-    params.push(`${settings.debridProvider}=${settings.debridKey}`);
-  }
-
-  return params.length > 0 ? `${params.join("|")}/` : "";
-}
-
+// Strictly converts size strings ("8.5 GB") to numeric byte integers
 function parseSizeBytes(rawText, item) {
-  if (typeof item?.size === "number" && item.size > 0) return item.size;
-  const match = rawText.match(/([0-9.]+)\s*([GM]B)/i);
+  if (typeof item?.size === "number" && item.size > 0) return Math.floor(item.size);
+  if (typeof item?.bytes === "number" && item.bytes > 0) return Math.floor(item.bytes);
+  
+  const match = String(rawText).match(/([0-9.]+)\s*([GM]B)/i);
   if (!match) return 0;
+  
   const num = parseFloat(match[1]);
   const unit = match[2].toUpperCase();
-  if (unit === "GB") return num * 1024 * 1024 * 1024;
-  if (unit === "MB") return num * 1024 * 1024;
+  if (unit === "GB") return Math.floor(num * 1073741824);
+  if (unit === "MB") return Math.floor(num * 1048576);
   return 0;
 }
 
@@ -140,7 +114,6 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? "tv" : "movie"}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
     try {
-      // 1. Fetch metadata
       const meta = yield fetch(tmdbUrl).then(r => r.json()).catch(() => null);
       const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id || tmdbId;
       const titleName = meta?.title || meta?.name || "Unknown Title";
@@ -148,17 +121,14 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         ? meta.release_date.split("-")[0]
         : (meta?.first_air_date ? meta.first_air_date.split("-")[0] : "2026");
 
-      // 2. Query TorrentClaw endpoint
-      const pathSegment = buildPathSegment(settings);
       const streamType = isSeries ? `series/${imdbId}:${season || 1}:${episode || 1}` : `movie/${imdbId}`;
-      const streamUrl = `${TORRENTCLAW_API}/${pathSegment}stream/${streamType}.json`;
+      const streamUrl = `${TORRENTCLAW_API}/stream/${streamType}.json`;
 
       const data = yield fetch(streamUrl, { headers: HEADERS }).then(r => r.json()).catch(() => null);
-      if (!data?.streams || data.streams.length === 0) return [];
+      if (!data?.streams || !Array.isArray(data.streams) || data.streams.length === 0) return [];
 
       let parsedStreams = [];
 
-      // 3. Process each stream
       data.streams.forEach(item => {
         if (!item) return;
 
@@ -168,26 +138,27 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const combinedText = `${rawName} ${rawTitle} ${rawDesc}`.replace(/\n/g, " ");
         const cleanText = combinedText.toUpperCase();
 
-        // Robust seeder parsing (direct JSON field first, then regex)
+        // STRICT INTEGER CONVERSION FOR SEEDERS
         let seedersNum = 0;
-        if (typeof item.seeders === "number") seedersNum = item.seeders;
-        else if (typeof item.seeds === "number") seedersNum = item.seeds;
+        if (typeof item.seeders === "number") seedersNum = Math.floor(item.seeders);
+        else if (typeof item.seeds === "number") seedersNum = Math.floor(item.seeds);
         else {
-          seedersNum = parseInt(
-            combinedText.match(/👤\s*(\d+)/)?.[1] || 
-            combinedText.match(/👥\s*(\d+)/)?.[1] || 
-            combinedText.match(/(\d+)\s*seed/i)?.[1] || "0", 
-            10
-          );
+          const match = combinedText.match(/👤\s*(\d+)/) || 
+                        combinedText.match(/👥\s*(\d+)/) || 
+                        combinedText.match(/(\d+)\s*seed/i);
+          if (match && match[1]) {
+            seedersNum = parseInt(match[1], 10);
+          }
         }
+        seedersNum = Number(seedersNum) || 0; // Ensure pure primitive number
 
-        // Size parsing
+        // STRICT INTEGER CONVERSION FOR SIZE
         let sizeStr = "Unknown Size";
         const sizeMatch = combinedText.match(/([0-9.]+ ?[GM]B)/i);
         if (sizeMatch) {
           sizeStr = sizeMatch[1].toUpperCase();
         }
-        const sizeBytes = parseSizeBytes(combinedText, item);
+        const sizeBytes = Number(parseSizeBytes(combinedText, item)) || 0;
 
         // Resolution mapping
         let res = "1080p";
@@ -207,9 +178,9 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           qualityEmoji = "💎";
         }
 
-        const qualityRank = getQualityRank(res);
+        const qualityRank = Number(getQualityRank(res)) || 0;
 
-        // CLIENT-SIDE MINIMUM QUALITY FILTER
+        // Minimum Quality Filter
         if (settings.minQuality && settings.minQuality !== "any") {
           const reqRank = getQualityRank(settings.minQuality);
           if (qualityRank < reqRank) return;
@@ -229,7 +200,6 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           }
         }
 
-        // Tech tags
         const techTags = [];
         if (cleanText.includes("DV") || cleanText.includes("DOLBY VISION")) techTags.push("DV");
         if (cleanText.includes("HDR10+")) techTags.push("HDR10+");
@@ -240,7 +210,6 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         techTags.push(audioTag);
         const restOfTitle = techTags.join(" • ");
 
-        // Provider Detection
         let detectedProvider = PROVIDER_NAME;
         const providerMatch = combinedText.match(/\[(.*?)\]/);
         if (providerMatch && providerMatch[1]) {
@@ -273,26 +242,18 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         });
       });
 
-      // 4. UNIFIED SINGLE-PASS SORT COMPARATOR
+      // PURE NUMERIC COMPARATOR (Highest values strictly first)
       parsedStreams.sort((a, b) => {
-        // First priority: Preferred Language (if user set a language filter)
-        if (settings.language && settings.language !== "any") {
-          if (a.isPreferredLanguage !== b.isPreferredLanguage) {
-            return b.isPreferredLanguage ? 1 : -1;
-          }
-        }
-
-        // Second priority: User-selected primary sort mode
         if (settings.sortBy === "size") {
-          if (b.sizeBytes !== a.sizeBytes) return b.sizeBytes - a.sizeBytes; // Largest size first
+          return Number(b.sizeBytes) - Number(a.sizeBytes);
         } else if (settings.sortBy === "quality") {
-          if (b.qualityRank !== a.qualityRank) return b.qualityRank - a.qualityRank; // Highest quality first
-        } else if (settings.sortBy === "seeders") {
-          if (b.seeders !== a.seeders) return b.seeders - a.seeders; // Most seeders first
+          if (b.qualityRank !== a.qualityRank) {
+            return Number(b.qualityRank) - Number(a.qualityRank);
+          }
+          return Number(b.seeders) - Number(a.seeders);
         }
-
-        // Final Tie-Breaker: Always sort by highest seeders descending
-        return b.seeders - a.seeders;
+        // Default: Most Seeders
+        return Number(b.seeders) - Number(a.seeders);
       });
 
       return parsedStreams.map(item => item.data);
@@ -383,7 +344,7 @@ function onSettings() {
         key: "sortBy",
         label: "Sort By",
         options: [
-          { label: "Most Seeders (default)", value: "seeders" },
+          { label: "Most Seeders", value: "seeders" },
           { label: "Quality Score", value: "quality" },
           { label: "Largest Size", value: "size" }
         ],

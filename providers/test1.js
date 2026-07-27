@@ -101,11 +101,27 @@ function getQualityRank(res) {
   return 0;
 }
 
-// Inverts numeric values so A-Z string sorting forces highest numbers to top
-function getInvertedValue(val, maxVal = 999999) {
-  const safe = Math.max(0, parseInt(val, 10) || 0);
-  const inverted = Math.max(0, maxVal - safe);
-  return String(inverted).padStart(6, '0');
+// Converts a number into an invisible character prefix that tricks client-side A-Z sorters
+function getInvisibleSortPrefix(num, maxBaseline = 999999) {
+  const safeVal = Math.max(0, parseInt(num, 10) || 0);
+  const inverted = Math.max(0, maxBaseline - safeVal);
+  const padded = String(inverted).padStart(7, '0');
+  
+  // Map 0-9 to invisible unicode variations (Zero-Width Space, Joiner, Non-Joiner, etc.)
+  const invisibleMap = {
+    '0': '\u200B',
+    '1': '\u200C',
+    '2': '\u200D',
+    '3': '\u2060',
+    '4': '\uFEFF',
+    '5': '\u200E',
+    '6': '\u200F',
+    '7': '\u202A',
+    '8': '\u202B',
+    '9': '\u202C'
+  };
+
+  return padded.split('').map(char => invisibleMap[char] || '\u200B').join('');
 }
 
 // --- MAIN STREAM SCRAPER ---
@@ -232,23 +248,25 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const line3 = `👤 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
-        // Format name string based on user setting
-        let headerDisplay = `${PROVIDER_NAME} | 👤 ${seedersNum} | ${res.toUpperCase()}`;
-        
+        // Compute invisible prefix based on user's sort preference
+        let invPrefix = "";
         if (settings.sortBy === "size") {
-          // Put clean Size first so A-Z sort order aligns with File Size
-          headerDisplay = `${sizeStr} | 👤 ${seedersNum} | ${res.toUpperCase()}`;
-        } else if (settings.sortBy === "seeders") {
-          // Put clean seeders count first
-          headerDisplay = `👤 ${seedersNum} | ${res.toUpperCase()} | ${sizeStr}`;
+          invPrefix = getInvisibleSortPrefix(sizeInMB, 999999);
+        } else if (settings.sortBy === "quality") {
+          invPrefix = getInvisibleSortPrefix((qualityRank * 100000) + seedersNum, 999999);
+        } else {
+          invPrefix = getInvisibleSortPrefix(seedersNum, 999999);
         }
+
+        const visibleHeader = `👤 ${seedersNum} | ${res.toUpperCase()} | ${sizeStr}`;
 
         parsedStreams.push({
           seeders: seedersNum,
           sizeBytes: sizeBytes,
           qualityRank: qualityRank,
           data: {
-            name: headerDisplay,
+            // Invisible character prefix forces Nuvio's client sorter to put highest numbers at top
+            name: `${invPrefix}${visibleHeader}`,
             title: fullLayout,
             size: fullLayout,
             description: fullLayout,
@@ -257,7 +275,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         });
       });
 
-      // Internal Array Sort
+      // Internal JS Array Sort
       parsedStreams.sort((a, b) => {
         if (settings.sortBy === "size") {
           return b.sizeBytes - a.sizeBytes;

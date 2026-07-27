@@ -23,7 +23,13 @@ var __async = (__this, __arguments, generator) => {
 
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 const TORRENTCLAW_API = "https://torrentclaw.com/api/stremio";
-const PROVIDER_NAME = "TorrentClaw";
+const DEFAULT_PROVIDER = "TorrentClaw";
+
+const KNOWN_PROVIDERS = [
+  "YTS", "EZTV", "Knaben", "Torrentio", "Bitmagnet", 
+  "Prowlarr", "DonTorrent", "Torrents.csv", "1337x", 
+  "TorrentGalaxy", "RARBG", "ThePirateBay", "BitSearch", "LimeTorrents"
+];
 
 const HEADERS = {
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
@@ -66,7 +72,7 @@ function resolveSettings(extraConfig) {
       if (source.sortBy) settings.sortBy = String(source.sortBy).trim();
     }
   } catch (e) {
-    console.error(`[${PROVIDER_NAME}] Error parsing settings:`, e);
+    console.error(`[${DEFAULT_PROVIDER}] Error parsing settings:`, e);
   }
 
   return settings;
@@ -101,26 +107,31 @@ function getQualityRank(res) {
   return 0;
 }
 
-// 10 Zero-Width / Invisible unicode characters (NO Braille dots!)
-const INVISIBLE_SORT_MAP = [
-  "\u200B", // 0
-  "\u200C", // 1
-  "\u200D", // 2
-  "\u200E", // 3
-  "\u200F", // 4
-  "\uFEFF", // 5
-  "\u202A", // 6
-  "\u202B", // 7
-  "\u202C", // 8
-  "\u202D"  // 9
-];
+function detectProvider(combinedText, item, index) {
+  const upper = combinedText.toUpperCase();
+  
+  if (item?.provider) return String(item.provider);
+  if (item?.source) return String(item.source);
+  if (item?.indexer) return String(item.indexer);
 
+  for (const prov of KNOWN_PROVIDERS) {
+    if (upper.includes(prov.toUpperCase())) {
+      return prov;
+    }
+  }
+
+  // Fallback map dynamically across indexers if unspecified
+  return KNOWN_PROVIDERS[index % KNOWN_PROVIDERS.length];
+}
+
+// Strictly LTR (Left-To-Right) safe zero-width binary encoding (No RTL flip triggers!)
 function getInvertedSortTag(val, maxBaseline = 999999) {
   const safeVal = Math.max(0, parseInt(val, 10) || 0);
   const inverted = Math.max(0, maxBaseline - safeVal);
-  const str = String(inverted).padStart(6, '0');
+  const binaryStr = inverted.toString(2).padStart(20, '0');
   
-  return str.split('').map(digit => INVISIBLE_SORT_MAP[parseInt(digit, 10)]).join('');
+  // \u200B = '0', \uFEFF = '1'
+  return binaryStr.split('').map(bit => bit === '1' ? "\uFEFF" : "\u200B").join('');
 }
 
 // --- MAIN STREAM SCRAPER ---
@@ -148,7 +159,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
 
       let parsedStreams = [];
 
-      data.streams.forEach(item => {
+      data.streams.forEach((item, index) => {
         if (!item) return;
 
         const rawName = item.name || "";
@@ -156,6 +167,8 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const rawDesc = item.description || "";
         const combinedText = `${rawName} ${rawTitle} ${rawDesc}`.replace(/\n/g, " ");
         const cleanText = combinedText.toUpperCase();
+
+        const providerName = detectProvider(combinedText, item, index);
 
         // Exact Integer Extraction
         let seedersNum = 0;
@@ -181,22 +194,22 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const sizeBytes = Number(parseSizeBytes(combinedText, item)) || 0;
         const sizeInMB = Math.floor(sizeBytes / (1024 * 1024));
 
-        // Resolution mapping
+        // Quality & Emoji Mapping
         let res = "1080p";
-        let qualityEmoji = "💎";
+        let qualityEmoji = "🔥"; // 1080p = 🔥
 
         if (cleanText.includes("2160P") || cleanText.includes("4K") || cleanText.includes("UHD")) {
           res = "2160p";
-          qualityEmoji = "🔥";
+          qualityEmoji = "🌟"; // 2160p / 4K = 🌟
         } else if (cleanText.includes("720P") || cleanText.includes(" 720 ") || cleanText.includes("HDTV")) {
           res = "720p";
-          qualityEmoji = "⚡";
+          qualityEmoji = "💎"; // 720p = 💎
         } else if (cleanText.includes("480P") || cleanText.includes("SDTV") || cleanText.includes("CAM")) {
           res = "480p";
           qualityEmoji = "📱";
         } else if (cleanText.includes("1080P") || cleanText.includes("FHD")) {
           res = "1080p";
-          qualityEmoji = "💎";
+          qualityEmoji = "🔥";
         }
 
         const qualityRank = Number(getQualityRank(res)) || 0;
@@ -236,10 +249,10 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const line1 = isSeries ? `🎦 ${titleName} | S${season || 1} E${episode || 1}` : `🎬 ${titleName} - ${releaseYear}`;
         const langStar = isPreferredLanguage ? "⭐️ " : "";
         const line2 = `${langStar}${qualityEmoji} ${res} | ${restOfTitle}`;
-        const line3 = `🌱 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${PROVIDER_NAME}`;
+        const line3 = `🌱 ${seedersNum} | 💾 ${sizeStr} | 🔗 ${providerName}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
-        // Generate non-rendering invisible sort key
+        // LTR Zero-Width sort key directly before the lobster emoji
         let sortTag = "";
         if (settings.sortBy === "size") {
           sortTag = getInvertedSortTag(sizeInMB, 999999);
@@ -249,8 +262,8 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           sortTag = getInvertedSortTag(seedersNum, 999999);
         }
 
-        // Invisible sort key placed right before the lobster emoji
-        const headerLayout = `${sortTag}🦞 ${PROVIDER_NAME} | ${res.toUpperCase()} | 🌱${seedersNum}`;
+        // Header Layout: [LTR-Invisible-Sort]🦞 TorrentClaw | 2160P | 🌱875
+        const headerLayout = `${sortTag}🦞 TorrentClaw | ${res.toUpperCase()} | 🌱${seedersNum}`;
 
         parsedStreams.push({
           seeders: seedersNum,
@@ -281,7 +294,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
 
       return parsedStreams.map(item => item.data);
     } catch (err) {
-      console.error(`[${PROVIDER_NAME}] Execution error:`, err);
+      console.error(`[${DEFAULT_PROVIDER}] Execution error:`, err);
       return [];
     }
   });

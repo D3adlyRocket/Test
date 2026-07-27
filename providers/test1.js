@@ -101,27 +101,11 @@ function getQualityRank(res) {
   return 0;
 }
 
-// Converts a number into an invisible character prefix that tricks client-side A-Z sorters
-function getInvisibleSortPrefix(num, maxBaseline = 999999) {
-  const safeVal = Math.max(0, parseInt(num, 10) || 0);
+// Fixed 6-digit inverted math prefix so A-Z sorting naturally puts highest values at top
+function getInvertedSortTag(val, maxBaseline = 999999) {
+  const safeVal = Math.max(0, parseInt(val, 10) || 0);
   const inverted = Math.max(0, maxBaseline - safeVal);
-  const padded = String(inverted).padStart(7, '0');
-  
-  // Map 0-9 to invisible unicode variations (Zero-Width Space, Joiner, Non-Joiner, etc.)
-  const invisibleMap = {
-    '0': '\u200B',
-    '1': '\u200C',
-    '2': '\u200D',
-    '3': '\u2060',
-    '4': '\uFEFF',
-    '5': '\u200E',
-    '6': '\u200F',
-    '7': '\u202A',
-    '8': '\u202B',
-    '9': '\u202C'
-  };
-
-  return padded.split('').map(char => invisibleMap[char] || '\u200B').join('');
+  return String(inverted).padStart(6, '0');
 }
 
 // --- MAIN STREAM SCRAPER ---
@@ -248,25 +232,23 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const line3 = `👤 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
-        // Compute invisible prefix based on user's sort preference
-        let invPrefix = "";
+        // Build inverted tag for Nuvio's sorter
+        let sortTag = "";
         if (settings.sortBy === "size") {
-          invPrefix = getInvisibleSortPrefix(sizeInMB, 999999);
+          sortTag = getInvertedSortTag(sizeInMB, 999999);
         } else if (settings.sortBy === "quality") {
-          invPrefix = getInvisibleSortPrefix((qualityRank * 100000) + seedersNum, 999999);
+          sortTag = getInvertedSortTag((qualityRank * 10000) + seedersNum, 999999);
         } else {
-          invPrefix = getInvisibleSortPrefix(seedersNum, 999999);
+          sortTag = getInvertedSortTag(seedersNum, 999999);
         }
-
-        const visibleHeader = `👤 ${seedersNum} | ${res.toUpperCase()} | ${sizeStr}`;
 
         parsedStreams.push({
           seeders: seedersNum,
           sizeBytes: sizeBytes,
           qualityRank: qualityRank,
           data: {
-            // Invisible character prefix forces Nuvio's client sorter to put highest numbers at top
-            name: `${invPrefix}${visibleHeader}`,
+            // [sortTag] forces Nuvio's client-side sorter to rank highest seeders first
+            name: `[${sortTag}] 👤 ${seedersNum} | ${res.toUpperCase()} | ${sizeStr}`,
             title: fullLayout,
             size: fullLayout,
             description: fullLayout,

@@ -101,6 +101,28 @@ function getQualityRank(res) {
   return 0;
 }
 
+// 10 Zero-Width / Invisible unicode characters (NO Braille dots!)
+const INVISIBLE_SORT_MAP = [
+  "\u200B", // 0
+  "\u200C", // 1
+  "\u200D", // 2
+  "\u200E", // 3
+  "\u200F", // 4
+  "\uFEFF", // 5
+  "\u202A", // 6
+  "\u202B", // 7
+  "\u202C", // 8
+  "\u202D"  // 9
+];
+
+function getInvertedSortTag(val, maxBaseline = 999999) {
+  const safeVal = Math.max(0, parseInt(val, 10) || 0);
+  const inverted = Math.max(0, maxBaseline - safeVal);
+  const str = String(inverted).padStart(6, '0');
+  
+  return str.split('').map(digit => INVISIBLE_SORT_MAP[parseInt(digit, 10)]).join('');
+}
+
 // --- MAIN STREAM SCRAPER ---
 
 function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, userSettings = null) {
@@ -140,7 +162,8 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         if (typeof item.seeders === "number") seedersNum = Math.floor(item.seeders);
         else if (typeof item.seeds === "number") seedersNum = Math.floor(item.seeds);
         else {
-          const match = combinedText.match(/👤\s*(\d+)/) || 
+          const match = combinedText.match(/🌱\s*(\d+)/) ||
+                        combinedText.match(/👤\s*(\d+)/) || 
                         combinedText.match(/👥\s*(\d+)/) || 
                         combinedText.match(/(\d+)\s*seed/i);
           if (match && match[1]) {
@@ -156,6 +179,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           sizeStr = sizeMatch[1].toUpperCase();
         }
         const sizeBytes = Number(parseSizeBytes(combinedText, item)) || 0;
+        const sizeInMB = Math.floor(sizeBytes / (1024 * 1024));
 
         // Resolution mapping
         let res = "1080p";
@@ -215,8 +239,18 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const line3 = `🌱 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${PROVIDER_NAME}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
-        // Requested Header Layout: 🦞 TorrentClaw | Quality | 🌱Seeders
-        const headerLayout = `🦞 ${PROVIDER_NAME} | ${res.toUpperCase()} | 🌱${seedersNum}`;
+        // Generate non-rendering invisible sort key
+        let sortTag = "";
+        if (settings.sortBy === "size") {
+          sortTag = getInvertedSortTag(sizeInMB, 999999);
+        } else if (settings.sortBy === "quality") {
+          sortTag = getInvertedSortTag((qualityRank * 10000) + seedersNum, 999999);
+        } else {
+          sortTag = getInvertedSortTag(seedersNum, 999999);
+        }
+
+        // Invisible sort key placed right before the lobster emoji
+        const headerLayout = `${sortTag}🦞 ${PROVIDER_NAME} | ${res.toUpperCase()} | 🌱${seedersNum}`;
 
         parsedStreams.push({
           seeders: seedersNum,

@@ -101,7 +101,6 @@ function getQualityRank(res) {
   return 0;
 }
 
-// Fixed 6-digit inverted math prefix so A-Z sorting naturally puts highest values at top
 function getInvertedSortTag(val, maxBaseline = 999999) {
   const safeVal = Math.max(0, parseInt(val, 10) || 0);
   const inverted = Math.max(0, maxBaseline - safeVal);
@@ -232,7 +231,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const line3 = `👤 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
-        // Build inverted tag for Nuvio's sorter
+        // Generate sort key for client-side sorting
         let sortTag = "";
         if (settings.sortBy === "size") {
           sortTag = getInvertedSortTag(sizeInMB, 999999);
@@ -242,13 +241,15 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           sortTag = getInvertedSortTag(seedersNum, 999999);
         }
 
+        // Format requested: TorrentClaw | Quality | 👤 Seeders
+        const requestedHeader = `${detectedProvider} | ${res.toUpperCase()} | 👤 ${seedersNum}`;
+
         parsedStreams.push({
           seeders: seedersNum,
           sizeBytes: sizeBytes,
           qualityRank: qualityRank,
           data: {
-            // [sortTag] forces Nuvio's client-side sorter to rank highest seeders first
-            name: `[${sortTag}] 👤 ${seedersNum} | ${res.toUpperCase()} | ${sizeStr}`,
+            name: `[${sortTag}] ${requestedHeader}`,
             title: fullLayout,
             size: fullLayout,
             description: fullLayout,

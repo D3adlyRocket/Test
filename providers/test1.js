@@ -37,9 +37,9 @@ const TRACKERS = [
   "udp://exodus.desync.com:6969/announce"
 ];
 
-// --- SETTINGS HELPERS ---
-
-function getScraperSettings() {
+// --- ADVANCED SETTINGS RESOLVER ---
+// Checks arguments, window, global, and globalThis to ensure settings are captured in any app engine
+function resolveSettings(passedSettings) {
   let settings = {
     debridProvider: "none",
     debridKey: "",
@@ -49,22 +49,26 @@ function getScraperSettings() {
   };
 
   try {
-    let settingsObj = null;
-    if (typeof global !== "undefined" && global.SCRAPER_SETTINGS) {
-      settingsObj = global.SCRAPER_SETTINGS;
-    } else if (typeof window !== "undefined" && window.SCRAPER_SETTINGS) {
-      settingsObj = window.SCRAPER_SETTINGS;
+    let source = passedSettings;
+    if (!source && typeof globalThis !== "undefined") {
+      source = globalThis.SCRAPER_SETTINGS || globalThis.SETTINGS || globalThis.settings;
+    }
+    if (!source && typeof global !== "undefined") {
+      source = global.SCRAPER_SETTINGS || global.SETTINGS || global.settings;
+    }
+    if (!source && typeof window !== "undefined") {
+      source = window.SCRAPER_SETTINGS || window.SETTINGS || window.settings;
     }
 
-    if (settingsObj) {
-      if (settingsObj.debridProvider) settings.debridProvider = String(settingsObj.debridProvider).toLowerCase().trim();
-      if (settingsObj.debridKey) settings.debridKey = String(settingsObj.debridKey).trim();
-      if (settingsObj.language) settings.language = String(settingsObj.language).trim();
-      if (settingsObj.minQuality) settings.minQuality = String(settingsObj.minQuality).trim();
-      if (settingsObj.sortBy) settings.sortBy = String(settingsObj.sortBy).trim();
+    if (source) {
+      if (source.debridProvider) settings.debridProvider = String(source.debridProvider).toLowerCase().trim();
+      if (source.debridKey) settings.debridKey = String(source.debridKey).trim();
+      if (source.language) settings.language = String(source.language).trim();
+      if (source.minQuality) settings.minQuality = String(source.minQuality).trim();
+      if (source.sortBy) settings.sortBy = String(source.sortBy).trim();
     }
   } catch (e) {
-    console.error(`[${PROVIDER_NAME}] Error reading settings context:`, e);
+    console.error(`[${PROVIDER_NAME}] Error parsing settings:`, e);
   }
 
   return settings;
@@ -76,9 +80,8 @@ function buildMagnet(infoHash) {
   return `magnet:?xt=urn:btih:${infoHash}${tr}`;
 }
 
-// Convert settings to TorrentClaw's expected Base64 path format
-function buildConfigSegment() {
-  const settings = getScraperSettings();
+// Convert settings into standard Base64 string for TorrentClaw
+function buildConfigSegment(settings) {
   const configObj = {};
 
   if (settings.debridProvider && settings.debridProvider !== "none" && settings.debridKey) {
@@ -90,21 +93,26 @@ function buildConfigSegment() {
   if (settings.sortBy && settings.sortBy !== "any") configObj.sortBy = settings.sortBy;
 
   if (Object.keys(configObj).length === 0) {
-    return "e30/"; // Base64 for "{}"
+    return "e30/"; // Base64 representation of "{}"
   }
 
   try {
     const jsonStr = JSON.stringify(configObj);
-    const b64 = (typeof btoa !== "undefined") 
-      ? btoa(jsonStr) 
-      : Buffer.from(jsonStr).toString("base64");
-    return `${b64.replace(/=+$/, "")}/`;
+    let b64 = "";
+    if (typeof btoa !== "undefined") {
+      b64 = btoa(jsonStr);
+    } else if (typeof Buffer !== "undefined") {
+      b64 = Buffer.from(jsonStr).toString("base64");
+    } else {
+      return "e30/";
+    }
+    return `${b64.replace(/=/g, "")}/`;
   } catch (e) {
     return "e30/";
   }
 }
 
-// Convert size string (e.g., "2.5 GB", "800 MB") to numeric Bytes for accurate sorting
+// Convert byte strings like "2.5 GB" or "800 MB" to raw numbers for precise client sorting
 function parseSizeBytes(rawText) {
   const match = rawText.match(/([0-9.]+)\s*([GM]B)/i);
   if (!match) return 0;
@@ -115,25 +123,29 @@ function parseSizeBytes(rawText) {
   return 0;
 }
 
-// Map quality string to numerical rank for filtering/sorting
+// Map resolutions to numeric ranks for guaranteed filtering & sorting
 function getQualityRank(res) {
-  if (res === "2160p") return 4;
-  if (res === "1080p") return 3;
-  if (res === "720p") return 2;
-  if (res === "480p") return 1;
+  const clean = String(res).toLowerCase();
+  if (clean.includes("2160") || clean.includes("4k")) return 4;
+  if (clean.includes("1080")) return 3;
+  if (clean.includes("720")) return 2;
+  if (clean.includes("480")) return 1;
   return 0;
 }
 
 // --- MAIN STREAM SCRAPER ---
 
-function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
+function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, userSettings = null) {
   return __async(this, null, function* () {
     const isSeries = mediaType === "tv" || mediaType === "series";
-    const settings = getScraperSettings();
+    
+    // Resolve user settings from any available runtime scope
+    const settings = resolveSettings(userSettings);
+    
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? "tv" : "movie"}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
     try {
-      // 1. Fetch metadata from TMDB
+      // 1. Metadata request
       const meta = yield fetch(tmdbUrl).then(r => r.json()).catch(() => null);
       const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id || tmdbId;
       const titleName = meta?.title || meta?.name || "Unknown Title";
@@ -141,8 +153,8 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         ? meta.release_date.split("-")[0]
         : (meta?.first_air_date ? meta.first_air_date.split("-")[0] : "2026");
 
-      // 2. Query TorrentClaw API endpoint
-      const configPath = buildConfigSegment();
+      // 2. TorrentClaw endpoint build
+      const configPath = buildConfigSegment(settings);
       const streamType = isSeries ? `series/${imdbId}:${season || 1}:${episode || 1}` : `movie/${imdbId}`;
       const streamUrl = `${TORRENTCLAW_API}/${configPath}stream/${streamType}.json`;
 
@@ -151,17 +163,17 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
 
       let parsedStreams = [];
 
-      // 3. Process each stream item
+      // 3. Process & Filter Results locally
       data.streams.forEach(item => {
         if (!item) return;
 
         const rawText = (item.title || "").replace(/\n/g, " ");
         const cleanText = rawText.toUpperCase();
 
-        // Extract Seeders
+        // Seeders parsing
         const seedersNum = parseInt(rawText.match(/👤\s*(\d+)/)?.[1] || "0", 10);
 
-        // Extract File Size
+        // Size parsing
         let sizeStr = "Unknown Size";
         const sizeMatch = rawText.match(/([0-9.]+ ?[GM]B)/i);
         if (sizeMatch) {
@@ -169,7 +181,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         }
         const sizeBytes = parseSizeBytes(rawText);
 
-        // Resolution & Emojis
+        // Quality detection
         let res = "1080p";
         let qualityEmoji = "💎";
         if (cleanText.includes("2160P") || cleanText.includes("4K")) {
@@ -188,28 +200,29 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
 
         const qualityRank = getQualityRank(res);
 
-        // CLIENT-SIDE MINIMUM QUALITY FILTERING
+        // STRICT CLIENT-SIDE MINIMUM QUALITY FILTER
         if (settings.minQuality && settings.minQuality !== "any") {
-          const reqRank = getQualityRank(settings.minQuality);
-          if (qualityRank < reqRank) return; // Drop stream if below minimum quality
+          const requiredRank = getQualityRank(settings.minQuality);
+          if (qualityRank < requiredRank) {
+            return; // Hard drop items that are below chosen minimum resolution
+          }
         }
 
-        // Audio Tag Processing
+        // Language matching
         let audioTag = "English";
         if (cleanText.includes("DUAL") || cleanText.includes("DUAL-AUDIO")) audioTag = "Dual-Audio";
         else if (cleanText.includes("MULTI") || cleanText.includes("MULTILANG") || cleanText.includes("MULTI-AUDIO")) audioTag = "Multi-Audio";
         else if (cleanText.includes("HINDI")) audioTag = "Hindi";
 
-        // Check if stream matches preferred language
         let isPreferredLanguage = false;
         if (settings.language && settings.language !== "any") {
-          const langCode = settings.language.toUpperCase();
+          const langCode = settings.language.substring(0, 2).toUpperCase();
           if (cleanText.includes(langCode) || cleanText.includes(audioTag.toUpperCase())) {
             isPreferredLanguage = true;
           }
         }
 
-        // Video Tech Tags
+        // Technical tags
         const techTags = [];
         if (cleanText.includes("DV") || cleanText.includes("DOLBY VISION")) techTags.push("DV");
         if (cleanText.includes("HDR10+")) techTags.push("HDR10+");
@@ -220,7 +233,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         techTags.push(audioTag);
         const restOfTitle = techTags.join(" • ");
 
-        // Provider Detection (Indexers / Release Groups preserved)
+        // Provider Detection (Indexers / Release Groups)
         let detectedProvider = PROVIDER_NAME;
         const providerMatch = rawText.match(/\[(.*?)\]/);
         if (providerMatch && providerMatch[1]) {
@@ -242,7 +255,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         const streamLink = item.url || (item.infoHash ? buildMagnet(item.infoHash) : "");
 
         const line1 = isSeries ? `🎦 ${titleName} | S${season || 1} E${episode || 1}` : `🎬 ${titleName} - ${releaseYear}`;
-        const langStar = isPreferredLanguage ? "⭐ " : "";
+        const langStar = isPreferredLanguage ? "⭐️ " : "";
         const line2 = `${langStar}${qualityEmoji} ${res} | ${restOfTitle}`;
         const line3 = `👥 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
@@ -262,7 +275,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         });
       });
 
-      // 4. CLIENT-SIDE SORTING LOGIC
+      // 4. GUARANTEED CLIENT-SIDE SORTING
       if (settings.sortBy === "seeders") {
         parsedStreams.sort((a, b) => b.seeders - a.seeders);
       } else if (settings.sortBy === "quality") {
@@ -271,14 +284,14 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         parsedStreams.sort((a, b) => b.sizeBytes - a.sizeBytes);
       }
 
-      // Float preferred language items to the top soft-style if set
+      // Float preferred language items to the top if set
       if (settings.language && settings.language !== "any") {
         parsedStreams.sort((a, b) => (b.isPreferredLanguage ? 1 : 0) - (a.isPreferredLanguage ? 1 : 0));
       }
 
-      return parsedStreams.map(item => item.data).slice(0, 15);
+      return parsedStreams.map(item => item.data).slice(0, 20);
     } catch (err) {
-      console.error(`[${PROVIDER_NAME}] Execution failure context:`, err);
+      console.error(`[${PROVIDER_NAME}] Execution error:`, err);
       return [];
     }
   });

@@ -80,7 +80,7 @@ function buildMagnet(infoHash) {
   return `magnet:?xt=urn:btih:${infoHash}${tr}`;
 }
 
-// Strictly converts size strings ("8.5 GB") to numeric byte integers
+// Extract pure numeric bytes for strict size comparisons
 function parseSizeBytes(rawText, item) {
   if (typeof item?.size === "number" && item.size > 0) return Math.floor(item.size);
   if (typeof item?.bytes === "number" && item.bytes > 0) return Math.floor(item.bytes);
@@ -102,6 +102,12 @@ function getQualityRank(res) {
   if (clean.includes("720") || clean.includes("hd")) return 2;
   if (clean.includes("480") || clean.includes("sd")) return 1;
   return 0;
+}
+
+// Pad numbers with leading zeros so string/alphanumeric sorts behave like true numeric sorts
+function padDigits(num, digits = 8) {
+  const val = String(Math.max(0, parseInt(num, 10) || 0));
+  return val.padStart(digits, '0');
 }
 
 // --- MAIN STREAM SCRAPER ---
@@ -138,7 +144,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const combinedText = `${rawName} ${rawTitle} ${rawDesc}`.replace(/\n/g, " ");
         const cleanText = combinedText.toUpperCase();
 
-        // STRICT INTEGER CONVERSION FOR SEEDERS
+        // Exact Integer Extraction
         let seedersNum = 0;
         if (typeof item.seeders === "number") seedersNum = Math.floor(item.seeders);
         else if (typeof item.seeds === "number") seedersNum = Math.floor(item.seeds);
@@ -150,9 +156,9 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
             seedersNum = parseInt(match[1], 10);
           }
         }
-        seedersNum = Number(seedersNum) || 0; // Ensure pure primitive number
+        seedersNum = Number(seedersNum) || 0;
 
-        // STRICT INTEGER CONVERSION FOR SIZE
+        // File Size Bytes Calculation
         let sizeStr = "Unknown Size";
         const sizeMatch = combinedText.match(/([0-9.]+ ?[GM]B)/i);
         if (sizeMatch) {
@@ -237,23 +243,29 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
             title: fullLayout,
             size: fullLayout,
             description: fullLayout,
-            url: streamLink
+            url: streamLink,
+            // Internal metadata fields for host app sorting
+            seeders: seedersNum,
+            seeds: seedersNum,
+            bytes: sizeBytes,
+            // Fixed-width padded strings to override string/alphanumeric UI sorting
+            sortSeedersPadded: padDigits(seedersNum, 8),
+            sortSizeBytesPadded: padDigits(sizeBytes, 15)
           }
         });
       });
 
-      // PURE NUMERIC COMPARATOR (Highest values strictly first)
+      // Pure numerical sort
       parsedStreams.sort((a, b) => {
         if (settings.sortBy === "size") {
-          return Number(b.sizeBytes) - Number(a.sizeBytes);
+          return b.sizeBytes - a.sizeBytes;
         } else if (settings.sortBy === "quality") {
           if (b.qualityRank !== a.qualityRank) {
-            return Number(b.qualityRank) - Number(a.qualityRank);
+            return b.qualityRank - a.qualityRank;
           }
-          return Number(b.seeders) - Number(a.seeders);
+          return b.seeders - a.seeders;
         }
-        // Default: Most Seeders
-        return Number(b.seeders) - Number(a.seeders);
+        return b.seeders - a.seeders;
       });
 
       return parsedStreams.map(item => item.data);

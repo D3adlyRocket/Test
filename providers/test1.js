@@ -76,31 +76,52 @@ function buildMagnet(infoHash) {
   return `magnet:?xt=urn:btih:${infoHash}${tr}`;
 }
 
+// Convert settings to TorrentClaw's expected Base64 path format
 function buildConfigSegment() {
   const settings = getScraperSettings();
-  const configParts = [];
+  const configObj = {};
 
-  // Debrid segment formatting
   if (settings.debridProvider && settings.debridProvider !== "none" && settings.debridKey) {
-    configParts.push(`${settings.debridProvider}=${settings.debridKey}`);
+    configObj.debridProvider = settings.debridProvider;
+    configObj.debridKey = settings.debridKey;
+  }
+  if (settings.language && settings.language !== "any") configObj.language = settings.language;
+  if (settings.minQuality && settings.minQuality !== "any") configObj.minQuality = settings.minQuality;
+  if (settings.sortBy && settings.sortBy !== "any") configObj.sortBy = settings.sortBy;
+
+  if (Object.keys(configObj).length === 0) {
+    return "e30/"; // Base64 for "{}"
   }
 
-  // Language setting
-  if (settings.language && settings.language !== "any") {
-    configParts.push(`lang=${settings.language}`);
+  try {
+    const jsonStr = JSON.stringify(configObj);
+    const b64 = (typeof btoa !== "undefined") 
+      ? btoa(jsonStr) 
+      : Buffer.from(jsonStr).toString("base64");
+    return `${b64.replace(/=+$/, "")}/`;
+  } catch (e) {
+    return "e30/";
   }
+}
 
-  // Minimum Quality setting
-  if (settings.minQuality && settings.minQuality !== "any") {
-    configParts.push(`quality=${settings.minQuality}`);
-  }
+// Convert size string (e.g., "2.5 GB", "800 MB") to numeric Bytes for accurate sorting
+function parseSizeBytes(rawText) {
+  const match = rawText.match(/([0-9.]+)\s*([GM]B)/i);
+  if (!match) return 0;
+  const num = parseFloat(match[1]);
+  const unit = match[2].toUpperCase();
+  if (unit === "GB") return num * 1024 * 1024 * 1024;
+  if (unit === "MB") return num * 1024 * 1024;
+  return 0;
+}
 
-  // Sort By setting
-  if (settings.sortBy && settings.sortBy !== "any") {
-    configParts.push(`sort=${settings.sortBy}`);
-  }
-
-  return configParts.length > 0 ? `${configParts.join("|")}/` : "";
+// Map quality string to numerical rank for filtering/sorting
+function getQualityRank(res) {
+  if (res === "2160p") return 4;
+  if (res === "1080p") return 3;
+  if (res === "720p") return 2;
+  if (res === "480p") return 1;
+  return 0;
 }
 
 // --- MAIN STREAM SCRAPER ---
@@ -108,6 +129,7 @@ function buildConfigSegment() {
 function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
   return __async(this, null, function* () {
     const isSeries = mediaType === "tv" || mediaType === "series";
+    const settings = getScraperSettings();
     const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? "tv" : "movie"}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
     try {
@@ -127,17 +149,17 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
       const data = yield fetch(streamUrl, { headers: HEADERS }).then(r => r.json()).catch(() => null);
       if (!data?.streams || data.streams.length === 0) return [];
 
-      const result = [];
+      let parsedStreams = [];
 
-      // 3. Parse stream results
-      data.streams.slice(0, 15).forEach(item => {
+      // 3. Process each stream item
+      data.streams.forEach(item => {
         if (!item) return;
 
         const rawText = (item.title || "").replace(/\n/g, " ");
         const cleanText = rawText.toUpperCase();
 
         // Extract Seeders
-        const seeders = rawText.match(/👤\s*(\d+)/)?.[1] || "0";
+        const seedersNum = parseInt(rawText.match(/👤\s*(\d+)/)?.[1] || "0", 10);
 
         // Extract File Size
         let sizeStr = "Unknown Size";
@@ -145,6 +167,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         if (sizeMatch) {
           sizeStr = sizeMatch[1].toUpperCase();
         }
+        const sizeBytes = parseSizeBytes(rawText);
 
         // Resolution & Emojis
         let res = "1080p";
@@ -163,11 +186,28 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
           qualityEmoji = "📱";
         }
 
+        const qualityRank = getQualityRank(res);
+
+        // CLIENT-SIDE MINIMUM QUALITY FILTERING
+        if (settings.minQuality && settings.minQuality !== "any") {
+          const reqRank = getQualityRank(settings.minQuality);
+          if (qualityRank < reqRank) return; // Drop stream if below minimum quality
+        }
+
         // Audio Tag Processing
         let audioTag = "English";
         if (cleanText.includes("DUAL") || cleanText.includes("DUAL-AUDIO")) audioTag = "Dual-Audio";
         else if (cleanText.includes("MULTI") || cleanText.includes("MULTILANG") || cleanText.includes("MULTI-AUDIO")) audioTag = "Multi-Audio";
         else if (cleanText.includes("HINDI")) audioTag = "Hindi";
+
+        // Check if stream matches preferred language
+        let isPreferredLanguage = false;
+        if (settings.language && settings.language !== "any") {
+          const langCode = settings.language.toUpperCase();
+          if (cleanText.includes(langCode) || cleanText.includes(audioTag.toUpperCase())) {
+            isPreferredLanguage = true;
+          }
+        }
 
         // Video Tech Tags
         const techTags = [];
@@ -180,7 +220,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         techTags.push(audioTag);
         const restOfTitle = techTags.join(" • ");
 
-        // Provider Filtering (Preserving Indexers / Release Groups)
+        // Provider Detection (Indexers / Release Groups preserved)
         let detectedProvider = PROVIDER_NAME;
         const providerMatch = rawText.match(/\[(.*?)\]/);
         if (providerMatch && providerMatch[1]) {
@@ -202,20 +242,41 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
         const streamLink = item.url || (item.infoHash ? buildMagnet(item.infoHash) : "");
 
         const line1 = isSeries ? `🎦 ${titleName} | S${season || 1} E${episode || 1}` : `🎬 ${titleName} - ${releaseYear}`;
-        const line2 = `${qualityEmoji} ${res} | ${restOfTitle}`;
-        const line3 = `👥 ${seeders} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
+        const langStar = isPreferredLanguage ? "⭐ " : "";
+        const line2 = `${langStar}${qualityEmoji} ${res} | ${restOfTitle}`;
+        const line3 = `👥 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
-        result.push({
-          name: `${PROVIDER_NAME} | 👤 ${seeders} | ${res.toUpperCase()}`,
-          title: fullLayout,
-          size: fullLayout,
-          description: fullLayout,
-          url: streamLink
+        parsedStreams.push({
+          seeders: seedersNum,
+          sizeBytes: sizeBytes,
+          qualityRank: qualityRank,
+          isPreferredLanguage: isPreferredLanguage,
+          data: {
+            name: `${PROVIDER_NAME} | 👤 ${seedersNum} | ${res.toUpperCase()}`,
+            title: fullLayout,
+            size: fullLayout,
+            description: fullLayout,
+            url: streamLink
+          }
         });
       });
 
-      return result;
+      // 4. CLIENT-SIDE SORTING LOGIC
+      if (settings.sortBy === "seeders") {
+        parsedStreams.sort((a, b) => b.seeders - a.seeders);
+      } else if (settings.sortBy === "quality") {
+        parsedStreams.sort((a, b) => b.qualityRank - a.qualityRank || b.seeders - a.seeders);
+      } else if (settings.sortBy === "size") {
+        parsedStreams.sort((a, b) => b.sizeBytes - a.sizeBytes);
+      }
+
+      // Float preferred language items to the top soft-style if set
+      if (settings.language && settings.language !== "any") {
+        parsedStreams.sort((a, b) => (b.isPreferredLanguage ? 1 : 0) - (a.isPreferredLanguage ? 1 : 0));
+      }
+
+      return parsedStreams.map(item => item.data).slice(0, 15);
     } catch (err) {
       console.error(`[${PROVIDER_NAME}] Execution failure context:`, err);
       return [];
@@ -223,7 +284,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
   });
 }
 
-// --- UI CONFIGURATION SCHEMA (MATCHING SCREENSHOTS) ---
+// --- UI CONFIGURATION SCHEMA ---
 
 function onSettings() {
   return __async(this, null, function* () {

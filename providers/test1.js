@@ -101,10 +101,18 @@ function getQualityRank(res) {
   return 0;
 }
 
+// Map 0-9 to unique unicode characters that sort properly but don't look like visible numbers
+const INVISIBLE_DIGITS = [
+  "\u2801", "\u2802", "\u2803", "\u2804", "\u2805", 
+  "\u2806", "\u2807", "\u2808", "\u2809", "\u280A"
+];
+
 function getInvertedSortTag(val, maxBaseline = 999999) {
   const safeVal = Math.max(0, parseInt(val, 10) || 0);
   const inverted = Math.max(0, maxBaseline - safeVal);
-  return String(inverted).padStart(6, '0');
+  const str = String(inverted).padStart(6, '0');
+  
+  return str.split('').map(digit => INVISIBLE_DIGITS[parseInt(digit, 10)]).join('');
 }
 
 // --- MAIN STREAM SCRAPER ---
@@ -231,7 +239,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
         const line3 = `👤 ${seedersNum} | 💾 ${sizeStr} | ⚙️ ${detectedProvider}`;
         const fullLayout = `${line1}\n${line2}\n${line3}`;
 
-        // Generate sort key for client-side sorting
+        // Generate invisible sort tag for client-side sorting
         let sortTag = "";
         if (settings.sortBy === "size") {
           sortTag = getInvertedSortTag(sizeInMB, 999999);
@@ -241,7 +249,7 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           sortTag = getInvertedSortTag(seedersNum, 999999);
         }
 
-        // Format requested: TorrentClaw | Quality | 👤 Seeders
+        // Requested layout: TorrentClaw | Quality | 👤 Seeders
         const requestedHeader = `${detectedProvider} | ${res.toUpperCase()} | 👤 ${seedersNum}`;
 
         parsedStreams.push({
@@ -249,7 +257,8 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null, 
           sizeBytes: sizeBytes,
           qualityRank: qualityRank,
           data: {
-            name: `[${sortTag}] ${requestedHeader}`,
+            // Invisible character prefix forces sorting without displaying bracketed numbers
+            name: `${sortTag}${requestedHeader}`,
             title: fullLayout,
             size: fullLayout,
             description: fullLayout,

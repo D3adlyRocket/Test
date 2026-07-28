@@ -1,512 +1,339 @@
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
-const cheerio = require("cheerio-without-node-native");
-const CryptoJS = require("crypto-js");
-const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-const TMDB_BASE_URL = "https://api.themoviedb.org/3";
-const DEFAULT_API_BASE = "https://id-mapping-api-showbox-proxy.hf.space/api/media";
-const WORKING_HEADERS = {
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  "Accept": "application/json",
-  "Accept-Language": "en-US,en;q=0.9",
-  "Content-Type": "application/json"
-};
+/** * hianime - Built from src/hianime/ * Generated: 2026-05-23T18:18:42.790Z */ 
+var __create = Object.create; 
+var __defProp = Object.defineProperty; 
+var __defProps = Object.defineProperties; 
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor; 
+var __getOwnPropDescs = Object.getOwnPropertyDescriptors; 
+var __getOwnPropNames = Object.getOwnPropertyNames; 
+var __getOwnPropSymbols = Object.getOwnPropertySymbols; 
+var __getProtoOf = Object.getPrototypeOf; 
+var __hasOwnProp = Object.prototype.hasOwnProperty; 
+var __propIsEnum = Object.prototype.propertyIsEnumerable; 
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value; 
+var __spreadValues = (a, b) => { for (var prop in b || (b = {})) if (__hasOwnProp.call(b, prop)) __defNormalProp(a, prop, b[prop]); if (__getOwnPropSymbols) for (var prop of __getOwnPropSymbols(b)) { if (__propIsEnum.call(b, prop)) __defNormalProp(a, prop, b[prop]); } return a; }; 
+var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b)); 
+var __copyProps = (to, from, except, desc) => { if (from && typeof from === "object" || typeof from === "function") { for (let key of __getOwnPropNames(from)) if (!__hasOwnProp.call(to, key) && key !== except) __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable }); } return to; }; 
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps( isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target, mod )); 
+var __async = (__this, __arguments, generator) => { return new Promise((resolve, reject) => { var fulfilled = (value) => { try { step(generator.next(value)); } catch (e) { reject(e); } }; var rejected = (value) => { try { step(generator.throw(value)); } catch (e) { reject(e); } }; var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected); step((generator = generator.apply(__this, __arguments)).next()); }); }; 
 
-// --- EMOJI & METADATA PARSING HELPERS ---
+// src/hianime/index.js 
+var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native")); 
 
-function getQualityEmoji(quality) {
-  switch (quality) {
-    case "Original": return "✨";
-    case "4K": return "🌟";
-    case "1440p": return "⚡";
-    case "1080p": return "🔥";
-    case "720p": return "💎";
-    case "480p": return "🗜️";
-    default: return "📼";
-  }
-}
+// src/hianime/constants.js 
+var MEGAPLAY_BASE = "https://megaplay.buzz"; 
+var VIDWISH_BASE = "https://vidwish.live"; 
+var MEGACLOUD_BASE = "https://megacloud.bloggy.click"; 
+var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49"; 
+var DEFAULT_HEADERS = { 
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", 
+  "Accept": "*/*", 
+  "Connection": "keep-alive" 
+}; 
 
-// Extracts real resolution tag from string (e.g. 2160p, 1080p) for Original quality
-function getSubheadingQualityLabel(quality, rawStr) {
-  if (quality === "Original" && rawStr) {
-    const match = rawStr.match(/(\d{3,4})[pP]/);
-    if (match) {
-      return `✨ ${match[1]}p`;
-    }
-    return "✨ Original";
-  }
-  const emoji = getQualityEmoji(quality);
-  return `${emoji} ${quality}`;
-}
+// src/hianime/utils.js 
+function fetchText(_0) { 
+  return __async(this, arguments, function* (url, options = {}) { 
+    const response = yield fetch(url, __spreadValues({ headers: __spreadValues(__spreadValues({}, DEFAULT_HEADERS), options.headers) }, options)); 
+    if (!response.ok) throw new Error(`HTTP ${response.status} on ${url}`); 
+    return yield response.text(); 
+  }); 
+} 
 
-function getFileContainerFormat(str) {
-  if (!str) return "📦 MKV";
-  const upper = str.toUpperCase();
-  if (upper.includes(".MP4") || upper.includes("MP4")) return "📦 MP4";
-  if (upper.includes(".AVI") || upper.includes("AVI")) return "📦 AVI";
-  if (upper.includes(".TS") || upper.includes("M2TS")) return "📦 TS";
-  return "📦 MKV";
-}
+function fetchJson(_0) { 
+  return __async(this, arguments, function* (url, options = {}) { 
+    const text = yield fetchText(url, options); 
+    return JSON.parse(text); 
+  }); 
+} 
 
-function parseFilenameMetadata(str) {
-  if (!str) return { line3: "🎞️ H.264 | 📺 SDR | 🎧 Stereo", source: "📥 WEB-DL" };
-  const upper = str.toUpperCase();
+function getImdbId(tmdbId, mediaType) { 
+  return __async(this, null, function* () { 
+    try { 
+      const url = `https://api.themoviedb.org/3/${mediaType === "tv" ? "tv" : "movie"}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`; 
+      const data = yield fetchJson(url); 
+      return data.imdb_id || null; 
+    } catch (e) { 
+      return null; 
+    } 
+  }); 
+} 
 
-  // 1. Video Codec
-  let codec = "";
-  if (upper.includes("HEVC") || upper.includes("H265") || upper.includes("H.265") || upper.includes("X265")) {
-    codec = "🎞️ HEVC";
-  } else if (upper.includes("AVC") || upper.includes("H264") || upper.includes("H.264") || upper.includes("X264")) {
-    codec = "🎞️ H.264";
-  } else if (upper.includes("AV1")) {
-    codec = "🎞️ AV1";
-  }
+function getTmdbDetails(tmdbId, mediaType) { 
+  return __async(this, null, function* () { 
+    try { 
+      const url = `https://api.themoviedb.org/3/${mediaType === "tv" ? "tv" : "movie"}/${tmdbId}?api_key=${TMDB_API_KEY}`; 
+      return yield fetchJson(url); 
+    } catch (e) { 
+      return null; 
+    } 
+  }); 
+} 
 
-  // 2. Dynamic Range / Color
-  let hdr = "";
-  if (upper.includes("DV") || upper.includes("DOLBY VISION") || upper.includes("DOLBYVISION")) {
-    hdr = "🌈 DV";
-  } else if (upper.includes("HDR10+")) {
-    hdr = "✨ HDR10+";
-  } else if (upper.includes("HDR10")) {
-    hdr = "✨ HDR10";
-  } else if (upper.includes("HDR")) {
-    hdr = "✨ HDR";
-  } else if (upper.includes("SDR")) {
-    hdr = "📺 SDR";
-  }
+function getEpisodeMetadata(tmdbId, mediaType, season, episode) { 
+  return __async(this, null, function* () { 
+    try { 
+      if (mediaType === "movie") { 
+        const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}`; 
+        const data = yield fetchJson(url); 
+        return { title: data.title || "Movie", duration: data.runtime ? `${data.runtime}m` : "N/A" }; 
+      } else { 
+        const url = `https://api.themoviedb.org/3/tv/${tmdbId}/season/${season}/episode/${episode}?api_key=${TMDB_API_KEY}`; 
+        const data = yield fetchJson(url); 
+        return { title: data.name || `Episode ${episode}`, duration: data.runtime ? `${data.runtime}m` : "24m" }; 
+      } 
+    } catch (e) { 
+      return { title: `Episode ${episode}`, duration: "24m" }; 
+    } 
+  }); 
+} 
 
-  // 3. Audio Codecs & Channels
-  let audio = "";
-  if (upper.includes("ATMOS")) {
-    audio = "🔊 Atmos";
-  } else if (upper.includes("DDP5.1") || upper.includes("DD+5.1") || upper.includes("EAC3 5.1")) {
-    audio = "🎧 DDP 5.1";
-  } else if (upper.includes("DDP7.1") || upper.includes("DD+7.1") || upper.includes("EAC3 7.1")) {
-    audio = "🎧 DDP 7.1";
-  } else if (upper.includes("DD5.1") || upper.includes("AC3 5.1") || upper.includes("5.1")) {
-    audio = "🎧 DD 5.1";
-  } else if (upper.includes("AAC")) {
-    audio = "🎧 AAC";
-  } else if (upper.includes("DTS")) {
-    audio = "🎧 DTS";
-  }
+function resolveMapping(imdbId, season, episode) { 
+  return __async(this, null, function* () { 
+    try { 
+      const url = `https://id-mapping-api-malid.hf.space/api/resolve?id=${imdbId}&s=${season}&e=${episode}`; 
+      const data = yield fetchJson(url); 
+      if (data.error) return null; 
+      return data; 
+    } catch (e) { 
+      return null; 
+    } 
+  }); 
+} 
 
-  const line3Parts = [codec, hdr, audio].filter(Boolean);
-  const line3 = line3Parts.length > 0 ? line3Parts.join(" | ") : "🎞️ H.264 | 📺 SDR | 🎧 Stereo";
+function searchMalId(title, mediaType) { 
+  return __async(this, null, function* () { 
+    try { 
+      const type = mediaType === "movie" ? "movie" : "tv"; 
+      const url = `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(title)}&type=${type}&limit=1`; 
+      const data = yield fetchJson(url); 
+      if (data.data && data.data.length > 0) { 
+        return data.data[0].mal_id; 
+      } 
+      return null; 
+    } catch (e) { 
+      return null; 
+    } 
+  }); 
+} 
 
-  // 4. Source Quality
-  let source = "📥 WEB-DL";
-  if (upper.includes("BLURAY") || upper.includes("BLU-RAY") || upper.includes("BDREMUX")) {
-    source = "💿 BluRay";
-  } else if (upper.includes("WEBRIP") || upper.includes("WEB-RIP")) {
-    source = "🌐 WEB-Rip";
-  } else if (upper.includes("TELESYNC") || upper.includes("TS") || upper.includes("CAM")) {
-    source = "📺 TELESYNC";
-  } else if (upper.includes("HDTV")) {
-    source = "📺 HDTV";
-  } else if (upper.includes("WEBDL") || upper.includes("WEB-DL")) {
-    source = "📥 WEB-DL";
-  }
+// src/hianime/index.js 
+function extractSources(apiUrl, referer, origin, serverName, animeTitle, yearStr, mediaType, seasonNum, episodeNum, type, meta) { 
+  return __async(this, null, function* () { 
+    var _a; 
+    try { 
+      const json = yield fetchJson(apiUrl, { 
+        headers: { 
+          "X-Requested-With": "XMLHttpRequest", 
+          "Referer": referer, 
+          "Origin": origin 
+        } 
+      }); 
+      const file = (_a = json.sources) == null ? void 0 : _a.file; 
+      if (!file) return []; 
 
-  return { line3, source };
-}
+      const langString = type.toLowerCase() === "sub" ? "Original (SUB)" : "English (DUB)"; 
+      const upperType = type.toUpperCase(); 
+      const formattedTitle = yearStr ? `${animeTitle} - (${yearStr})` : animeTitle;
 
-// --- TOKEN & SETTING PARSERS ---
-
-function parseSingleToken(rawToken) {
-  if (!rawToken) return "";
-  if (rawToken.startsWith("eyJ")) {
-    console.log("[ShowBox] Base64 JWT/JSON token detected. Attempting automatic decryption...");
-    try {
-      const parsedWords = CryptoJS.enc.Base64.parse(rawToken);
-      const decodedStr = parsedWords.toString(CryptoJS.enc.Utf8);
-      const parsed = JSON.parse(decodedStr);
-      if (parsed && parsed.encrypt_data) {
-        const IV_KEY = "wEiphTn!";
-        const DES_KEY = "123d6cedf626dy54233aa1w6";
-        const key = CryptoJS.enc.Utf8.parse(DES_KEY);
-        const iv = CryptoJS.enc.Utf8.parse(IV_KEY);
-        const decrypted = CryptoJS.TripleDES.decrypt(
-          parsed.encrypt_data,
-          key,
-          {
-            iv,
-            mode: CryptoJS.mode.CBC,
-            padding: CryptoJS.pad.Pkcs7
-          }
-        );
-        const decryptedText = decrypted.toString(CryptoJS.enc.Utf8);
-        const decryptedJson = JSON.parse(decryptedText);
-        if (decryptedJson && decryptedJson.uid) {
-          return String(decryptedJson.uid);
-        }
-      }
-    } catch (err) {
-      console.error("[ShowBox] Failed to decrypt base64 uiToken:", err.message);
-    }
-  }
-  return rawToken;
-}
-
-function getAllUiTokens() {
-  try {
-    let rawSetting = "";
-    if (typeof global !== "undefined" && global.SCRAPER_SETTINGS && global.SCRAPER_SETTINGS.uiToken) {
-      rawSetting = String(global.SCRAPER_SETTINGS.uiToken).trim();
-    } else if (typeof window !== "undefined" && window.SCRAPER_SETTINGS && window.SCRAPER_SETTINGS.uiToken) {
-      rawSetting = String(window.SCRAPER_SETTINGS.uiToken).trim();
-    }
-    if (!rawSetting) return [];
-    return rawSetting.split(",").map(t => t.trim()).filter(Boolean);
-  } catch (e) {
-    return [];
-  }
-}
-
-function getOssGroup() {
-  try {
-    if (typeof global !== "undefined" && global.SCRAPER_SETTINGS && global.SCRAPER_SETTINGS.ossGroup) {
-      return String(global.SCRAPER_SETTINGS.ossGroup);
-    }
-    if (typeof window !== "undefined" && window.SCRAPER_SETTINGS && window.SCRAPER_SETTINGS.ossGroup) {
-      return String(window.SCRAPER_SETTINGS.ossGroup);
-    }
-  } catch (e) {}
-  return null;
-}
-
-function getApiBase() {
-  try {
-    if (typeof global !== "undefined" && global.SCRAPER_SETTINGS && global.SCRAPER_SETTINGS.apiBase) {
-      return String(global.SCRAPER_SETTINGS.apiBase);
-    }
-    if (typeof window !== "undefined" && window.SCRAPER_SETTINGS && window.SCRAPER_SETTINGS.apiBase) {
-      return String(window.SCRAPER_SETTINGS.apiBase);
-    }
-  } catch (e) {}
-  return DEFAULT_API_BASE;
-}
-
-function getQualityFromName(qualityStr) {
-  if (!qualityStr) return "Unknown";
-  const quality = qualityStr.toUpperCase();
-  if (quality === "ORG" || quality === "ORIGINAL") return "Original";
-  if (quality === "4K" || quality === "2160P") return "4K";
-  if (quality === "1440P" || quality === "2K") return "1440p";
-  if (quality === "1080P" || quality === "FHD") return "1080p";
-  if (quality === "720P" || quality === "HD") return "720p";
-  if (quality === "480P" || quality === "SD") return "480p";
-  if (quality === "360P") return "360p";
-  if (quality === "240P") return "240p";
-  const match = qualityStr.match(/(\d{3,4})[pP]?/);
-  if (match) {
-    const resolution = parseInt(match[1]);
-    if (resolution >= 2160) return "4K";
-    if (resolution >= 1440) return "1440p";
-    if (resolution >= 1080) return "1080p";
-    if (resolution >= 720) return "720p";
-    if (resolution >= 480) return "480p";
-    if (resolution >= 360) return "360p";
-    return "240p";
-  }
-  return "Unknown";
-}
-
-function formatFileSize(sizeStr) {
-  if (!sizeStr) return "Unknown Size";
-  if (typeof sizeStr === "string" && (sizeStr.includes("GB") || sizeStr.includes("MB") || sizeStr.includes("KB"))) {
-    return sizeStr;
-  }
-  if (typeof sizeStr === "number") {
-    const gb = sizeStr / (1024 * 1024 * 1024);
-    if (gb >= 1) return `${gb.toFixed(2)} GB`;
-    const mb = sizeStr / (1024 * 1024);
-    return `${mb.toFixed(2)} MB`;
-  }
-  return sizeStr;
-}
-
-function getTMDBDetails(tmdbId, mediaType) {
-  return __async(this, null, function* () {
-    const endpoint = mediaType === "tv" ? "tv" : "movie";
-    const url = `${TMDB_BASE_URL}/${endpoint}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-    try {
-      const response = yield fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = yield response.json();
-      const title = mediaType === "tv" ? data.name : data.title;
-      const releaseDate = mediaType === "tv" ? data.first_air_date : data.release_date;
-      const year = releaseDate ? parseInt(releaseDate.split("-")[0]) : null;
-      return { title, year };
-    } catch (e) {
-      console.log(`[ShowBox] TMDB details query failed: ${e.message}`);
-      return { title: `TMDB ID ${tmdbId}`, year: null };
-    }
-  });
-}
-
-// --- STREAM EXTRACTION & SCRAPING ---
-
-function extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken, cookieIndex, mediaInfo) {
-  return __async(this, null, function* () {
-    const streams = [];
-    try {
-      const boxType = mediaType === "tv" ? 2 : 1;
-      const sharePageUrl = `https://www.febbox.com/mbp/to_share_page?box_type=${boxType}&mid=${showboxId}&json=1`;
-      const shareRes = yield fetch(sharePageUrl).then((res) => res.json());
-      if (!shareRes || shareRes.code !== 1 || !shareRes.data) return [];
+      // Subheading Lines
+      let lines = []; 
+      lines.push(`🎬 ${formattedTitle}`); 
       
-      const shareLink = shareRes.data.share_link || shareRes.data.shareLink;
-      if (!shareLink) return [];
-      const shareKey = shareLink.split("/").pop();
+      if (mediaType !== "movie") { 
+        lines.push(`🎥 S${seasonNum}E${episodeNum} - ${meta.epTitle}`); 
+      } 
+
+      lines.push(`🎞️ M3U8 | ⚡ Auto | 🔊 ${langString} | ⌛ ${meta.duration}`); 
+      lines.push(`🔗 Source: ${serverName}`); 
+
+      const metadataStr = lines.join("\n"); 
+      const streams = []; 
+
+      streams.push({ 
+        name: `H!Anime | Auto | [${serverName}] (${upperType})`, 
+        title: metadataStr, 
+        size: metadataStr,
+        description: metadataStr,
+        url: file, 
+        quality: "Auto", 
+        headers: __spreadProps(__spreadValues({}, DEFAULT_HEADERS), { 
+          "Referer": `${origin}/`, 
+          "Origin": origin 
+        }), 
+        provider: "hianime", 
+        type: "m3u8" 
+      }); 
+
+      if (json.tracks && json.tracks.length > 0) { 
+        const subtitles = json.tracks.filter((t) => t.file && t.kind === "captions").map((t) => ({ 
+          url: t.file, 
+          name: t.label || "English", 
+          language: t.label ? t.label.slice(0, 3).toLowerCase() : "en" 
+        })); 
+        streams[0].subtitles = subtitles; 
+      } 
+
+      return streams; 
+    } catch (e) { 
+      return []; 
+    } 
+  }); 
+} 
+
+function scrapeType(malId, episode, type, animeTitle, yearStr, meta, mediaType, season) { 
+  return __async(this, null, function* () { 
+    const streams = []; 
+    const megaUrl = `${MEGAPLAY_BASE}/stream/mal/${malId}/${episode}/${type}`; 
+    try { 
+      const html = yield fetchText(megaUrl, { headers: { "Referer": megaUrl } }); 
+      const $ = import_cheerio_without_node_native.default.load(html); 
+      const player = $("div.fix-area#megaplay-player"); 
+      if (!player.length) return []; 
+
+      const dataId = player.attr("data-id"); 
+      const realId = player.attr("data-realid"); 
+      const extractions = []; 
+
+      if (dataId) { 
+        const apiUrl = `${MEGAPLAY_BASE}/stream/getSources?id=${dataId}&id=${dataId}`; 
+        extractions.push( 
+          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, yearStr, mediaType, season, episode, type, meta) 
+        ); 
+      } 
+
+      if (realId) { 
+        const vidPage = `${VIDWISH_BASE}/stream/s-2/${realId}/${type}`; 
+        extractions.push((() => __async(this, null, function* () { 
+          try { 
+            const vidHtml = yield fetchText(vidPage, { headers: { "Referer": megaUrl } }); 
+            const $v = import_cheerio_without_node_native.default.load(vidHtml); 
+            const vPlayer = $v("div.fix-area#megaplay-player"); 
+            const vDataId = vPlayer.attr("data-id"); 
+            if (vDataId) { 
+              const apiUrl = `${VIDWISH_BASE}/stream/getSources?id=${vDataId}&id=${vDataId}`; 
+              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, yearStr, mediaType, season, episode, type, meta); 
+            } 
+          } catch (err) { } 
+          return []; 
+        }))()); 
+      } 
+
+      if (realId) { 
+        const megacloudPage = `${MEGACLOUD_BASE}/stream/s-3/${realId}/${type}`; 
+        extractions.push((() => __async(this, null, function* () { 
+          try { 
+            const mcHtml = yield fetchText(megacloudPage, { headers: { "Referer": megaUrl } }); 
+            const $m = import_cheerio_without_node_native.default.load(mcHtml); 
+            const mPlayer = $m("div.fix-area#megaplay-player"); 
+            const mDataId = mPlayer.attr("data-id"); 
+            if (mDataId) { 
+              const apiUrl = `${MEGACLOUD_BASE}/stream/getSources?id=${mDataId}&id=${mDataId}`; 
+              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, yearStr, mediaType, season, episode, type, meta); 
+            } 
+          } catch (err) { } 
+          return []; 
+        }))()); 
+      } 
+
+      const results = yield Promise.all(extractions); 
+      for (const res of results) { 
+        streams.push(...res); 
+      } 
+    } catch (e) { } 
+    return streams; 
+  }); 
+} 
+
+function onSettings() { 
+  return __async(this, null, function* () { 
+    return [ 
+      { type: "header", label: "Stream Preferences" }, 
+      { 
+        type: "select", 
+        key: "subDub", 
+        label: "Audio/Subtitle Preference", 
+        options: [ 
+          { label: "Sub & Dub", value: "both" }, 
+          { label: "Sub Only", value: "sub" }, 
+          { label: "Dub Only", value: "dub" } 
+        ], 
+        defaultValue: "both" 
+      } 
+    ]; 
+  }); 
+} 
+
+function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) { 
+  return __async(this, null, function* () { 
+    try { 
+      const tmdbData = yield getTmdbDetails(tmdbId, mediaType); 
+      if (!tmdbData) return []; 
+
+      const genres = tmdbData.genres || []; 
+      const isAnimation = genres.some(g => g.id === 16); 
+      const originalLanguage = tmdbData.original_language || ""; 
+      const originCountry = tmdbData.origin_country || []; 
+      const isJapanese = originalLanguage === "ja" || originCountry.includes("JP"); 
+
+      if (!isAnimation || !isJapanese) { 
+        return []; 
+      } 
+
+      let malId = null; 
+      let mappedEp = episode; 
+      showTitle = tmdbData.name || tmdbData.title || tmdbData.original_title || (mediaType === "movie" ? "Movie" : "Anime"); 
       
-      const listUrl = `https://www.febbox.com/file/file_share_list?share_key=${shareKey}`;
-      const listRes = yield fetch(listUrl, { headers: { "Accept-Language": "en" } }).then((res) => res.json());
-      if (!listRes || listRes.code !== 1 || !listRes.data || !listRes.data.file_list) return [];
-      
-      let fids = [];
-      if (mediaType === "movie") {
-        fids = listRes.data.file_list;
-      } else {
-        const seasonName = `season ${seasonNum}`;
-        const seasonFolder = listRes.data.file_list.find((f) => f.file_name && f.file_name.toLowerCase() === seasonName);
-        if (!seasonFolder) return [];
-        
-        const seasonListUrl = `https://www.febbox.com/file/file_share_list?share_key=${shareKey}&parent_id=${seasonFolder.fid}&page=1`;
-        const seasonRes = yield fetch(seasonListUrl, { headers: { "Accept-Language": "en" } }).then((res) => res.json());
-        if (!seasonRes || seasonRes.code !== 1 || !seasonRes.data || !seasonRes.data.file_list) return [];
-        
-        const seasonSlug = String(seasonNum).padStart(2, "0");
-        const episodeSlug = String(episodeNum).padStart(2, "0");
-        fids = seasonRes.data.file_list.filter(
-          (f) => f.file_name && (f.file_name.toLowerCase().includes(`s${seasonSlug}e${episodeSlug}`) || f.file_name.toLowerCase().includes(`s${seasonNum}e${episodeNum}`))
-        );
-      }
-      
-      const videoHeaders = {
-        "Accept": "*/*",
-        "Accept-Language": "en-US,en;q=0.8",
-        "Connection": "keep-alive",
-        "Range": "bytes=0-",
-        "Referer": "https://www.febbox.com/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-      };
-      const formattedCookie = uiToken.startsWith("ui=") ? uiToken : `ui=${uiToken}`;
-      
-      for (const file of fids) {
-        const qualityUrl = `https://www.febbox.com/console/video_quality_list?fid=${file.fid}&share_key=${shareKey}`;
-        const qualityRes = yield fetch(qualityUrl, { headers: { "Cookie": formattedCookie } }).then((res) => res.json()).catch(() => null);
-        if (!qualityRes || !qualityRes.html) continue;
-        
-        const $ = cheerio.load(qualityRes.html);
-        $("div.file_quality").each((i, el) => {
-          const $quality = $(el);
-          const streamUrl = $quality.attr("data-url");
-          const qualityLabel = $quality.attr("data-quality");
-          const sizeText = $quality.find(".size").text().trim();
-          if (streamUrl) {
-            const normalizedQuality = getQualityFromName(qualityLabel);
-            const subQualityTag = getSubheadingQualityLabel(normalizedQuality, file.file_name || streamUrl);
-            const formattedSize = formatFileSize(sizeText || file.file_size);
-            const formatExt = getFileContainerFormat(file.file_name || streamUrl);
+      const releaseDate = tmdbData.first_air_date || tmdbData.release_date || "";
+      const yearStr = releaseDate ? releaseDate.split("-")[0] : "";
 
-            const parsedMeta = parseFilenameMetadata(file.file_name || streamUrl);
+      const imdbId = yield getImdbId(tmdbId, mediaType); 
+      if (!imdbId) return []; 
 
-            const headerRow = `ShowBox | ${normalizedQuality} | Cookie ${cookieIndex}`;
-            const line1 = mediaType === "tv" 
-              ? `🎬 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""}) | S${String(seasonNum).padStart(2, "0")} E${String(episodeNum).padStart(2, "0")}`
-              : `🍿 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""})`;
-            const line2 = `${subQualityTag} | 💾 ${formattedSize} | ${formatExt}`;
-            const line3 = parsedMeta.line3;
-            const line4 = `${parsedMeta.source} | 🍪 Cookie #${cookieIndex}`;
+      const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, season, episode); 
+      const meta = { epTitle: tmdbMeta.title, duration: tmdbMeta.duration }; 
 
-            const details = `${line1}\n${line2}\n${line3}\n${line4}`;
+      const s = mediaType === "movie" ? 1 : season; 
+      const e = mediaType === "movie" ? 1 : episode; 
 
-            streams.push({
-              name: headerRow,
-              title: details,
-              size: details,
-              description: details,
-              url: streamUrl,
-              quality: "",
-              language: "",
-              headers: videoHeaders
-            });
-          }
-        });
-      }
-    } catch (e) {
-      console.error(`[ShowBox] FebBox share extraction error: ${e.message}`);
-    }
-    return streams;
-  });
-}
+      if (mediaType === "movie") { 
+        malId = yield searchMalId(showTitle, "movie"); 
+        mappedEp = 1; 
+      } 
 
-function processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNum, cookieIndex) {
-  const streams = [];
-  try {
-    if (!data || !data.success || !data.versions || !Array.isArray(data.versions)) return streams;
-    
-    data.versions.forEach(function(version, versionIndex) {
-      const versionSize = version.size || "Unknown";
-      if (version.links && Array.isArray(version.links)) {
-        version.links.forEach(function(link) {
-          if (!link.url) return;
-          const normalizedQuality = getQualityFromName(link.quality || "Unknown");
-          const subQualityTag = getSubheadingQualityLabel(normalizedQuality, link.url);
-          const linkSize = link.size || versionSize;
-          const formattedSize = formatFileSize(linkSize);
-          const formatExt = getFileContainerFormat(link.url);
+      if (!malId && mediaType !== "movie") { 
+        const mapping = yield resolveMapping(imdbId, s, e); 
+        if (mapping && mapping.mal_id) { 
+          malId = mapping.mal_id; 
+          mappedEp = mapping.mal_episode || episode; 
+        } 
+      } 
 
-          const parsedMeta = parseFilenameMetadata(link.url);
+      if (!malId) return []; 
 
-          let displayProvider = `ShowBox`;
-          if (data.versions.length > 1) {
-            displayProvider += ` V${versionIndex + 1}`;
-          }
+      const settings = globalThis.SCRAPER_SETTINGS || {}; 
+      const preference = settings.subDub || "both"; 
 
-          const headerRow = `${displayProvider} | ${normalizedQuality} | Cookie ${cookieIndex}`;
-          const line1 = mediaType === "tv" 
-            ? `🎬 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""}) | S${String(seasonNum).padStart(2, "0")} E${String(episodeNum).padStart(2, "0")}`
-            : `🍿 ${mediaInfo.title || "Unknown"} - (${mediaInfo.year || ""})`;
-          const line2 = `${subQualityTag} | 💾 ${formattedSize} | ${formatExt}`;
-          const line3 = parsedMeta.line3;
-          const line4 = `${parsedMeta.source} | 🍪 Cookie #${cookieIndex}`;
+      let allStreams = []; 
+      if (preference === "both") { 
+        const [subStreams, dubStreams] = yield Promise.all([ 
+          scrapeType(malId, mappedEp, "sub", showTitle, yearStr, meta, mediaType, s), 
+          scrapeType(malId, mappedEp, "dub", showTitle, yearStr, meta, mediaType, s) 
+        ]); 
+        allStreams = [...subStreams, ...dubStreams]; 
+      } else { 
+        allStreams = yield scrapeType(malId, mappedEp, preference, showTitle, yearStr, meta, mediaType, s); 
+      } 
 
-          const details = `${line1}\n${line2}\n${line3}\n${line4}`;
-
-          streams.push({
-            name: headerRow,
-            title: details,
-            size: details,
-            description: details,
-            url: link.url,
-            quality: "",
-            language: ""
-          });
-        });
-      }
-    });
-  } catch (error) {
-    console.error(`[ShowBox] Error processing response: ${error.message}`);
-  }
-  return streams;
-}
-
-function getStreams(tmdbId, mediaType = "movie", seasonNum = null, episodeNum = null) {
-  return __async(this, null, function* () {
-    console.log(`[ShowBox] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
-    
-    const rawTokens = getAllUiTokens();
-    const ossGroup = getOssGroup();
-    const apiBase = getApiBase();
-    
-    if (rawTokens.length === 0) {
-      console.error("[ShowBox] No UI token (cookie) found in settings.");
-      return [];
-    }
-    
-    let allCombinedStreams = [];
-    
-    try {
-      const mediaInfo = yield getTMDBDetails(tmdbId, mediaType);
-      
-      for (let i = 0; i < rawTokens.length; i++) {
-        const cookieIndex = i + 1;
-        const currentRawToken = rawTokens[i];
-        const uiToken = parseSingleToken(currentRawToken);
-        
-        if (!uiToken) continue;
-        
-        console.log(`\n--- Processing Cookie ${cookieIndex} ---`);
-        let cookieStreams = [];
-        let proxyUrl;
-        
-        if (mediaType === "tv" && seasonNum && episodeNum) {
-          if (ossGroup) {
-            proxyUrl = `${apiBase}/tv/${tmdbId}/oss=${ossGroup}/${seasonNum}/${episodeNum}?cookie=${encodeURIComponent(uiToken)}`;
-          } else {
-            proxyUrl = `${apiBase}/tv/${tmdbId}/${seasonNum}/${episodeNum}?cookie=${encodeURIComponent(uiToken)}`;
-          }
-        } else {
-          proxyUrl = `${apiBase}/movie/${tmdbId}?cookie=${encodeURIComponent(uiToken)}`;
-        }
-        
-        let showboxId = null;
-        try {
-          const response = yield fetch(proxyUrl, { headers: WORKING_HEADERS });
-          if (response.ok) {
-            const data = yield response.json();
-            cookieStreams = processShowBoxResponse(data, mediaInfo, mediaType, seasonNum, episodeNum, cookieIndex);
-            if (data.id || data.mid) {
-              showboxId = data.id || data.mid;
-            } else if (data.data && (data.data.id || data.data.mid)) {
-              showboxId = data.data.id || data.data.mid;
-            }
-          }
-        } catch (e) {
-          console.log(`[ShowBox] Proxy server lookup failed for Cookie ${cookieIndex}: ${e.message}`);
-        }
-        
-        if (showboxId) {
-          const directStreams = yield extractFebBoxShare(showboxId, mediaType, seasonNum, episodeNum, uiToken, cookieIndex, mediaInfo);
-          if (directStreams.length > 0) {
-            cookieStreams = cookieStreams.concat(directStreams);
-          }
-        }
-        
-        console.log(`[ShowBox] Found ${cookieStreams.length} links for Cookie ${cookieIndex}`);
-        allCombinedStreams = allCombinedStreams.concat(cookieStreams);
-      }
-      
-      return allCombinedStreams;
-    } catch (error) {
-      console.error(`[ShowBox] Scraper execution failure: ${error.message}`);
-      return [];
-    }
-  });
-}
-
-function onSettings() {
-  return __async(this, null, function* () {
-    return [
-      { type: "header", label: "ShowBox Configuration" },
-      {
-        type: "text",
-        isPassword: true,
-        key: "uiToken",
-        label: "FebBox UI Tokens (Separated by commas)",
-        placeholder: "ui=token1, ui=token2",
-        description: "Add multiple tokens separated by commas. Links will display grouped by cookie indicator."
-      },
-      {
-        type: "text",
-        key: "ossGroup",
-        label: "FebBox OSS Group (Optional)",
-        placeholder: "",
-        description: "Optional OSS group parameter."
-      }
-    ];
-  });
-}
+      const seen = new Set(); 
+      return allStreams.filter((s2) => { 
+        if (seen.has(s2.url)) return false; 
+        seen.add(s2.url); 
+        return true; 
+      }); 
+    } catch (e) { 
+      return []; 
+    } 
+  }); 
+} 
 
 module.exports = { getStreams, onSettings };

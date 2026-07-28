@@ -15,6 +15,19 @@ var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (
 function log(msg) { console.log("[" + PROVIDER_NAME + "] " + msg); }
 function err(msg) { console.error("[" + PROVIDER_NAME + "] " + msg); }
 
+// Strict LTR Zero-Width Sort Marker (Prevents UI alignment flipping and forces app client sorting)
+function getInvertedSortTag(val, maxBaseline) {
+  var base = maxBaseline || 9999999;
+  var safeVal = Math.max(0, parseInt(val, 10) || 0);
+  var inverted = Math.max(0, base - safeVal);
+  var binaryStr = inverted.toString(2).padStart(28, '0');
+  var tag = "";
+  for (var i = 0; i < binaryStr.length; i++) {
+    tag += binaryStr[i] === '1' ? "\uFEFF" : "\u200B";
+  }
+  return tag;
+}
+
 function resolveSettings(extraConfig) {
   var settings = {
     minQuality: "any",
@@ -167,6 +180,15 @@ function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, stream
   return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
 }
 
+// Helper to determine numerical resolution score
+function getResolutionScore(qStr) {
+  if (qStr === "2160p") return 2160;
+  if (qStr === "1080p") return 1080;
+  if (qStr === "720p") return 720;
+  if (qStr === "480p") return 480;
+  return 0;
+}
+
 // ─── Main Stream Method ───────────────────────────────────────
 
 async function getStreams(tmdbId, mediaType, season, episode, userSettings) {
@@ -202,7 +224,7 @@ async function getStreams(tmdbId, mediaType, season, episode, userSettings) {
     return [];
   }
 
-  var out = [];
+  var rawItems = [];
   var seen = {};
 
   for (var i = 0; i < resData.streams.length; i++) {
@@ -223,60 +245,73 @@ async function getStreams(tmdbId, mediaType, season, episode, userSettings) {
       if (normQual !== settings.minQuality) continue;
     }
 
-    // Extract size in bytes for sorting
+    // Extract size in MB for sorting
     var szMatch = rawText.match(/(\d+(?:\.\d+)?)\s*(gb|mb)/i);
-    var sizeBytes = 0;
+    var sizeInMB = 0;
     if (szMatch) {
       var num = parseFloat(szMatch[1]);
       var unit = szMatch[2].toLowerCase();
-      sizeBytes = unit === "gb" ? num * 1073741824 : num * 1048576;
+      sizeInMB = unit === "gb" ? Math.floor(num * 1024) : Math.floor(num);
     }
 
+    var qScore = getResolutionScore(normQual);
     var displayLang = parseLanguage(rawText);
     var metadata = buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, st);
 
-    out.push({
-      _sizeBytes: sizeBytes,
-      _qual: normQual,
-      item: {
-        name: PROVIDER_NAME + " | " + normQual + " | " + displayLang,
-        title: metadata,
-        size: metadata,
-        description: metadata,
-        url: streamUrl,
-        quality: "",
-        language: "",
-        headers: {
-          "User-Agent": USER_AGENT,
-          "Referer": DESIFLIX_BASE + "/"
-        }
-      }
+    rawItems.push({
+      sizeInMB: sizeInMB,
+      qualityScore: qScore,
+      normQual: normQual,
+      displayLang: displayLang,
+      metadata: metadata,
+      streamUrl: streamUrl
     });
   }
 
   // ── Sorting Mechanics ──────────────────────────────────────
-  function getResolutionScore(qStr) {
-    if (qStr === "2160p") return 2160;
-    if (qStr === "1080p") return 1080;
-    if (qStr === "720p") return 720;
-    if (qStr === "480p") return 480;
-    return 0;
-  }
-
-  out.sort(function(a, b) {
+  rawItems.sort(function(a, b) {
     if (settings.sortBy === "size") {
-      return b._sizeBytes - a._sizeBytes;
+      return b.sizeInMB - a.sizeInMB;
     } else if (settings.sortBy === "quality") {
-      return getResolutionScore(b._qual) - getResolutionScore(a._qual);
+      return b.qualityScore - a.qualityScore;
     }
-    // "any" or default sorting
-    return getResolutionScore(b._qual) - getResolutionScore(a._qual);
+    // "any" or default quality-first sorting
+    return b.qualityScore - a.qualityScore;
   });
 
-  var finalStreams = out.map(function(entry) { return entry.item; });
+  // Construct Final Output with Inverted Zero-Width Sort Markers in `name`
+  var out = [];
+  for (var j = 0; j < rawItems.length; j++) {
+    var item = rawItems[j];
+    
+    var sortTag = "";
+    if (settings.sortBy === "size") {
+      sortTag = getInvertedSortTag(item.sizeInMB, 9999999);
+    } else if (settings.sortBy === "quality") {
+      sortTag = getInvertedSortTag(item.qualityScore, 9999);
+    } else {
+      sortTag = getInvertedSortTag(item.qualityScore, 9999);
+    }
 
-  log("Returning " + finalStreams.length + " sorted streams");
-  return finalStreams;
+    var headerName = sortTag + PROVIDER_NAME + " | " + item.normQual + " | " + item.displayLang;
+
+    out.push({
+      name: headerName,
+      title: item.metadata,
+      size: item.metadata,
+      description: item.metadata,
+      url: item.streamUrl,
+      quality: "",
+      language: "",
+      headers: {
+        "User-Agent": USER_AGENT,
+        "Referer": DESIFLIX_BASE + "/"
+      }
+    });
+  }
+
+  log("Returning " + out.length + " sorted streams");
+  return out;
 }
 
 // ─── Options Menu Engine ──────────────────────────────────────

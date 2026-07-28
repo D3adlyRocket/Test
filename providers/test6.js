@@ -461,7 +461,7 @@ function onSettings() {
   });
 }
 
-function getStreams(rawId, mediaType = "tv", season = 1, episode = 1) {
+function getStreams(rawId, mediaType = "tv", inSeason = 1, inEpisode = 1) {
   return __async(this, null, function* () {
     try {
       let idStr = String(rawId || "").trim();
@@ -470,29 +470,44 @@ function getStreams(rawId, mediaType = "tv", season = 1, episode = 1) {
       let malId = null;
       let tmdbData = null;
       let showTitle = "Anime";
+      let season = inSeason;
+      let episode = inEpisode;
 
-      if (idStr.includes(":") && !idStr.startsWith("tt")) {
-        const parts = idStr.split(":");
-        const prefix = parts[0].toLowerCase();
+      const parts = idStr.split(":");
+      const prefix = parts[0].toLowerCase();
 
-        if (prefix === "kitsu") {
-          const kitsuRes = yield getKitsuDetails(parts[1]);
-          if (kitsuRes.malId) malId = kitsuRes.malId;
-          if (kitsuRes.title) showTitle = kitsuRes.title;
-        } else if (prefix === "mal") {
-          malId = parts[1];
-        } else if (prefix === "tmdb") {
-          tmdbId = parts[1];
+      if (prefix === "kitsu") {
+        const kId = parts[1];
+        if (parts.length === 3) {
+          episode = parseInt(parts[2], 10) || episode;
+        } else if (parts.length >= 4) {
+          season = parseInt(parts[2], 10) || season;
+          episode = parseInt(parts[3], 10) || episode;
         }
-      } else if (idStr.startsWith("kitsu:")) {
-        const kId = idStr.replace(/^kitsu:/, "");
         const kitsuRes = yield getKitsuDetails(kId);
         if (kitsuRes.malId) malId = kitsuRes.malId;
         if (kitsuRes.title) showTitle = kitsuRes.title;
-      } else if (idStr.startsWith("mal:")) {
-        malId = idStr.replace(/^mal:/, "");
-      } else if (idStr.startsWith("tt")) {
-        imdbId = idStr.split(":")[0];
+      } else if (prefix === "mal") {
+        malId = parts[1];
+        if (parts.length >= 3) {
+          episode = parseInt(parts[parts.length - 1], 10) || episode;
+        }
+      } else if (prefix === "tmdb") {
+        tmdbId = parts[1];
+        if (parts.length === 3) {
+          episode = parseInt(parts[2], 10) || episode;
+        } else if (parts.length >= 4) {
+          season = parseInt(parts[2], 10) || season;
+          episode = parseInt(parts[3], 10) || episode;
+        }
+      } else if (parts[0].startsWith("tt")) {
+        imdbId = parts[0];
+        if (parts.length === 2) {
+          episode = parseInt(parts[1], 10) || episode;
+        } else if (parts.length >= 3) {
+          season = parseInt(parts[1], 10) || season;
+          episode = parseInt(parts[2], 10) || episode;
+        }
         const res = yield findByExternalId(imdbId);
         if (res) {
           tmdbData = res.data;
@@ -500,7 +515,13 @@ function getStreams(rawId, mediaType = "tv", season = 1, episode = 1) {
           mediaType = res.type;
         }
       } else {
-        tmdbId = idStr.replace(/^tmdb:/, "");
+        tmdbId = parts[0];
+        if (parts.length === 2) {
+          episode = parseInt(parts[1], 10) || episode;
+        } else if (parts.length >= 3) {
+          season = parseInt(parts[1], 10) || season;
+          episode = parseInt(parts[2], 10) || episode;
+        }
       }
 
       if (tmdbId && !tmdbData && /^\d+$/.test(tmdbId)) {

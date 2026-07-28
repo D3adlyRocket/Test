@@ -161,6 +161,37 @@ function findByExternalId(externalId) {
   });
 }
 
+function getKitsuDetails(kitsuId) {
+  return __async(this, null, function* () {
+    try {
+      let malId = null;
+      let title = null;
+
+      const mapUrl = `https://kitsu.io/api/edge/anime/${kitsuId}/mappings`;
+      const mapData = yield fetchJson(mapUrl);
+      if (mapData && mapData.data) {
+        const malItem = mapData.data.find(
+          i => i.attributes && i.attributes.externalSite === "myanimelist"
+        );
+        if (malItem) {
+          malId = malItem.attributes.externalId;
+        }
+      }
+
+      const showUrl = `https://kitsu.io/api/edge/anime/${kitsuId}`;
+      const showData = yield fetchJson(showUrl);
+      if (showData && showData.data && showData.data.attributes) {
+        const attr = showData.data.attributes;
+        title = attr.canonicalTitle || (attr.titles && attr.titles.en) || null;
+      }
+
+      return { malId, title };
+    } catch (e) {
+      return { malId: null, title: null };
+    }
+  });
+}
+
 function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
@@ -438,11 +469,30 @@ function getStreams(rawId, mediaType = "tv", season = 1, episode = 1) {
       let imdbId = null;
       let malId = null;
       let tmdbData = null;
+      let showTitle = "Anime";
 
-      if (idStr.startsWith("mal:")) {
-        malId = idStr.replace("mal:", "");
+      if (idStr.includes(":") && !idStr.startsWith("tt")) {
+        const parts = idStr.split(":");
+        const prefix = parts[0].toLowerCase();
+
+        if (prefix === "kitsu") {
+          const kitsuRes = yield getKitsuDetails(parts[1]);
+          if (kitsuRes.malId) malId = kitsuRes.malId;
+          if (kitsuRes.title) showTitle = kitsuRes.title;
+        } else if (prefix === "mal") {
+          malId = parts[1];
+        } else if (prefix === "tmdb") {
+          tmdbId = parts[1];
+        }
+      } else if (idStr.startsWith("kitsu:")) {
+        const kId = idStr.replace(/^kitsu:/, "");
+        const kitsuRes = yield getKitsuDetails(kId);
+        if (kitsuRes.malId) malId = kitsuRes.malId;
+        if (kitsuRes.title) showTitle = kitsuRes.title;
+      } else if (idStr.startsWith("mal:")) {
+        malId = idStr.replace(/^mal:/, "");
       } else if (idStr.startsWith("tt")) {
-        imdbId = idStr;
+        imdbId = idStr.split(":")[0];
         const res = yield findByExternalId(imdbId);
         if (res) {
           tmdbData = res.data;
@@ -451,10 +501,12 @@ function getStreams(rawId, mediaType = "tv", season = 1, episode = 1) {
         }
       } else {
         tmdbId = idStr.replace(/^tmdb:/, "");
+      }
+
+      if (tmdbId && !tmdbData && /^\d+$/.test(tmdbId)) {
         tmdbData = yield getTmdbDetails(tmdbId, mediaType);
       }
 
-      let showTitle = "Anime";
       if (tmdbData) {
         showTitle =
           tmdbData.name ||
@@ -481,14 +533,17 @@ function getStreams(rawId, mediaType = "tv", season = 1, episode = 1) {
       }
 
       if (!malId && imdbId) {
-        const mapping = yield resolveMapping(imdbId, s, e);
+        let mapping = yield resolveMapping(imdbId, s, e);
+        if (!mapping && s > 1) {
+          mapping = yield resolveMapping(imdbId, 1, e);
+        }
         if (mapping && mapping.mal_id) {
           malId = mapping.mal_id;
           mappedEp = mapping.mal_episode || episode;
         }
       }
 
-      if (!malId && showTitle) {
+      if (!malId && showTitle && showTitle !== "Anime") {
         malId = yield searchMalId(showTitle, mediaType);
       }
 

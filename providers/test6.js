@@ -1,4 +1,7 @@
-/** * hianime - Built from src/hianime/ * Generated: 2026-05-23T18:18:42.790Z */
+/**
+ * hianime - Built from src/hianime/
+ * Generated: 2026-05-23T18:18:42.790Z
+ */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
@@ -9,73 +12,54 @@ var __getOwnPropSymbols = Object.getOwnPropertySymbols;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) =>
-  key in obj
-    ? __defProp(obj, key, {
-        enumerable: true,
-        configurable: true,
-        writable: true,
-        value
-      })
-    : (obj[key] = value);
+var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __spreadValues = (a, b) => {
   for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop)) __defNormalProp(a, prop, b[prop]);
+    if (__hasOwnProp.call(b, prop))
+      __defNormalProp(a, prop, b[prop]);
   if (__getOwnPropSymbols)
     for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop)) __defNormalProp(a, prop, b[prop]);
+      if (__propIsEnum.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
     }
   return a;
 };
 var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
 var __copyProps = (to, from, except, desc) => {
-  if ((from && typeof from === "object") || typeof from === "function") {
+  if (from && typeof from === "object" || typeof from === "function") {
     for (let key of __getOwnPropNames(from))
       if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, {
-          get: () => from[key],
-          enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
-        });
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
   }
   return to;
 };
-var __toESM = (mod, isNodeMode, target) => (
-  (target = mod != null ? __create(__getProtoOf(mod)) : {}),
-  __copyProps(
-    isNodeMode || !mod || !mod.__esModule
-      ? __defProp(target, "default", { value: mod, enumerable: true })
-      : target,
-    mod
-  )
-);
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(
+  isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", { value: mod, enumerable: true }) : target,
+  mod
+));
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
-    var fulfilled = value => {
+    var fulfilled = (value) => {
       try {
         step(generator.next(value));
       } catch (e) {
         reject(e);
       }
     };
-    var rejected = value => {
+    var rejected = (value) => {
       try {
         step(generator.throw(value));
       } catch (e) {
         reject(e);
       }
     };
-    var step = x =>
-      x.done
-        ? resolve(x.value)
-        : Promise.resolve(x.value).then(fulfilled, rejected);
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
     step((generator = generator.apply(__this, __arguments)).next());
   });
 };
 
 // src/hianime/index.js
-var import_cheerio_without_node_native = __toESM(
-  require("cheerio-without-node-native")
-);
+var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
 
 // src/hianime/constants.js
 var MEGAPLAY_BASE = "https://megaplay.buzz";
@@ -83,45 +67,32 @@ var VIDWISH_BASE = "https://vidwish.live";
 var MEGACLOUD_BASE = "https://megacloud.bloggy.click";
 var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
 var DEFAULT_HEADERS = {
-  "User-Agent":
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-  Accept: "*/*",
-  Connection: "keep-alive"
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Accept": "*/*",
+  "Connection": "keep-alive"
 };
 
 // src/hianime/utils.js
 function fetchText(_0) {
   return __async(this, arguments, function* (url, options = {}) {
-    const response = yield fetch(
-      url,
-      __spreadValues(
-        {
-          headers: __spreadValues(
-            __spreadValues({}, DEFAULT_HEADERS),
-            options.headers
-          )
-        },
-        options
-      )
-    );
-    if (!response.ok) throw new Error(`HTTP ${response.status} on ${url}`);
+    const response = yield fetch(url, __spreadValues({
+      headers: __spreadValues(__spreadValues({}, DEFAULT_HEADERS), options.headers)
+    }, options));
+    if (!response.ok)
+      throw new Error(`HTTP ${response.status} on ${url}`);
     return yield response.text();
   });
 }
-
 function fetchJson(_0) {
   return __async(this, arguments, function* (url, options = {}) {
     const text = yield fetchText(url, options);
     return JSON.parse(text);
   });
 }
-
 function getImdbId(tmdbId, mediaType) {
   return __async(this, null, function* () {
     try {
-      const url = `https://api.themoviedb.org/3/${
-        mediaType === "tv" ? "tv" : "movie"
-      }/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
+      const url = `https://api.themoviedb.org/3/${mediaType === "tv" ? "tv" : "movie"}/${tmdbId}/external_ids?api_key=${TMDB_API_KEY}`;
       const data = yield fetchJson(url);
       return data.imdb_id || null;
     } catch (e) {
@@ -129,20 +100,16 @@ function getImdbId(tmdbId, mediaType) {
     }
   });
 }
-
 function getTmdbDetails(tmdbId, mediaType) {
   return __async(this, null, function* () {
     try {
-      const url = `https://api.themoviedb.org/3/${
-        mediaType === "tv" ? "tv" : "movie"
-      }/${tmdbId}?api_key=${TMDB_API_KEY}`;
+      const url = `https://api.themoviedb.org/3/${mediaType === "tv" ? "tv" : "movie"}/${tmdbId}?api_key=${TMDB_API_KEY}`;
       return yield fetchJson(url);
     } catch (e) {
       return null;
     }
   });
 }
-
 function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     try {
@@ -166,27 +133,24 @@ function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
     }
   });
 }
-
 function resolveMapping(imdbId, season, episode) {
   return __async(this, null, function* () {
     try {
       const url = `https://id-mapping-api-malid.hf.space/api/resolve?id=${imdbId}&s=${season}&e=${episode}`;
       const data = yield fetchJson(url);
-      if (data.error) return null;
+      if (data.error)
+        return null;
       return data;
     } catch (e) {
       return null;
     }
   });
 }
-
 function searchMalId(title, mediaType) {
   return __async(this, null, function* () {
     try {
       const type = mediaType === "movie" ? "movie" : "tv";
-      const url = `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(
-        title
-      )}&type=${type}&limit=1`;
+      const url = `https://api.jikan.moe/v4/anime?q=${encodeURIComponent(title)}&type=${type}&limit=1`;
       const data = yield fetchJson(url);
       if (data.data && data.data.length > 0) {
         return data.data[0].mal_id;
@@ -199,73 +163,60 @@ function searchMalId(title, mediaType) {
 }
 
 // src/hianime/index.js
-function extractSources(
-  apiUrl,
-  referer,
-  origin,
-  serverName,
-  animeTitle,
-  mediaType,
-  seasonNum,
-  episodeNum,
-  type,
-  meta
-) {
+// MODIFIED: Accepts mediaType and seasonNum parameters to clean up duplicates dynamically
+function extractSources(apiUrl, referer, origin, serverName, animeTitle, mediaType, seasonNum, episodeNum, type, meta) {
   return __async(this, null, function* () {
     var _a;
     try {
       const json = yield fetchJson(apiUrl, {
         headers: {
           "X-Requested-With": "XMLHttpRequest",
-          Referer: referer,
-          Origin: origin
+          "Referer": referer,
+          "Origin": origin
         }
       });
       const file = (_a = json.sources) == null ? void 0 : _a.file;
-      if (!file) return [];
-      const langString =
-        type.toLowerCase() === "sub" ? "Original (SUB)" : "English (DUB)";
+      if (!file)
+        return [];
+
+      const langString = type.toLowerCase() === "sub" ? "Original (SUB)" : "English (DUB)";
       const upperType = type.toUpperCase();
 
+      // Clean, dynamic layout blocks dependent on media category
       let lines = [];
       if (mediaType === "movie") {
         lines = [
           `🎬 ${animeTitle}`,
-          `🎞️ M3U8 | ⚡ Auto | 🔊 ${langString} | ⌛ ${meta.duration}`,
-          `🔗 Source: ${serverName}`
+          `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
         ];
       } else {
         lines = [
           `🎬 ${animeTitle}`,
           `🎥 S${seasonNum}E${episodeNum} - ${meta.epTitle}`,
-          `🎞️ M3U8 | ⚡ Auto | 🔊 ${langString} | ⌛ ${meta.duration}`,
-          `🔗 Source: ${serverName}`
+          `🎞️ M3U8 | ⚡ Auto | 🌍 ${langString} | ⏱️ ${meta.duration}`
         ];
       }
       const streamTitle = lines.join("\n");
+
       const streams = [];
       streams.push({
-        name: `H!Anime | Auto | [${serverName}] (${upperType})`,
+        name: `HiAnime | Auto | [${serverName}] (${upperType})`,
         title: streamTitle,
-        size: streamTitle,
-        description: streamTitle,
         url: file,
         quality: "Auto",
         headers: __spreadProps(__spreadValues({}, DEFAULT_HEADERS), {
-          Referer: `${origin}/`,
-          Origin: origin
+          "Referer": `${origin}/`,
+          "Origin": origin
         }),
         provider: "hianime",
         type: "m3u8"
       });
       if (json.tracks && json.tracks.length > 0) {
-        const subtitles = json.tracks
-          .filter(t => t.file && t.kind === "captions")
-          .map(t => ({
-            url: t.file,
-            name: t.label || "English",
-            language: t.label ? t.label.slice(0, 3).toLowerCase() : "en"
-          }));
+        const subtitles = json.tracks.filter((t) => t.file && t.kind === "captions").map((t) => ({
+          url: t.file,
+          name: t.label || "English",
+          language: t.label ? t.label.slice(0, 3).toLowerCase() : "en"
+        }));
         streams[0].subtitles = subtitles;
       }
       return streams;
@@ -275,124 +226,71 @@ function extractSources(
   });
 }
 
-function scrapeType(
-  malId,
-  episode,
-  type,
-  animeTitle,
-  meta,
-  mediaType,
-  season
-) {
+// MODIFIED: Passes down mediaType and season down to extractSources
+function scrapeType(malId, episode, type, animeTitle, meta, mediaType, season) {
   return __async(this, null, function* () {
     const streams = [];
     const megaUrl = `${MEGAPLAY_BASE}/stream/mal/${malId}/${episode}/${type}`;
     try {
       const html = yield fetchText(megaUrl, {
-        headers: { Referer: megaUrl }
+        headers: { "Referer": megaUrl }
       });
       const $ = import_cheerio_without_node_native.default.load(html);
       const player = $("div.fix-area#megaplay-player");
-      if (!player.length) return [];
-
+      if (!player.length)
+        return [];
       const dataId = player.attr("data-id");
       const realId = player.attr("data-realid");
       const extractions = [];
-
       if (dataId) {
         const apiUrl = `${MEGAPLAY_BASE}/stream/getSources?id=${dataId}&id=${dataId}`;
         extractions.push(
-          extractSources(
-            apiUrl,
-            megaUrl,
-            MEGAPLAY_BASE,
-            "MegaPlay",
-            animeTitle,
-            mediaType,
-            season,
-            episode,
-            type,
-            meta
-          )
+          extractSources(apiUrl, megaUrl, MEGAPLAY_BASE, "MegaPlay", animeTitle, mediaType, season, episode, type, meta)
         );
       }
       if (realId) {
         const vidPage = `${VIDWISH_BASE}/stream/s-2/${realId}/${type}`;
-        extractions.push(
-          (() =>
-            __async(this, null, function* () {
-              try {
-                const vidHtml = yield fetchText(vidPage, {
-                  headers: { Referer: megaUrl }
-                });
-                const $v = import_cheerio_without_node_native.default.load(
-                  vidHtml
-                );
-                const vPlayer = $v("div.fix-area#megaplay-player");
-                const vDataId = vPlayer.attr("data-id");
-                if (vDataId) {
-                  const apiUrl = `${VIDWISH_BASE}/stream/getSources?id=${vDataId}&id=${vDataId}`;
-                  return yield extractSources(
-                    apiUrl,
-                    vidPage,
-                    VIDWISH_BASE,
-                    "Vidwish",
-                    animeTitle,
-                    mediaType,
-                    season,
-                    episode,
-                    type,
-                    meta
-                  );
-                }
-              } catch (err) {}
-              return [];
-            }))()
-        );
+        extractions.push((() => __async(this, null, function* () {
+          try {
+            const vidHtml = yield fetchText(vidPage, { headers: { "Referer": megaUrl } });
+            const $v = import_cheerio_without_node_native.default.load(vidHtml);
+            const vPlayer = $v("div.fix-area#megaplay-player");
+            const vDataId = vPlayer.attr("data-id");
+            if (vDataId) {
+              const apiUrl = `${VIDWISH_BASE}/stream/getSources?id=${vDataId}&id=${vDataId}`;
+              return yield extractSources(apiUrl, vidPage, VIDWISH_BASE, "Vidwish", animeTitle, mediaType, season, episode, type, meta);
+            }
+          } catch (err) {
+          }
+          return [];
+        }))());
       }
       if (realId) {
         const megacloudPage = `${MEGACLOUD_BASE}/stream/s-3/${realId}/${type}`;
-        extractions.push(
-          (() =>
-            __async(this, null, function* () {
-              try {
-                const mcHtml = yield fetchText(megacloudPage, {
-                  headers: { Referer: megaUrl }
-                });
-                const $m = import_cheerio_without_node_native.default.load(
-                  mcHtml
-                );
-                const mPlayer = $m("div.fix-area#megaplay-player");
-                const mDataId = mPlayer.attr("data-id");
-                if (mDataId) {
-                  const apiUrl = `${MEGACLOUD_BASE}/stream/getSources?id=${mDataId}&id=${mDataId}`;
-                  return yield extractSources(
-                    apiUrl,
-                    megacloudPage,
-                    MEGACLOUD_BASE,
-                    "MegaCloud",
-                    animeTitle,
-                    mediaType,
-                    season,
-                    episode,
-                    type,
-                    meta
-                  );
-                }
-              } catch (err) {}
-              return [];
-            }))()
-        );
+        extractions.push((() => __async(this, null, function* () {
+          try {
+            const mcHtml = yield fetchText(megacloudPage, { headers: { "Referer": megaUrl } });
+            const $m = import_cheerio_without_node_native.default.load(mcHtml);
+            const mPlayer = $m("div.fix-area#megaplay-player");
+            const mDataId = mPlayer.attr("data-id");
+            if (mDataId) {
+              const apiUrl = `${MEGACLOUD_BASE}/stream/getSources?id=${mDataId}&id=${mDataId}`;
+              return yield extractSources(apiUrl, megacloudPage, MEGACLOUD_BASE, "MegaCloud", animeTitle, mediaType, season, episode, type, meta);
+            }
+          } catch (err) {
+          }
+          return [];
+        }))());
       }
       const results = yield Promise.all(extractions);
       for (const res of results) {
         streams.push(...res);
       }
-    } catch (e) {}
+    } catch (e) {
+    }
     return streams;
   });
 }
-
 function onSettings() {
   return __async(this, null, function* () {
     return [
@@ -417,31 +315,32 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
     try {
       const tmdbData = yield getTmdbDetails(tmdbId, mediaType);
       if (!tmdbData) return [];
+
       const genres = tmdbData.genres || [];
       const isAnimation = genres.some(g => g.id === 16);
+      
       const originalLanguage = tmdbData.original_language || "";
       const originCountry = tmdbData.origin_country || [];
-      const isJapanese =
-        originalLanguage === "ja" || originCountry.includes("JP");
+      const isJapanese = originalLanguage === "ja" || originCountry.includes("JP");
+
       if (!isAnimation || !isJapanese) {
         return [];
       }
+
       let malId = null;
       let mappedEp = episode;
-      let showTitle =
-        tmdbData.name ||
-        tmdbData.title ||
-        tmdbData.original_title ||
-        (mediaType === "movie" ? "Movie" : "Anime");
+      let showTitle = tmdbData.name || tmdbData.title || tmdbData.original_title || (mediaType === "movie" ? "Movie" : "Anime");
+      
       const imdbId = yield getImdbId(tmdbId, mediaType);
-      if (!imdbId) return [];
-      const tmdbMeta = yield getEpisodeMetadata(
-        tmdbId,
-        mediaType,
-        season,
-        episode
-      );
-      const meta = { epTitle: tmdbMeta.title, duration: tmdbMeta.duration };
+      if (!imdbId)
+        return [];
+
+      const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, season, episode);
+      const meta = {
+        epTitle: tmdbMeta.title,
+        duration: tmdbMeta.duration
+      };
+        
       const s = mediaType === "movie" ? 1 : season;
       const e = mediaType === "movie" ? 1 : episode;
       if (mediaType === "movie") {
@@ -455,7 +354,8 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
           mappedEp = mapping.mal_episode || episode;
         }
       }
-      if (!malId) return [];
+      if (!malId)
+        return [];
       const settings = globalThis.SCRAPER_SETTINGS || {};
       const preference = settings.subDub || "both";
       let allStreams = [];
@@ -466,19 +366,12 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
         ]);
         allStreams = [...subStreams, ...dubStreams];
       } else {
-        allStreams = yield scrapeType(
-          malId,
-          mappedEp,
-          preference,
-          showTitle,
-          meta,
-          mediaType,
-          s
-        );
+        allStreams = yield scrapeType(malId, mappedEp, preference, showTitle, meta, mediaType, s);
       }
       const seen = /* @__PURE__ */ new Set();
-      return allStreams.filter(s2 => {
-        if (seen.has(s2.url)) return false;
+      return allStreams.filter((s2) => {
+        if (seen.has(s2.url))
+          return false;
         seen.add(s2.url);
         return true;
       });
@@ -487,5 +380,4 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
     }
   });
 }
-
 module.exports = { getStreams, onSettings };

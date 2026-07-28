@@ -135,7 +135,6 @@ function extractSources(apiUrl, referer, origin, serverName, animeTitle, yearStr
       const upperType = type.toUpperCase(); 
       const formattedTitle = yearStr ? `${animeTitle} - (${yearStr})` : animeTitle;
 
-      // Subheading Lines
       let lines = []; 
       lines.push(`🎬 ${formattedTitle}`); 
       
@@ -281,10 +280,10 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
 
       let malId = null; 
       let mappedEp = episode; 
-      showTitle = tmdbData.name || tmdbData.title || tmdbData.original_title || (mediaType === "movie" ? "Movie" : "Anime"); 
+      let showTitle = tmdbData.name || tmdbData.title || tmdbData.original_title || (mediaType === "movie" ? "Movie" : "Anime"); 
       
-      const releaseDate = tmdbData.first_air_date || tmdbData.release_date || "";
-      const yearStr = releaseDate ? releaseDate.split("-")[0] : "";
+      const releaseDate = tmdbData.first_air_date || tmdbData.release_date || ""; 
+      const yearStr = releaseDate ? releaseDate.split("-")[0] : ""; 
 
       const imdbId = yield getImdbId(tmdbId, mediaType); 
       if (!imdbId) return []; 

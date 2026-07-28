@@ -89,6 +89,7 @@ function getEpisodeMetadata(tmdbId, mediaType, season, episode) {
 
 function resolveMapping(imdbId, season, episode) { 
   return __async(this, null, function* () { 
+    if (!imdbId) return null; 
     try { 
       const url = `https://id-mapping-api-malid.hf.space/api/resolve?id=${imdbId}&s=${season}&e=${episode}`; 
       const data = yield fetchJson(url); 
@@ -268,16 +269,6 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       const tmdbData = yield getTmdbDetails(tmdbId, mediaType); 
       if (!tmdbData) return []; 
 
-      const genres = tmdbData.genres || []; 
-      const isAnimation = genres.some(g => g.id === 16); 
-      const originalLanguage = tmdbData.original_language || ""; 
-      const originCountry = tmdbData.origin_country || []; 
-      const isJapanese = originalLanguage === "ja" || originCountry.includes("JP"); 
-
-      if (!isAnimation || !isJapanese) { 
-        return []; 
-      } 
-
       let malId = null; 
       let mappedEp = episode; 
       let showTitle = tmdbData.name || tmdbData.title || tmdbData.original_title || (mediaType === "movie" ? "Movie" : "Anime"); 
@@ -286,7 +277,6 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       const yearStr = releaseDate ? releaseDate.split("-")[0] : ""; 
 
       const imdbId = yield getImdbId(tmdbId, mediaType); 
-      if (!imdbId) return []; 
 
       const tmdbMeta = yield getEpisodeMetadata(tmdbId, mediaType, season, episode); 
       const meta = { epTitle: tmdbMeta.title, duration: tmdbMeta.duration }; 
@@ -297,13 +287,18 @@ function getStreams(tmdbId, mediaType = "tv", season = 1, episode = 1) {
       if (mediaType === "movie") { 
         malId = yield searchMalId(showTitle, "movie"); 
         mappedEp = 1; 
-      } 
-
-      if (!malId && mediaType !== "movie") { 
-        const mapping = yield resolveMapping(imdbId, s, e); 
-        if (mapping && mapping.mal_id) { 
-          malId = mapping.mal_id; 
-          mappedEp = mapping.mal_episode || episode; 
+      } else { 
+        if (imdbId) { 
+          const mapping = yield resolveMapping(imdbId, s, e); 
+          if (mapping && mapping.mal_id) { 
+            malId = mapping.mal_id; 
+            mappedEp = mapping.mal_episode || episode; 
+          } 
+        } 
+        // Fallback title search if mapping API fails or IMDb ID is missing
+        if (!malId) { 
+          malId = yield searchMalId(showTitle, "tv"); 
+          mappedEp = episode; 
         } 
       } 
 

@@ -788,34 +788,31 @@ AnimeZeyScraper.prototype._createResultItem = function (fileData, downloadUrl) {
   // Extrai metadados do nome do arquivo
   const meta = extractFileInfo(fileName);
 
-  // 1. Nome Principal (PersianStremio format)
-  const nameHeader = 'AnimeZeY | ' + qualityLabel + ' | ' + meta.langLabel;
+  // 1. Linha do Título (PersianStremio/DesiFlix style - Header principal)
+  const headerLine = 'AnimeZeY | ' + qualityLabel + ' | ' + meta.langLabel;
 
-  // 2. Mapeamento de Emojis para Badges no Subheading
-  const audioEmoji = meta.langLabel === 'Dual-Áudio' ? '🎧 Dual' : (meta.langLabel === 'Legendado' ? '📜 Leg' : '🇧🇷 Dub');
-  const qualityEmoji = quality >= 2160 ? '⚡ 4K' : '🎬 ' + qualityLabel;
-  const sizeEmoji = sizeFormatted ? '💾 ' + sizeFormatted : '';
-
-  // 3. Montagem da Linha 1 do Subheading (Badges com Emojis)
-  const line1Parts = [
-    qualityEmoji,
-    audioEmoji,
-    sizeEmoji,
-    meta.source ? '📀 ' + meta.source : '',
-    meta.codec ? '⚙️ ' + meta.codec : ''
+  // 2. Linha do Subheading (Detalhes e Badges)
+  const metaDetails = [
+    sizeFormatted,
+    meta.source,
+    meta.codec,
+    meta.audio
   ].filter(Boolean).join(' • ');
 
-  // 4. Subheading Final com quebra de linha + Nome do Arquivo
-  const subheadingText = line1Parts + '\n📂 ' + fileName;
+  // 3. Estrutura do Título Completo
+  // Nuvio lê o campo 'title' linha por linha para construir os cards:
+  // Linha 1: PersianStremio Header
+  // Linha 2: Metadados (Tamanho • Rip • Codec • Áudio)
+  // Linha 3: Nome exato do arquivo
+  const fullTitle = headerLine + (metaDetails ? '\n' + metaDetails : '') + '\n' + fileName;
 
   const bingeGroup = this.mediaType === 'tvshow'
     ? 'animezey-tv-' + this.tmdbId
     : 'animezey-movie-' + this.tmdbId;
 
   return {
-    name: nameHeader,
-    title: subheadingText,         // Compatibilidade com UIs legadas
-    description: subheadingText,   // Obrigatorio para exibir subheadings na UI Nuvio/Stremio
+    name: 'AnimeZeY',        // Nome fixo do provedor (Aparece no badge do topo)
+    title: fullTitle,        // Conteúdo formatado com \n (Gera o cabeçalho + subheadings na UI)
     url: downloadUrl,
     quality: quality,
     group: meta.langGroup,
@@ -841,9 +838,8 @@ function getStreams(tmdbId, mediaType, season, episode, providerUrl) {
     const msg = (e && e.message) ? e.message : String(e);
     log('[getStreams] ❌ Erro:', msg);
     return [{
-      name: 'AnimeZey | ERRO',
-      title: 'DEBUG: ' + msg,
-      description: 'DEBUG: ' + msg,
+      name: 'AnimeZeY',
+      title: 'AnimeZeY | ERRO\nDEBUG: ' + msg,
       url: 'https://example.com/erro-debug',
       quality: 0,
       group: 'DEBUG',

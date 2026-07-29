@@ -198,7 +198,7 @@ function computeAbsoluteEpisode(seasons, season, episode) {
 // Stream Layout Engine
 // ---------------------------------------------------------------------------
 
-function makeStream(fileName, url, fileSize, sessionUA, mediaInfo) {
+function makeStream(fileName, url, fileSize, sessionUA, mediaInfo, title, year, isAnime) {
   var cleanName = decodeEntities(fileName || '').replace(/[\n\t]+/g, '').trim();
   var lowerContext = cleanName.toLowerCase();
   var lowerUrl = (url || "").toLowerCase();
@@ -215,63 +215,73 @@ function makeStream(fileName, url, fileSize, sessionUA, mediaInfo) {
     sizeInGB = unit.includes("GB") ? num : num / 1024;
   }
 
+  // Basic Details & Quality
   var fileFormat = (url && lowerUrl.split('?')[0].endsWith(".mp4")) ? "MP4" : "MKV";
+  var quality = parseQuality(cleanName);
+  var is4K = quality === "2160p" || lowerContext.includes("4k");
+  var qIcon = is4K ? "🌟" : "🔥";
+
+  // Source
   var sourceTag = "WEB-DL";
   if (/\b(bluray|blu\-ray|bdrip)\b/i.test(lowerContext)) sourceTag = "BluRay";
   else if (/\b(hdrip|webrip)\b/i.test(lowerContext)) sourceTag = "WEBRip";
 
-  var quality = parseQuality(cleanName);
-  var is4K = quality === "2160p" || lowerContext.includes("4k");
+  // Codec
   var codecTag = "H.264";
-  if (/\b(hevc|x265|h265)\b/i.test(lowerContext) || lowerUrl.includes("hevc") || lowerUrl.includes("x265") || is4K) {
-    codecTag = "HEVC";
-  }
+  if (/\b(x265|h265)\b/i.test(lowerContext) || lowerUrl.includes("x265")) codecTag = "H.265";
+  else if (/\bhevc\b/i.test(lowerContext) || lowerUrl.includes("hevc") || is4K) codecTag = "HEVC";
 
-  var videoRangeBlock = "";
-  var rangeTag = "";
-  if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext) || lowerUrl.includes("dovi")) {
-    rangeTag = "Dolby Vision";
-  } else if (/\bhdr10\b/i.test(lowerContext)) {
-    rangeTag = "HDR10";
-  } else if (/\bhdr\b/i.test(lowerContext)) {
-    rangeTag = "HDR";
-  } else if (/\b(10bit|10\-bit)\b/i.test(lowerContext)) {
-    rangeTag = "10Bit";
-  }
+  // HDR Tags
+  var hdrMatch = "";
+  if (/\bhdr10plus\b/i.test(lowerContext)) hdrMatch = "HDR10+";
+  else if (/\bhdr10\b/i.test(lowerContext)) hdrMatch = "HDR10";
+  else if (/\bhdr\b/i.test(lowerContext)) hdrMatch = "HDR";
+  else if (/\b(10bit|10\-bit)\b/i.test(lowerContext)) hdrMatch = "10Bit";
+  var hdrPart = hdrMatch ? '🌈 ' + hdrMatch + ' | ' : '';
 
-  if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
-  else videoRangeBlock = " | ⚡ " + codecTag;
+  // Dolby Vision
+  var hasDV = /\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext) || lowerUrl.includes("dovi");
+  var dvPart = hasDV ? ' | 👁️ DV' : '';
 
+  // Audio Channels
   var audioChannelTag = "DD5.1";
-  if (is4K) {
+  if (/\batmos\b/i.test(lowerContext) || /\bddp5\.1\b/i.test(lowerContext) || is4K) {
     audioChannelTag = "DDP5.1 • 🔊 Atmos";
   } else if (sizeMatch && sizeInGB < 1.3) {
     audioChannelTag = "Stereo";
-  } else if (codecTag === "HEVC") {
-    audioChannelTag = "DD5.1";
   }
 
+  // Audio Language 
   var isDualAudio = /\b(dual|multi|dubbed|legendado|dublado)\b/i.test(lowerContext) || lowerUrl.includes("dual");
   var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
-  var displayLanguages = isDualAudio ? "Portuguese 🇧🇷 • Japanese 🇯🇵" : "Portuguese 🇧🇷";
+  var langTag = isDualAudio ? (isAnime ? "Portuguese 🇧🇷 • Japanese 🇯🇵" : "English 🇺🇸 • Portuguese 🇧🇷") : "Portuguese 🇧🇷";
 
-  var label = PROVIDER_NAME + " | " + quality + " | " + audioType;
-  var yearMatch = cleanName.match(/\b(19|20)\d{2}\b/);
-  var displayYear = yearMatch ? yearMatch[0] : "2026";
+  // Clean Title Presentation
+  var displayTitle = title || "Unknown Title";
+  var displayYear = year || "2026";
 
-  var line1 = mediaInfo ? '🎦 ' + cleanName + ' - ' + mediaInfo : '🎦 ' + cleanName + ' - (' + displayYear + ')';
-  var line2 = '💎 ' + quality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
-  var line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
-  var line4 = '🔗 AnimeZeY Server | ☁️ ' + sourceTag;
-  var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
+  // --- Subheading Builder ---
+  var line1 = mediaInfo 
+    ? '🍿 ' + displayTitle + ' - ' + displayYear + ' | ' + mediaInfo 
+    : '🍿 ' + displayTitle + ' - ' + displayYear;
+  
+  var line2 = qIcon + ' ' + quality + ' | 💾 ' + fileSizeOnly + ' | 🎞️ ' + fileFormat;
+  var line3 = hdrPart + '⚡ ' + codecTag + ' | ';
+  var line4 = '🌍 ' + audioType + ' | 🎧 ' + audioChannelTag + dvPart;
+  var line5 = '🗣️ ' + langTag + ' | ';
+  var line6 = '🔗 AnimeZeY Server | 🕸️ ' + sourceTag;
 
+  var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4 + '\n' + line5 + '\n' + line6;
+
+  // Sorting weight calculation
   var baseResWeight = is4K ? 9000000 : (quality.includes("1080") ? 6000000 : 3000000);
   var structuralSortWeight = baseResWeight + numericalSizeWeight;
+  var label = PROVIDER_NAME + " | " + quality + " | " + audioType;
 
   return {
     name: label,
     title: formattedTitle,
-    size: formattedTitle,  // <-- CORRECTED: Mapping multiline text to size field
+    size: formattedTitle,
     url: url || "",
     _sortWeight: structuralSortWeight,
     behaviorHints: {
@@ -726,7 +736,17 @@ AnimeZeyScraper.prototype._processResults = async function (items) {
     seenLinks[url] = true;
 
     var sizeFormatted = formatSize(item.size || 0);
-    var streamObj = makeStream(item.name || 'AnimeZeY Stream', url, sizeFormatted, self.sessionUA, epInfo);
+    // Updated makeStream to pass exact title, year, and anime status
+    var streamObj = makeStream(
+      item.name || 'AnimeZeY Stream', 
+      url, 
+      sizeFormatted, 
+      self.sessionUA, 
+      epInfo,
+      self.title,
+      self.year,
+      self._isAnime()
+    );
     streams.push(streamObj);
   }
 

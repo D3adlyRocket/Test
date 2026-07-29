@@ -35,7 +35,6 @@ function normalizeForCompare(text) {
 }
 
 function guessQualityFromName(name) {
-  // Número (1080, 720...), não string — confirmado no fshd.js real.
   if (!name) return 480;
   const n = name.toLowerCase();
   if (n.includes('2160p') || n.includes('4k') || n.includes('uhd')) return 2160;
@@ -49,12 +48,13 @@ function guessQualityFromName(name) {
 function formatSize(sizeBytes) {
   try {
     const b = Number(sizeBytes);
+    if (!b || isNaN(b)) return '';
     if (b < 1024) return b + ' B';
     if (b < 1024 * 1024) return (b / 1024).toFixed(2) + ' KB';
     if (b < 1024 * 1024 * 1024) return (b / (1024 * 1024)).toFixed(2) + ' MB';
     return (b / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
   } catch (e) {
-    return 'N/A';
+    return '';
   }
 }
 
@@ -103,6 +103,56 @@ function getAnimeSearchCodes(season, episode) {
   return codes;
 }
 
+/**
+ * Extracts tech metadata from file name to construct clean subheadings
+ */
+function extractFileInfo(filename) {
+  const name = filename || '';
+  const fnLower = name.toLowerCase();
+
+  // Source / Media Rip
+  let source = '';
+  if (fnLower.includes('bluray') || fnLower.includes('bdrip')) source = 'BluRay';
+  else if (fnLower.includes('web-dl') || fnLower.includes('webdl')) source = 'WEB-DL';
+  else if (fnLower.includes('webrip')) source = 'WEBRip';
+  else if (fnLower.includes('hdtv')) source = 'HDTV';
+  else if (fnLower.includes('remux')) source = 'REMUX';
+
+  // Codec
+  let codec = '';
+  if (fnLower.includes('x265') || fnLower.includes('hevc')) codec = 'HEVC';
+  else if (fnLower.includes('x264') || fnLower.includes('h264')) codec = 'x264';
+
+  // Audio Codec / Channels
+  let audio = '';
+  if (fnLower.includes('5.1')) audio = '5.1';
+  if (fnLower.includes('aac')) audio = audio ? audio + ' AAC' : 'AAC';
+  else if (fnLower.includes('ac3')) audio = audio ? audio + ' AC3' : 'AC3';
+  else if (fnLower.includes('ddp') || fnLower.includes('eac3')) audio = audio ? audio + ' DDP' : 'DDP';
+
+  // Language Tag
+  let langLabel = 'Dublado';
+  let langGroup = 'PT-BR';
+  if (['dual', 'multi'].some(function (x) { return fnLower.includes(x); })) {
+    langLabel = 'Dual-Áudio';
+    langGroup = 'DUAL';
+  } else if (['legendado', 'leg', 'sub'].some(function (x) { return fnLower.includes(x); })) {
+    langLabel = 'Legendado';
+    langGroup = 'LEG';
+  } else if (['dublado', 'dub', 'pt-br'].some(function (x) { return fnLower.includes(x); })) {
+    langLabel = 'Dublado';
+    langGroup = 'PT-BR';
+  }
+
+  return {
+    source: source,
+    codec: codec,
+    audio: audio,
+    langLabel: langLabel,
+    langGroup: langGroup,
+  };
+}
+
 const TITLE_END_RE = new RegExp(
   '^(?:' +
     's\\d{1,2}e\\d{1,2}' +
@@ -138,7 +188,6 @@ const NOISE_WORD_RE = new RegExp(
 // ---------------------------------------------------------------------------
 
 function fetchPlain(url, options) {
-  // Sem setTimeout/AbortController disponíveis no sandbox — fetch puro.
   return fetch(url, options || {});
 }
 
@@ -247,7 +296,6 @@ AnimeZeyScraper.prototype._isFlatSeries = function () {
 };
 
 AnimeZeyScraper.prototype.scrape = function () {
-  const self = this;
   let p;
   if (this.mediaType === 'movie') p = this._searchMovies();
   else if (this.mediaType === 'tvshow') p = this._searchEpisodes();
@@ -734,44 +782,39 @@ AnimeZeyScraper.prototype._buildDownloadLink = function (linkPart) {
 AnimeZeyScraper.prototype._createResultItem = function (fileData, downloadUrl) {
   const fileName = fileData.name || '';
   const quality = guessQualityFromName(fileName);
-  const fnLower = fileName.toLowerCase();
-
-  let language;
-  let languageLabel;
-  if (['dual', 'multi'].some(function (x) { return fnLower.includes(x); })) {
-    language = 'DUAL'; languageLabel = 'Português e Inglês';
-  } else if (['dublado', 'dub ', 'pt-br'].some(function (x) { return fnLower.includes(x); })) {
-    language = 'PT-BR'; languageLabel = 'Português';
-  } else if (['legendado', 'leg', 'sub', 'eng'].some(function (x) { return fnLower.includes(x); })) {
-    language = 'LEG'; languageLabel = 'Português (Legendado)';
-  } else {
-    language = 'PT-BR'; languageLabel = 'Português';
-  }
-
   const qualityLabel = quality >= 2160 ? '4K' : quality + 'p';
-  const displayTitle = this.mediaType === 'tvshow'
-    ? this.title + ' S' + pad(this.season, 2) + 'E' + pad(this.episode, 2)
-    : this.title;
+  const sizeFormatted = formatSize(fileData.size || 0);
+
+  // Extract metadata directly from Cloudflare Worker file name
+  const meta = extractFileInfo(fileName);
+
+  // 1. Header (PersianStremio format): AnimeZeY | Quality | Dual-Audio
+  const nameHeader = 'AnimeZeY | ' + qualityLabel + ' | ' + meta.langLabel;
+
+  // 2. Subheadings (Detailed Metadata + Direct File Name)
+  const metaDetails = [meta.source, meta.codec, meta.audio, sizeFormatted]
+    .filter(Boolean)
+    .join(' • ');
+
+  const titleSubheading = (metaDetails ? metaDetails + '\n' : '') + fileName;
 
   const bingeGroup = this.mediaType === 'tvshow'
     ? 'animezey-tv-' + this.tmdbId
     : 'animezey-movie-' + this.tmdbId;
 
   return {
-    // Estilo FrostStream: 'name' é o rótulo curto (provedor + qualidade),
-    // 'title' é o detalhe multi-linha exibido na lista (título, fonte, idioma).
-    name: 'AnimeZey ' + qualityLabel,
-    title: '🎬 ' + displayTitle + '\n📦 AnimeZey\n🌎 ' + languageLabel,
+    name: nameHeader,
+    title: titleSubheading,
     url: downloadUrl,
     quality: quality,
-    group: language,
+    group: meta.langGroup,
     provider: 'AnimeZey',
     headers: { 'User-Agent': USER_AGENT, Referer: 'https://' + this.baseDomain + '/' },
     behaviorHints: {
       notWebReady: true,
       bingeGroup: bingeGroup,
     },
-    size: formatSize(fileData.size || 0),
+    size: sizeFormatted,
   };
 };
 
@@ -784,7 +827,7 @@ function getStreams(tmdbId, mediaType, season, episode, providerUrl) {
     const msg = (e && e.message) ? e.message : String(e);
     log('[getStreams] ❌ Erro:', msg);
     return [{
-      name: 'AnimeZey [ERRO]',
+      name: 'AnimeZey | ERRO',
       title: 'DEBUG: ' + msg,
       url: 'https://example.com/erro-debug',
       quality: 0,

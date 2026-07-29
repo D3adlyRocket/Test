@@ -104,7 +104,7 @@ function getAnimeSearchCodes(season, episode) {
 }
 
 /**
- * Extracts tech metadata from file name to construct clean subheadings
+ * Extracts tech metadata from file name to construct subheadings
  */
 function extractFileInfo(filename) {
   const name = filename || '';
@@ -785,18 +785,28 @@ AnimeZeyScraper.prototype._createResultItem = function (fileData, downloadUrl) {
   const qualityLabel = quality >= 2160 ? '4K' : quality + 'p';
   const sizeFormatted = formatSize(fileData.size || 0);
 
-  // Extract metadata directly from Cloudflare Worker file name
+  // Extrai metadados do nome do arquivo
   const meta = extractFileInfo(fileName);
 
-  // 1. Header (PersianStremio format): AnimeZeY | Quality | Dual-Audio
+  // 1. Nome Principal (PersianStremio format)
   const nameHeader = 'AnimeZeY | ' + qualityLabel + ' | ' + meta.langLabel;
 
-  // 2. Subheadings (Detailed Metadata + Direct File Name)
-  const metaDetails = [meta.source, meta.codec, meta.audio, sizeFormatted]
-    .filter(Boolean)
-    .join(' • ');
+  // 2. Mapeamento de Emojis para Badges no Subheading
+  const audioEmoji = meta.langLabel === 'Dual-Áudio' ? '🎧 Dual' : (meta.langLabel === 'Legendado' ? '📜 Leg' : '🇧🇷 Dub');
+  const qualityEmoji = quality >= 2160 ? '⚡ 4K' : '🎬 ' + qualityLabel;
+  const sizeEmoji = sizeFormatted ? '💾 ' + sizeFormatted : '';
 
-  const titleSubheading = (metaDetails ? metaDetails + '\n' : '') + fileName;
+  // 3. Montagem da Linha 1 do Subheading (Badges com Emojis)
+  const line1Parts = [
+    qualityEmoji,
+    audioEmoji,
+    sizeEmoji,
+    meta.source ? '📀 ' + meta.source : '',
+    meta.codec ? '⚙️ ' + meta.codec : ''
+  ].filter(Boolean).join(' • ');
+
+  // 4. Subheading Final com quebra de linha + Nome do Arquivo
+  const subheadingText = line1Parts + '\n📂 ' + fileName;
 
   const bingeGroup = this.mediaType === 'tvshow'
     ? 'animezey-tv-' + this.tmdbId
@@ -804,12 +814,16 @@ AnimeZeyScraper.prototype._createResultItem = function (fileData, downloadUrl) {
 
   return {
     name: nameHeader,
-    title: titleSubheading,
+    title: subheadingText,         // Compatibilidade com UIs legadas
+    description: subheadingText,   // Obrigatorio para exibir subheadings na UI Nuvio/Stremio
     url: downloadUrl,
     quality: quality,
     group: meta.langGroup,
     provider: 'AnimeZey',
-    headers: { 'User-Agent': USER_AGENT, Referer: 'https://' + this.baseDomain + '/' },
+    headers: { 
+      'User-Agent': USER_AGENT, 
+      'Referer': 'https://' + this.baseDomain + '/' 
+    },
     behaviorHints: {
       notWebReady: true,
       bingeGroup: bingeGroup,
@@ -829,6 +843,7 @@ function getStreams(tmdbId, mediaType, season, episode, providerUrl) {
     return [{
       name: 'AnimeZey | ERRO',
       title: 'DEBUG: ' + msg,
+      description: 'DEBUG: ' + msg,
       url: 'https://example.com/erro-debug',
       quality: 0,
       group: 'DEBUG',

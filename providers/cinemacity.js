@@ -271,7 +271,7 @@ function makeStream(fileName, url, fileSize, sessionUA, mediaInfo) {
   return {
     name: label,
     title: formattedTitle,
-    size: fileSizeOnly,
+    size: formattedTitle,  // <-- CORRECTED: Mapping multiline text to size field
     url: url || "",
     _sortWeight: structuralSortWeight,
     behaviorHints: {

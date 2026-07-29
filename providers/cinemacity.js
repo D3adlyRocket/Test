@@ -162,7 +162,7 @@ async function postToAnimezey(url, payload, sessionUA) {
       method: 'POST',
       headers: {
         'accept': '*/*',
-        'accept-language': 'pt-BR,pt;q=0.9',
+        'accept-language': 'en-US,en;q=0.9',
         'content-type': 'application/json',
         'Referer': url,
         'User-Agent': sessionUA,
@@ -178,7 +178,8 @@ async function postToAnimezey(url, payload, sessionUA) {
 
 async function fetchTmdbDetails(tmdbId, mediaType, sessionUA) {
   var path = mediaType === 'movie' ? '/movie/' + tmdbId : '/tv/' + tmdbId;
-  var url = TMDB_BASE + path + '?api_key=' + TMDB_API_KEY + '&language=pt-BR';
+  // CHANGED: Now fetches English titles instead of Portuguese
+  var url = TMDB_BASE + path + '?api_key=' + TMDB_API_KEY + '&language=en-US';
   return await fetchJson(url, sessionUA);
 }
 
@@ -243,12 +244,23 @@ function makeStream(fileName, url, fileSize, sessionUA, mediaInfo, title, year, 
   var hasDV = /\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext) || lowerUrl.includes("dovi");
   var dvPart = hasDV ? ' | 👁️ DV' : '';
 
-  // Audio Channels
+  // Audio Channels (FIXED ATMOS LOGIC)
   var audioChannelTag = "DD5.1";
-  if (/\batmos\b/i.test(lowerContext) || /\bddp5\.1\b/i.test(lowerContext) || is4K) {
-    audioChannelTag = "DDP5.1 • 🔊 Atmos";
+  
+  // 1. Determine base format
+  if (/\bddp5\.1\b/i.test(lowerContext)) {
+    audioChannelTag = "DDP5.1";
   } else if (sizeMatch && sizeInGB < 1.3) {
     audioChannelTag = "Stereo";
+  }
+
+  // 2. Add Atmos ONLY if explicitly present in filename/url
+  if (/\batmos\b/i.test(lowerContext) || lowerUrl.includes("atmos")) {
+    if (audioChannelTag === "DDP5.1") {
+      audioChannelTag = "DDP5.1 • 🔊 Atmos";
+    } else {
+      audioChannelTag = "DD5.1 • 🔊 Atmos";
+    }
   }
 
   // Audio Language 
@@ -736,7 +748,6 @@ AnimeZeyScraper.prototype._processResults = async function (items) {
     seenLinks[url] = true;
 
     var sizeFormatted = formatSize(item.size || 0);
-    // Updated makeStream to pass exact title, year, and anime status
     var streamObj = makeStream(
       item.name || 'AnimeZeY Stream', 
       url, 
@@ -772,7 +783,7 @@ AnimeZeyScraper.prototype._extractPlayerUrl = async function (item) {
       headers: {
         'User-Agent': this.sessionUA,
         'Accept': 'text/html,application/xhtml+xml',
-        'Accept-Language': 'pt-BR,pt;q=0.9',
+        'Accept-Language': 'en-US,en;q=0.9',
         'Referer': 'https://' + this.baseDomain + '/',
       },
     });

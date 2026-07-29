@@ -14,11 +14,16 @@ async function onSettings() {
 const PROVIDER_NAME = "HijiStream";
 const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 
-// Updated target base URL endpoint
-const BASE_MANIFEST_URL = "https://hijistream-web.vercel.app";
+// Put your base endpoint URL here (or full configured URL path if required)
+const DEFAULT_BASE_URL = "https://hijistream-web.vercel.app";
 
-function getMovieBoxBaseUrl() {
-    return BASE_MANIFEST_URL;
+function getMovieBoxBaseUrl(token) {
+    let base = DEFAULT_BASE_URL.replace(/\/manifest\.json$/, '').replace(/\/$/, '');
+    // If an auth token is provided and not already included in the base URL, append it
+    if (token && !base.includes(token)) {
+        base = `${base}/${token}`;
+    }
+    return base;
 }
 
 async function getStreams(tmdbId, mediaType, season, episode) {
@@ -29,28 +34,42 @@ async function getStreams(tmdbId, mediaType, season, episode) {
     const settings = globalThis.SCRAPER_SETTINGS || {};
     const showEnglish = settings.langEnglish !== false;
     const showHindi = settings.langHindi !== false;
+    const userAuthToken = settings.authToken ? settings.authToken.trim() : "";
 
-    // Base URL pointing to the Vercel endpoint
-    const movieboxBase = getMovieBoxBaseUrl();
+    const movieboxBase = getMovieBoxBaseUrl(userAuthToken);
 
     // 2. Fetch metadata from TMDB
     const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
-    const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id || tmdbId;
+    
+    // Ensure IMDb ID starts with 'tt' if available
+    let imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
+    if (imdbId && !imdbId.startsWith('tt')) {
+        imdbId = `tt${imdbId}`;
+    }
+    if (!imdbId) {
+        imdbId = tmdbId; // Fallback to TMDB ID if no IMDb ID exists
+    }
 
     const titleName = meta?.title || meta?.name || "Movie/Show";
     const releaseYear = meta?.release_date ? meta.release_date.split('-')[0] : (meta?.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
 
-    // 3. Fetch the stream data from your updated Stremio manifest route
+    // 3. Fetch stream data
     const streamUrl = isSeries 
       ? `${movieboxBase}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
       : `${movieboxBase}/stream/movie/${imdbId}.json`;
 
-    const data = await fetch(streamUrl).then(r => r.json()).catch(() => null);
+    const data = await fetch(streamUrl, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "Accept": "application/json"
+      }
+    }).then(r => r.json()).catch(() => null);
+
     if (!data?.streams || data.streams.length === 0) return [];
 
     const allStreams = [];
 
-    // 4. Map language tags and filter using your configuration preferences
+    // 4. Map language tags and filter preferences
     data.streams.forEach(s => {
       if (!s) return;
       const titleText = (s.title || s.description || s.name || "").toLowerCase();
@@ -87,14 +106,13 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       grouped[key].push(item);
     });
 
-    // 6. Generate final cross-platform presentation layout structure
+    // 6. Generate final presentation structure
     Object.entries(grouped).forEach(([key, items]) => {
       const [res, lang] = key.split("-");
       
       items.forEach(item => {
         const rawText = (item.title || item.description || item.name || "").toLowerCase();
 
-        // Advanced size detection extraction logic
         let sizeStr = "Unknown Size";
         const sizeMatch = (item.title || item.description || item.name || "").match(/(\d+(?:\.\d+)?\s*(?:GB|MB|gb|mb))/i);
         if (sizeMatch) {
@@ -111,7 +129,6 @@ async function getStreams(tmdbId, mediaType, season, episode) {
         const formatStr = /\b(mp4|avi|m4v)\b/.test(rawText) ? "MP4" : "MKV";
         const cleanLangText = lang.replace(/[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD00-\uDFFF]/g, '').trim();
 
-        // Standardized multi-line presentation design layout
         const fullLayout = 
           `🎬 ${titleName} - (${releaseYear})\n` +
           `💎 ${res} | 🔊 ${cleanLangText} | 💾 ${sizeStr}\n` +
@@ -119,7 +136,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 
         result.push({
           name: `${PROVIDER_NAME} | ${res} | ${lang}`,
-          title: fullLayout,
+          title: item.title || fullLayout,
           size: fullLayout,
           description: fullLayout,
           url: item.url,

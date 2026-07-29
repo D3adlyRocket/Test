@@ -1,7 +1,6 @@
 /**
  * AnimeZey scraper — FILMES + SÉRIES, Nuvio.
- * 100% Promise-based (.then/.catch), sem async/await, sem setTimeout/
- * AbortController (sandbox confirmado sem essas APIs).
+ * Uses native metadata fields + buildStreams for UI badges rendering.
  */
 
 const DEBUG = true;
@@ -104,52 +103,34 @@ function getAnimeSearchCodes(season, episode) {
 }
 
 /**
- * Extracts tech metadata from file name to construct subheadings
+ * Extracts raw metadata tags from filename for badge rendering
  */
-function extractFileInfo(filename) {
-  const name = filename || '';
-  const fnLower = name.toLowerCase();
+function extractStreamBadges(filename) {
+  const fnLower = (filename || '').toLowerCase();
 
-  // Source / Media Rip
+  let videoCodec = '';
+  if (fnLower.includes('x265') || fnLower.includes('hevc')) videoCodec = 'HEVC';
+  else if (fnLower.includes('x264') || fnLower.includes('h264') || fnLower.includes('avc')) videoCodec = 'AVC';
+
+  let audioCodec = '';
+  if (fnLower.includes('atmos')) audioCodec = 'Atmos';
+  else if (fnLower.includes('ddp') || fnLower.includes('eac3')) audioCodec = 'Dolby Digital Plus';
+  else if (fnLower.includes('ac3') || fnLower.includes('dd')) audioCodec = 'Dolby Digital';
+  else if (fnLower.includes('aac')) audioCodec = 'AAC';
+
   let source = '';
   if (fnLower.includes('bluray') || fnLower.includes('bdrip')) source = 'BluRay';
-  else if (fnLower.includes('web-dl') || fnLower.includes('webdl')) source = 'WEB-DL';
-  else if (fnLower.includes('webrip')) source = 'WEBRip';
-  else if (fnLower.includes('hdtv')) source = 'HDTV';
-  else if (fnLower.includes('remux')) source = 'REMUX';
+  else if (fnLower.includes('web-dl') || fnLower.includes('webdl') || fnLower.includes('webrip')) source = 'WEB-DL';
 
-  // Codec
-  let codec = '';
-  if (fnLower.includes('x265') || fnLower.includes('hevc')) codec = 'HEVC';
-  else if (fnLower.includes('x264') || fnLower.includes('h264')) codec = 'x264';
-
-  // Audio Codec / Channels
-  let audio = '';
-  if (fnLower.includes('5.1')) audio = '5.1';
-  if (fnLower.includes('aac')) audio = audio ? audio + ' AAC' : 'AAC';
-  else if (fnLower.includes('ac3')) audio = audio ? audio + ' AC3' : 'AC3';
-  else if (fnLower.includes('ddp') || fnLower.includes('eac3')) audio = audio ? audio + ' DDP' : 'DDP';
-
-  // Language Tag
-  let langLabel = 'Dublado';
-  let langGroup = 'PT-BR';
-  if (['dual', 'multi'].some(function (x) { return fnLower.includes(x); })) {
-    langLabel = 'Dual-Áudio';
-    langGroup = 'DUAL';
-  } else if (['legendado', 'leg', 'sub'].some(function (x) { return fnLower.includes(x); })) {
-    langLabel = 'Legendado';
-    langGroup = 'LEG';
-  } else if (['dublado', 'dub', 'pt-br'].some(function (x) { return fnLower.includes(x); })) {
-    langLabel = 'Dublado';
-    langGroup = 'PT-BR';
-  }
+  let hdr = '';
+  if (fnLower.includes('dv') || fnLower.includes('dolby vision')) hdr = 'Dolby Vision';
+  else if (fnLower.includes('hdr')) hdr = 'HDR';
 
   return {
+    videoCodec: videoCodec,
+    audioCodec: audioCodec,
     source: source,
-    codec: codec,
-    audio: audio,
-    langLabel: langLabel,
-    langGroup: langGroup,
+    hdr: hdr
   };
 }
 
@@ -274,8 +255,6 @@ function AnimeZeyScraper(providerUrl, itemData) {
   }
 
   this._setupDomains();
-  log('🎯 Busca: title="' + this.title + '" media=' + this.mediaType +
-      (this.mediaType === 'tvshow' ? (' S' + this.season + 'E' + this.episode + ' abs=' + this.absEp) : ''));
 }
 
 AnimeZeyScraper.prototype._setupDomains = function () {
@@ -314,7 +293,6 @@ AnimeZeyScraper.prototype._searchEpisodes = function () {
   const seenIds = {};
   const episodes = [];
   const queries = this._generateEpisodeQueries().slice(0, 10);
-  log('[_searchEpisodes] ' + queries.length + ' queries: ' + JSON.stringify(queries));
   if (!queries.length) return Promise.resolve([]);
 
   const searchUrl = 'https://' + this.baseDomain + '/1:search';
@@ -323,7 +301,6 @@ AnimeZeyScraper.prototype._searchEpisodes = function () {
     if (episodes.length >= MAX_RESULTS_EPISODE) return Promise.resolve();
     return postToAnimezey(searchUrl, { q: query, page_token: null, page_index: 0 }).then(function (result) {
       const files = result && result.data && result.data.files ? result.data.files : [];
-      log('[_searchEpisodes] query="' + query + '" -> ' + files.length + ' arquivo(s)');
       for (let i = 0; i < files.length; i++) {
         if (episodes.length >= MAX_RESULTS_EPISODE) break;
         const item = files[i];
@@ -340,7 +317,6 @@ AnimeZeyScraper.prototype._searchEpisodes = function () {
   return queries.reduce(function (p, q) {
     return p.then(function () { return processQuery(q); });
   }, Promise.resolve()).then(function () {
-    log('[_searchEpisodes] episódios casados: ' + episodes.length);
     return episodes.length ? self._processResults(episodes) : [];
   });
 };
@@ -491,7 +467,7 @@ AnimeZeyScraper.prototype._isCorrectEpisode = function (filename) {
     const flat = [
       ' - ' + pad(this.episode, 3) + '(?!\\d)', ' - ' + pad(this.episode, 2) + '(?!\\d)',
       '- ' + pad(this.episode, 3) + '(?!\\d)', '- ' + pad(this.episode, 2) + '(?!\\d)',
-      '\\[' + pad(this.episode, 3) + '\\]', '\\[' + pad(this.episode, 2) + '\\]',
+      '\\' + pad(this.episode, 3) + '\\]', '\\[' + pad(this.episode, 2) + '\\]',
       ' ' + pad(this.episode, 3) + '\\.', ' ' + pad(this.episode, 2) + '\\.',
       ' ' + pad(this.episode, 3) + ' ', ' ' + pad(this.episode, 2) + ' ',
     ];
@@ -501,7 +477,7 @@ AnimeZeyScraper.prototype._isCorrectEpisode = function (filename) {
   return false;
 };
 
-// -------------------- Match de título (comum a filme/série) --------------------
+// -------------------- Title Matching --------------------
 
 AnimeZeyScraper.prototype._normalizeFn = function (s) {
   let out = removeAccents((s || '').toLowerCase());
@@ -609,21 +585,19 @@ AnimeZeyScraper.prototype._getBaseNames = function () {
   });
 };
 
-// -------------------- Filmes --------------------
+// -------------------- Movies --------------------
 
 AnimeZeyScraper.prototype._searchMovies = function () {
   const self = this;
   const seenIds = {};
   const movies = [];
   const queries = this._generateMovieQueries().slice(0, 8);
-  log('[_searchMovies] ' + queries.length + ' queries: ' + JSON.stringify(queries));
   const searchUrl = 'https://' + this.baseDomain + '/1:search';
 
   function processQuery(query) {
     if (movies.length >= MAX_RESULTS_MOVIE) return Promise.resolve();
     return postToAnimezey(searchUrl, { q: query }).then(function (result) {
       const files = result && result.data && result.data.files ? result.data.files : [];
-      log('[_searchMovies] query="' + query + '" -> ' + files.length + ' arquivo(s)');
       for (let i = 0; i < files.length; i++) {
         if (movies.length >= MAX_RESULTS_MOVIE) break;
         const item = files[i];
@@ -639,7 +613,6 @@ AnimeZeyScraper.prototype._searchMovies = function () {
   return queries.reduce(function (p, q) {
     return p.then(function () { return processQuery(q); });
   }, Promise.resolve()).then(function () {
-    log('[_searchMovies] filmes casados: ' + movies.length);
     return movies.length ? self._processResults(movies) : [];
   });
 };
@@ -693,7 +666,7 @@ AnimeZeyScraper.prototype._isCorrectMovie = function (filename) {
   return false;
 };
 
-// -------------------- Comum: resultado, download, extração --------------------
+// -------------------- Extraction & Results --------------------
 
 AnimeZeyScraper.prototype._isVideoFile = function (item) {
   const name = (item.name || '').toLowerCase();
@@ -703,22 +676,37 @@ AnimeZeyScraper.prototype._isVideoFile = function (item) {
 
 AnimeZeyScraper.prototype._processResults = function (items) {
   const self = this;
-  const results = [];
+  const rawResults = [];
   const seenLinks = {};
 
   function processItem(item) {
     return self._extractPlayerUrl(item).then(function (url) {
       if (!url || seenLinks[url]) return;
       seenLinks[url] = true;
-      results.push(self._createResultItem(item, url));
+      rawResults.push(self._buildRawItem(item, url));
     });
   }
 
   return items.reduce(function (p, item) {
     return p.then(function () { return processItem(item); });
   }, Promise.resolve()).then(function () {
-    results.sort(function (a, b) { return b.quality - a.quality; });
-    return results;
+    rawResults.sort(function (a, b) { return b.quality - a.quality; });
+    
+    // Transform items into Nuvio native UI stream objects with badges
+    if (typeof buildStreams === 'function') {
+      return buildStreams(rawResults);
+    }
+    
+    // Fallback if buildStreams is not globally injected
+    return rawResults.map(function(item) {
+      return {
+        name: item.provider,
+        title: item.provider + ' - ' + (item.resolution || 'HD') + '\n' + (item.size || ''),
+        url: item.url,
+        headers: item.headers,
+        behaviorHints: item.behaviorHints
+      };
+    });
   });
 };
 
@@ -779,44 +767,29 @@ AnimeZeyScraper.prototype._buildDownloadLink = function (linkPart) {
   }
 };
 
-AnimeZeyScraper.prototype._createResultItem = function (fileData, downloadUrl) {
+AnimeZeyScraper.prototype._buildRawItem = function (fileData, downloadUrl) {
   const fileName = fileData.name || '';
   const quality = guessQualityFromName(fileName);
-  const qualityLabel = quality >= 2160 ? '4K' : quality + 'p';
+  const resolution = quality >= 2160 ? '2160p' : (quality + 'p');
   const sizeFormatted = formatSize(fileData.size || 0);
 
-  // Extrai metadados do nome do arquivo
-  const meta = extractFileInfo(fileName);
-
-  // 1. Linha do Título (PersianStremio/DesiFlix style - Header principal)
-  const headerLine = 'AnimeZeY | ' + qualityLabel + ' | ' + meta.langLabel;
-
-  // 2. Linha do Subheading (Detalhes e Badges)
-  const metaDetails = [
-    sizeFormatted,
-    meta.source,
-    meta.codec,
-    meta.audio
-  ].filter(Boolean).join(' • ');
-
-  // 3. Estrutura do Título Completo
-  // Nuvio lê o campo 'title' linha por linha para construir os cards:
-  // Linha 1: PersianStremio Header
-  // Linha 2: Metadados (Tamanho • Rip • Codec • Áudio)
-  // Linha 3: Nome exato do arquivo
-  const fullTitle = headerLine + (metaDetails ? '\n' + metaDetails : '') + '\n' + fileName;
+  const badges = extractStreamBadges(fileName);
 
   const bingeGroup = this.mediaType === 'tvshow'
     ? 'animezey-tv-' + this.tmdbId
     : 'animezey-movie-' + this.tmdbId;
 
   return {
-    name: 'AnimeZeY',        // Nome fixo do provedor (Aparece no badge do topo)
-    title: fullTitle,        // Conteúdo formatado com \n (Gera o cabeçalho + subheadings na UI)
+    provider: 'AnimeZeY',
+    name: fileName,
     url: downloadUrl,
     quality: quality,
-    group: meta.langGroup,
-    provider: 'AnimeZey',
+    resolution: resolution,
+    size: sizeFormatted,
+    videoCodec: badges.videoCodec,
+    audioCodec: badges.audioCodec,
+    source: badges.source,
+    hdr: badges.hdr,
     headers: { 
       'User-Agent': USER_AGENT, 
       'Referer': 'https://' + this.baseDomain + '/' 
@@ -824,13 +797,12 @@ AnimeZeyScraper.prototype._createResultItem = function (fileData, downloadUrl) {
     behaviorHints: {
       notWebReady: true,
       bingeGroup: bingeGroup,
-    },
-    size: sizeFormatted,
+    }
   };
 };
 
 // ---------------------------------------------------------------------------
-// Entry point — assinatura padrão Nuvio
+// Entry point
 // ---------------------------------------------------------------------------
 
 function getStreams(tmdbId, mediaType, season, episode, providerUrl) {
@@ -839,11 +811,8 @@ function getStreams(tmdbId, mediaType, season, episode, providerUrl) {
     log('[getStreams] ❌ Erro:', msg);
     return [{
       name: 'AnimeZeY',
-      title: 'AnimeZeY | ERRO\nDEBUG: ' + msg,
+      title: 'AnimeZeY - ERRO\n' + msg,
       url: 'https://example.com/erro-debug',
-      quality: 0,
-      group: 'DEBUG',
-      provider: 'AnimeZey',
       headers: {},
     }];
   }
@@ -855,7 +824,6 @@ function getStreams(tmdbId, mediaType, season, episode, providerUrl) {
     const isMovie = mediaType === 'movie';
     const isTv = mediaType === 'tv' || mediaType === 'series' || mediaType === 'tvshow';
     if (!isMovie && !isTv) {
-      log('[getStreams] mediaType não suportado: ' + mediaType);
       return Promise.resolve([]);
     }
 
@@ -864,8 +832,6 @@ function getStreams(tmdbId, mediaType, season, episode, providerUrl) {
       const originalTitle = isMovie ? details.original_title : details.original_name;
       const dateStr = details.release_date || details.first_air_date || '';
       const year = dateStr ? parseInt(dateStr.slice(0, 4), 10) : null;
-
-      log('[getStreams] TMDB OK: title="' + title + '" original="' + originalTitle + '" year=' + year);
 
       const itemData = {
         tmdb_id: tmdbId,
@@ -881,7 +847,6 @@ function getStreams(tmdbId, mediaType, season, episode, providerUrl) {
 
       const scraper = new AnimeZeyScraper(providerUrl, itemData);
       return scraper.scrape().then(function (results) {
-        log('[getStreams] scrape() retornou ' + results.length + ' resultado(s)');
         return results;
       });
     }).catch(debugError);

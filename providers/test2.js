@@ -1,5 +1,5 @@
 /**
- * 4khdhub - Built with AnimeZeY standard layout formatting
+ * 4khdhub - Built with 5-line formatted stream details layout
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -340,72 +340,122 @@ function extractStreams(pageUrl, isSeries, season, episode) {
 }
 
 // ---------------------------------------------------------------------------
-// AnimeZeY Layout Style makeStream Engine
+// 5-Line Explicit Custom Layout Stream Builder
 // ---------------------------------------------------------------------------
 
-function makeStream(name, title, url, quality, headers, mediaInfo) {
+function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata) {
   var cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
   var lowerContext = cleanTitle.toLowerCase();
   var lowerUrl = (url || "").toLowerCase();
 
-  // 1. METADATA & SIZE ENGINE
+  // 1. Audio Track Parsing & Fallback Logic
+  var audioType = "Single Audio";
+  if (/\b(multi|multi\-audio)\b/i.test(lowerContext) || lowerUrl.includes("multi")) {
+    audioType = "Multi-Audio";
+  } else if (/\b(dual|dual\-audio|dubbed|hindi)\b/i.test(lowerContext) || lowerUrl.includes("dual")) {
+    audioType = "Dual-Audio";
+  }
+
+  // 2. Header
+  var displayQuality = quality || parseQuality(cleanTitle);
+  var headerName = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
+
+  // 3. Subheading Line 1 (Name & Year / Episode)
+  var mediaTitle = mediaMetadata && mediaMetadata.title ? mediaMetadata.title : name;
+  var mediaYear = mediaMetadata && mediaMetadata.year ? mediaMetadata.year : "2026";
+  var line1 = "";
+  if (mediaInfo && (mediaInfo.startsWith("S") || mediaInfo.includes("E"))) {
+    var formattedEp = mediaInfo.replace(/E0*(\d+)/i, 'E$1').replace(/S0*(\d+)/i, 'S$1');
+    line1 = "🎬 " + mediaTitle + " - (" + mediaYear + ") | " + formattedEp;
+  } else {
+    line1 = "🎬 " + mediaTitle + " - (" + mediaYear + ")";
+  }
+
+  // 4. Subheading Line 2 (Quality Icon, Size, Format)
+  var qIcon = "🔥";
+  if (displayQuality === "2160p" || lowerContext.includes("4k")) {
+    qIcon = "⚡";
+  } else if (displayQuality === "720p") {
+    qIcon = "💎";
+  }
+
   var fileSizeOnly = "N/A";
   var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i) || cleanTitle.match(/(\d+(?:\.\d+)?\s*[MG]B)/i);
   if (sizeMatch) fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
-  
+
   var numericalSizeWeight = 0;
-  var sizeInGB = 0;
   if (sizeMatch) {
     var num = parseFloat(sizeMatch[1]);
     var unit = sizeMatch[1].toUpperCase();
     numericalSizeWeight = unit.includes("GB") ? num * 1024 : num;
-    sizeInGB = unit.includes("GB") ? num : num / 1024;
   }
 
-  // 2. CODEC & FORMAT ENGINE
-  var is4K = quality.includes("2160") || quality.toLowerCase().includes("4k") || lowerContext.includes("2160p");
-  var codecTag = "H.264";
-  if (/\b(hevc|x265|h265)\b/i.test(lowerContext) || lowerUrl.includes("hevc") || lowerUrl.includes("x265") || is4K) {
-    codecTag = "HEVC";
+  var fileFormat = "MKV";
+  if (url && lowerUrl.split('?')[0].endsWith(".mp4")) {
+    fileFormat = "MP4";
   }
 
-  // 3. VIDEO PROFILE / RANGE ENGINE
-  var videoRangeBlock = "";
-  if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext) || lowerUrl.includes("dovi") || lowerUrl.includes("dolby.vision")) {
-    videoRangeBlock = " [DV]";
+  var line2 = qIcon + " " + displayQuality + " | 💾 " + fileSizeOnly + " | 📼 " + fileFormat;
+
+  // 5. Subheading Line 3 (HDR, Codec, Vision Profile)
+  var hdrTag = "HDR";
+  if (/\bhdr10\+/i.test(lowerContext) || lowerUrl.includes("hdr10plus")) {
+    hdrTag = "HDR10+";
   } else if (/\bhdr10\b/i.test(lowerContext) || lowerUrl.includes("hdr10")) {
-    videoRangeBlock = " [HDR10]";
+    hdrTag = "HDR10";
   } else if (/\bhdr\b/i.test(lowerContext) || lowerUrl.includes("hdr")) {
-    videoRangeBlock = " [HDR]";
-  } else if (/\b(10bit|10\-bit)\b/i.test(lowerContext) || lowerUrl.includes("10bit")) {
-    videoRangeBlock = " [10Bit]";
+    hdrTag = "HDR";
   }
 
-  // 4. AUDIO TRACKS & DUB LAYOUT
-  var isDualAudio = /\b(dual|multi|dubbed|hindi)\b/i.test(lowerContext) || decodeEntities(name || "").toLowerCase().includes("dual audio") || lowerUrl.includes("dual");
-  var audioType = isDualAudio ? "Dual Audio" : "Single Audio";
+  var codecTag = "H.264";
+  if (/\b(hevc|x265)\b/i.test(lowerContext) || lowerUrl.includes("hevc") || lowerUrl.includes("x265")) {
+    codecTag = "HEVC";
+  } else if (/\bh265\b/i.test(lowerContext) || lowerUrl.includes("h265")) {
+    codecTag = "H.265";
+  }
 
-  // 5. ANIMEZEY SPECIFIC COMPACT LAYOUT GENERATION
-  var displayQuality = quality || "1080p";
-  
-  // Header: e.g. "AnimeZeY | 1080p | Dual Audio"
-  var nameLabel = "AnimeZeY | " + displayQuality + " | " + audioType;
+  var dvTag = "DV";
+  if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext) || lowerUrl.includes("dovi") || lowerUrl.includes("dolby.vision")) {
+    dvTag = "DV";
+  }
 
-  // Title Row 1: Quality, Codec, Profile, and File Size
-  // e.g. "⚡ 1080p HEVC [10Bit] • 💾 1.43GB"
-  var titleLine1 = "⚡ " + displayQuality + " " + codecTag + videoRangeBlock + " • 💾 " + fileSizeOnly;
+  var line3 = "🌈 " + hdrTag + " | 🎥 " + codecTag + " | 👁️ " + dvTag;
 
-  // Title Row 2: Provider name and source info
-  // e.g. "🔗 4KHDHub • WEB-DL"
-  var titleLine2 = "🔗 4KHDHub • WEB-DL";
+  // 6. Subheading Line 4 (Audio Type & Channels)
+  var audioCodecTag = "DD5.1";
+  if (/\btruehd\s*7\.1\b/i.test(lowerContext) || lowerUrl.includes("truehd")) {
+    audioCodecTag = "TrueHD 7.1";
+  } else if (/\bddp5\.1\b/i.test(lowerContext) || lowerUrl.includes("ddp5.1")) {
+    audioCodecTag = "DDP5.1";
+  } else if (/\bdd5\.1\b/i.test(lowerContext) || lowerUrl.includes("dd5.1")) {
+    audioCodecTag = "DD5.1";
+  }
 
-  var formattedTitle = titleLine1 + "\n" + titleLine2;
+  var atmosSuffix = "";
+  if (/\batmos\b/i.test(lowerContext) || lowerUrl.includes("atmos")) {
+    atmosSuffix = " • 🔊 Atmos";
+  }
 
+  var line4 = "🌍 " + audioType + " | 🎧 " + audioCodecTag + atmosSuffix;
+
+  // 7. Subheading Line 5 (Provider & Source)
+  var sourceTag = "WEB-DL";
+  if (/\b(webrip|web\-rip)\b/i.test(lowerContext) || lowerUrl.includes("webrip")) {
+    sourceTag = "WEB-RIP";
+  } else if (/\b(bluray|blu\-ray)\b/i.test(lowerContext) || lowerUrl.includes("bluray")) {
+    sourceTag = "WEB-DL";
+  }
+
+  var line5 = "⛓️‍💥 Provider 📥 " + sourceTag;
+
+  var formattedTitle = line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
+
+  var is4K = displayQuality === "2160p";
   var baseResWeight = is4K ? 9000000 : (displayQuality.includes("1080") ? 6000000 : 3000000);
   var structuralSortWeight = baseResWeight + numericalSizeWeight;
 
   return {
-    name: nameLabel,
+    name: headerName,
     title: formattedTitle,
     size: formattedTitle,
     url: url || "",
@@ -462,7 +512,8 @@ function getStreams(tmdbId, mediaType, season = null, episode = null) {
           stream.url,
           stream.quality,
           { "Referer": BASE_URL + "/", "User-Agent": USER_AGENT },
-          epLabel.trim()
+          epLabel.trim(),
+          metadata
         );
 
         streams.push(streamObj);

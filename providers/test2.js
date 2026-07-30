@@ -335,7 +335,7 @@ function extractStreams(pageUrl, isSeries, season, episode) {
 }
 
 // ---------------------------------------------------------------------------
-// makeStream implementation configured for multi-line TV/Mobile subheaders
+// makeStream implementation aligned with AnimeZeY multi-line architecture
 // ---------------------------------------------------------------------------
 
 function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, episode) {
@@ -378,12 +378,14 @@ function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, ep
   var line4 = '🔊 ' + audioType + ' | 🌐 4KHDHub';
 
   var formattedBlock = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
+  
+  // Explicitly structuring name, title, and description so TV and Mobile clients stop collapsing it
   var headerName = "4KHDHub | " + parsedQuality + " | " + audioType;
 
   return {
     name: headerName,
-    title: formattedBlock,       // Multi-line layout for Desktop
-    description: formattedBlock, // Multi-line layout for Mobile & Android TV subheaders
+    title: formattedBlock,       // Full multi-line structure for Desktop
+    description: formattedBlock, // Full multi-line layout for Mobile & Android TV subheaders
     url: url,
     quality: parsedQuality,
     size: fileSizeOnly,

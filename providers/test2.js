@@ -1,5 +1,5 @@
 /**
- * 4KHDHub - Mapped Codec/Quality, Dynamic DV Tag, and Settings Menu
+ * 4KHDHub - Nuvio Compatible Settings & Dynamic Layout Stream Provider
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -67,26 +67,23 @@ var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 C
 var HEADERS = { "User-Agent": USER_AGENT, Referer: `${BASE_URL}/` };
 
 // ---------------------------------------------------------------------------
-// Settings Configuration
+// Nuvio-Native Crash-Free Settings Schema
 // ---------------------------------------------------------------------------
 
 function onSettings() {
-  return __async(this, null, function* () {
-    return [
-      {
-        type: "header",
-        title: "Basic Settings"
-      },
-      {
-        type: "select",
-        id: "sort_by",
-        title: "Sort By",
-        description: "Choose primary sorting method for search results",
-        default: "Quality",
-        options: ["Quality", "Largest Size"]
-      }
-    ];
-  });
+  return [
+    {
+      type: "select",
+      name: "sort_by",
+      label: "Sort By",
+      description: "Choose primary sorting method for search results",
+      value: "Quality",
+      options: [
+        { label: "Quality", value: "Quality" },
+        { label: "Largest Size", value: "Largest Size" }
+      ]
+    }
+  ];
 }
 
 function fetchText(_0) {
@@ -460,7 +457,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
 
   var line3Parts = ["🌈 " + hdrTag, "🎥 " + codecTag];
 
-  // Dynamic Dolby Vision Check: Only add if explicitly detected
+  // Explicit Dolby Vision Check
   if (/\b(dolby\s*vision|dovi|\.dv\.)\b/i.test(fullContext) || /[\.\-_]dv[\.\-_]/i.test(fullContext)) {
     line3Parts.push("👁️ DV");
   }
@@ -566,13 +563,12 @@ function getStreams(tmdbId, mediaType, season = null, episode = null, config = {
         streams.push(streamObj);
       }
 
-      var sortBy = (config && config.sort_by) || "Quality";
+      var sortBy = (config && (config.sort_by || config.SortBy)) || "Quality";
       
       var sortedStreams = streams.sort(function(a, b) {
         if (sortBy === "Largest Size") {
           return (b._sizeWeight || 0) - (a._sizeWeight || 0);
         }
-        // Default: Sort by Quality first, then size
         var resDiff = (b._resWeight || 0) - (a._resWeight || 0);
         if (resDiff !== 0) return resDiff;
         return (b._sizeWeight || 0) - (a._sizeWeight || 0);

@@ -335,7 +335,7 @@ function extractStreams(pageUrl, isSeries, season, episode) {
 }
 
 // ---------------------------------------------------------------------------
-// makeStream - Restored to original with Description fix for TV/Mobile
+// Strict Multi-line makeStream implementation forcing mobile/TV subheaders
 // ---------------------------------------------------------------------------
 
 function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, episode) {
@@ -346,32 +346,16 @@ function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, ep
   var is4K = parsedQuality === "2160p" || lowerContext.includes("4k") || lowerContext.includes("uhd");
   var qIcon = is4K ? "🌟" : "🔥";
   var fileSizeOnly = size || "N/A";
-
   var fileFormat = (url && url.split('?')[0].endsWith(".mp4")) ? "MP4" : "MKV";
 
-  // Source
   var sourceTag = "WEB-DL";
   if (/\b(bluray|blu\-ray|bdrip)\b/i.test(lowerContext)) sourceTag = "BluRay";
   else if (/\b(webrip)\b/i.test(lowerContext)) sourceTag = "WEBRip";
 
-  // Codec
   var codecTag = "H.264";
   if (/\b(x265|h265)\b/i.test(lowerContext)) codecTag = "H.265";
   else if (/\bhevc\b/i.test(lowerContext) || is4K) codecTag = "HEVC";
 
-  // HDR Tags
-  var hdrMatch = "";
-  if (/\bhdr10plus\b/i.test(lowerContext)) hdrMatch = "HDR10+";
-  else if (/\bhdr10\b/i.test(lowerContext)) hdrMatch = "HDR10";
-  else if (/\bhdr\b/i.test(lowerContext)) hdrMatch = "HDR";
-  else if (/\b(10bit|10\-bit)\b/i.test(lowerContext)) hdrMatch = "10Bit";
-  var hdrPart = hdrMatch ? '🌈 ' + hdrMatch + ' | ' : '';
-
-  // Dolby Vision
-  var hasDV = /\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext);
-  var dvPart = hasDV ? ' | 👁️ DV' : '';
-
-  // Audio Channels (Strict Atmos)
   var audioChannelTag = "DD5.1";
   if (/\bddp5\.1\b/i.test(lowerContext)) {
     audioChannelTag = "DDP5.1";
@@ -381,42 +365,26 @@ function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, ep
     audioChannelTag = "AAC";
   }
 
-  if (/\batmos\b/i.test(lowerContext)) {
-    if (audioChannelTag === "DDP5.1") {
-      audioChannelTag = "DDP5.1 • 🔊 Atmos";
-    } else {
-      audioChannelTag = "DD5.1 • 🔊 Atmos";
-    }
-  }
-
-  // Audio Language & Type
   var isDualAudio = /\b(dual|multi|dubbed|hindi|org)\b/i.test(lowerContext);
   var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
-  var langTag = isDualAudio ? "English 🇺🇸 • Multi 🌐" : "English 🇺🇸";
 
-  // Clean Title Presentation
-  var displayTitle = metadata.title || "Unknown Title";
-  var displayYear = metadata.year || "2026";
+  var displayTitle = metadata && metadata.title ? metadata.title : "Video Stream";
+  var displayYear = metadata && metadata.year ? metadata.year : "";
   var epInfo = (isSeries && season && episode) ? 'S' + pad(season) + 'E' + pad(episode) : '';
 
-  // --- Subheading Builder ---
-  var line1 = epInfo 
-    ? '🍿 ' + displayTitle + ' - ' + displayYear + ' | ' + epInfo 
-    : '🍿 ' + displayTitle + ' - ' + displayYear;
-  
+  // Explicit line construction forcing mobile/TV UI rendering blocks
+  var line1 = epInfo ? '🍿 ' + displayTitle + (displayYear ? ' (' + displayYear + ')' : '') + ' | ' + epInfo : '🍿 ' + displayTitle + (displayYear ? ' (' + displayYear + ')' : '');
   var line2 = qIcon + ' ' + parsedQuality + ' | 💾 ' + fileSizeOnly + ' | 🎞️ ' + fileFormat;
-  var line3 = hdrPart + '⚡ ' + codecTag + ' | ';
-  var line4 = '🌍 ' + audioType + ' | 🎧 ' + audioChannelTag + dvPart;
-  var line5 = '🗣️ ' + langTag + ' | ';
-  var line6 = '🔗 4KHDHub Server | 🕸️ ' + sourceTag;
+  var line3 = '⚡ ' + codecTag + ' | 🎧 ' + audioChannelTag;
+  var line4 = '🔊 ' + audioType + ' | 🌐 4KHDHub';
 
-  var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4 + '\n' + line5 + '\n' + line6;
+  var formattedBlock = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
   var headerName = "4KHDHub | " + parsedQuality + " | " + audioType;
 
   return {
     name: headerName,
-    title: formattedTitle,
-    description: formattedTitle, // REQUIRED for Stremio TV and Mobile UI
+    title: formattedBlock,
+    description: formattedBlock,
     url: url,
     quality: parsedQuality,
     size: fileSizeOnly,

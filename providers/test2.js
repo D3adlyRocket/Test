@@ -66,10 +66,6 @@ var TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36";
 var HEADERS = { "User-Agent": USER_AGENT, Referer: `${BASE_URL}/` };
 
-function pad(n, width = 2) {
-  return String(n).padStart(width, '0');
-}
-
 function fetchText(_0) {
   return __async(this, arguments, function* (url, referer = BASE_URL) {
     const response = yield fetch(url, {
@@ -145,7 +141,7 @@ function parseQuality(value) {
 
 function parseSize(value) {
   const match = String(value || "").match(/([\d.]+)\s*(GB|MB|KB)/i);
-  return match ? `${match[1]} ${match[2].toUpperCase()}` : "N/A";
+  return match ? `${match[1]} ${match[2]}` : "N/A";
 }
 
 function isDirectVideo(url) {
@@ -334,88 +330,22 @@ function extractStreams(pageUrl, isSeries, season, episode) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// AnimeZeY Layout Engine Adaptation for 4KHDHub
-// ---------------------------------------------------------------------------
+function makeStream(rawTitle, url, size, quality) {
+  const cleanName = (rawTitle || '').replace(/[\n\t]+/g, '').trim();
+  const lowerContext = (cleanName + " " + (url || "")).toLowerCase();
 
-function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, episode) {
-  var cleanName = (rawTitle || '').replace(/[\n\t]+/g, '').trim();
-  var lowerContext = (cleanName + " " + (url || "")).toLowerCase();
+  const parsedQuality = (quality && quality !== "Unknown") ? quality : parseQuality(cleanName);
+  const fileSizeOnly = (size && size !== "N/A") ? size : "Unknown Size";
 
-  var parsedQuality = (quality && quality !== "Unknown") ? quality : parseQuality(cleanName);
-  var is4K = parsedQuality === "2160p" || lowerContext.includes("4k") || lowerContext.includes("uhd");
-  var qIcon = is4K ? "🌟" : "🔥";
-  var fileSizeOnly = size || "N/A";
+  const isDualAudio = /\b(dual|multi|dubbed|hindi|org)\b/i.test(lowerContext);
+  const audioType = isDualAudio ? "Dual-Audio" : "English";
 
-  var fileFormat = (url && url.split('?')[0].endsWith(".mp4")) ? "MP4" : "MKV";
-
-  // Source
-  var sourceTag = "WEB-DL";
-  if (/\b(bluray|blu\-ray|bdrip)\b/i.test(lowerContext)) sourceTag = "BluRay";
-  else if (/\b(webrip)\b/i.test(lowerContext)) sourceTag = "WEBRip";
-
-  // Codec
-  var codecTag = "H.264";
-  if (/\b(x265|h265)\b/i.test(lowerContext)) codecTag = "H.265";
-  else if (/\bhevc\b/i.test(lowerContext) || is4K) codecTag = "HEVC";
-
-  // HDR Tags
-  var hdrMatch = "";
-  if (/\bhdr10plus\b/i.test(lowerContext)) hdrMatch = "HDR10+";
-  else if (/\bhdr10\b/i.test(lowerContext)) hdrMatch = "HDR10";
-  else if (/\bhdr\b/i.test(lowerContext)) hdrMatch = "HDR";
-  else if (/\b(10bit|10\-bit)\b/i.test(lowerContext)) hdrMatch = "10Bit";
-  var hdrPart = hdrMatch ? '🌈 ' + hdrMatch + ' | ' : '';
-
-  // Dolby Vision
-  var hasDV = /\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext);
-  var dvPart = hasDV ? ' | 👁️ DV' : '';
-
-  // Audio Channels (Strict Atmos)
-  var audioChannelTag = "DD5.1";
-  if (/\bddp5\.1\b/i.test(lowerContext)) {
-    audioChannelTag = "DDP5.1";
-  } else if (/\bdd5\.1\b|\b5\.1\b/i.test(lowerContext)) {
-    audioChannelTag = "DD5.1";
-  } else if (/\baac\b/i.test(lowerContext)) {
-    audioChannelTag = "AAC";
-  }
-
-  if (/\batmos\b/i.test(lowerContext)) {
-    if (audioChannelTag === "DDP5.1") {
-      audioChannelTag = "DDP5.1 • 🔊 Atmos";
-    } else {
-      audioChannelTag = "DD5.1 • 🔊 Atmos";
-    }
-  }
-
-  // Audio Language & Type
-  var isDualAudio = /\b(dual|multi|dubbed|hindi|org)\b/i.test(lowerContext);
-  var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
-  var langTag = isDualAudio ? "English 🇺🇸 • Multi 🌐" : "English 🇺🇸";
-
-  // Clean Title Presentation
-  var displayTitle = metadata.title || "Unknown Title";
-  var displayYear = metadata.year || "2026";
-  var epInfo = (isSeries && season && episode) ? 'S' + pad(season) + 'E' + pad(episode) : '';
-
-  // --- Subheading Builder ---
-  var line1 = epInfo 
-    ? '🍿 ' + displayTitle + ' - ' + displayYear + ' | ' + epInfo 
-    : '🍿 ' + displayTitle + ' - ' + displayYear;
-  
-  var line2 = qIcon + ' ' + parsedQuality + ' | 💾 ' + fileSizeOnly + ' | 🎞️ ' + fileFormat;
-  var line3 = hdrPart + '⚡ ' + codecTag + ' | ';
-  var line4 = '🌍 ' + audioType + ' | 🎧 ' + audioChannelTag + dvPart;
-  var line5 = '🗣️ ' + langTag + ' | ';
-  var line6 = '🔗 4KHDHub Server | 🕸️ ' + sourceTag;
-
-  var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4 + '\n' + line5 + '\n' + line6;
-  var headerName = "4KHDHub | " + parsedQuality + " | " + audioType;
+  const headerName = `4KHDHub | ${parsedQuality} | ${audioType}`;
+  const streamTitle = `${parsedQuality} • ${fileSizeOnly}`;
 
   return {
     name: headerName,
-    title: formattedTitle,
+    title: streamTitle,
     url: url,
     quality: parsedQuality,
     size: fileSizeOnly,
@@ -450,11 +380,7 @@ function getStreams(tmdbId, mediaType, season = null, episode = null) {
         stream.title,
         stream.url,
         stream.size,
-        stream.quality,
-        metadata,
-        isSeries,
-        season,
-        episode
+        stream.quality
       ));
 
       const order = {

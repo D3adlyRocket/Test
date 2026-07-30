@@ -1,6 +1,6 @@
 /**
  * 4khdhub - Built from src/4khdhub/
- * Generated: 2026-07-30T23:45:00.000Z
+ * Generated: 2026-07-30T23:55:00.000Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -335,7 +335,7 @@ function extractStreams(pageUrl, isSeries, season, episode) {
 }
 
 // ---------------------------------------------------------------------------
-// makeStream implementation aligned with AnimeZeY multi-line architecture
+// makeStream implementation matching exact AnimeZeY multi-line property mapping
 // ---------------------------------------------------------------------------
 
 function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, episode) {
@@ -379,13 +379,12 @@ function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, ep
 
   var formattedBlock = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
   
-  // Explicitly structuring name, title, and description so TV and Mobile clients stop collapsing it
+  // Exact mapping matching AnimeZeY architecture
   var headerName = "4KHDHub | " + parsedQuality + " | " + audioType;
 
   return {
     name: headerName,
-    title: formattedBlock,       // Full multi-line structure for Desktop
-    description: formattedBlock, // Full multi-line layout for Mobile & Android TV subheaders
+    title: formattedBlock,
     url: url,
     quality: parsedQuality,
     size: fileSizeOnly,

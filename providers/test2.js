@@ -1,5 +1,5 @@
 /**
- * 4khdhub - Fixed Codec/Quality mapping from URL filename & updated line 5 header
+ * 4KHDHub - Mapped Codec/Quality, Dynamic DV Tag, and Settings Menu
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -65,6 +65,29 @@ var TMDB_URL = "https://api.themoviedb.org/3";
 var TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36";
 var HEADERS = { "User-Agent": USER_AGENT, Referer: `${BASE_URL}/` };
+
+// ---------------------------------------------------------------------------
+// Settings Configuration
+// ---------------------------------------------------------------------------
+
+function onSettings() {
+  return __async(this, null, function* () {
+    return [
+      {
+        type: "header",
+        title: "Basic Settings"
+      },
+      {
+        type: "select",
+        id: "sort_by",
+        title: "Sort By",
+        description: "Choose primary sorting method for search results",
+        default: "Quality",
+        options: ["Quality", "Largest Size"]
+      }
+    ];
+  });
+}
 
 function fetchText(_0) {
   return __async(this, arguments, function* (url, referer = BASE_URL) {
@@ -340,7 +363,7 @@ function extractStreams(pageUrl, isSeries, season, episode) {
 }
 
 // ---------------------------------------------------------------------------
-// Precision Stream Builder mapped directly from Context & URL Filename
+// Precision Stream Builder
 // ---------------------------------------------------------------------------
 
 function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata) {
@@ -416,7 +439,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
 
   var line2 = qIcon + " " + displayQuality + " | 💾 " + fileSizeOnly + " | 📼 " + fileFormat;
 
-  // Subheading Line 3: HDR | Codec | Vision
+  // Subheading Line 3: HDR | Codec | Vision (Only display DV if explicit)
   var hdrTag = "HDR";
   if (/\bhdr10\+/i.test(fullContext)) {
     hdrTag = "HDR10+";
@@ -435,12 +458,14 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
     codecTag = "H.264";
   }
 
-  var dvTag = "DV";
-  if (/\b(dolby\s*vision|dovi|dv)\b/i.test(fullContext)) {
-    dvTag = "DV";
+  var line3Parts = ["🌈 " + hdrTag, "🎥 " + codecTag];
+
+  // Dynamic Dolby Vision Check: Only add if explicitly detected
+  if (/\b(dolby\s*vision|dovi|\.dv\.)\b/i.test(fullContext) || /[\.\-_]dv[\.\-_]/i.test(fullContext)) {
+    line3Parts.push("👁️ DV");
   }
 
-  var line3 = "🌈 " + hdrTag + " | 🎥 " + codecTag + " | 👁️ " + dvTag;
+  var line3 = line3Parts.join(" | ");
 
   // Subheading Line 4: Audio Languages & Channels
   var audioCodecTag = "DD5.1";
@@ -475,15 +500,14 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
 
   var is4K = displayQuality === "2160p";
   var baseResWeight = is4K ? 9000000 : (displayQuality.includes("1080") ? 6000000 : 3000000);
-  var structuralSortWeight = baseResWeight + numericalSizeWeight;
-
+  
   return {
     name: headerName,
     title: formattedTitle,
     size: formattedTitle,
     url: url || "",
     _resWeight: baseResWeight,
-    _sortWeight: structuralSortWeight,
+    _sizeWeight: numericalSizeWeight,
     behaviorHints: {
       notWebReady: true,
       proxyHeaders: {
@@ -493,7 +517,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
   };
 }
 
-function getStreams(tmdbId, mediaType, season = null, episode = null) {
+function getStreams(tmdbId, mediaType, season = null, episode = null, config = {}) {
   return __async(this, null, function* () {
     const isSeries = mediaType === "tv" || mediaType === "series";
     if (!tmdbId || (!isSeries && mediaType !== "movie"))
@@ -542,11 +566,19 @@ function getStreams(tmdbId, mediaType, season = null, episode = null) {
         streams.push(streamObj);
       }
 
+      var sortBy = (config && config.sort_by) || "Quality";
+      
       var sortedStreams = streams.sort(function(a, b) {
-        return (b._sortWeight || 0) - (a._sortWeight || 0);
+        if (sortBy === "Largest Size") {
+          return (b._sizeWeight || 0) - (a._sizeWeight || 0);
+        }
+        // Default: Sort by Quality first, then size
+        var resDiff = (b._resWeight || 0) - (a._resWeight || 0);
+        if (resDiff !== 0) return resDiff;
+        return (b._sizeWeight || 0) - (a._sizeWeight || 0);
       });
 
-      console.log(`[${PROVIDER_NAME}] Returning ${sortedStreams.length} stream(s)`);
+      console.log(`[${PROVIDER_NAME}] Returning ${sortedStreams.length} stream(s) sorted by ${sortBy}`);
       return sortedStreams;
     } catch (error) {
       console.error(`[${PROVIDER_NAME}] Error: ${error.message}`);
@@ -555,4 +587,4 @@ function getStreams(tmdbId, mediaType, season = null, episode = null) {
   });
 }
 
-module.exports = { getStreams };
+module.exports = { getStreams, onSettings };

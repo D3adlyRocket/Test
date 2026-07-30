@@ -66,6 +66,10 @@ var TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36";
 var HEADERS = { "User-Agent": USER_AGENT, Referer: `${BASE_URL}/` };
 
+function pad(n) {
+  return String(n).padStart(2, '0');
+}
+
 function fetchText(_0) {
   return __async(this, arguments, function* (url, referer = BASE_URL) {
     const response = yield fetch(url, {
@@ -136,12 +140,12 @@ function parseQuality(value) {
   if (/\b(?:2160p|4k|uhd)\b/i.test(value))
     return "2160p";
   const match = String(value || "").match(/\b(1080|720|480)p\b/i);
-  return match ? `${match[1]}p` : "1080p";
+  return match ? `${match[1]}p` : "Unknown";
 }
 
 function parseSize(value) {
   const match = String(value || "").match(/([\d.]+)\s*(GB|MB|KB)/i);
-  return match ? `${match[1]} ${match[2]}` : "N/A";
+  return match ? `${match[1]} ${match[2].toUpperCase()}` : "Unknown Size";
 }
 
 function isDirectVideo(url) {
@@ -278,7 +282,7 @@ function extractHubCloud(url, fallback) {
       const $ = import_cheerio_without_node_native.default.load(html);
       const header = $("div.card-header").text().replace(/\s+/g, " ").trim() || $("title").text().trim() || fallback.title;
       const parsedSize = parseSize($("i#size, #size").first().text());
-      const size = parsedSize !== "N/A" ? parsedSize : fallback.size;
+      const size = parsedSize !== "Unknown Size" ? parsedSize : fallback.size;
       const quality = parseQuality(header) !== "Unknown" ? parseQuality(header) : fallback.quality;
       const results = [];
       $("a[href]").each((_, element) => {
@@ -330,26 +334,62 @@ function extractStreams(pageUrl, isSeries, season, episode) {
   });
 }
 
-function makeStream(rawTitle, url, size, quality) {
-  const cleanName = (rawTitle || '').replace(/[\n\t]+/g, '').trim();
-  const lowerContext = (cleanName + " " + (url || "")).toLowerCase();
+// ---------------------------------------------------------------------------
+// Identical Layout Engine (Matching AnimeZeY / bingr exact logic)
+// ---------------------------------------------------------------------------
 
-  const parsedQuality = (quality && quality !== "Unknown") ? quality : parseQuality(cleanName);
-  const fileSizeOnly = (size && size !== "N/A") ? size : "Unknown Size";
+function buildStreamLayout(sourceTitle, sourceUrl, size, quality, metadata, isSeries, season, episode) {
+  const cleanTitle = (sourceTitle || "").replace(/[\n\t]+/g, ' ').trim();
+  const rawContext = (sourceUrl + " " + cleanTitle).toLowerCase();
+  
+  // 1. Quality & Size & Format
+  let qualityTag = (quality && quality !== "Unknown") ? quality : parseQuality(cleanTitle);
+  if (qualityTag === "Unknown") qualityTag = "HD";
+  
+  const qIcon = (qualityTag.includes("2160") || qualityTag.includes("4K") || qualityTag.includes("UHD")) ? "🌟" : "🔥";
+  const sizeTag = (size && size !== "Unknown Size") ? size : "Unknown Size";
+  const format = (sourceUrl && sourceUrl.split('?')[0].endsWith(".mp4")) ? "MP4" : "MKV";
 
-  const isDualAudio = /\b(dual|multi|dubbed|hindi|org)\b/i.test(lowerContext);
-  const audioType = isDualAudio ? "Dual-Audio" : "English";
+  // 2. Language
+  const isDual = /\b(dual|multi|dubbed)\b/i.test(rawContext);
+  const langTag = isDual ? "Dual-Audio" : "English 🇺🇸";
+  
+  // 3. Codecs
+  let vCodec = "H.264";
+  if (/\b(x265|h265|hevc)\b/i.test(rawContext) || qualityTag === "2160p") vCodec = "HEVC";
+  
+  let aCodec = "Stereo";
+  if (/\bddp5\.1\b/i.test(rawContext)) aCodec = "DDP5.1";
+  else if (/\bdd5\.1\b|\b5\.1\b/i.test(rawContext)) aCodec = "DD5.1";
+  else if (/\baac\b/i.test(rawContext)) aCodec = "AAC";
 
-  const headerName = `4KHDHub | ${parsedQuality} | ${audioType}`;
-  const streamTitle = `${parsedQuality} • ${fileSizeOnly}`;
+  if (/\batmos\b/i.test(rawContext)) {
+    if (aCodec === "Stereo") aCodec = "Atmos";
+    else aCodec += " • 🔊 Atmos";
+  }
+
+  // 4. Source & Extras
+  let sourceTag = "WEB-DL";
+  if (/\b(bluray|bdrip)\b/i.test(rawContext)) sourceTag = "BluRay";
+  else if (/\b(webrip)\b/i.test(rawContext)) sourceTag = "WEBRip";
+
+  // Header
+  const headerName = `4KHDHub | ${qualityTag} | ${langTag}`;
+
+  // Subheadings (Strict 4-line identical matching)
+  const yearPart = metadata.year ? ` - ${metadata.year}` : "";
+  let line1 = `🍿 ${metadata.title || "Unknown"}${yearPart}`;
+  if (isSeries && season && episode) {
+    line1 += ` | S${pad(season)}E${pad(episode)}`;
+  }
+
+  const line2 = `${qIcon} ${qualityTag} | 💾 ${sizeTag} | 🎞️ ${format}`;
+  const line3 = `⚡ ${vCodec} | 🎧 ${aCodec}`;
+  const line4 = `🔗 4KHDHub 🌐 | 🕸️ ${sourceTag}`;
 
   return {
     name: headerName,
-    title: streamTitle,
-    url: url,
-    quality: parsedQuality,
-    size: fileSizeOnly,
-    provider: "4khdhub"
+    title: `${line1}\n${line2}\n${line3}\n${line4}`
   };
 }
 
@@ -370,18 +410,26 @@ function getStreams(tmdbId, mediaType, season = null, episode = null) {
         season,
         episode
       );
+      
       const seen = {};
       const streams = extracted.filter((stream) => isDirectVideo(stream.url)).filter((stream) => {
         if (seen[stream.url])
           return false;
         seen[stream.url] = true;
         return true;
-      }).map((stream) => makeStream(
-        stream.title,
-        stream.url,
-        stream.size,
-        stream.quality
-      ));
+      }).map((stream) => {
+        const layout = buildStreamLayout(stream.title, stream.url, stream.size, stream.quality, metadata, isSeries, season, episode);
+        
+        return {
+          name: layout.name,
+          title: layout.title,
+          description: layout.title, // Appended to guarantee cross-device UI visibility
+          url: stream.url,
+          quality: stream.quality,
+          size: stream.size,
+          provider: "4khdhub"
+        };
+      });
 
       const order = {
         "2160p": 4,
@@ -390,6 +438,7 @@ function getStreams(tmdbId, mediaType, season = null, episode = null) {
         "480p": 1,
         Unknown: 0
       };
+      
       console.log(`[4KHDHub] Returning ${streams.length} direct stream(s)`);
       return streams.sort((a, b) => order[b.quality] - order[a.quality]);
     } catch (error) {

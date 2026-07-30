@@ -1,6 +1,6 @@
 /**
  * 4khdhub - Built from src/4khdhub/
- * Generated: 2026-07-30T21:34:33.906Z
+ * Generated: 2026-07-30T23:45:00.000Z
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -335,7 +335,7 @@ function extractStreams(pageUrl, isSeries, season, episode) {
 }
 
 // ---------------------------------------------------------------------------
-// Strict Multi-line makeStream implementation forcing mobile/TV subheaders
+// makeStream implementation configured for multi-line TV/Mobile subheaders
 // ---------------------------------------------------------------------------
 
 function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, episode) {
@@ -372,7 +372,6 @@ function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, ep
   var displayYear = metadata && metadata.year ? metadata.year : "";
   var epInfo = (isSeries && season && episode) ? 'S' + pad(season) + 'E' + pad(episode) : '';
 
-  // Explicit line construction forcing mobile/TV UI rendering blocks
   var line1 = epInfo ? '🍿 ' + displayTitle + (displayYear ? ' (' + displayYear + ')' : '') + ' | ' + epInfo : '🍿 ' + displayTitle + (displayYear ? ' (' + displayYear + ')' : '');
   var line2 = qIcon + ' ' + parsedQuality + ' | 💾 ' + fileSizeOnly + ' | 🎞️ ' + fileFormat;
   var line3 = '⚡ ' + codecTag + ' | 🎧 ' + audioChannelTag;
@@ -383,8 +382,8 @@ function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, ep
 
   return {
     name: headerName,
-    title: formattedBlock,
-    description: formattedBlock,
+    title: formattedBlock,       // Multi-line layout for Desktop
+    description: formattedBlock, // Multi-line layout for Mobile & Android TV subheaders
     url: url,
     quality: parsedQuality,
     size: fileSizeOnly,

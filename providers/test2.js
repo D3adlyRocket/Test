@@ -1,6 +1,5 @@
 /**
- * 4khdhub - Built from src/4khdhub/
- * Generated: 2026-07-30T23:55:00.000Z
+ * 4khdhub - Built with standard layout formatting
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -60,15 +59,12 @@ var __async = (__this, __arguments, generator) => {
 
 // src/4khdhub/index.js
 var import_cheerio_without_node_native = __toESM(require("cheerio-without-node-native"));
+var PROVIDER_NAME = "4KHDHub";
 var BASE_URL = "https://4khdhub.one";
 var TMDB_URL = "https://api.themoviedb.org/3";
 var TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36";
 var HEADERS = { "User-Agent": USER_AGENT, Referer: `${BASE_URL}/` };
-
-function pad(n, width = 2) {
-  return String(n).padStart(width, '0');
-}
 
 function fetchText(_0) {
   return __async(this, arguments, function* (url, referer = BASE_URL) {
@@ -121,6 +117,13 @@ function rot13(value) {
   });
 }
 
+function decodeEntities(encodedString) {
+  if (!encodedString) return '';
+  var translate_re = /&(nbsp|amp|quot|lt|gt|#038);/g;
+  var translate = { "nbsp": " ", "amp" : "&", "quot": "\"", "lt" : "<", "gt" : ">", "#038": "&" };
+  return encodedString.replace(translate_re, function(match, entity) { return translate[entity]; }).replace(/&#(\d+);/g, function(match, num) { return String.fromCharCode(num); });
+}
+
 function normalizeTitle(value) {
   return String(value || "").toLowerCase().replace(/\[[^\]]*]/g, " ").replace(/\b(the|a|an|directors?|cut)\b/g, " ").replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
 }
@@ -136,11 +139,13 @@ function titleScore(expected, candidate) {
   return matches / expectedWords.length;
 }
 
-function parseQuality(value) {
-  if (/\b(?:2160p|4k|uhd)\b/i.test(value))
-    return "2160p";
-  const match = String(value || "").match(/\b(1080|720|480)p\b/i);
-  return match ? `${match[1]}p` : "1080p";
+function parseQuality(text) {
+  var t = String(text || '').toLowerCase();
+  if (t.indexOf('2160') >= 0 || t.indexOf('4k') >= 0) return '2160p';
+  if (t.indexOf('1080') >= 0) return '1080p';
+  if (t.indexOf('720') >= 0) return '720p';
+  if (t.indexOf('480') >= 0) return '480p';
+  return '1080p';
 }
 
 function parseSize(value) {
@@ -283,7 +288,7 @@ function extractHubCloud(url, fallback) {
       const header = $("div.card-header").text().replace(/\s+/g, " ").trim() || $("title").text().trim() || fallback.title;
       const parsedSize = parseSize($("i#size, #size").first().text());
       const size = parsedSize !== "N/A" ? parsedSize : fallback.size;
-      const quality = parseQuality(header) !== "Unknown" ? parseQuality(header) : fallback.quality;
+      const quality = parseQuality(header);
       const results = [];
       $("a[href]").each((_, element) => {
         const href = $(element).attr("href");
@@ -335,108 +340,175 @@ function extractStreams(pageUrl, isSeries, season, episode) {
 }
 
 // ---------------------------------------------------------------------------
-// makeStream implementation matching exact AnimeZeY multi-line property mapping
+// makeStream Method directly integrated from template logic
 // ---------------------------------------------------------------------------
 
-function makeStream(rawTitle, url, size, quality, metadata, isSeries, season, episode) {
-  var cleanName = (rawTitle || '').replace(/[\n\t]+/g, '').trim();
-  var lowerContext = (cleanName + " " + (url || "")).toLowerCase();
+function makeStream(name, title, url, quality, headers, mediaInfo) {
+  var cleanName = decodeEntities(name || '').replace(/[\n\t]+/g, '').trim();
+  var cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
+  if (cleanName.indexOf(' - ') > 0) {
+    cleanName = cleanName.split(' - ')[0].trim();
+  }
+  cleanName = cleanName.replace(/\(\d{4}\).*$/gi, '').replace(/\d{3,4}p.*$/gi, '').trim();
+  var lowerContext = cleanTitle.toLowerCase();
+  var lowerUrl = (url || "").toLowerCase();
 
-  var parsedQuality = (quality && quality !== "Unknown") ? quality : parseQuality(cleanName);
-  var is4K = parsedQuality === "2160p" || lowerContext.includes("4k") || lowerContext.includes("uhd");
-  var qIcon = is4K ? "🌟" : "🔥";
-  var fileSizeOnly = size || "N/A";
-  var fileFormat = (url && url.split('?')[0].endsWith(".mp4")) ? "MP4" : "MKV";
-
-  var sourceTag = "WEB-DL";
-  if (/\b(bluray|blu\-ray|bdrip)\b/i.test(lowerContext)) sourceTag = "BluRay";
-  else if (/\b(webrip)\b/i.test(lowerContext)) sourceTag = "WEBRip";
-
-  var codecTag = "H.264";
-  if (/\b(x265|h265)\b/i.test(lowerContext)) codecTag = "H.265";
-  else if (/\bhevc\b/i.test(lowerContext) || is4K) codecTag = "HEVC";
-
-  var audioChannelTag = "DD5.1";
-  if (/\bddp5\.1\b/i.test(lowerContext)) {
-    audioChannelTag = "DDP5.1";
-  } else if (/\bdd5\.1\b|\b5\.1\b/i.test(lowerContext)) {
-    audioChannelTag = "DD5.1";
-  } else if (/\baac\b/i.test(lowerContext)) {
-    audioChannelTag = "AAC";
+  // 1. METADATA & SIZE ENGINE
+  var fileSizeOnly = "N/A";
+  var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i) || cleanTitle.match(/(\d+(?:\.\d+)?\s*[MG]B)/i);
+  if (sizeMatch) fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
+  
+  var numericalSizeWeight = 0;
+  var sizeInGB = 0;
+  if (sizeMatch) {
+    var num = parseFloat(sizeMatch[1]);
+    var unit = sizeMatch[1].toUpperCase();
+    numericalSizeWeight = unit.includes("GB") ? num * 1024 : num;
+    sizeInGB = unit.includes("GB") ? num : num / 1024;
   }
 
-  var isDualAudio = /\b(dual|multi|dubbed|hindi|org)\b/i.test(lowerContext);
+  var fileFormat = "MKV";
+  if (url && lowerUrl.split('?')[0].endsWith(".mp4")) fileFormat = "MP4";
+
+  var sourceTag = "WEB-DL";
+  if (/\b(bluray|blu\-ray)\b/i.test(lowerContext)) sourceTag = "BluRay";
+  else if (/\b(hdrip|webrip)\b/i.test(lowerContext)) sourceTag = "WEBRip";
+
+  // 2. AUTOMATIC CODEC DETECTION
+  var is4K = quality.includes("2160") || quality.toLowerCase().includes("4k") || lowerContext.includes("2160p");
+  var codecTag = "H.264";
+  if (/\b(hevc|x265|h265)\b/i.test(lowerContext) || lowerUrl.includes("hevc") || lowerUrl.includes("x265") || is4K) {
+    codecTag = "HEVC";
+  }
+
+  // 3. AUTOMATIC VIDEO PROFILE DETECTION
+  var videoRangeBlock = "";
+  var rangeTag = "";
+  if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext) || lowerUrl.includes("dovi") || lowerUrl.includes("dolby.vision")) {
+    rangeTag = "Dolby Vision";
+  } else if (/\bhdr10\b/i.test(lowerContext) || lowerUrl.includes("hdr10")) {
+    rangeTag = "HDR10";
+  } else if (/\bhdr\b/i.test(lowerContext) || lowerUrl.includes("hdr")) {
+    rangeTag = "HDR";
+  } else if (/\b(10bit|10\-bit)\b/i.test(lowerContext) || lowerUrl.includes("10bit")) {
+    rangeTag = "10Bit";
+  }
+
+  if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
+  else videoRangeBlock = " | ⚡ " + codecTag;
+
+  // 4. CLEAN STRATIFIED AUDIO ENGINE
+  var audioChannelTag = "DD5.1";
+  if (is4K) {
+    audioChannelTag = "DDP5.1 • 🔊 Atmos";
+  } else if (sizeMatch && sizeInGB < 1.3) {
+    audioChannelTag = "Stereo";
+  } else if (lowerUrl.includes("hq")) {
+    audioChannelTag = "DDP5.1 • 🔊 Atmos";
+  } else if (codecTag === "HEVC") {
+    audioChannelTag = "DD5.1";
+  }
+
+  // 5. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE
+  var isDualAudio = /\b(dual|multi|dubbed|hindi)\b/i.test(lowerContext) || decodeEntities(name || "").toLowerCase().includes("dual audio") || lowerUrl.includes("dual");
   var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
+  var displayLanguages = isDualAudio ? "English 🇺🇸 • Hindi 🇮🇳" : "English 🇺🇸";
 
-  var displayTitle = metadata && metadata.title ? metadata.title : "Video Stream";
-  var displayYear = metadata && metadata.year ? metadata.year : "";
-  var epInfo = (isSeries && season && episode) ? 'S' + pad(season) + 'E' + pad(episode) : '';
+  // 6. LAYOUT GENERATION
+  var displayQuality = quality || "1080p";
+  var label = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
 
-  var line1 = epInfo ? '🍿 ' + displayTitle + (displayYear ? ' (' + displayYear + ')' : '') + ' | ' + epInfo : '🍿 ' + displayTitle + (displayYear ? ' (' + displayYear + ')' : '');
-  var line2 = qIcon + ' ' + parsedQuality + ' | 💾 ' + fileSizeOnly + ' | 🎞️ ' + fileFormat;
-  var line3 = '⚡ ' + codecTag + ' | 🎧 ' + audioChannelTag;
-  var line4 = '🔊 ' + audioType + ' | 🌐 4KHDHub';
+  var yearMatch = decodeEntities(name || "").match(/\b(19|20)\d{2}\b/);
+  var displayYear = yearMatch ? yearMatch[0] : "2026";
 
-  var formattedBlock = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
-  
-  // Exact mapping matching AnimeZeY architecture
-  var headerName = "4KHDHub | " + parsedQuality + " | " + audioType;
+  var line1 = "";
+  if (mediaInfo && (mediaInfo.startsWith("S") || mediaInfo.includes("E"))) {
+    line1 = '🎦 ' + cleanName + ' (' + displayYear + ') - ' + mediaInfo.replace(/E0*(\d+)/i, 'E$1').replace(/S0*(\d+)/i, 'S$1');
+  } else {
+    line1 = '🎦 ' + cleanName + ' - (' + displayYear + ')';
+  }
+
+  var line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
+  var line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
+  var line4 = '🔗 Direct Server | ☁️ ' + sourceTag;
+
+  var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
+
+  var baseResWeight = is4K ? 9000000 : (displayQuality.includes("1080") ? 6000000 : 3000000);
+  var structuralSortWeight = baseResWeight + numericalSizeWeight;
 
   return {
-    name: headerName,
-    title: formattedBlock,
-    url: url,
-    quality: parsedQuality,
-    size: fileSizeOnly,
-    provider: "4khdhub"
+    name: label,
+    title: formattedTitle,
+    size: formattedTitle,
+    url: url || "",
+    _resWeight: baseResWeight,
+    _sortWeight: structuralSortWeight,
+    behaviorHints: {
+      notWebReady: true,
+      proxyHeaders: {
+        request: headers || { "Referer": BASE_URL + "/" }
+      }
+    }
   };
 }
 
 function getStreams(tmdbId, mediaType, season = null, episode = null) {
   return __async(this, null, function* () {
     const isSeries = mediaType === "tv" || mediaType === "series";
-    if (!tmdbId || !isSeries && mediaType !== "movie")
+    if (!tmdbId || (!isSeries && mediaType !== "movie"))
       return [];
     try {
-      console.log(`[4KHDHub] Looking up ${mediaType} ${tmdbId}`);
+      console.log(`[${PROVIDER_NAME}] Request: tmdbId=${tmdbId} type=${mediaType} S=${season} E=${episode}`);
       const metadata = yield getMetadata(tmdbId, mediaType);
       const pageUrl = yield findPage(metadata, isSeries, season);
       if (!pageUrl)
         return [];
+
       const extracted = yield extractStreams(
         pageUrl,
         isSeries,
         season,
         episode
       );
-      const seen = {};
-      const streams = extracted.filter((stream) => isDirectVideo(stream.url)).filter((stream) => {
-        if (seen[stream.url])
-          return false;
-        seen[stream.url] = true;
-        return true;
-      }).map((stream) => makeStream(
-        stream.title,
-        stream.url,
-        stream.size,
-        stream.quality,
-        metadata,
-        isSeries,
-        season,
-        episode
-      ));
 
-      const order = {
-        "2160p": 4,
-        "1080p": 3,
-        "720p": 2,
-        "480p": 1,
-        Unknown: 0
-      };
-      console.log(`[4KHDHub] Returning ${streams.length} direct stream(s)`);
-      return streams.sort((a, b) => order[b.quality] - order[a.quality]);
+      var epLabel = '';
+      if (isSeries) {
+        var s = parseInt(season, 10) || 1;
+        var e = parseInt(episode, 10) || 1;
+        epLabel = 'S' + (s < 10 ? '0' : '') + s + 'E' + (e < 10 ? '0' : '') + e;
+      }
+
+      const seen = {};
+      const streams = [];
+
+      for (let i = 0; i < extracted.length; i++) {
+        const stream = extracted[i];
+        if (!isDirectVideo(stream.url) || seen[stream.url])
+          continue;
+        seen[stream.url] = true;
+
+        const rawContext = `${stream.title} [${stream.size}] ${stream.quality}`;
+        const streamObj = makeStream(
+          metadata.title,
+          rawContext,
+          stream.url,
+          stream.quality,
+          { "Referer": BASE_URL + "/", "User-Agent": USER_AGENT },
+          epLabel.trim()
+        );
+
+        streams.push(streamObj);
+      }
+
+      var sortedStreams = streams.sort(function(a, b) {
+        return (b._sortWeight || 0) - (a._sortWeight || 0);
+      });
+
+      console.log(`[${PROVIDER_NAME}] Returning ${sortedStreams.length} stream(s)`);
+      return sortedStreams;
     } catch (error) {
-      console.error(`[4KHDHub] Error: ${error.message}`);
+      console.error(`[${PROVIDER_NAME}] Error: ${error.message}`);
       return [];
     }
   });

@@ -1,5 +1,5 @@
 /**
- * 4khdhub - Built with standard layout formatting
+ * 4khdhub - Built with AnimeZeY standard layout formatting
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -340,16 +340,11 @@ function extractStreams(pageUrl, isSeries, season, episode) {
 }
 
 // ---------------------------------------------------------------------------
-// makeStream Method directly integrated from template logic
+// AnimeZeY Layout Style makeStream Engine
 // ---------------------------------------------------------------------------
 
 function makeStream(name, title, url, quality, headers, mediaInfo) {
-  var cleanName = decodeEntities(name || '').replace(/[\n\t]+/g, '').trim();
   var cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
-  if (cleanName.indexOf(' - ') > 0) {
-    cleanName = cleanName.split(' - ')[0].trim();
-  }
-  cleanName = cleanName.replace(/\(\d{4}\).*$/gi, '').replace(/\d{3,4}p.*$/gi, '').trim();
   var lowerContext = cleanTitle.toLowerCase();
   var lowerUrl = (url || "").toLowerCase();
 
@@ -367,78 +362,50 @@ function makeStream(name, title, url, quality, headers, mediaInfo) {
     sizeInGB = unit.includes("GB") ? num : num / 1024;
   }
 
-  var fileFormat = "MKV";
-  if (url && lowerUrl.split('?')[0].endsWith(".mp4")) fileFormat = "MP4";
-
-  var sourceTag = "WEB-DL";
-  if (/\b(bluray|blu\-ray)\b/i.test(lowerContext)) sourceTag = "BluRay";
-  else if (/\b(hdrip|webrip)\b/i.test(lowerContext)) sourceTag = "WEBRip";
-
-  // 2. AUTOMATIC CODEC DETECTION
+  // 2. CODEC & FORMAT ENGINE
   var is4K = quality.includes("2160") || quality.toLowerCase().includes("4k") || lowerContext.includes("2160p");
   var codecTag = "H.264";
   if (/\b(hevc|x265|h265)\b/i.test(lowerContext) || lowerUrl.includes("hevc") || lowerUrl.includes("x265") || is4K) {
     codecTag = "HEVC";
   }
 
-  // 3. AUTOMATIC VIDEO PROFILE DETECTION
+  // 3. VIDEO PROFILE / RANGE ENGINE
   var videoRangeBlock = "";
-  var rangeTag = "";
   if (/\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext) || lowerUrl.includes("dovi") || lowerUrl.includes("dolby.vision")) {
-    rangeTag = "Dolby Vision";
+    videoRangeBlock = " [DV]";
   } else if (/\bhdr10\b/i.test(lowerContext) || lowerUrl.includes("hdr10")) {
-    rangeTag = "HDR10";
+    videoRangeBlock = " [HDR10]";
   } else if (/\bhdr\b/i.test(lowerContext) || lowerUrl.includes("hdr")) {
-    rangeTag = "HDR";
+    videoRangeBlock = " [HDR]";
   } else if (/\b(10bit|10\-bit)\b/i.test(lowerContext) || lowerUrl.includes("10bit")) {
-    rangeTag = "10Bit";
+    videoRangeBlock = " [10Bit]";
   }
 
-  if (rangeTag) videoRangeBlock = " | 🔆 " + rangeTag + " • ⚡ " + codecTag;
-  else videoRangeBlock = " | ⚡ " + codecTag;
-
-  // 4. CLEAN STRATIFIED AUDIO ENGINE
-  var audioChannelTag = "DD5.1";
-  if (is4K) {
-    audioChannelTag = "DDP5.1 • 🔊 Atmos";
-  } else if (sizeMatch && sizeInGB < 1.3) {
-    audioChannelTag = "Stereo";
-  } else if (lowerUrl.includes("hq")) {
-    audioChannelTag = "DDP5.1 • 🔊 Atmos";
-  } else if (codecTag === "HEVC") {
-    audioChannelTag = "DD5.1";
-  }
-
-  // 5. AUDIO TRACK TYPE & LANGUAGE MATRIX ENGINE
+  // 4. AUDIO TRACKS & DUB LAYOUT
   var isDualAudio = /\b(dual|multi|dubbed|hindi)\b/i.test(lowerContext) || decodeEntities(name || "").toLowerCase().includes("dual audio") || lowerUrl.includes("dual");
-  var audioType = isDualAudio ? "Dual-Audio" : "Single Audio";
-  var displayLanguages = isDualAudio ? "English 🇺🇸 • Hindi 🇮🇳" : "English 🇺🇸";
+  var audioType = isDualAudio ? "Dual Audio" : "Single Audio";
 
-  // 6. LAYOUT GENERATION
+  // 5. ANIMEZEY SPECIFIC COMPACT LAYOUT GENERATION
   var displayQuality = quality || "1080p";
-  var label = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
+  
+  // Header: e.g. "AnimeZeY | 1080p | Dual Audio"
+  var nameLabel = "AnimeZeY | " + displayQuality + " | " + audioType;
 
-  var yearMatch = decodeEntities(name || "").match(/\b(19|20)\d{2}\b/);
-  var displayYear = yearMatch ? yearMatch[0] : "2026";
+  // Title Row 1: Quality, Codec, Profile, and File Size
+  // e.g. "⚡ 1080p HEVC [10Bit] • 💾 1.43GB"
+  var titleLine1 = "⚡ " + displayQuality + " " + codecTag + videoRangeBlock + " • 💾 " + fileSizeOnly;
 
-  var line1 = "";
-  if (mediaInfo && (mediaInfo.startsWith("S") || mediaInfo.includes("E"))) {
-    line1 = '🎦 ' + cleanName + ' (' + displayYear + ') - ' + mediaInfo.replace(/E0*(\d+)/i, 'E$1').replace(/S0*(\d+)/i, 'S$1');
-  } else {
-    line1 = '🎦 ' + cleanName + ' - (' + displayYear + ')';
-  }
+  // Title Row 2: Provider name and source info
+  // e.g. "🔗 4KHDHub • WEB-DL"
+  var titleLine2 = "🔗 4KHDHub • WEB-DL";
 
-  var line2 = '💎 ' + displayQuality + ' | 🗣️ ' + displayLanguages + ' | 💾 ' + fileSizeOnly;
-  var line3 = '🎞️ ' + fileFormat + ' | 🎧 ' + audioChannelTag + videoRangeBlock;
-  var line4 = '🔗 Direct Server | ☁️ ' + sourceTag;
-
-  var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4;
+  var formattedTitle = titleLine1 + "\n" + titleLine2;
 
   var baseResWeight = is4K ? 9000000 : (displayQuality.includes("1080") ? 6000000 : 3000000);
   var structuralSortWeight = baseResWeight + numericalSizeWeight;
 
   return {
-    name: label,
+    name: nameLabel,
     title: formattedTitle,
     size: formattedTitle,
     url: url || "",

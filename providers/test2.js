@@ -1,13 +1,10 @@
-/** StreamPlay - generated from src/providers/streamplay.js */
-var __create = Object.create;
+/** StreamPlay - Movies4U Provider Only */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
 var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-var __getProtoOf = Object.getPrototypeOf;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
 var __propIsEnum = Object.prototype.propertyIsEnumerable;
 var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
 var __spreadValues = (a, b) => {
@@ -34,23 +31,8 @@ var __objRest = (source, exclude) => {
     }
   return target;
 };
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
-};
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-};
-var __export = (target, all) => {
-  for (var name in all)
-    __defProp(target, name, { get: all[name], enumerable: true });
-};
-var __copyProps = (to, from, except, desc) => {
-  if (from && typeof from === "object" || typeof from === "function") {
-    for (let key of __getOwnPropNames(from))
-      if (!__hasOwnProp.call(to, key) && key !== except)
-        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
-  }
-  return to;
 };
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -271,16 +253,6 @@ var require_http = __commonJS({
       }
       return result;
     }
-    function withReferer(headers, referer) {
-      if (!referer)
-        return mergeHeaders(headers);
-      let origin;
-      try {
-        origin = new URL(referer).origin;
-      } catch (_) {
-      }
-      return mergeHeaders(headers, { Referer: referer, Origin: origin });
-    }
     function request(_0) {
       return __async(this, arguments, function* (url, options = {}) {
         const _a = options, {
@@ -320,34 +292,14 @@ var require_http = __commonJS({
         throw lastError || new Error(`Request failed: ${url}`);
       });
     }
-    function getText(url, options) {
-      return __async(this, null, function* () {
-        const response = yield request(url, options);
-        if (!response.ok)
-          throw new Error(`HTTP ${response.status} for ${url}`);
-        return response.text();
-      });
-    }
-    function getJson(url, options) {
-      return __async(this, null, function* () {
-        const response = yield request(url, options);
-        if (!response.ok)
-          throw new Error(`HTTP ${response.status} for ${url}`);
-        return response.json();
-      });
-    }
-    module2.exports = { DEFAULT_TIMEOUT_MS, getJson, getText, mergeHeaders, request, withReferer };
+    module2.exports = { DEFAULT_TIMEOUT_MS, mergeHeaders, request };
   }
 });
 
 // src/shared/streams.js
 var require_streams = __commonJS({
   "src/shared/streams.js"(exports2, module2) {
-    var { absoluteUrl: absoluteUrl2, parseHtml } = require_html();
-    var { mergeHeaders, request } = require_http();
-    var MEDIA_EXTENSION = /\.(?:m3u8|mp4|m4v|webm|mkv|mpd)(?:$|[?#])/i;
-    var EMBED_HINT = /(?:embed|player|watch|streamtape|dood|vidhide|filemoon|streamwish|vidwish|megacloud)/i;
-    var PLACEHOLDER_MEDIA = /(?:one\.one\.one\.one\/media\/open-graph\.mp4|\/favicon\.|\/logo\.(?:mp4|m3u8)|\b(?:trailer|sample|placeholder|preview)[-_./])/i;
+    var { mergeHeaders } = require_http();
     function parseQuality2(...values) {
       const text = values.filter(Boolean).join(" ").toLowerCase();
       if (/\b(?:2160p?|4k|uhd)\b/.test(text))
@@ -361,7 +313,6 @@ var require_streams = __commonJS({
     function parseMediaAttributes(...values) {
       var _a;
       const text = values.filter(Boolean).join(" ");
-      const lower = text.toLowerCase();
       const languages = [];
       const languagePatterns = [
         ["Hindi", /\b(?:hindi|hin)\b/i],
@@ -369,9 +320,7 @@ var require_streams = __commonJS({
         ["Tamil", /\b(?:tamil|tam)\b/i],
         ["Telugu", /\b(?:telugu|tel)\b/i],
         ["Malayalam", /\b(?:malayalam|mal)\b/i],
-        ["Kannada", /\b(?:kannada|kan)\b/i],
-        ["Portuguese", /\b(?:portuguese|portugu[eê]s|pt-br)\b/i],
-        ["French", /\b(?:french|fran[cç]ais)\b/i]
+        ["Kannada", /\b(?:kannada|kan)\b/i]
       ];
       for (const [name, pattern] of languagePatterns)
         if (pattern.test(text))
@@ -385,21 +334,6 @@ var require_streams = __commonJS({
         size: (_a = text.match(/\b\d+(?:\.\d+)?\s*(?:GB|MB)\b/i)) == null ? void 0 : _a[0]
       };
     }
-    function normalizeSubtitles(subtitles) {
-      if (!Array.isArray(subtitles))
-        return [];
-      const seen = /* @__PURE__ */ new Set();
-      return subtitles.flatMap((subtitle) => {
-        const url = typeof subtitle === "string" ? subtitle : subtitle && (subtitle.url || subtitle.file);
-        if (!/^https?:\/\//i.test(url || "") || seen.has(url))
-          return [];
-        seen.add(url);
-        return [{
-          url,
-          language: subtitle && (subtitle.language || subtitle.lang || subtitle.label) || "Unknown"
-        }];
-      });
-    }
     function normalizeStream(stream, defaults = {}) {
       if (!stream || !/^https?:\/\//i.test(stream.url || ""))
         return null;
@@ -409,76 +343,19 @@ var require_streams = __commonJS({
         quality: stream.quality || parseQuality2(stream.url, stream.title, stream.name),
         title: stream.title || stream.name || defaults.title || "Stream",
         headers: mergeHeaders(defaults.headers, stream.headers),
-        subtitles: normalizeSubtitles(stream.subtitles)
+        subtitles: stream.subtitles || []
       }, stream.size || attributes.size ? { size: stream.size || attributes.size } : {}), stream.hdr !== void 0 || attributes.hdr ? { hdr: stream.hdr !== void 0 ? stream.hdr : attributes.hdr } : {}), stream.codec || attributes.codec ? { codec: stream.codec || attributes.codec } : {}), stream.audio || attributes.audio ? { audio: stream.audio || attributes.audio } : {}), stream.languages || attributes.languages.length ? { languages: stream.languages || attributes.languages } : {});
-    }
-    function uniqueStreams(streams, defaults) {
-      const seen = /* @__PURE__ */ new Set();
-      return (streams || []).flatMap((stream) => {
-        const normalized = normalizeStream(stream, defaults);
-        if (!normalized || seen.has(normalized.url))
-          return [];
-        seen.add(normalized.url);
-        return [normalized];
-      });
-    }
-    function extractMediaCandidates(html, baseUrl) {
-      const values = [];
-      const patterns = [
-        /(?:file|source|src)\s*[:=]\s*["']([^"']+\.(?:m3u8|mp4|webm|mkv|mpd)[^"']*)["']/gi,
-        /https?:\\?\/\\?\/[^"'\s<>]+\.(?:m3u8|mp4|webm|mkv|mpd)(?:[^"'\s<>]*)/gi
-      ];
-      for (const pattern of patterns) {
-        let match;
-        while (match = pattern.exec(html || ""))
-          values.push((match[1] || match[0]).replace(/\\\//g, "/"));
-      }
-      return values.map((value) => absoluteUrl2(value, baseUrl)).filter(Boolean);
-    }
-    function resolveFinalUrl(_0) {
-      return __async(this, arguments, function* (url, options = {}, depth = 0) {
-        if (!/^https?:\/\//i.test(url || "") || PLACEHOLDER_MEDIA.test(url) || depth > 2)
-          return null;
-        const response = yield request(url, __spreadProps(__spreadValues({}, options), { redirect: "follow", retries: 0 }));
-        if (!response.ok)
-          return null;
-        const finalUrl = response.url || url;
-        if (PLACEHOLDER_MEDIA.test(finalUrl))
-          return null;
-        const contentType = response.headers && response.headers.get && response.headers.get("content-type") || "";
-        const isHtml = /html|text\/html/i.test(contentType);
-        if (/^(?:video|audio)\//i.test(contentType) || /mpegurl|dash\+xml/i.test(contentType) || MEDIA_EXTENSION.test(finalUrl) && !isHtml)
-          return finalUrl;
-        if (!/html|text\//i.test(contentType))
-          return EMBED_HINT.test(finalUrl) ? null : finalUrl;
-        const html = yield response.text();
-        const candidates = extractMediaCandidates(html, finalUrl);
-        for (const candidate of candidates) {
-          const resolved = yield resolveFinalUrl(candidate, options, depth + 1).catch(() => null);
-          if (resolved)
-            return resolved;
-        }
-        const $ = parseHtml(html);
-        const iframe = absoluteUrl2($("iframe").first().attr("src") || $("iframe").first().attr("data-src"), finalUrl);
-        if (iframe && iframe !== url)
-          return resolveFinalUrl(iframe, options, depth + 1).catch(() => null);
-        return null;
-      });
     }
     function qualityRank(quality) {
       const text = String(quality || "").toUpperCase();
       if (text === "4K" || text.includes("2160"))
         return 2160;
-      const match = text.match(/(1440|1080|720|576|480|360|240)/);
+      const match = text.match(/(1440|1080|720|480|360|240)/);
       return match ? Number(match[1]) : 0;
     }
     function normalizeDisplayQuality(value) {
       const rank = qualityRank(value);
       return rank === 2160 ? "4K" : rank > 0 ? `${rank}p` : "Unknown";
-    }
-    function qualityOrderPrefix(quality) {
-      const rank = { "4K": 1, "1080p": 2, "720p": 3, "480p": 4, "360p": 5, "240p": 6 }[quality] || 9;
-      return "\u200B".repeat(rank);
     }
     function streamOrderPrefix(quality, seekable) {
       var _a;
@@ -576,20 +453,13 @@ var require_streams = __commonJS({
       });
     }
     module2.exports = {
-      MEDIA_EXTENSION,
-      PLACEHOLDER_MEDIA,
-      extractMediaCandidates,
       normalizeStream,
-      normalizeSubtitles,
       parseMediaAttributes,
       parseQuality: parseQuality2,
       qualityRank,
       normalizeDisplayQuality,
-      qualityOrderPrefix,
       streamOrderPrefix,
       getSeekableHint,
-      resolveFinalUrl,
-      uniqueStreams,
       uniqueExactStreams: uniqueExactStreams3,
       mapConcurrent: mapConcurrent3
     };
@@ -601,6 +471,7 @@ var require_movies4u = __commonJS({
   "src/providers/movies4u.js"(exports2, module2) {
     var DOMAINS = require_domains();
     var TMDB_API = DOMAINS.TMDB_API;
+    var WORKER = DOMAINS.WORKER;
     var { resolveVCloud } = require_vcloud();
     var { mapConcurrent, uniqueExactStreams } = require_streams();
     var TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
@@ -819,6 +690,23 @@ var require_movies4u = __commonJS({
               subtitles: []
             }));
           }
+
+          if (candidate.resolverType === "fastdl") {
+            const workerUrl = `${WORKER}/?url=${encodeURIComponent(candidate.url)}&referer=${encodeURIComponent(candidate.referer)}`;
+            const res = yield requestText(workerUrl, candidate.referer);
+            const data = JSON.parse(res);
+            if (data && data.url) {
+              return [{
+                url: data.url,
+                quality: candidate.quality,
+                provider: "Movies4U",
+                source: "FastDL",
+                headers: { "User-Agent": USER_AGENT, Referer: candidate.referer },
+                subtitles: []
+              }];
+            }
+          }
+
           return [];
         } catch (_) {
           return [];

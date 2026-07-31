@@ -4,7 +4,7 @@
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";  
 const FALLBACK_URL = "https://new2.movies4u.clinic";  
 const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";  
-const HUB_CLOUD_API = "https://hubcloud.cx";
+const HUB_CLOUD_API = "https://lucky-star-3059.salman-sohail93.workers.dev";
 
 const HEADERS = {  
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",  

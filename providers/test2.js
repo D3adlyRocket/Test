@@ -1,5 +1,5 @@
 /**
- * 4KHDHub - Nuvio Compatible Settings & Dynamic Layout Stream Provider
+ * 4KHDHub - Bulletproof Nuvio Settings & Dynamic Sorting Module
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -67,7 +67,7 @@ var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 C
 var HEADERS = { "User-Agent": USER_AGENT, Referer: `${BASE_URL}/` };
 
 // ---------------------------------------------------------------------------
-// Nuvio-Native Crash-Free Settings Schema
+// Nuvio-Native Settings Schema
 // ---------------------------------------------------------------------------
 
 function onSettings() {
@@ -363,7 +363,7 @@ function extractStreams(pageUrl, isSeries, season, episode) {
 // Precision Stream Builder
 // ---------------------------------------------------------------------------
 
-function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata) {
+function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo, mediaMetadata) {
   var decodedUrl = "";
   try {
     decodedUrl = decodeURIComponent(url || "");
@@ -374,7 +374,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
   var cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
   var fullContext = (cleanTitle + " " + decodedUrl).toLowerCase();
 
-  // 1. Resolution / Quality Extraction
+  // 1. Quality Extraction
   var displayQuality = quality;
   var qualMatch = fullContext.match(/\b(2160p|4k|1080p|720p|480p)\b/i);
   if (qualMatch) {
@@ -388,7 +388,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
     displayQuality = parseQuality(fullContext);
   }
 
-  // 2. Audio Type & Fallback Detection
+  // 2. Audio Type
   var audioType = "Single-Audio";
   if (/\b(multi|multi\-audio)\b/i.test(fullContext)) {
     audioType = "Multi-Audio";
@@ -399,7 +399,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
   // Header
   var headerName = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
 
-  // Subheading Line 1: Movie Name - (Year) or Series Name - (Year) | S1E1
+  // Subheading Line 1
   var mediaTitle = mediaMetadata && mediaMetadata.title ? mediaMetadata.title : name;
   var mediaYear = mediaMetadata && mediaMetadata.year ? mediaMetadata.year : "2026";
   var line1 = "";
@@ -418,15 +418,24 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
     qIcon = "💎";
   }
 
-  var fileSizeOnly = "N/A";
-  var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i) || cleanTitle.match(/(\d+(?:\.\d+)?\s*[MG]B)/i) || decodedUrl.match(/(\d+(?:\.\d+)?\s*[MG]B)/i);
-  if (sizeMatch) fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
+  // Size Matching (Check explicit parameter first, then regex search)
+  var fileSizeOnly = explicitSize && explicitSize !== "N/A" ? explicitSize : "N/A";
+  var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i) || 
+                  cleanTitle.match(/(\d+(?:\.\d+)?\s*[MG]B)/i) || 
+                  decodedUrl.match(/(\d+(?:\.\d+)?\s*[MG]B)/i);
+  
+  if (sizeMatch) {
+    fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
+  }
 
   var numericalSizeWeight = 0;
-  if (sizeMatch) {
-    var num = parseFloat(sizeMatch[1]);
-    var unit = sizeMatch[1].toUpperCase();
-    numericalSizeWeight = unit.includes("GB") ? num * 1024 : num;
+  if (fileSizeOnly !== "N/A") {
+    var parsedNumMatch = fileSizeOnly.match(/([\d.]+)\s*(GB|MB)/i);
+    if (parsedNumMatch) {
+      var num = parseFloat(parsedNumMatch[1]);
+      var unit = parsedNumMatch[2].toUpperCase();
+      numericalSizeWeight = unit.includes("GB") ? num * 1024 : num;
+    }
   }
 
   var fileFormat = "MKV";
@@ -436,7 +445,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
 
   var line2 = qIcon + " " + displayQuality + " | 💾 " + fileSizeOnly + " | 📼 " + fileFormat;
 
-  // Subheading Line 3: HDR | Codec | Vision (Only display DV if explicit)
+  // Subheading Line 3: HDR | Codec | Vision
   var hdrTag = "HDR";
   if (/\bhdr10\+/i.test(fullContext)) {
     hdrTag = "HDR10+";
@@ -456,12 +465,9 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
   }
 
   var line3Parts = ["🌈 " + hdrTag, "🎥 " + codecTag];
-
-  // Explicit Dolby Vision Check
   if (/\b(dolby\s*vision|dovi|\.dv\.)\b/i.test(fullContext) || /[\.\-_]dv[\.\-_]/i.test(fullContext)) {
     line3Parts.push("👁️ DV");
   }
-
   var line3 = line3Parts.join(" | ");
 
   // Subheading Line 4: Audio Languages & Channels
@@ -481,7 +487,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
 
   var line4 = "🌍 " + audioType + " | 🎧 " + audioCodecTag + atmosSuffix;
 
-  // Subheading Line 5: Explicit 4KHDHub.com Site Identifier & Rip Source
+  // Subheading Line 5: Site Identifier & Source
   var sourceTag = "WEB-DL";
   if (/\b(webrip|web\-rip)\b/i.test(fullContext)) {
     sourceTag = "WEB-RIP";
@@ -496,7 +502,7 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
   var formattedTitle = line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
 
   var is4K = displayQuality === "2160p";
-  var baseResWeight = is4K ? 9000000 : (displayQuality.includes("1080") ? 6000000 : 3000000);
+  var baseResWeight = is4K ? 9000000 : (displayQuality.includes("1080") ? 6000000 : (displayQuality.includes("720") ? 3000000 : 1000000));
   
   return {
     name: headerName,
@@ -512,6 +518,34 @@ function makeStream(name, title, url, quality, headers, mediaInfo, mediaMetadata
       }
     }
   };
+}
+
+// Universal Nuvio Settings Parser
+function extractSortPreference(config) {
+  if (!config) return "Quality";
+  
+  var rawVal = "";
+  if (typeof config === "string") {
+    rawVal = config;
+  } else if (typeof config === "object") {
+    var possibleKeys = ["sort_by", "sortBy", "sort", "Sort By", "SortBy"];
+    for (var i = 0; i < possibleKeys.length; i++) {
+      var key = possibleKeys[i];
+      if (config[key] !== undefined) {
+        var item = config[key];
+        rawVal = (typeof item === "object" && item !== null) ? (item.value || item.label || JSON.stringify(item)) : String(item);
+        break;
+      }
+    }
+    if (!rawVal) {
+      try {
+        var str = JSON.stringify(config).toLowerCase();
+        if (str.includes("largest") || str.includes("size")) return "Largest Size";
+      } catch (e) {}
+    }
+  }
+
+  return /largest|size/i.test(rawVal) ? "Largest Size" : "Quality";
 }
 
 function getStreams(tmdbId, mediaType, season = null, episode = null, config = {}) {
@@ -555,6 +589,7 @@ function getStreams(tmdbId, mediaType, season = null, episode = null, config = {
           rawContext,
           stream.url,
           stream.quality,
+          stream.size,
           { "Referer": BASE_URL + "/", "User-Agent": USER_AGENT },
           epLabel.trim(),
           metadata
@@ -563,12 +598,13 @@ function getStreams(tmdbId, mediaType, season = null, episode = null, config = {
         streams.push(streamObj);
       }
 
-      var sortBy = (config && (config.sort_by || config.SortBy)) || "Quality";
+      var sortBy = extractSortPreference(config);
       
       var sortedStreams = streams.sort(function(a, b) {
         if (sortBy === "Largest Size") {
           return (b._sizeWeight || 0) - (a._sizeWeight || 0);
         }
+        // Primary: Resolution Quality, Secondary: Size
         var resDiff = (b._resWeight || 0) - (a._resWeight || 0);
         if (resDiff !== 0) return resDiff;
         return (b._sizeWeight || 0) - (a._sizeWeight || 0);

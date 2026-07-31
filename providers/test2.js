@@ -1,5 +1,5 @@
 /**
- * 4KHDHub - Nuvio Sort-Bypass & Full Layout Stream Provider
+ * 4KHDHub - Zero-Width Inverted Binary Sort Engine Integration
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -67,21 +67,66 @@ var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 C
 var HEADERS = { "User-Agent": USER_AGENT, Referer: `${BASE_URL}/` };
 
 // ---------------------------------------------------------------------------
-// Nuvio Settings Configuration
+// TorrentClaw-Identical Zero-Width Sorting Engine
 // ---------------------------------------------------------------------------
+
+function getInvertedSortTag(val, maxBaseline = 999999) {
+  const safeVal = Math.max(0, parseInt(val, 10) || 0);
+  const inverted = Math.max(0, maxBaseline - safeVal);
+  const binaryStr = inverted.toString(2).padStart(20, '0');
+  
+  // \u200B = '0', \uFEFF = '1'
+  return binaryStr.split('').map(bit => bit === '1' ? "\uFEFF" : "\u200B").join('');
+}
+
+function resolveSettings(extraConfig) {
+  let settings = {
+    sortBy: "quality"
+  };
+
+  try {
+    let source = extraConfig;
+    if (!source && typeof globalThis !== "undefined") {
+      source = globalThis.SCRAPER_SETTINGS || globalThis.SETTINGS || globalThis.settings;
+    }
+    if (!source && typeof global !== "undefined") {
+      source = global.SCRAPER_SETTINGS || global.SETTINGS || global.settings;
+    }
+    if (!source && typeof window !== "undefined") {
+      source = window.SCRAPER_SETTINGS || window.SETTINGS || window.settings;
+    }
+
+    if (source) {
+      var rawVal = source.sortBy || source.sort_by || source.sort || "";
+      if (typeof rawVal === "object" && rawVal !== null) {
+        rawVal = rawVal.value || rawVal.label || "";
+      }
+      var str = String(rawVal).toLowerCase();
+      if (str.includes("size") || str.includes("largest")) {
+        settings.sortBy = "size";
+      } else {
+        settings.sortBy = "quality";
+      }
+    }
+  } catch (e) {
+    console.error(`[${PROVIDER_NAME}] Error parsing settings:`, e);
+  }
+
+  return settings;
+}
 
 function onSettings() {
   return [
     {
       type: "select",
+      key: "sortBy",
       name: "sort_by",
       label: "Sort By",
-      description: "Choose primary sorting method for search results",
-      value: "Quality",
       options: [
-        { label: "Quality", value: "Quality" },
-        { label: "Largest Size", value: "Largest Size" }
-      ]
+        { label: "Quality Score", value: "quality" },
+        { label: "Largest Size", value: "size" }
+      ],
+      default: "quality"
     }
   ];
 }
@@ -166,6 +211,15 @@ function parseQuality(text) {
   if (t.indexOf('720') >= 0) return '720p';
   if (t.indexOf('480') >= 0) return '480p';
   return '1080p';
+}
+
+function getQualityRank(res) {
+  const clean = String(res).toLowerCase();
+  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return 4;
+  if (clean.includes("1080") || clean.includes("fhd")) return 3;
+  if (clean.includes("720") || clean.includes("hd")) return 2;
+  if (clean.includes("480") || clean.includes("sd")) return 1;
+  return 0;
 }
 
 function parseSize(value) {
@@ -360,10 +414,10 @@ function extractStreams(pageUrl, isSeries, season, episode) {
 }
 
 // ---------------------------------------------------------------------------
-// Stream Builder with Nuvio Quality Rank Override
+// Stream Assembly Engine
 // ---------------------------------------------------------------------------
 
-function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo, mediaMetadata) {
+function buildStreamObject(name, title, url, quality, explicitSize, headers, mediaInfo, mediaMetadata, sortBy) {
   var decodedUrl = "";
   try {
     decodedUrl = decodeURIComponent(url || "");
@@ -374,7 +428,7 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
   var cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
   var fullContext = (cleanTitle + " " + decodedUrl).toLowerCase();
 
-  // 1. Resolution / Quality Extraction
+  // Resolution rank
   var displayQuality = quality;
   var qualMatch = fullContext.match(/\b(2160p|4k|1080p|720p|480p)\b/i);
   if (qualMatch) {
@@ -388,14 +442,9 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
     displayQuality = parseQuality(fullContext);
   }
 
-  // Assign internal quality ranking weights (4K > 1080p > 720p > 480p)
-  var resRank = 1000;
-  if (displayQuality === "2160p") resRank = 4000;
-  else if (displayQuality === "1080p") resRank = 3000;
-  else if (displayQuality === "720p") resRank = 2000;
-  else if (displayQuality === "480p") resRank = 1000;
+  var qualityRank = getQualityRank(displayQuality);
 
-  // 2. Audio Type
+  // Audio Type
   var audioType = "Single-Audio";
   if (/\b(multi|multi\-audio)\b/i.test(fullContext)) {
     audioType = "Multi-Audio";
@@ -403,28 +452,7 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
     audioType = "Dual-Audio";
   }
 
-  // Header Title
-  var headerName = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
-
-  // Subheading Line 1
-  var mediaTitle = mediaMetadata && mediaMetadata.title ? mediaMetadata.title : name;
-  var mediaYear = mediaMetadata && mediaMetadata.year ? mediaMetadata.year : "2026";
-  var line1 = "";
-  if (mediaInfo && (mediaInfo.startsWith("S") || mediaInfo.includes("E"))) {
-    var formattedEp = mediaInfo.replace(/E0*(\d+)/i, 'E$1').replace(/S0*(\d+)/i, 'S$1');
-    line1 = "🎬 " + mediaTitle + " - (" + mediaYear + ") | " + formattedEp;
-  } else {
-    line1 = "🎬 " + mediaTitle + " - (" + mediaYear + ")";
-  }
-
-  // Subheading Line 2
-  var qIcon = "🔥";
-  if (displayQuality === "2160p") {
-    qIcon = "⚡";
-  } else if (displayQuality === "720p") {
-    qIcon = "💎";
-  }
-
+  // File size calculation (in MB for integer zero-width encoding)
   var fileSizeOnly = explicitSize && explicitSize !== "N/A" ? explicitSize : "N/A";
   var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i) || 
                   cleanTitle.match(/(\d+(?:\.\d+)?\s*[MG]B)/i) || 
@@ -434,121 +462,73 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
     fileSizeOnly = sizeMatch[1].toUpperCase().replace(/\s+/g, '');
   }
 
-  var numericalSizeWeight = 0;
+  var sizeInMB = 0;
   if (fileSizeOnly !== "N/A") {
     var parsedNumMatch = fileSizeOnly.match(/([\d.]+)\s*(GB|MB)/i);
     if (parsedNumMatch) {
       var num = parseFloat(parsedNumMatch[1]);
       var unit = parsedNumMatch[2].toUpperCase();
-      numericalSizeWeight = unit.includes("GB") ? num * 1024 : num;
+      sizeInMB = Math.floor(unit.includes("GB") ? num * 1024 : num);
     }
   }
 
-  var fileFormat = "MKV";
-  if (/\.mp4($|\?)/i.test(decodedUrl) || /\.mp4\b/i.test(cleanTitle)) {
-    fileFormat = "MP4";
+  // Zero-Width Sort Tag Insertion (Directly from TorrentClaw)
+  var sortTag = "";
+  if (sortBy === "size") {
+    sortTag = getInvertedSortTag(sizeInMB, 999999);
+  } else {
+    // Quality mode: qualityRank (4..1) * 100000 + sizeInMB
+    sortTag = getInvertedSortTag((qualityRank * 100000) + sizeInMB, 999999);
   }
 
-  var line2 = qIcon + " " + displayQuality + " | 💾 " + fileSizeOnly + " | 📼 " + fileFormat;
+  // Header Layout
+  var headerLayout = `${sortTag}${PROVIDER_NAME} | ${displayQuality} | ${audioType}`;
 
-  // Subheading Line 3
-  var hdrTag = "HDR";
-  if (/\bhdr10\+/i.test(fullContext)) {
-    hdrTag = "HDR10+";
-  } else if (/\bhdr10\b/i.test(fullContext)) {
-    hdrTag = "HDR10";
-  } else if (/\bhdr\b/i.test(fullContext)) {
-    hdrTag = "HDR";
-  }
+  // Card Content Lines
+  var mediaTitle = mediaMetadata && mediaMetadata.title ? mediaMetadata.title : name;
+  var mediaYear = mediaMetadata && mediaMetadata.year ? mediaMetadata.year : "2026";
+  var line1 = mediaInfo && (mediaInfo.startsWith("S") || mediaInfo.includes("E"))
+    ? `🎬 ${mediaTitle} - (${mediaYear}) | ${mediaInfo.replace(/E0*(\d+)/i, 'E$1').replace(/S0*(\d+)/i, 'S$1')}`
+    : `🎬 ${mediaTitle} - (${mediaYear})`;
 
-  var codecTag = "H.264";
-  if (/\b(h\.?265|x265)\b/i.test(fullContext)) {
-    codecTag = "H.265";
-  } else if (/\bhevc\b/i.test(fullContext)) {
-    codecTag = "HEVC";
-  } else if (/\b(h\.?264|x264|avc)\b/i.test(fullContext)) {
-    codecTag = "H.264";
-  }
+  var qIcon = displayQuality === "2160p" ? "⚡" : (displayQuality === "720p" ? "💎" : "🔥");
+  var fileFormat = /\.mp4($|\?)/i.test(decodedUrl) || /\.mp4\b/i.test(cleanTitle) ? "MP4" : "MKV";
+  var line2 = `${qIcon} ${displayQuality} | 💾 ${fileSizeOnly} | 📼 ${fileFormat}`;
 
-  var line3Parts = ["🌈 " + hdrTag, "🎥 " + codecTag];
+  var hdrTag = /\bhdr10\+/i.test(fullContext) ? "HDR10+" : (/\bhdr10\b/i.test(fullContext) ? "HDR10" : "HDR");
+  var codecTag = /\b(h\.?265|x265|hevc)\b/i.test(fullContext) ? "H.265" : "H.264";
+  var line3Parts = [`🌈 ${hdrTag}`, `🎥 ${codecTag}`];
   if (/\b(dolby\s*vision|dovi|\.dv\.)\b/i.test(fullContext) || /[\.\-_]dv[\.\-_]/i.test(fullContext)) {
     line3Parts.push("👁️ DV");
   }
   var line3 = line3Parts.join(" | ");
 
-  // Subheading Line 4
-  var audioCodecTag = "DD5.1";
-  if (/\btruehd\s*7\.1\b/i.test(fullContext)) {
-    audioCodecTag = "TrueHD 7.1";
-  } else if (/\bddp5\.1\b/i.test(fullContext) || /\beac3\b/i.test(fullContext)) {
-    audioCodecTag = "DDP5.1";
-  } else if (/\bdd5\.1\b/i.test(fullContext) || /\bac3\b/i.test(fullContext)) {
-    audioCodecTag = "DD5.1";
-  }
+  var audioCodecTag = /\btruehd\s*7\.1\b/i.test(fullContext) ? "TrueHD 7.1" : (/\bddp5\.1\b/i.test(fullContext) || /\beac3\b/i.test(fullContext) ? "DDP5.1" : "DD5.1");
+  var atmosSuffix = /\batmos\b/i.test(fullContext) ? " • 🔊 Atmos" : "";
+  var line4 = `🌍 ${audioType} | 🎧 ${audioCodecTag}${atmosSuffix}`;
 
-  var atmosSuffix = "";
-  if (/\batmos\b/i.test(fullContext)) {
-    atmosSuffix = " • 🔊 Atmos";
-  }
+  var sourceTag = /\b(bluray|blu\-ray)\b/i.test(fullContext) ? "BluRay" : "WEB-DL";
+  var line5 = `⛓️‍💥 4KHDHub.com 📥 ${sourceTag}`;
 
-  var line4 = "🌍 " + audioType + " | 🎧 " + audioCodecTag + atmosSuffix;
-
-  // Subheading Line 5
-  var sourceTag = "WEB-DL";
-  if (/\b(webrip|web\-rip)\b/i.test(fullContext)) {
-    sourceTag = "WEB-RIP";
-  } else if (/\b(webdl|web\-dl)\b/i.test(fullContext)) {
-    sourceTag = "WEB-DL";
-  } else if (/\b(bluray|blu\-ray)\b/i.test(fullContext)) {
-    sourceTag = "BluRay";
-  }
-
-  var line5 = "⛓️‍💥 4KHDHub.com 📥 " + sourceTag;
-
-  var formattedTitle = line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
+  var fullLayout = `${line1}\n${line2}\n${line3}\n${line4}\n${line5}`;
 
   return {
-    name: headerName,
-    title: formattedTitle,
-    size: formattedTitle,
-    url: url || "",
-    _resRank: resRank,
-    _sizeWeight: numericalSizeWeight,
-    quality: displayQuality,
-    behaviorHints: {
-      notWebReady: true,
-      proxyHeaders: {
-        request: headers || { "Referer": BASE_URL + "/" }
+    qualityRank: qualityRank,
+    sizeInMB: sizeInMB,
+    data: {
+      name: headerLayout,
+      title: fullLayout,
+      size: fullLayout,
+      description: fullLayout,
+      url: url || "",
+      behaviorHints: {
+        notWebReady: true,
+        proxyHeaders: {
+          request: headers || { "Referer": BASE_URL + "/" }
+        }
       }
     }
   };
-}
-
-function extractSortPreference(config) {
-  if (!config) return "Quality";
-  
-  var rawVal = "";
-  if (typeof config === "string") {
-    rawVal = config;
-  } else if (typeof config === "object") {
-    var possibleKeys = ["sort_by", "sortBy", "sort", "Sort By", "SortBy"];
-    for (var i = 0; i < possibleKeys.length; i++) {
-      var key = possibleKeys[i];
-      if (config[key] !== undefined) {
-        var item = config[key];
-        rawVal = (typeof item === "object" && item !== null) ? (item.value || item.label || JSON.stringify(item)) : String(item);
-        break;
-      }
-    }
-    if (!rawVal) {
-      try {
-        var str = JSON.stringify(config).toLowerCase();
-        if (str.includes("largest") || str.includes("size")) return "Largest Size";
-      } catch (e) {}
-    }
-  }
-
-  return /largest|size/i.test(rawVal) ? "Largest Size" : "Quality";
 }
 
 function getStreams(tmdbId, mediaType, season = null, episode = null, config = {}) {
@@ -557,18 +537,15 @@ function getStreams(tmdbId, mediaType, season = null, episode = null, config = {
     if (!tmdbId || (!isSeries && mediaType !== "movie"))
       return [];
     try {
-      console.log(`[${PROVIDER_NAME}] Request: tmdbId=${tmdbId} type=${mediaType} S=${season} E=${episode}`);
+      const settings = resolveSettings(config);
+      console.log(`[${PROVIDER_NAME}] Request: tmdbId=${tmdbId} type=${mediaType} S=${season} E=${episode} mode=${settings.sortBy}`);
+      
       const metadata = yield getMetadata(tmdbId, mediaType);
       const pageUrl = yield findPage(metadata, isSeries, season);
       if (!pageUrl)
         return [];
 
-      const extracted = yield extractStreams(
-        pageUrl,
-        isSeries,
-        season,
-        episode
-      );
+      const extracted = yield extractStreams(pageUrl, isSeries, season, episode);
 
       var epLabel = '';
       if (isSeries) {
@@ -578,7 +555,7 @@ function getStreams(tmdbId, mediaType, season = null, episode = null, config = {
       }
 
       const seen = {};
-      const streams = [];
+      const parsedStreams = [];
 
       for (let i = 0; i < extracted.length; i++) {
         const stream = extracted[i];
@@ -587,7 +564,7 @@ function getStreams(tmdbId, mediaType, season = null, episode = null, config = {
         seen[stream.url] = true;
 
         const rawContext = `${stream.title} [${stream.size}] ${stream.quality}`;
-        const streamObj = makeStream(
+        const streamObj = buildStreamObject(
           metadata.title,
           rawContext,
           stream.url,
@@ -595,37 +572,29 @@ function getStreams(tmdbId, mediaType, season = null, episode = null, config = {
           stream.size,
           { "Referer": BASE_URL + "/", "User-Agent": USER_AGENT },
           epLabel.trim(),
-          metadata
+          metadata,
+          settings.sortBy
         );
 
-        streams.push(streamObj);
+        parsedStreams.push(streamObj);
       }
 
-      var sortBy = extractSortPreference(config);
-
-      // Primary Array Sort
-      streams.sort(function(a, b) {
-        if (sortBy === "Largest Size") {
-          return (b._sizeWeight || 0) - (a._sizeWeight || 0);
-        }
-        var resDiff = (b._resRank || 0) - (a._resRank || 0);
-        if (resDiff !== 0) return resDiff;
-        return (b._sizeWeight || 0) - (a._sizeWeight || 0);
-      });
-
-      // Override name field to prevent Nuvio UI alphabetical overriding
-      streams.forEach(function(item, index) {
-        if (sortBy === "Quality") {
-          // Prefixes header with high-to-low rank index invisibly/cleanly so Nuvio UI sorts correctly
-          var rankKey = item._resRank === 4000 ? "4K" : item.quality;
-          item.name = PROVIDER_NAME + " | " + rankKey + " | " + (item.title.includes("Multi-Audio") ? "Multi-Audio" : "Dual-Audio");
+      // Exact TorrentClaw Array Sorting Logic
+      parsedStreams.sort((a, b) => {
+        if (settings.sortBy === "size") {
+          return b.sizeInMB - a.sizeInMB;
+        } else { // quality mode
+          if (b.qualityRank !== a.qualityRank) {
+            return b.qualityRank - a.qualityRank;
+          }
+          return b.sizeInMB - a.sizeInMB;
         }
       });
 
-      console.log(`[${PROVIDER_NAME}] Returning ${streams.length} stream(s) sorted by ${sortBy}`);
-      return streams;
+      console.log(`[${PROVIDER_NAME}] Returning ${parsedStreams.length} stream(s) sorted by ${settings.sortBy}`);
+      return parsedStreams.map(item => item.data);
     } catch (error) {
-      console.error(`[${PROVIDER_NAME}] Error: ${error.message}`);
+      console.error(`[${PROVIDER_NAME}] Execution error: ${error.message}`);
       return [];
     }
   });

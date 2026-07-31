@@ -1,5 +1,5 @@
 /**
- * 4KHDHub - Bulletproof Nuvio Settings & Dynamic Sorting Module
+ * 4KHDHub - Nuvio Sort-Bypass & Full Layout Stream Provider
  */
 var __create = Object.create;
 var __defProp = Object.defineProperty;
@@ -67,7 +67,7 @@ var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 C
 var HEADERS = { "User-Agent": USER_AGENT, Referer: `${BASE_URL}/` };
 
 // ---------------------------------------------------------------------------
-// Nuvio-Native Settings Schema
+// Nuvio Settings Configuration
 // ---------------------------------------------------------------------------
 
 function onSettings() {
@@ -360,7 +360,7 @@ function extractStreams(pageUrl, isSeries, season, episode) {
 }
 
 // ---------------------------------------------------------------------------
-// Precision Stream Builder
+// Stream Builder with Nuvio Quality Rank Override
 // ---------------------------------------------------------------------------
 
 function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo, mediaMetadata) {
@@ -374,7 +374,7 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
   var cleanTitle = decodeEntities(title || "").replace(/[\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
   var fullContext = (cleanTitle + " " + decodedUrl).toLowerCase();
 
-  // 1. Quality Extraction
+  // 1. Resolution / Quality Extraction
   var displayQuality = quality;
   var qualMatch = fullContext.match(/\b(2160p|4k|1080p|720p|480p)\b/i);
   if (qualMatch) {
@@ -388,6 +388,13 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
     displayQuality = parseQuality(fullContext);
   }
 
+  // Assign internal quality ranking weights (4K > 1080p > 720p > 480p)
+  var resRank = 1000;
+  if (displayQuality === "2160p") resRank = 4000;
+  else if (displayQuality === "1080p") resRank = 3000;
+  else if (displayQuality === "720p") resRank = 2000;
+  else if (displayQuality === "480p") resRank = 1000;
+
   // 2. Audio Type
   var audioType = "Single-Audio";
   if (/\b(multi|multi\-audio)\b/i.test(fullContext)) {
@@ -396,7 +403,7 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
     audioType = "Dual-Audio";
   }
 
-  // Header
+  // Header Title
   var headerName = PROVIDER_NAME + " | " + displayQuality + " | " + audioType;
 
   // Subheading Line 1
@@ -410,7 +417,7 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
     line1 = "🎬 " + mediaTitle + " - (" + mediaYear + ")";
   }
 
-  // Subheading Line 2: Quality Icon | Size | Format
+  // Subheading Line 2
   var qIcon = "🔥";
   if (displayQuality === "2160p") {
     qIcon = "⚡";
@@ -418,7 +425,6 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
     qIcon = "💎";
   }
 
-  // Size Matching (Check explicit parameter first, then regex search)
   var fileSizeOnly = explicitSize && explicitSize !== "N/A" ? explicitSize : "N/A";
   var sizeMatch = cleanTitle.match(/\[\s*(\d+(?:\.\d+)?\s*[MG]B)\s*\]/i) || 
                   cleanTitle.match(/(\d+(?:\.\d+)?\s*[MG]B)/i) || 
@@ -445,7 +451,7 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
 
   var line2 = qIcon + " " + displayQuality + " | 💾 " + fileSizeOnly + " | 📼 " + fileFormat;
 
-  // Subheading Line 3: HDR | Codec | Vision
+  // Subheading Line 3
   var hdrTag = "HDR";
   if (/\bhdr10\+/i.test(fullContext)) {
     hdrTag = "HDR10+";
@@ -470,7 +476,7 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
   }
   var line3 = line3Parts.join(" | ");
 
-  // Subheading Line 4: Audio Languages & Channels
+  // Subheading Line 4
   var audioCodecTag = "DD5.1";
   if (/\btruehd\s*7\.1\b/i.test(fullContext)) {
     audioCodecTag = "TrueHD 7.1";
@@ -487,7 +493,7 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
 
   var line4 = "🌍 " + audioType + " | 🎧 " + audioCodecTag + atmosSuffix;
 
-  // Subheading Line 5: Site Identifier & Source
+  // Subheading Line 5
   var sourceTag = "WEB-DL";
   if (/\b(webrip|web\-rip)\b/i.test(fullContext)) {
     sourceTag = "WEB-RIP";
@@ -501,16 +507,14 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
 
   var formattedTitle = line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
 
-  var is4K = displayQuality === "2160p";
-  var baseResWeight = is4K ? 9000000 : (displayQuality.includes("1080") ? 6000000 : (displayQuality.includes("720") ? 3000000 : 1000000));
-  
   return {
     name: headerName,
     title: formattedTitle,
     size: formattedTitle,
     url: url || "",
-    _resWeight: baseResWeight,
+    _resRank: resRank,
     _sizeWeight: numericalSizeWeight,
+    quality: displayQuality,
     behaviorHints: {
       notWebReady: true,
       proxyHeaders: {
@@ -520,7 +524,6 @@ function makeStream(name, title, url, quality, explicitSize, headers, mediaInfo,
   };
 }
 
-// Universal Nuvio Settings Parser
 function extractSortPreference(config) {
   if (!config) return "Quality";
   
@@ -599,19 +602,28 @@ function getStreams(tmdbId, mediaType, season = null, episode = null, config = {
       }
 
       var sortBy = extractSortPreference(config);
-      
-      var sortedStreams = streams.sort(function(a, b) {
+
+      // Primary Array Sort
+      streams.sort(function(a, b) {
         if (sortBy === "Largest Size") {
           return (b._sizeWeight || 0) - (a._sizeWeight || 0);
         }
-        // Primary: Resolution Quality, Secondary: Size
-        var resDiff = (b._resWeight || 0) - (a._resWeight || 0);
+        var resDiff = (b._resRank || 0) - (a._resRank || 0);
         if (resDiff !== 0) return resDiff;
         return (b._sizeWeight || 0) - (a._sizeWeight || 0);
       });
 
-      console.log(`[${PROVIDER_NAME}] Returning ${sortedStreams.length} stream(s) sorted by ${sortBy}`);
-      return sortedStreams;
+      // Override name field to prevent Nuvio UI alphabetical overriding
+      streams.forEach(function(item, index) {
+        if (sortBy === "Quality") {
+          // Prefixes header with high-to-low rank index invisibly/cleanly so Nuvio UI sorts correctly
+          var rankKey = item._resRank === 4000 ? "4K" : item.quality;
+          item.name = PROVIDER_NAME + " | " + rankKey + " | " + (item.title.includes("Multi-Audio") ? "Multi-Audio" : "Dual-Audio");
+        }
+      });
+
+      console.log(`[${PROVIDER_NAME}] Returning ${streams.length} stream(s) sorted by ${sortBy}`);
+      return streams;
     } catch (error) {
       console.error(`[${PROVIDER_NAME}] Error: ${error.message}`);
       return [];

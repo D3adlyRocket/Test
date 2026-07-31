@@ -1,6 +1,6 @@
 /**
  * Movies4u Provider for StreamPlay Architecture
- * Handles searching, candidate extraction, HubCloud extraction, and Worker URL unwrapping.
+ * Updated with redundant search fallbacks, flexible selector parsing, and full logging.
  */
 
 // Helper: Safety fallbacks for standalone usage or custom bundlers
@@ -40,7 +40,7 @@ const getStreamsUtils = typeof require_streams === "function" ? require_streams 
 
 const getExtractor = typeof require_extractor === "function" ? require_extractor : () => ({
   extractHubCloud: async (url, referer) => {
-    console.warn("[HubCloud Extractor] Module missing. Returning candidate URL.");
+    console.warn("[HubCloud Extractor] Extractor fallback used for:", url);
     return [{ file: url, quality: "auto", type: "hls" }];
   }
 });
@@ -61,27 +61,23 @@ const HEADERS = {
 };
 
 /**
- * Utility: Unwrap Cloudflare Worker proxies to extract direct storage S3/R2 URLs
+ * Utility: Extract direct S3/R2 storage link from Cloudflare Worker wrapper
  */
 function unwrapWorkerUrl(url) {
   if (!url || typeof url !== "string") return url;
-
-  // Checks for proxy pattern (e.g., workers.dev/.../file.mkv?url=https://...)
   if (url.includes("workers.dev") && url.includes("?url=")) {
     try {
       const targetParam = url.split("?url=")[1];
       if (targetParam) {
         return decodeURIComponent(targetParam);
       }
-    } catch (_) {
-      // Return original URL if decoding fails
-    }
+    } catch (_) {}
   }
   return url;
 }
 
 /**
- * Fetch text response with full header configuration
+ * Fetch helper with standard headers & referrer
  */
 async function fetchText(url, referer) {
   const reqHeaders = { ...HEADERS };
@@ -95,7 +91,7 @@ async function fetchText(url, referer) {
 }
 
 /**
- * Fetch TMDB media details (title, year, IMDB ID)
+ * Get media details from TMDB
  */
 async function getMediaDetails(tmdbId, mediaType) {
   const endpoint = mediaType === "tv" ? "tv" : "movie";
@@ -111,7 +107,7 @@ async function getMediaDetails(tmdbId, mediaType) {
 }
 
 /**
- * Resolve active domain base URL for Movies4u
+ * Active base domain lookup
  */
 async function getMovies4uBase() {
   if (!DOMAINS.PHISHER_DOMAINS) return MOVIES4U_FALLBACK;
@@ -126,32 +122,61 @@ async function getMovies4uBase() {
 }
 
 /**
- * Query Movies4u internal search endpoint
+ * Hybrid Search: Try search.php API first, fall back to standard HTML search (?s=)
  */
 async function searchMovies4u(base, query) {
+  // Strategy 1: search.php API endpoint
   try {
     const searchUrl = `${base}/search.php?q=${encodeURIComponent(query)}`;
     const text = await fetchText(searchUrl, base);
     const data = JSON.parse(text);
-    return (data.hits || []).map((hit) => hit?.document).filter(Boolean);
-  } catch (_) {
+    const hits = (data.hits || []).map((hit) => hit?.document).filter(Boolean);
+    if (hits.length > 0) return hits;
+  } catch (err) {
+    console.warn(`[Movies4u] API search failed, falling back to HTML search: ${err.message}`);
+  }
+
+  // Strategy 2: WordPress Standard HTML Search fallback
+  try {
+    const htmlUrl = `${base}/?s=${encodeURIComponent(query)}`;
+    const html = await fetchText(htmlUrl, base);
+    
+    let $;
+    try {
+      const cheerio = require("cheerio") || require("cheerio-without-node-native");
+      $ = cheerio.load(html);
+    } catch (_) {
+      return [];
+    }
+
+    const results = [];
+    $("article, .post-item, .result-item").each((_, el) => {
+      const linkEl = $(el).find("a[href]").first();
+      const permalink = linkEl.attr("href");
+      const title = linkEl.text() || $(el).find(".entry-title, .title").text();
+      if (permalink) {
+        results.push({ post_title: title.trim(), permalink });
+      }
+    });
+
+    return results;
+  } catch (err) {
+    console.error(`[Movies4u] HTML fallback search failed: ${err.message}`);
     return [];
   }
 }
 
 /**
- * Match search results against metadata
+ * Select closest post match
  */
 function selectBestResult(results, media, mediaType) {
   if (!results || !results.length) return null;
 
-  // Match 1: IMDB ID match
   if (media.imdbId) {
     const match = results.find((item) => item.imdb_id === media.imdbId);
     if (match) return match;
   }
 
-  // Match 2: Title and year heuristics
   const title = String(media.title || "").toLowerCase();
   const year = String(media.year || "");
 
@@ -165,64 +190,86 @@ function selectBestResult(results, media, mediaType) {
 }
 
 /**
- * Parse HTML to extract HubCloud intermediate links
+ * Extracts intermediate stream pages (HubCloud, GDFlix, Drive, etc.)
  */
 function extractHubCloudLinksFromHtml(html, pageUrl) {
-  let $;
-  try {
-    const cheerio = require("cheerio") || require("cheerio-without-node-native");
-    $ = cheerio.load(html);
-  } catch (_) {
-    // Fallback regex parsing if Cheerio is unavailable
-    const links = [];
-    const hrefRegex = /href=["']([^"']*hubcloud[^"']*)["']/gi;
-    let match;
-    while ((match = hrefRegex.exec(html)) !== null) {
-      links.push({ url: match[1], text: "HubCloud Link", referer: pageUrl });
-    }
-    return links;
+  const links = [];
+
+  // Match pattern expands beyond hubcloud to capture alternate host domains Movies4u uses
+  const urlPattern = /https?:\/\/[^\s"'<>]+(?:hubcloud|gdflix|drivebot|hubdrive|filepress)[^\s"'<>]+/gi;
+  let match;
+
+  while ((match = urlPattern.exec(html)) !== null) {
+    const cleanUrl = match[0].replace(/\\/g, "");
+    links.push({
+      url: cleanUrl,
+      text: "Stream Candidate Link",
+      referer: pageUrl
+    });
   }
 
-  const links = [];
-  $("a[href]").each((_, el) => {
-    const href = $(el).attr("href");
-    const text = $(el).text() || "";
-    if (href && /hubcloud/i.test(href)) {
-      links.push({
-        url: href,
-        text: text.trim(),
-        referer: pageUrl
-      });
-    }
-  });
+  // Also check standard anchor tags if regex didn't catch specific formatted buttons
+  try {
+    const cheerio = require("cheerio") || require("cheerio-without-node-native");
+    const $ = cheerio.load(html);
 
-  return links;
+    $("a[href]").each((_, el) => {
+      const href = $(el).attr("href");
+      const text = $(el).text() || "";
+      if (href && /(hubcloud|gdflix|drivebot|hubdrive)/i.test(href)) {
+        links.push({
+          url: href,
+          text: text.trim(),
+          referer: pageUrl
+        });
+      }
+    });
+  } catch (_) {}
+
+  // Deduplicate discovered candidate links
+  const seen = new Set();
+  return links.filter((item) => {
+    if (seen.has(item.url)) return false;
+    seen.add(item.url);
+    return true;
+  });
 }
 
 /**
- * Search and find stream candidate links
+ * Primary Candidate Discovery Function
  */
 async function discoverCandidates(tmdbId, mediaType, season = 1, episode = 1) {
   try {
     const base = await getMovies4uBase();
+    console.log(`[Movies4u] Base Domain: ${base}`);
+
     const media = await getMediaDetails(tmdbId, mediaType);
+    console.log(`[Movies4u] Target Media: "${media.title}" (${media.year}) | IMDB: ${media.imdbId}`);
 
     let searchResults = media.imdbId ? await searchMovies4u(base, media.imdbId) : [];
     if (!searchResults.length) {
       searchResults = await searchMovies4u(base, media.title);
     }
 
+    console.log(`[Movies4u] Found ${searchResults.length} search results.`);
+
     const matchedPost = selectBestResult(searchResults, media, mediaType);
-    if (!matchedPost || !matchedPost.permalink) return [];
+    if (!matchedPost || !matchedPost.permalink) {
+      console.warn(`[Movies4u] No matching post title found for search query.`);
+      return [];
+    }
 
     const postUrl = matchedPost.permalink.startsWith("http")
       ? matchedPost.permalink
       : `${base}/${matchedPost.permalink.replace(/^\//, "")}`;
 
+    console.log(`[Movies4u] Fetching Post Page: ${postUrl}`);
     const postHtml = await fetchText(postUrl, base);
-    const hubcloudLinks = extractHubCloudLinksFromHtml(postHtml, postUrl);
 
-    return hubcloudLinks.map((link) => ({
+    const candidateLinks = extractHubCloudLinksFromHtml(postHtml, postUrl);
+    console.log(`[Movies4u] Extracted ${candidateLinks.length} candidate links from page.`);
+
+    return candidateLinks.map((link) => ({
       provider: "movies4u",
       url: link.url,
       referer: link.referer,
@@ -235,7 +282,7 @@ async function discoverCandidates(tmdbId, mediaType, season = 1, episode = 1) {
 }
 
 /**
- * Resolve candidate URL via HubCloud extractor and unwrap Worker proxies
+ * Resolve candidates to playable stream links
  */
 async function resolveCandidate(candidate) {
   if (!candidate || !candidate.url) return [];
@@ -249,12 +296,13 @@ async function resolveCandidate(candidate) {
       return {
         ...stream,
         provider: "movies4u",
-        url: unwrappedUrl,                      // Direct clean storage link (e.g. cloudflarestorage.com)
+        url: unwrappedUrl,
         file: unwrappedUrl,
-        proxiedUrl: rawUrl !== unwrappedUrl ? rawUrl : undefined // Preserves worker proxy URL if needed for fallbacks
+        proxiedUrl: rawUrl !== unwrappedUrl ? rawUrl : undefined
       };
     });
-  } catch (_) {
+  } catch (err) {
+    console.error(`[Movies4u Resolve] Failed to resolve candidate: ${err.message}`);
     return [];
   }
 }
@@ -265,9 +313,14 @@ async function resolveCandidate(candidate) {
 async function getStreams(tmdbId, mediaType, season, episode) {
   try {
     const candidates = await discoverCandidates(tmdbId, mediaType, season, episode);
+    if (!candidates.length) return [];
+
     const resolvedStreams = await mapConcurrent(candidates, 4, resolveCandidate);
     const flatStreams = resolvedStreams.flat().filter(Boolean);
-    return uniqueExactStreams(flatStreams);
+    const finalStreams = uniqueExactStreams(flatStreams);
+
+    console.log(`[Movies4u] Successfully generated ${finalStreams.length} stream links.`);
+    return finalStreams;
   } catch (err) {
     console.error(`[Movies4u] Failed to get streams: ${err.message}`);
     return [];

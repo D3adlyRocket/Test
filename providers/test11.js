@@ -1,4 +1,4 @@
-/** AnimeCloud - generated from src/providers/animecloud.js */
+/** Animekhor - generated from src/providers/animekhor.js */
 var __defProp = Object.defineProperty;
 var __defProps = Object.defineProperties;
 var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
@@ -62,7 +62,7 @@ var require_html = __commonJS({
     function parseHtml2(html) {
       return cheerio.load(typeof html === "string" ? html : "");
     }
-    function decodeBase64(value) {
+    function decodeBase642(value) {
       if (!value)
         return "";
       if (typeof globalThis.atob === "function")
@@ -80,7 +80,7 @@ var require_html = __commonJS({
         return "";
       }
     }
-    module2.exports = { absoluteUrl: absoluteUrl2, decodeBase64, parseHtml: parseHtml2 };
+    module2.exports = { absoluteUrl: absoluteUrl2, decodeBase64: decodeBase642, parseHtml: parseHtml2 };
   }
 });
 
@@ -161,7 +161,7 @@ var require_http = __commonJS({
         return response.text();
       });
     }
-    function getJson2(url, options) {
+    function getJson(url, options) {
       return __async(this, null, function* () {
         const response = yield request(url, options);
         if (!response.ok)
@@ -169,20 +169,20 @@ var require_http = __commonJS({
         return response.json();
       });
     }
-    module2.exports = { DEFAULT_TIMEOUT_MS, getJson: getJson2, getText: getText2, mergeHeaders, request, withReferer: withReferer2 };
+    module2.exports = { DEFAULT_TIMEOUT_MS, getJson, getText: getText2, mergeHeaders, request, withReferer: withReferer2 };
   }
 });
 
 // src/shared/media.js
 var require_media = __commonJS({
   "src/shared/media.js"(exports2, module2) {
-    var { getJson: getJson2 } = require_http();
+    var { getJson } = require_http();
     var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
     function getMediaInfo2(_0, _1) {
       return __async(this, arguments, function* (tmdbId, mediaType, options = {}) {
         const type = mediaType === "tv" ? "tv" : "movie";
         const url = `https://api.themoviedb.org/3/${type}/${encodeURIComponent(tmdbId)}?api_key=${TMDB_API_KEY}`;
-        const data = yield getJson2(url, options);
+        const data = yield getJson(url, options);
         return {
           title: data.title || data.name || "",
           year: Number(String(data.release_date || data.first_air_date || "").slice(0, 4)) || null,
@@ -224,11 +224,11 @@ var require_matching = __commonJS({
       const match = String(value || "").match(/(?:episode|ep|e)\s*[-.:#]?\s*(\d+(?:\.\d+)?)/i) || String(value || "").match(/\b(\d+(?:\.\d+)?)\b/);
       return match ? Number(match[1]) : null;
     }
-    function matchesEpisode(value, wanted) {
+    function matchesEpisode2(value, wanted) {
       const actual = episodeNumber(value);
       return actual !== null && actual === Number(wanted);
     }
-    module2.exports = { bestTitleMatch: bestTitleMatch2, episodeNumber, matchesEpisode, normalizeTitle, titleScore };
+    module2.exports = { bestTitleMatch: bestTitleMatch2, episodeNumber, matchesEpisode: matchesEpisode2, normalizeTitle, titleScore };
   }
 });
 
@@ -371,51 +371,67 @@ var require_streams = __commonJS({
   }
 });
 
-// src/providers/animecloud.js
-var { absoluteUrl, parseHtml } = require_html();
-var { getJson, getText, withReferer } = require_http();
+// src/providers/animekhor.js
+var { absoluteUrl, decodeBase64, parseHtml } = require_html();
+var { getText, withReferer } = require_http();
 var { getMediaInfo } = require_media();
-var { bestTitleMatch } = require_matching();
+var { bestTitleMatch, matchesEpisode } = require_matching();
 var { parseQuality, resolveFinalUrl, uniqueStreams } = require_streams();
-var BASE_URL = "https://fireani.me";
+var BASE_URL = "https://animekhor.org";
 var HEADERS = withReferer({
   "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
 }, `${BASE_URL}/`);
 function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
   return __async(this, null, function* () {
-    var _a;
     try {
       const { title } = yield getMediaInfo(tmdbId, mediaType);
       if (!title)
         return [];
-      const search = yield getJson(`${BASE_URL}/api/anime/search?q=${encodeURIComponent(title)}`, { headers: HEADERS });
-      const results = Array.isArray(search == null ? void 0 : search.data) ? search.data : [];
-      const match = bestTitleMatch(results, title, (item) => item.title || item.name || item.slug);
-      if (!(match == null ? void 0 : match.slug))
+      const searchHtml = yield getText(`${BASE_URL}/page/1/?s=${encodeURIComponent(title)}`, { headers: HEADERS });
+      const $ = parseHtml(searchHtml);
+      const results = $("div.listupd > article").toArray().map((element) => ({
+        title: $(element).find(".tt, h2, h3").first().text().trim() || $(element).find("a").attr("title"),
+        url: absoluteUrl($(element).find("div.bsx > a").attr("href"), BASE_URL)
+      })).filter((item) => item.url);
+      const match = bestTitleMatch(results, title) || results[0];
+      if (!match)
         return [];
-      const targetSeason = Number(season) === 0 ? "Filme" : String(Number(season) || 1);
-      const data = yield getJson(`${BASE_URL}/api/anime/episode?slug=${encodeURIComponent(match.slug)}&season=${encodeURIComponent(targetSeason)}&episode=${Number(episode) || 1}`, { headers: HEADERS });
-      const links = ((_a = data == null ? void 0 : data.data) == null ? void 0 : _a.anime_episode_links) || [];
+      const animeHtml = yield getText(match.url, { headers: HEADERS });
+      const animeDoc = parseHtml(animeHtml);
+      const episodeItems = animeDoc(".eplister li > a").toArray();
+      let episodeUrl;
+      if (mediaType === "movie" || animeDoc(".spe").text().toLowerCase().includes("movie")) {
+        episodeUrl = absoluteUrl(animeDoc(".eplister li > a").first().attr("href"), match.url) || match.url;
+      } else {
+        const wanted = Number(episode) || 1;
+        const item = episodeItems.find((element) => matchesEpisode(animeDoc(element).text(), wanted));
+        episodeUrl = absoluteUrl(animeDoc(item || episodeItems[episodeItems.length - 1]).attr("href"), match.url);
+      }
+      if (!episodeUrl)
+        return [];
+      const epHtml = yield getText(episodeUrl, { headers: withReferer(HEADERS, match.url) });
+      const epDoc = parseHtml(epHtml);
+      const candidates = [];
+      epDoc(".mobius option").each((_, option) => {
+        var _a;
+        try {
+          const decoded = decodeBase64(epDoc(option).attr("value"));
+          const src = (_a = decoded.match(/src=["']([^"']+)["']/i)) == null ? void 0 : _a[1];
+          const url = absoluteUrl(src, episodeUrl);
+          if (url)
+            candidates.push(url);
+        } catch (_2) {
+        }
+      });
       const streams = [];
-      for (const link of links) {
-        const pageUrl = absoluteUrl(link.link, BASE_URL);
-        if (!pageUrl)
-          continue;
-        const pageHeaders = withReferer(HEADERS, BASE_URL);
-        const finalUrl = yield resolveFinalUrl(pageUrl, { headers: pageHeaders }).catch(() => null);
-        if (!finalUrl)
-          continue;
-        streams.push({
-          url: finalUrl,
-          quality: parseQuality(finalUrl, link.quality),
-          title: `AnimeCloud [${String(link.lang || "Unknown").toUpperCase()}]`,
-          headers: withReferer(HEADERS, pageUrl),
-          subtitles: []
-        });
+      for (const candidate of candidates) {
+        const finalUrl = yield resolveFinalUrl(candidate, { headers: withReferer(HEADERS, episodeUrl) }).catch(() => null);
+        if (finalUrl)
+          streams.push({ url: finalUrl, quality: parseQuality(finalUrl), title: "Animekhor", headers: withReferer(HEADERS, candidate), subtitles: [] });
       }
       return uniqueStreams(streams);
     } catch (error) {
-      console.error("[AnimeCloud]", error.message || error);
+      console.error("[Animekhor]", error.message || error);
       return [];
     }
   });

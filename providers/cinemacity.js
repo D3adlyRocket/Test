@@ -1,6 +1,7 @@
 /**
  * AnimeZey Scraper (Filmes & Séries)
- * Preserves the full original search and matching engine with formatted stream outputs.
+ * Preserves the full original search and matching engine with formatted stream outputs
+ * Integrated with Zero-Width Inverted Binary Tagging Engine.
  */
 
 var PROVIDER_NAME = "AnimeZeY";
@@ -15,6 +16,83 @@ var MOBILE_UAS = [
   "Mozilla/5.0 (Linux; Android 14; Pixel 8 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36",
   "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 ];
+
+// ---------------------------------------------------------------------------
+// Zero-Width Inverted Binary Sorting Engine Integration
+// ---------------------------------------------------------------------------
+
+function getInvertedSortTag(val, maxBaseline) {
+  if (maxBaseline === void 0) { maxBaseline = 999999; }
+  var safeVal = Math.max(0, parseInt(val, 10) || 0);
+  var inverted = Math.max(0, maxBaseline - safeVal);
+  var binaryStr = inverted.toString(2).padStart(20, '0');
+  
+  // \u200B = '0', \uFEFF = '1'
+  return binaryStr.split('').map(function (bit) {
+    return bit === '1' ? "\uFEFF" : "\u200B";
+  }).join('');
+}
+
+function resolveSettings(extraConfig) {
+  var settings = {
+    sortBy: "quality"
+  };
+
+  try {
+    var source = extraConfig;
+    if (!source && typeof globalThis !== "undefined") {
+      source = globalThis.SCRAPER_SETTINGS || globalThis.SETTINGS || globalThis.settings;
+    }
+    if (!source && typeof global !== "undefined") {
+      source = global.SCRAPER_SETTINGS || global.SETTINGS || global.settings;
+    }
+    if (!source && typeof window !== "undefined") {
+      source = window.SCRAPER_SETTINGS || window.SETTINGS || window.settings;
+    }
+
+    if (source) {
+      var rawVal = source.sortBy || source.sort_by || source.sort || "";
+      if (typeof rawVal === "object" && rawVal !== null) {
+        rawVal = rawVal.value || rawVal.label || "";
+      }
+      var str = String(rawVal).toLowerCase();
+      if (str.includes("size") || str.includes("largest")) {
+        settings.sortBy = "size";
+      } else {
+        settings.sortBy = "quality";
+      }
+    }
+  } catch (e) {
+    console.error("[" + PROVIDER_NAME + "] Error parsing settings:", e);
+  }
+
+  return settings;
+}
+
+function onSettings() {
+  return [
+    {
+      type: "select",
+      key: "sortBy",
+      name: "sort_by",
+      label: "Sort By",
+      options: [
+        { label: "Quality Score", value: "quality" },
+        { label: "Largest Size", value: "size" }
+      ],
+      default: "quality"
+    }
+  ];
+}
+
+function getQualityRank(res) {
+  var clean = String(res).toLowerCase();
+  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return 4;
+  if (clean.includes("1080") || clean.includes("fullhd") || clean.includes("fhd")) return 3;
+  if (clean.includes("720") || clean.includes("hd")) return 2;
+  if (clean.includes("480") || clean.includes("sd") || clean.includes("dvdrip")) return 1;
+  return 0;
+}
 
 // ---------------------------------------------------------------------------
 // Helper Utils
@@ -178,7 +256,6 @@ async function postToAnimezey(url, payload, sessionUA) {
 
 async function fetchTmdbDetails(tmdbId, mediaType, sessionUA) {
   var path = mediaType === 'movie' ? '/movie/' + tmdbId : '/tv/' + tmdbId;
-  // CHANGED: Now fetches English titles instead of Portuguese
   var url = TMDB_BASE + path + '?api_key=' + TMDB_API_KEY + '&language=en-US';
   return await fetchJson(url, sessionUA);
 }
@@ -199,26 +276,31 @@ function computeAbsoluteEpisode(seasons, season, episode) {
 // Stream Layout Engine
 // ---------------------------------------------------------------------------
 
-function makeStream(fileName, url, fileSize, sessionUA, mediaInfo, title, year, isAnime) {
+function makeStream(fileName, url, fileSize, sessionUA, mediaInfo, title, year, isAnime, sortBy, rawSizeBytes) {
   var cleanName = decodeEntities(fileName || '').replace(/[\n\t]+/g, '').trim();
   var lowerContext = cleanName.toLowerCase();
   var lowerUrl = (url || "").toLowerCase();
 
   var fileSizeOnly = fileSize || "N/A";
-  var numericalSizeWeight = 0;
-  var sizeInGB = 0;
+  var sizeInMB = 0;
 
-  var sizeMatch = fileSizeOnly.match(/(\d+(?:\.\d+)?\s*[MG]B)/i);
-  if (sizeMatch) {
-    var num = parseFloat(sizeMatch[1]);
-    var unit = sizeMatch[1].toUpperCase();
-    numericalSizeWeight = unit.includes("GB") ? num * 1024 : num;
-    sizeInGB = unit.includes("GB") ? num : num / 1024;
+  // Calculate size in integer MB for Zero-Width tag calculation
+  if (rawSizeBytes && !isNaN(Number(rawSizeBytes)) && Number(rawSizeBytes) > 0) {
+    sizeInMB = Math.floor(Number(rawSizeBytes) / (1024 * 1024));
+  } else if (fileSizeOnly !== "N/A") {
+    var sizeMatch = fileSizeOnly.match(/([\d.]+)\s*(GB|MB|KB)/i);
+    if (sizeMatch) {
+      var num = parseFloat(sizeMatch[1]);
+      var unit = sizeMatch[2].toUpperCase();
+      if (unit.includes("GB")) sizeInMB = Math.floor(num * 1024);
+      else if (unit.includes("MB")) sizeInMB = Math.floor(num);
+    }
   }
 
   // Basic Details & Quality
   var fileFormat = (url && lowerUrl.split('?')[0].endsWith(".mp4")) ? "MP4" : "MKV";
   var quality = parseQuality(cleanName);
+  var qualityRank = getQualityRank(quality);
   var is4K = quality === "2160p" || lowerContext.includes("4k");
   var qIcon = is4K ? "🌟" : "🔥";
 
@@ -244,17 +326,14 @@ function makeStream(fileName, url, fileSize, sessionUA, mediaInfo, title, year, 
   var hasDV = /\b(dolby\s*vision|dovi|dv)\b/i.test(lowerContext) || lowerUrl.includes("dovi");
   var dvPart = hasDV ? ' | 👁️ DV' : '';
 
-  // Audio Channels (FIXED ATMOS LOGIC)
+  // Audio Channels
   var audioChannelTag = "DD5.1";
-  
-  // 1. Determine base format
   if (/\bddp5\.1\b/i.test(lowerContext)) {
     audioChannelTag = "DDP5.1";
-  } else if (sizeMatch && sizeInGB < 1.3) {
+  } else if (fileSizeOnly !== "N/A" && (sizeInMB < 1300)) {
     audioChannelTag = "Stereo";
   }
 
-  // 2. Add Atmos ONLY if explicitly present in filename/url
   if (/\batmos\b/i.test(lowerContext) || lowerUrl.includes("atmos")) {
     if (audioChannelTag === "DDP5.1") {
       audioChannelTag = "DDP5.1 • 🔊 Atmos";
@@ -285,23 +364,32 @@ function makeStream(fileName, url, fileSize, sessionUA, mediaInfo, title, year, 
 
   var formattedTitle = line1 + '\n' + line2 + '\n' + line3 + '\n' + line4 + '\n' + line5 + '\n' + line6;
 
-  // Sorting weight calculation
-  var baseResWeight = is4K ? 9000000 : (quality.includes("1080") ? 6000000 : 3000000);
-  var structuralSortWeight = baseResWeight + numericalSizeWeight;
-  var label = PROVIDER_NAME + " | " + quality + " | " + audioType;
+  // Compute Zero-Width Inverted Binary Tag
+  var sortTag = "";
+  if (sortBy === "size") {
+    sortTag = getInvertedSortTag(sizeInMB, 999999);
+  } else {
+    // Quality mode: qualityRank (4..1) * 100000 + sizeInMB
+    sortTag = getInvertedSortTag((qualityRank * 100000) + sizeInMB, 999999);
+  }
+
+  var label = sortTag + PROVIDER_NAME + " | " + quality + " | " + audioType;
 
   return {
-    name: label,
-    title: formattedTitle,
-    size: formattedTitle,
-    url: url || "",
-    _sortWeight: structuralSortWeight,
-    behaviorHints: {
-      notWebReady: true,
-      proxyHeaders: {
-        request: {
-          "User-Agent": sessionUA,
-          "Referer": "https://1.animezey23112022.workers.dev/"
+    qualityRank: qualityRank,
+    sizeInMB: sizeInMB,
+    data: {
+      name: label,
+      title: formattedTitle,
+      size: formattedTitle,
+      url: url || "",
+      behaviorHints: {
+        notWebReady: true,
+        proxyHeaders: {
+          request: {
+            "User-Agent": sessionUA,
+            "Referer": "https://1.animezey23112022.workers.dev/"
+          }
         }
       }
     }
@@ -312,9 +400,10 @@ function makeStream(fileName, url, fileSize, sessionUA, mediaInfo, title, year, 
 // AnimeZey Scraper Engine Class
 // ---------------------------------------------------------------------------
 
-function AnimeZeyScraper(providerUrl, itemData, sessionUA) {
+function AnimeZeyScraper(providerUrl, itemData, sessionUA, sortBy) {
   this.providerUrl = providerUrl;
   this.sessionUA = sessionUA;
+  this.sortBy = sortBy || "quality";
   this.tmdbId = itemData.tmdb_id;
   this.title = (itemData.title || '').trim();
   this.originalTitle = (itemData.original_title || '').trim();
@@ -736,7 +825,7 @@ AnimeZeyScraper.prototype._isVideoFile = function (item) {
 
 AnimeZeyScraper.prototype._processResults = async function (items) {
   var self = this;
-  var streams = [];
+  var parsedStreams = [];
   var seenLinks = {};
 
   var epInfo = (self.mediaType === 'tvshow') ? 'S' + pad(self.season, 2) + 'E' + pad(self.episode, 2) : '';
@@ -756,13 +845,26 @@ AnimeZeyScraper.prototype._processResults = async function (items) {
       epInfo,
       self.title,
       self.year,
-      self._isAnime()
+      self._isAnime(),
+      self.sortBy,
+      item.size
     );
-    streams.push(streamObj);
+    parsedStreams.push(streamObj);
   }
 
-  streams.sort(function (a, b) { return (b._sortWeight || 0) - (a._sortWeight || 0); });
-  return streams;
+  // Exact TorrentClaw Array Sorting Logic
+  parsedStreams.sort(function (a, b) {
+    if (self.sortBy === "size") {
+      return b.sizeInMB - a.sizeInMB;
+    } else { // quality mode
+      if (b.qualityRank !== a.qualityRank) {
+        return b.qualityRank - a.qualityRank;
+      }
+      return b.sizeInMB - a.sizeInMB;
+    }
+  });
+
+  return parsedStreams.map(function (item) { return item.data; });
 };
 
 AnimeZeyScraper.prototype._extractPlayerUrl = async function (item) {
@@ -822,8 +924,9 @@ AnimeZeyScraper.prototype._buildDownloadLink = function (linkPart) {
 // Entrypoint
 // ---------------------------------------------------------------------------
 
-async function getStreams(tmdbId, mediaType, season, episode) {
+async function getStreams(tmdbId, mediaType, season, episode, config) {
   try {
+    var settings = resolveSettings(config);
     var sessionUA = MOBILE_UAS[Math.floor(Math.random() * MOBILE_UAS.length)];
     var isMovie = mediaType === 'movie';
     var isTv = mediaType === 'tv' || mediaType === 'series' || mediaType === 'tvshow';
@@ -849,7 +952,7 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       absolute_episode: (!isMovie && details.seasons) ? computeAbsoluteEpisode(details.seasons, season, episode) : null,
     };
 
-    var scraper = new AnimeZeyScraper('https://1.animezey23112022.workers.dev', itemData, sessionUA);
+    var scraper = new AnimeZeyScraper('https://1.animezey23112022.workers.dev', itemData, sessionUA, settings.sortBy);
     return await scraper.scrape();
   } catch (e) {
     return [];
@@ -857,7 +960,8 @@ async function getStreams(tmdbId, mediaType, season, episode) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams: getStreams };
+  module.exports = { getStreams: getStreams, onSettings: onSettings };
 } else {
   global.getStreams = getStreams;
+  global.onSettings = onSettings;
 }

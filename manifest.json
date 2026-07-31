@@ -57,6 +57,20 @@
       "contentLanguage": ["en", "hi"]  
     },
     { 
+      "id": "test10",
+      "name": "Test10",
+      "description": "High-Speed Direct Streaming for TV Shows (StreamIMDb Extract)",
+      "version": "1.2.1",
+      "author": "Mukesh",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/test10.js",
+      "enabled": true,
+      "hasSettings": true,
+      "formats": ["mp4", "mkv", "m3u8"],
+      "logo": "https://i.postimg.cc/KzjPtYWY/imdb.png",
+      "contentLanguage": ["en", "hi"]  
+    },
+    { 
       "id": "cinemacity",
       "name": "CinemaCity",
       "description": "High-Speed Direct Streaming for Movies (IMDb ID Extract)",

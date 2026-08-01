@@ -4,7 +4,7 @@
 
 var DOMAINS_URL    = 'https://raw.githubusercontent.com/wooodyhood/nuvio-repo/main/domains.json';
 var TOFLIX_FALLBACK = 'lol';
-var TOFLIX_API     = 'https://api.tfx05.' + TOFLIX_FALLBACK + '/toflix_api.php';
+var TOFLIX_API     = 'https://api.tfx05.' + TOFLIX_FALLBACK + '/tfx05_api.php';
 var TOFLIX_REFERER = 'https://tfx05.' + TOFLIX_FALLBACK + '/';
 var TOFLIX_TOKEN   = 'TobiCocoToflix2025TokenDeLaV2MeilleurSiteDeStreaminAuMondeEntierQuiEcraseToutSurSonCheminNeDevenezPasJalouxBandeDeNoobs';
 var ZEUS_BASE      = 'https://apis.wavewatch.xyz/zeus.php';
@@ -29,7 +29,7 @@ function detectToflixEndpoint() {
       if (!tld) throw new Error('Domaine toflix absent du fichier');
       console.log('[ToFlix] Domaine récupéré: toflix.' + tld);
       _cachedEndpoint = {
-        api:     'https://api.tfx05.' + tld + '/toflix_api.php',
+        api:     'https://api.tfx05.' + tld + '/tfx05_api.php',
         referer: 'https://https://tfx05.' + tld + '/'
       };
       return _cachedEndpoint;
@@ -37,7 +37,7 @@ function detectToflixEndpoint() {
     .catch(function() {
       console.warn('[ToFlix] domains.json échoué, fallback: toflix.' + TOFLIX_FALLBACK);
       return {
-        api:     'https://api.tfx05.' + TOFLIX_FALLBACK + '/toflix_api.php',
+        api:     'https://api.tfx05.' + TOFLIX_FALLBACK + '/tfx05_api.php',
         referer: 'https://tfx05.' + TOFLIX_FALLBACK + '/'
       };
     });

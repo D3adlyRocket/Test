@@ -1,339 +1,193 @@
-// =============================================================
-// Provider Nuvio : ToFlix (VF français)
-// =============================================================
+"use strict";
 
-var DOMAINS_URL    = 'https://raw.githubusercontent.com/wooodyhood/nuvio-repo/main/domains.json';
-var TOFLIX_FALLBACK = 'lol';
-var TOFLIX_API     = 'https://api.tfx05.' + TOFLIX_FALLBACK + '/toflix_api.php';
-var TOFLIX_REFERER = 'https://tfx05.' + TOFLIX_FALLBACK + '/';
-var TOFLIX_TOKEN   = 'TobiCocoToflix2025TokenDeLaV2MeilleurSiteDeStreaminAuMondeEntierQuiEcraseToutSurSonCheminNeDevenezPasJalouxBandeDeNoobs';
-var ZEUS_BASE      = 'https://apis.wavewatch.xyz/zeus.php';
-var ZEUS_REFERER   = 'https://tfx05.' + TOFLIX_FALLBACK + '/';
+const PROVIDER_NAME = "MKV Base";
+const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 
-var _cachedEndpoint = null;
-
-// ---------------------------------------------------------------
-// Récupération du domaine depuis domains.json (GitHub)
-// Fallback hardcodé : toflix.sbs
-// ---------------------------------------------------------------
-function detectToflixEndpoint() {
-  if (_cachedEndpoint) return Promise.resolve(_cachedEndpoint);
-
-  return fetch(DOMAINS_URL)
-    .then(function(res) {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.json();
-    })
-    .then(function(data) {
-      var tld = data.toflix;
-      if (!tld) throw new Error('Domaine toflix absent du fichier');
-      console.log('[ToFlix] Domaine récupéré: toflix.' + tld);
-      _cachedEndpoint = {
-        api:     'https://api.tfx05.' + tld + '/toflix_api.php',
-        referer: 'https://https://tfx05.' + tld + '/'
-      };
-      return _cachedEndpoint;
-    })
-    .catch(function() {
-      console.warn('[ToFlix] domains.json échoué, fallback: toflix.' + TOFLIX_FALLBACK);
-      return {
-        api:     'https://api.tfx05.' + TOFLIX_FALLBACK + '/toflix_api.php',
-        referer: 'https://tfx05.' + TOFLIX_FALLBACK + '/'
-      };
-    });
+// 1. Settings Layout configuration for Audio Preferences & Auth Token
+async function onSettings() {
+    return [
+        { type: "header", label: "Audio Preferences" },
+        { type: "toggle", key: "langEnglish", label: "Enable English 🇺🇸", defaultValue: true },
+        { type: "toggle", key: "langHindi", label: "Enable Hindi 🇮🇳", defaultValue: true },
+        { type: "header", label: "Authentication" },
+        { type: "text", key: "authToken", label: "MKV Base Auth Token", defaultValue: "" }
+    ];
 }
 
-function callApi(apiUrl, referer, body) {
-  return fetch(apiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'tfxtoken': TOFLIX_TOKEN,
-      'Origin': referer.replace(/\/$/, ''),
-      'Referer': referer
-    },
-    body: JSON.stringify(body)
-  })
-    .then(function(res) {
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return res.json();
-    });
+// Helper function to build the base URL dynamically from user settings
+function getMkvBaseUrl(token) {
+    const config = {
+        source_mkvbase: "on",
+        res_2160: "on",
+        res_1080: "on",
+        res_720: "on",
+        disable_direct: "on",
+        auth_token: token
+    };
+    return `https://pengu.uk/${encodeURIComponent(JSON.stringify(config))}`;
 }
 
-// Base64 compatible Hermes (pas d'atob ni Buffer)
-function b64decode(str) {
-  var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-  var output = '';
-  str = str.replace(/[^A-Za-z0-9+/=]/g, '');
-  for (var i = 0; i < str.length;) {
-    var enc1 = chars.indexOf(str.charAt(i++));
-    var enc2 = chars.indexOf(str.charAt(i++));
-    var enc3 = chars.indexOf(str.charAt(i++));
-    var enc4 = chars.indexOf(str.charAt(i++));
-    var chr1 = (enc1 << 2) | (enc2 >> 4);
-    var chr2 = ((enc2 & 15) << 4) | (enc3 >> 2);
-    var chr3 = ((enc3 & 3) << 6) | enc4;
-    output += String.fromCharCode(chr1);
-    if (enc3 !== 64) output += String.fromCharCode(chr2);
-    if (enc4 !== 64) output += String.fromCharCode(chr3);
-  }
-  return output.replace(/[^\x20-\x7E]/g, '').trim();
-}
+async function getStreams(tmdbId, mediaType, season, episode) {
+  try {
+    const settings = globalThis.SCRAPER_SETTINGS || {};
+    const showEnglish = settings.langEnglish !== false;
+    const showHindi = settings.langHindi !== false;
+    const userAuthToken = settings.authToken ? settings.authToken.trim() : "";
 
-// =============================================================
-// Parsing SSE Zeus — validé par tests console F12
-//
-// 3 types d'URLs possibles dans src.url :
-//   1. ?stream=BASE64  → MP4 via proxy Zeus (ex: allo)
-//      → finalUrl = ZEUS_BASE + src.url, format mp4
-//   2. ?proxy=BASE64&ref=BASE64 → m3u8 direct (ex: xalaflix)
-//      → décoder proxy = url m3u8, décoder ref = referer
-//   3. ?proxy=BASE64 sans ref → proxy nakios (503, ignoré)
-//      → finalUrl = ZEUS_BASE + src.url (fallback)
-//
-// Règles :
-//   - iframe:true  → toujours ignoré
-//   - nakios.art   → ignoré (serveur 503)
-// =============================================================
-
-function parseZeusSse(text, labelFn) {
-  var streams = [];
-  var lines = text.split('\n');
-  var currentEvent = null;
-
-  for (var i = 0; i < lines.length; i++) {
-    var line = lines[i].trim();
-
-    if (line.indexOf('event:') === 0) {
-      currentEvent = line.replace('event:', '').trim();
-      continue;
+    // Require an auth token from app settings before proceeding
+    if (!userAuthToken) {
+      console.warn("[MKV Base] Missing Auth Token in settings.");
+      return [];
     }
 
-    if (line.indexOf('data:') === 0 && currentEvent === 'sources') {
-      try {
-        var json = JSON.parse(line.replace('data:', '').trim());
-        var sources = json.sources || [];
+    const isSeries = mediaType === 'tv' || mediaType === 'series';
+    const tmdbUrl = `https://api.themoviedb.org/3/${isSeries ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=external_ids`;
 
-        for (var j = 0; j < sources.length; j++) {
-          var src = sources[j];
+    // Dynamically construct the base URL using the user's saved auth token
+    const baseUrl = getMkvBaseUrl(userAuthToken);
 
-          // Ignorer les iframes (lecteurs embarqués)
-          if (!src.url || src.iframe) continue;
+    // 2. Fetch metadata from TMDB
+    const meta = await fetch(tmdbUrl).then(r => r.json()).catch(() => null);
+    
+    const imdbId = meta?.external_ids?.imdb_id || meta?.imdb_id;
+    const rawTmdbId = meta?.id || tmdbId;
 
-          var finalUrl = null;
-          var streamReferer = ZEUS_REFERER;
-          var format = src.format || 'mp4';
+    const titleName = meta?.title || meta?.name || "Movie/Show";
+    const releaseYear = meta?.release_date ? meta.release_date.split('-')[0] : (meta?.first_air_date ? meta.first_air_date.split('-')[0] : "2026");
 
-          // --- Cas 1 : ?stream=BASE64 (ex: allo → MP4 via Zeus proxy) ---
-          var streamMatch = src.url.match(/[?&]stream=([^&]+)/);
-          if (streamMatch) {
-            finalUrl = ZEUS_BASE + (src.url.charAt(0) === '?' ? src.url : '?' + src.url);
-            format = 'mp4';
+    // 3. Construct query endpoints for BOTH IMDb ID and TMDB ID
+    const endpointsToFetch = [];
 
-          } else {
-            // --- Cas 2 & 3 : ?proxy=BASE64 ---
-            var proxyMatch = src.url.match(/[?&]proxy=([^&]+)/);
-            if (proxyMatch) {
-              var decodedUrl = b64decode(proxyMatch[1]);
+    if (imdbId) {
+      endpointsToFetch.push(
+        isSeries 
+          ? `${baseUrl}/stream/series/${imdbId}:${season || 1}:${episode || 1}.json`
+          : `${baseUrl}/stream/movie/${imdbId}.json`
+      );
+    }
 
-              if (decodedUrl && decodedUrl.indexOf('http') === 0) {
-                // Ignorer nakios (serveur 503 confirmé)
-                if (decodedUrl.indexOf('nakios.art') !== -1) continue;
+    if (rawTmdbId) {
+      endpointsToFetch.push(
+        isSeries 
+          ? `${baseUrl}/stream/series/tmdb:${rawTmdbId}:${season || 1}:${episode || 1}.json`
+          : `${baseUrl}/stream/movie/tmdb:${rawTmdbId}.json`
+      );
+    }
 
-                finalUrl = decodedUrl;
-                format = 'm3u8';
+    // Execute requests in parallel
+    const responses = await Promise.allSettled(
+      endpointsToFetch.map(url => fetch(url).then(r => r.json()))
+    );
 
-                // Décoder le referer si présent (ex: xalaflix)
-                var refMatch = src.url.match(/[?&]ref=([^&]+)/);
-                if (refMatch) {
-                  var decodedRef = b64decode(refMatch[1]);
-                  if (decodedRef && decodedRef.indexOf('http') === 0) {
-                    streamReferer = decodedRef;
-                  }
-                }
-              } else {
-                // Base64 ne donne pas une URL http → fallback Zeus
-                finalUrl = ZEUS_BASE + (src.url.charAt(0) === '?' ? src.url : '?' + src.url);
-                format = 'mp4';
+    // Merge and deduplicate stream links by URL
+    const streamMap = new Map();
+    responses.forEach(res => {
+      if (res.status === "fulfilled" && res.value?.streams) {
+        res.value.streams.forEach(s => {
+          if (s && s.url && !streamMap.has(s.url)) {
+            streamMap.set(s.url, s);
+          }
+        });
+      }
+    });
+
+    const rawStreams = Array.from(streamMap.values());
+    if (rawStreams.length === 0) return [];
+
+    const allStreams = [];
+
+    // 4. Map language tags and filter using configuration preferences
+    rawStreams.forEach(s => {
+      const matchText = `${s.url || ''} ${s.title || ''} ${s.description || ''} ${s.name || ''}`.toLowerCase();
+      
+      let detectedLang = "English 🇺🇲";
+      let isHindiStream = false;
+      
+      if (/hindi|hin|dual/.test(matchText)) {
+        detectedLang = "Hindi 🇮🇳";
+        isHindiStream = true;
+      } else if (/multi|🌐/.test(matchText)) {
+        detectedLang = "Multi 🌐";
+      }
+
+      if (isHindiStream && !showHindi) return;
+      if (!isHindiStream && !showEnglish) return;
+
+      allStreams.push({ ...s, lang: detectedLang });
+    });
+
+    const result = [];
+    const grouped = {};
+
+    // 5. Group elements cleanly by quality tags extracted from URL and metadata
+    allStreams.forEach(item => {
+      const matchText = `${item.url || ''} ${item.title || ''} ${item.description || ''} ${item.name || ''}`.toLowerCase();
+      
+      const res = /2160|4k/.test(matchText) ? "2160p" : 
+                  /1080/.test(matchText) ? "1080p" : 
+                  /720/.test(matchText)  ? "720p"  : 
+                  /480/.test(matchText)  ? "480p"  : "1080p";
+      
+      const key = `${res}-${item.lang}`;
+      if (!grouped[key]) grouped[key] = [];
+      grouped[key].push(item);
+    });
+
+    // 6. Generate final presentation structure
+    Object.entries(grouped).forEach(([key, items]) => {
+      const [res, lang] = key.split("-");
+      
+      items.forEach(item => {
+        const rawText = `${item.url || ''} ${item.title || ''} ${item.description || ''} ${item.name || ''}`.toLowerCase();
+
+        let sizeStr = "Unknown Size";
+        const sizeMatch = rawText.match(/(\d+(?:\.\d+)?\s*(?:GB|MB|gb|mb))/i);
+        if (sizeMatch) {
+          sizeStr = sizeMatch[1].toUpperCase();
+        } else if (item.size) {
+          const bytes = parseInt(item.size, 10);
+          if (!isNaN(bytes) && bytes > 0) {
+            sizeStr = bytes > 1024 * 1024 * 1024 
+              ? `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB` 
+              : `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+          }
+        }
+
+        const formatStr = /\b(mp4|avi|m4v)\b/.test(rawText) ? "MP4" : "MKV";
+        const cleanLangText = lang.replace(/[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD00-\uDFFF]/g, '').trim();
+
+        const fullLayout = 
+          `🎬 ${titleName} - (${releaseYear})\n` +
+          `💎 ${res} | 🔊 ${cleanLangText} | 💾 ${sizeStr}\n` +
+          `🎞️ ${formatStr} | ⛓️‍💥 ${PROVIDER_NAME}`;
+
+        result.push({
+          name: `${PROVIDER_NAME} | ${res} | ${lang}`,
+          title: fullLayout,
+          size: fullLayout,
+          description: fullLayout,
+          url: item.url,
+          behaviorHints: {
+            proxyHeaders: {
+              request: {
+                "Referer": "https://stremio-moviebox-1.onrender.com/"
               }
             }
           }
+        });
+      });
+    });
 
-          if (!finalUrl) continue;
-
-          var lang = (src.lang || 'VF').toUpperCase();
-          var quality = src.quality || 'HD';
-          var provider = (src.provider || 'zeus').toUpperCase();
-
-          streams.push({
-            name: 'ToFlix ' + provider,
-            title: labelFn(src, lang, quality),
-            url: finalUrl,
-            quality: quality,
-            format: format,
-            headers: {
-              'Referer': streamReferer,
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-          });
-        }
-      } catch (e) {}
-    }
+    return result;
+  } catch (err) {
+    console.error("Global processing failure context:", err);
+    return [];
   }
-
-  return streams;
-}
-
-function fetchZeusUrl(sseUrl, labelFn) {
-  return fetch(sseUrl, {
-    headers: {
-      'Referer': ZEUS_REFERER,
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      'Accept': 'text/event-stream'
-    }
-  })
-    .then(function(res) {
-      if (!res.ok) throw new Error('Zeus HTTP ' + res.status);
-      return res.text();
-    })
-    .then(function(text) {
-      var streams = parseZeusSse(text, labelFn);
-      if (streams.length === 0) throw new Error('Zeus: aucune source directe');
-      return streams;
-    });
-}
-
-// =============================================================
-// FILMS
-// =============================================================
-
-function fetchMovieFastFlux(apiUrl, referer, tmdbId) {
-  return callApi(apiUrl, referer, { api: 'fastflux', endpoint: 'movie', tmdb_id: String(tmdbId) })
-    .then(function(data) {
-      if (!data || !data.success || !data.source_url) throw new Error('Film non disponible');
-      return [{
-        name: 'ToFlix',
-        title: (data.title || 'ToFlix') + ' - VF',
-        url: data.source_url,
-        quality: 'HD',
-        format: data.source && data.source.type === 'm3u8' ? 'm3u8' : 'mp4',
-        headers: {
-          'Referer': referer,
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      }];
-    });
-}
-
-function fetchMovieZeus(tmdbId) {
-  var sseUrl = ZEUS_BASE + '?sse&type=movie&id=' + tmdbId;
-  return fetchZeusUrl(sseUrl, function(src, lang, quality) {
-    return (src.name || 'ToFlix') + ' - ' + lang + ' ' + quality;
-  });
-}
-
-function fetchMovie(apiUrl, referer, tmdbId) {
-  var fastfluxPromise = fetchMovieFastFlux(apiUrl, referer, tmdbId)
-    .catch(function() { return []; });
-  var zeusPromise = fetchMovieZeus(tmdbId)
-    .catch(function() { return []; });
-
-  return Promise.all([fastfluxPromise, zeusPromise])
-    .then(function(results) {
-      var streams = results[0].concat(results[1]);
-      if (streams.length === 0) throw new Error('Film non disponible');
-      return streams;
-    });
-}
-
-// =============================================================
-// SÉRIES
-// =============================================================
-
-function fetchSeriesFastFlux(apiUrl, referer, tmdbId, season, episode) {
-  return callApi(apiUrl, referer, {
-    api: 'fastflux',
-    endpoint: 'serie/fastflux_episodes',
-    tmdb_id: String(tmdbId)
-  })
-    .then(function(data) {
-      if (!data || !data.success || !data.seasons) throw new Error('FastFlux non disponible');
-      var seasonKey = String(season);
-      if (!data.seasons[seasonKey]) throw new Error('Saison ' + season + ' non disponible');
-      var episodes = data.seasons[seasonKey];
-      for (var i = 0; i < episodes.length; i++) {
-        var ep = episodes[i];
-        if (ep.episode_number === episode) {
-          var url = ep.url || (ep.source && ep.source.url);
-          if (!url) throw new Error('URL non trouvee pour S' + season + 'E' + episode);
-          return [{
-            name: 'ToFlix',
-            title: 'S' + season + 'E' + episode + ' - ' + (ep.title || 'VF'),
-            url: url,
-            quality: 'HD',
-            format: url.indexOf('.m3u8') !== -1 ? 'm3u8' : 'mp4',
-            headers: {
-              'Referer': referer,
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-          }];
-        }
-      }
-      throw new Error('Episode S' + season + 'E' + episode + ' non trouve en FastFlux');
-    });
-}
-
-function fetchSeriesZeus(tmdbId, season, episode) {
-  var sseUrl = ZEUS_BASE + '?sse&type=tv&id=' + tmdbId + '&s=' + season + '&e=' + episode;
-  return fetchZeusUrl(sseUrl, function(src, lang, quality) {
-    return 'S' + season + 'E' + episode + ' - ' + (src.name || lang) + ' ' + quality;
-  });
-}
-
-function fetchSeries(apiUrl, referer, tmdbId, season, episode) {
-  var seasonNum = season || 1;
-  var episodeNum = episode || 1;
-
-  var fastfluxPromise = fetchSeriesFastFlux(apiUrl, referer, tmdbId, seasonNum, episodeNum)
-    .catch(function() { return []; });
-  var zeusPromise = fetchSeriesZeus(tmdbId, seasonNum, episodeNum)
-    .catch(function() { return []; });
-
-  return Promise.all([fastfluxPromise, zeusPromise])
-    .then(function(results) {
-      var streams = results[0].concat(results[1]);
-      if (streams.length === 0) throw new Error('Aucune source disponible');
-      return streams;
-    });
-}
-
-// =============================================================
-// POINT D'ENTRÉE PRINCIPAL
-// =============================================================
-
-function getStreamsWithApi(apiUrl, referer, tmdbId, mediaType, season, episode) {
-  if (mediaType === 'tv') {
-    return fetchSeries(apiUrl, referer, tmdbId, season, episode);
-  }
-  return fetchMovie(apiUrl, referer, tmdbId);
-}
-
-function getStreams(tmdbId, mediaType, season, episode, title) {
-  return detectToflixEndpoint()
-    .then(function(endpoint) {
-      TOFLIX_API     = endpoint.api;
-      TOFLIX_REFERER = endpoint.referer;
-      ZEUS_REFERER   = endpoint.referer;
-      return getStreamsWithApi(endpoint.api, endpoint.referer, tmdbId, mediaType, season, episode);
-    })
-    .catch(function(err) {
-      console.error('[ToFlix] Erreur:', err.message || err);
-      return [];
-    });
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams: getStreams };
+    module.exports = { getStreams, onSettings };
 } else {
-  global.getStreams = getStreams;
+    global.getStreams = getStreams;
+    global.onSettings = onSettings;
 }

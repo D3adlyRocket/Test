@@ -30,7 +30,7 @@ function detectToflixEndpoint() {
       console.log('[ToFlix] Domaine récupéré: toflix.' + tld);
       _cachedEndpoint = {
         api:     'https://api.toflix.' + tld + '/toflix_api.php',
-        referer: 'https://toflix.' + tld + '/'
+        referer: 'https://https://tfx05.' + tld + '/'
       };
       return _cachedEndpoint;
     })
@@ -38,7 +38,7 @@ function detectToflixEndpoint() {
       console.warn('[ToFlix] domains.json échoué, fallback: toflix.' + TOFLIX_FALLBACK);
       return {
         api:     'https://api.toflix.' + TOFLIX_FALLBACK + '/toflix_api.php',
-        referer: 'https://toflix.' + TOFLIX_FALLBACK + '/'
+        referer: 'https://tfx05.' + TOFLIX_FALLBACK + '/'
       };
     });
 }

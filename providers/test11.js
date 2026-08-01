@@ -1,439 +1,339 @@
-/** Animekhor - generated from src/providers/animekhor.js */
-var __defProp = Object.defineProperty;
-var __defProps = Object.defineProperties;
-var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __spreadValues = (a, b) => {
-  for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop))
-      __defNormalProp(a, prop, b[prop]);
-  if (__getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
-    }
-  return a;
-};
-var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
-var __objRest = (source, exclude) => {
-  var target = {};
-  for (var prop in source)
-    if (__hasOwnProp.call(source, prop) && exclude.indexOf(prop) < 0)
-      target[prop] = source[prop];
-  if (source != null && __getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(source)) {
-      if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop))
-        target[prop] = source[prop];
-    }
-  return target;
-};
-var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-};
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
+// =============================================================
+// Provider Nuvio : ToFlix (VF français)
+// =============================================================
 
-// src/shared/html.js
-var require_html = __commonJS({
-  "src/shared/html.js"(exports2, module2) {
-    var cheerio = require("cheerio-without-node-native");
-    function parseHtml2(html) {
-      return cheerio.load(typeof html === "string" ? html : "");
-    }
-    function decodeBase642(value) {
-      if (!value)
-        return "";
-      if (typeof globalThis.atob === "function")
-        return globalThis.atob(value);
-      if (typeof Buffer !== "undefined")
-        return Buffer.from(value, "base64").toString("utf8");
-      throw new Error("No base64 decoder is available in this runtime");
-    }
-    function absoluteUrl2(value, baseUrl) {
-      if (!value)
-        return "";
-      try {
-        return new URL(value, baseUrl).href;
-      } catch (_) {
-        return "";
-      }
-    }
-    module2.exports = { absoluteUrl: absoluteUrl2, decodeBase64: decodeBase642, parseHtml: parseHtml2 };
-  }
-});
+var DOMAINS_URL    = 'https://raw.githubusercontent.com/wooodyhood/nuvio-repo/main/domains.json';
+var TOFLIX_FALLBACK = 'lol';
+var TOFLIX_API     = 'https://api.toflix.' + TOFLIX_FALLBACK + '/toflix_api.php';
+var TOFLIX_REFERER = 'https://tfx05.' + TOFLIX_FALLBACK + '/';
+var TOFLIX_TOKEN   = 'TobiCocoToflix2025TokenDeLaV2MeilleurSiteDeStreaminAuMondeEntierQuiEcraseToutSurSonCheminNeDevenezPasJalouxBandeDeNoobs';
+var ZEUS_BASE      = 'https://apis.wavewatch.xyz/zeus.php';
+var ZEUS_REFERER   = 'https://tfx05.' + TOFLIX_FALLBACK + '/';
 
-// src/shared/http.js
-var require_http = __commonJS({
-  "src/shared/http.js"(exports2, module2) {
-    var DEFAULT_TIMEOUT_MS = 3e4;
-    var RETRYABLE_STATUS = /* @__PURE__ */ new Set([408, 425, 429, 500, 502, 503, 504]);
-    function sleep(ms) {
-      return new Promise((resolve) => setTimeout(resolve, ms));
-    }
-    function mergeHeaders(...sets) {
-      const result = {};
-      for (const set of sets) {
-        if (!set)
-          continue;
-        for (const key of Object.keys(set)) {
-          if (set[key] !== void 0 && set[key] !== null && set[key] !== "")
-            result[key] = String(set[key]);
-        }
-      }
-      return result;
-    }
-    function withReferer2(headers, referer) {
-      if (!referer)
-        return mergeHeaders(headers);
-      let origin;
-      try {
-        origin = new URL(referer).origin;
-      } catch (_) {
-      }
-      return mergeHeaders(headers, { Referer: referer, Origin: origin });
-    }
-    function request(_0) {
-      return __async(this, arguments, function* (url, options = {}) {
-        const _a = options, {
-          timeoutMs = DEFAULT_TIMEOUT_MS,
-          retries = 1,
-          retryDelayMs = 300
-        } = _a, fetchOptions = __objRest(_a, [
-          "timeoutMs",
-          "retries",
-          "retryDelayMs"
-        ]);
-        let lastError;
-        for (let attempt = 0; attempt <= retries; attempt += 1) {
-          const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-          const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-          try {
-            const response = yield fetch(url, __spreadProps(__spreadValues({
-              skipSizeCheck: true
-            }, fetchOptions), {
-              signal: controller ? controller.signal : fetchOptions.signal
-            }));
-            if (!response.ok && RETRYABLE_STATUS.has(response.status) && attempt < retries) {
-              yield sleep(retryDelayMs * (attempt + 1));
-              continue;
-            }
-            return response;
-          } catch (error) {
-            lastError = error;
-            if (attempt >= retries)
-              throw error;
-            yield sleep(retryDelayMs * (attempt + 1));
-          } finally {
-            if (timer)
-              clearTimeout(timer);
-          }
-        }
-        throw lastError || new Error(`Request failed: ${url}`);
-      });
-    }
-    function getText2(url, options) {
-      return __async(this, null, function* () {
-        const response = yield request(url, options);
-        if (!response.ok)
-          throw new Error(`HTTP ${response.status} for ${url}`);
-        return response.text();
-      });
-    }
-    function getJson(url, options) {
-      return __async(this, null, function* () {
-        const response = yield request(url, options);
-        if (!response.ok)
-          throw new Error(`HTTP ${response.status} for ${url}`);
-        return response.json();
-      });
-    }
-    module2.exports = { DEFAULT_TIMEOUT_MS, getJson, getText: getText2, mergeHeaders, request, withReferer: withReferer2 };
-  }
-});
+var _cachedEndpoint = null;
 
-// src/shared/media.js
-var require_media = __commonJS({
-  "src/shared/media.js"(exports2, module2) {
-    var { getJson } = require_http();
-    var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
-    function getMediaInfo2(_0, _1) {
-      return __async(this, arguments, function* (tmdbId, mediaType, options = {}) {
-        const type = mediaType === "tv" ? "tv" : "movie";
-        const url = `https://api.themoviedb.org/3/${type}/${encodeURIComponent(tmdbId)}?api_key=${TMDB_API_KEY}`;
-        const data = yield getJson(url, options);
-        return {
-          title: data.title || data.name || "",
-          year: Number(String(data.release_date || data.first_air_date || "").slice(0, 4)) || null,
-          raw: data
-        };
-      });
-    }
-    module2.exports = { getMediaInfo: getMediaInfo2 };
-  }
-});
+// ---------------------------------------------------------------
+// Récupération du domaine depuis domains.json (GitHub)
+// Fallback hardcodé : toflix.sbs
+// ---------------------------------------------------------------
+function detectToflixEndpoint() {
+  if (_cachedEndpoint) return Promise.resolve(_cachedEndpoint);
 
-// src/shared/matching.js
-var require_matching = __commonJS({
-  "src/shared/matching.js"(exports2, module2) {
-    function normalizeTitle(value) {
-      return String(value || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\b(the|a|an)\b/g, " ").replace(/[^a-z0-9]+/g, " ").trim().replace(/\s+/g, " ");
-    }
-    function titleScore(candidate, wanted) {
-      const a = normalizeTitle(candidate);
-      const b = normalizeTitle(wanted);
-      if (!a || !b)
-        return 0;
-      if (a === b)
-        return 100;
-      if (a.includes(b) || b.includes(a))
-        return 70;
-      const wantedWords = new Set(b.split(" "));
-      const overlap = a.split(" ").filter((word) => wantedWords.has(word)).length;
-      return Math.round(overlap / Math.max(wantedWords.size, 1) * 50);
-    }
-    function bestTitleMatch2(items, wanted, getTitle = (item) => item.title) {
-      var _a;
-      return ((_a = items.reduce((best, item) => {
-        const score = titleScore(getTitle(item), wanted);
-        return !best || score > best.score ? { item, score } : best;
-      }, null)) == null ? void 0 : _a.item) || null;
-    }
-    function episodeNumber(value) {
-      const match = String(value || "").match(/(?:episode|ep|e)\s*[-.:#]?\s*(\d+(?:\.\d+)?)/i) || String(value || "").match(/\b(\d+(?:\.\d+)?)\b/);
-      return match ? Number(match[1]) : null;
-    }
-    function matchesEpisode2(value, wanted) {
-      const actual = episodeNumber(value);
-      return actual !== null && actual === Number(wanted);
-    }
-    module2.exports = { bestTitleMatch: bestTitleMatch2, episodeNumber, matchesEpisode: matchesEpisode2, normalizeTitle, titleScore };
-  }
-});
-
-// src/shared/streams.js
-var require_streams = __commonJS({
-  "src/shared/streams.js"(exports2, module2) {
-    var { absoluteUrl: absoluteUrl2, parseHtml: parseHtml2 } = require_html();
-    var { mergeHeaders, request } = require_http();
-    var MEDIA_EXTENSION = /\.(?:m3u8|mp4|m4v|webm|mkv|mpd)(?:$|[?#])/i;
-    var EMBED_HINT = /(?:embed|player|watch|streamtape|dood|vidhide|filemoon|streamwish|vidwish|megacloud)/i;
-    var PLACEHOLDER_MEDIA = /(?:one\.one\.one\.one\/media\/open-graph\.mp4|\/favicon\.|\/logo\.(?:mp4|m3u8)|\b(?:trailer|sample|placeholder|preview)[-_./])/i;
-    function parseQuality2(...values) {
-      const text = values.filter(Boolean).join(" ").toLowerCase();
-      if (/\b(?:2160p?|4k|uhd)\b/.test(text))
-        return "4K";
-      for (const quality of [1440, 1080, 720, 576, 480, 360, 240]) {
-        if (new RegExp(`\\b${quality}p?\\b`).test(text))
-          return `${quality}p`;
-      }
-      return "Unknown";
-    }
-    function parseMediaAttributes(...values) {
-      var _a;
-      const text = values.filter(Boolean).join(" ");
-      const lower = text.toLowerCase();
-      const languages = [];
-      const languagePatterns = [
-        ["Hindi", /\b(?:hindi|hin)\b/i],
-        ["English", /\b(?:english|eng)\b/i],
-        ["Tamil", /\b(?:tamil|tam)\b/i],
-        ["Telugu", /\b(?:telugu|tel)\b/i],
-        ["Malayalam", /\b(?:malayalam|mal)\b/i],
-        ["Kannada", /\b(?:kannada|kan)\b/i],
-        ["Portuguese", /\b(?:portuguese|portugu[eê]s|pt-br)\b/i],
-        ["French", /\b(?:french|fran[cç]ais)\b/i]
-      ];
-      for (const [name, pattern] of languagePatterns)
-        if (pattern.test(text))
-          languages.push(name);
-      return {
-        quality: parseQuality2(text),
-        hdr: /\b(?:hdr10\+?|dolby\s*vision|dv)\b/i.test(text),
-        codec: /\b(?:hevc|h\.?265|x265)\b/i.test(text) ? "HEVC" : /\b(?:avc|h\.?264|x264)\b/i.test(text) ? "AVC" : void 0,
-        audio: /\b(?:dual[ -]?audio|multi[ -]?audio|dual)\b/i.test(text) ? "Dual/Multi Audio" : void 0,
-        languages,
-        size: (_a = text.match(/\b\d+(?:\.\d+)?\s*(?:GB|MB)\b/i)) == null ? void 0 : _a[0]
+  return fetch(DOMAINS_URL)
+    .then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    })
+    .then(function(data) {
+      var tld = data.toflix;
+      if (!tld) throw new Error('Domaine toflix absent du fichier');
+      console.log('[ToFlix] Domaine récupéré: toflix.' + tld);
+      _cachedEndpoint = {
+        api:     'https://api.toflix.' + tld + '/toflix_api.php',
+        referer: 'https://toflix.' + tld + '/'
       };
-    }
-    function normalizeSubtitles(subtitles) {
-      if (!Array.isArray(subtitles))
-        return [];
-      const seen = /* @__PURE__ */ new Set();
-      return subtitles.flatMap((subtitle) => {
-        const url = typeof subtitle === "string" ? subtitle : subtitle && (subtitle.url || subtitle.file);
-        if (!/^https?:\/\//i.test(url || "") || seen.has(url))
-          return [];
-        seen.add(url);
-        return [{
-          url,
-          language: subtitle && (subtitle.language || subtitle.lang || subtitle.label) || "Unknown"
-        }];
-      });
-    }
-    function normalizeStream(stream, defaults = {}) {
-      if (!stream || !/^https?:\/\//i.test(stream.url || ""))
-        return null;
-      const attributes = parseMediaAttributes(stream.url, stream.title, stream.name, stream.label, stream.fileName);
-      return __spreadValues(__spreadValues(__spreadValues(__spreadValues(__spreadValues({
-        url: stream.url,
-        quality: stream.quality || parseQuality2(stream.url, stream.title, stream.name),
-        title: stream.title || stream.name || defaults.title || "Stream",
-        headers: mergeHeaders(defaults.headers, stream.headers),
-        subtitles: normalizeSubtitles(stream.subtitles)
-      }, stream.size || attributes.size ? { size: stream.size || attributes.size } : {}), stream.hdr !== void 0 || attributes.hdr ? { hdr: stream.hdr !== void 0 ? stream.hdr : attributes.hdr } : {}), stream.codec || attributes.codec ? { codec: stream.codec || attributes.codec } : {}), stream.audio || attributes.audio ? { audio: stream.audio || attributes.audio } : {}), stream.languages || attributes.languages.length ? { languages: stream.languages || attributes.languages } : {});
-    }
-    function uniqueStreams2(streams, defaults) {
-      const seen = /* @__PURE__ */ new Set();
-      return (streams || []).flatMap((stream) => {
-        const normalized = normalizeStream(stream, defaults);
-        if (!normalized || seen.has(normalized.url))
-          return [];
-        seen.add(normalized.url);
-        return [normalized];
-      });
-    }
-    function extractMediaCandidates(html, baseUrl) {
-      const values = [];
-      const patterns = [
-        /(?:file|source|src)\s*[:=]\s*["']([^"']+\.(?:m3u8|mp4|webm|mkv|mpd)[^"']*)["']/gi,
-        /https?:\\?\/\\?\/[^"'\s<>]+\.(?:m3u8|mp4|webm|mkv|mpd)(?:[^"'\s<>]*)/gi
-      ];
-      for (const pattern of patterns) {
-        let match;
-        while (match = pattern.exec(html || ""))
-          values.push((match[1] || match[0]).replace(/\\\//g, "/"));
-      }
-      return values.map((value) => absoluteUrl2(value, baseUrl)).filter(Boolean);
-    }
-    function resolveFinalUrl2(_0) {
-      return __async(this, arguments, function* (url, options = {}, depth = 0) {
-        if (!/^https?:\/\//i.test(url || "") || PLACEHOLDER_MEDIA.test(url) || depth > 2)
-          return null;
-        const response = yield request(url, __spreadProps(__spreadValues({}, options), { redirect: "follow", retries: 0 }));
-        if (!response.ok)
-          return null;
-        const finalUrl = response.url || url;
-        if (PLACEHOLDER_MEDIA.test(finalUrl))
-          return null;
-        const contentType = response.headers && response.headers.get && response.headers.get("content-type") || "";
-        const isHtml = /html|text\/html/i.test(contentType);
-        if (/^(?:video|audio)\//i.test(contentType) || /mpegurl|dash\+xml/i.test(contentType) || MEDIA_EXTENSION.test(finalUrl) && !isHtml)
-          return finalUrl;
-        if (!/html|text\//i.test(contentType))
-          return EMBED_HINT.test(finalUrl) ? null : finalUrl;
-        const html = yield response.text();
-        const candidates = extractMediaCandidates(html, finalUrl);
-        for (const candidate of candidates) {
-          const resolved = yield resolveFinalUrl2(candidate, options, depth + 1).catch(() => null);
-          if (resolved)
-            return resolved;
-        }
-        const $ = parseHtml2(html);
-        const iframe = absoluteUrl2($("iframe").first().attr("src") || $("iframe").first().attr("data-src"), finalUrl);
-        if (iframe && iframe !== url)
-          return resolveFinalUrl2(iframe, options, depth + 1).catch(() => null);
-        return null;
-      });
-    }
-    module2.exports = {
-      MEDIA_EXTENSION,
-      PLACEHOLDER_MEDIA,
-      extractMediaCandidates,
-      normalizeStream,
-      normalizeSubtitles,
-      parseMediaAttributes,
-      parseQuality: parseQuality2,
-      resolveFinalUrl: resolveFinalUrl2,
-      uniqueStreams: uniqueStreams2
-    };
-  }
-});
+      return _cachedEndpoint;
+    })
+    .catch(function() {
+      console.warn('[ToFlix] domains.json échoué, fallback: toflix.' + TOFLIX_FALLBACK);
+      return {
+        api:     'https://api.toflix.' + TOFLIX_FALLBACK + '/toflix_api.php',
+        referer: 'https://toflix.' + TOFLIX_FALLBACK + '/'
+      };
+    });
+}
 
-// src/providers/animekhor.js
-var { absoluteUrl, decodeBase64, parseHtml } = require_html();
-var { getText, withReferer } = require_http();
-var { getMediaInfo } = require_media();
-var { bestTitleMatch, matchesEpisode } = require_matching();
-var { parseQuality, resolveFinalUrl, uniqueStreams } = require_streams();
-var BASE_URL = "https://animekhor.org";
-var HEADERS = withReferer({
-  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
-}, `${BASE_URL}/`);
-function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
-  return __async(this, null, function* () {
-    try {
-      const { title } = yield getMediaInfo(tmdbId, mediaType);
-      if (!title)
-        return [];
-      const searchHtml = yield getText(`${BASE_URL}/page/1/?s=${encodeURIComponent(title)}`, { headers: HEADERS });
-      const $ = parseHtml(searchHtml);
-      const results = $("div.listupd > article").toArray().map((element) => ({
-        title: $(element).find(".tt, h2, h3").first().text().trim() || $(element).find("a").attr("title"),
-        url: absoluteUrl($(element).find("div.bsx > a").attr("href"), BASE_URL)
-      })).filter((item) => item.url);
-      const match = bestTitleMatch(results, title) || results[0];
-      if (!match)
-        return [];
-      const animeHtml = yield getText(match.url, { headers: HEADERS });
-      const animeDoc = parseHtml(animeHtml);
-      const episodeItems = animeDoc(".eplister li > a").toArray();
-      let episodeUrl;
-      if (mediaType === "movie" || animeDoc(".spe").text().toLowerCase().includes("movie")) {
-        episodeUrl = absoluteUrl(animeDoc(".eplister li > a").first().attr("href"), match.url) || match.url;
-      } else {
-        const wanted = Number(episode) || 1;
-        const item = episodeItems.find((element) => matchesEpisode(animeDoc(element).text(), wanted));
-        episodeUrl = absoluteUrl(animeDoc(item || episodeItems[episodeItems.length - 1]).attr("href"), match.url);
-      }
-      if (!episodeUrl)
-        return [];
-      const epHtml = yield getText(episodeUrl, { headers: withReferer(HEADERS, match.url) });
-      const epDoc = parseHtml(epHtml);
-      const candidates = [];
-      epDoc(".mobius option").each((_, option) => {
-        var _a;
-        try {
-          const decoded = decodeBase64(epDoc(option).attr("value"));
-          const src = (_a = decoded.match(/src=["']([^"']+)["']/i)) == null ? void 0 : _a[1];
-          const url = absoluteUrl(src, episodeUrl);
-          if (url)
-            candidates.push(url);
-        } catch (_2) {
-        }
-      });
-      const streams = [];
-      for (const candidate of candidates) {
-        const finalUrl = yield resolveFinalUrl(candidate, { headers: withReferer(HEADERS, episodeUrl) }).catch(() => null);
-        if (finalUrl)
-          streams.push({ url: finalUrl, quality: parseQuality(finalUrl), title: "Animekhor", headers: withReferer(HEADERS, candidate), subtitles: [] });
-      }
-      return uniqueStreams(streams);
-    } catch (error) {
-      console.error("[Animekhor]", error.message || error);
-      return [];
+function callApi(apiUrl, referer, body) {
+  return fetch(apiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'tfxtoken': TOFLIX_TOKEN,
+      'Origin': referer.replace(/\/$/, ''),
+      'Referer': referer
+    },
+    body: JSON.stringify(body)
+  })
+    .then(function(res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    });
+}
+
+// Base64 compatible Hermes (pas d'atob ni Buffer)
+function b64decode(str) {
+  var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+  var output = '';
+  str = str.replace(/[^A-Za-z0-9+/=]/g, '');
+  for (var i = 0; i < str.length;) {
+    var enc1 = chars.indexOf(str.charAt(i++));
+    var enc2 = chars.indexOf(str.charAt(i++));
+    var enc3 = chars.indexOf(str.charAt(i++));
+    var enc4 = chars.indexOf(str.charAt(i++));
+    var chr1 = (enc1 << 2) | (enc2 >> 4);
+    var chr2 = ((enc2 & 15) << 4) | (enc3 >> 2);
+    var chr3 = ((enc3 & 3) << 6) | enc4;
+    output += String.fromCharCode(chr1);
+    if (enc3 !== 64) output += String.fromCharCode(chr2);
+    if (enc4 !== 64) output += String.fromCharCode(chr3);
+  }
+  return output.replace(/[^\x20-\x7E]/g, '').trim();
+}
+
+// =============================================================
+// Parsing SSE Zeus — validé par tests console F12
+//
+// 3 types d'URLs possibles dans src.url :
+//   1. ?stream=BASE64  → MP4 via proxy Zeus (ex: allo)
+//      → finalUrl = ZEUS_BASE + src.url, format mp4
+//   2. ?proxy=BASE64&ref=BASE64 → m3u8 direct (ex: xalaflix)
+//      → décoder proxy = url m3u8, décoder ref = referer
+//   3. ?proxy=BASE64 sans ref → proxy nakios (503, ignoré)
+//      → finalUrl = ZEUS_BASE + src.url (fallback)
+//
+// Règles :
+//   - iframe:true  → toujours ignoré
+//   - nakios.art   → ignoré (serveur 503)
+// =============================================================
+
+function parseZeusSse(text, labelFn) {
+  var streams = [];
+  var lines = text.split('\n');
+  var currentEvent = null;
+
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim();
+
+    if (line.indexOf('event:') === 0) {
+      currentEvent = line.replace('event:', '').trim();
+      continue;
     }
+
+    if (line.indexOf('data:') === 0 && currentEvent === 'sources') {
+      try {
+        var json = JSON.parse(line.replace('data:', '').trim());
+        var sources = json.sources || [];
+
+        for (var j = 0; j < sources.length; j++) {
+          var src = sources[j];
+
+          // Ignorer les iframes (lecteurs embarqués)
+          if (!src.url || src.iframe) continue;
+
+          var finalUrl = null;
+          var streamReferer = ZEUS_REFERER;
+          var format = src.format || 'mp4';
+
+          // --- Cas 1 : ?stream=BASE64 (ex: allo → MP4 via Zeus proxy) ---
+          var streamMatch = src.url.match(/[?&]stream=([^&]+)/);
+          if (streamMatch) {
+            finalUrl = ZEUS_BASE + (src.url.charAt(0) === '?' ? src.url : '?' + src.url);
+            format = 'mp4';
+
+          } else {
+            // --- Cas 2 & 3 : ?proxy=BASE64 ---
+            var proxyMatch = src.url.match(/[?&]proxy=([^&]+)/);
+            if (proxyMatch) {
+              var decodedUrl = b64decode(proxyMatch[1]);
+
+              if (decodedUrl && decodedUrl.indexOf('http') === 0) {
+                // Ignorer nakios (serveur 503 confirmé)
+                if (decodedUrl.indexOf('nakios.art') !== -1) continue;
+
+                finalUrl = decodedUrl;
+                format = 'm3u8';
+
+                // Décoder le referer si présent (ex: xalaflix)
+                var refMatch = src.url.match(/[?&]ref=([^&]+)/);
+                if (refMatch) {
+                  var decodedRef = b64decode(refMatch[1]);
+                  if (decodedRef && decodedRef.indexOf('http') === 0) {
+                    streamReferer = decodedRef;
+                  }
+                }
+              } else {
+                // Base64 ne donne pas une URL http → fallback Zeus
+                finalUrl = ZEUS_BASE + (src.url.charAt(0) === '?' ? src.url : '?' + src.url);
+                format = 'mp4';
+              }
+            }
+          }
+
+          if (!finalUrl) continue;
+
+          var lang = (src.lang || 'VF').toUpperCase();
+          var quality = src.quality || 'HD';
+          var provider = (src.provider || 'zeus').toUpperCase();
+
+          streams.push({
+            name: 'ToFlix ' + provider,
+            title: labelFn(src, lang, quality),
+            url: finalUrl,
+            quality: quality,
+            format: format,
+            headers: {
+              'Referer': streamReferer,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+          });
+        }
+      } catch (e) {}
+    }
+  }
+
+  return streams;
+}
+
+function fetchZeusUrl(sseUrl, labelFn) {
+  return fetch(sseUrl, {
+    headers: {
+      'Referer': ZEUS_REFERER,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept': 'text/event-stream'
+    }
+  })
+    .then(function(res) {
+      if (!res.ok) throw new Error('Zeus HTTP ' + res.status);
+      return res.text();
+    })
+    .then(function(text) {
+      var streams = parseZeusSse(text, labelFn);
+      if (streams.length === 0) throw new Error('Zeus: aucune source directe');
+      return streams;
+    });
+}
+
+// =============================================================
+// FILMS
+// =============================================================
+
+function fetchMovieFastFlux(apiUrl, referer, tmdbId) {
+  return callApi(apiUrl, referer, { api: 'fastflux', endpoint: 'movie', tmdb_id: String(tmdbId) })
+    .then(function(data) {
+      if (!data || !data.success || !data.source_url) throw new Error('Film non disponible');
+      return [{
+        name: 'ToFlix',
+        title: (data.title || 'ToFlix') + ' - VF',
+        url: data.source_url,
+        quality: 'HD',
+        format: data.source && data.source.type === 'm3u8' ? 'm3u8' : 'mp4',
+        headers: {
+          'Referer': referer,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+      }];
+    });
+}
+
+function fetchMovieZeus(tmdbId) {
+  var sseUrl = ZEUS_BASE + '?sse&type=movie&id=' + tmdbId;
+  return fetchZeusUrl(sseUrl, function(src, lang, quality) {
+    return (src.name || 'ToFlix') + ' - ' + lang + ' ' + quality;
   });
 }
-module.exports = { getStreams };
+
+function fetchMovie(apiUrl, referer, tmdbId) {
+  var fastfluxPromise = fetchMovieFastFlux(apiUrl, referer, tmdbId)
+    .catch(function() { return []; });
+  var zeusPromise = fetchMovieZeus(tmdbId)
+    .catch(function() { return []; });
+
+  return Promise.all([fastfluxPromise, zeusPromise])
+    .then(function(results) {
+      var streams = results[0].concat(results[1]);
+      if (streams.length === 0) throw new Error('Film non disponible');
+      return streams;
+    });
+}
+
+// =============================================================
+// SÉRIES
+// =============================================================
+
+function fetchSeriesFastFlux(apiUrl, referer, tmdbId, season, episode) {
+  return callApi(apiUrl, referer, {
+    api: 'fastflux',
+    endpoint: 'serie/fastflux_episodes',
+    tmdb_id: String(tmdbId)
+  })
+    .then(function(data) {
+      if (!data || !data.success || !data.seasons) throw new Error('FastFlux non disponible');
+      var seasonKey = String(season);
+      if (!data.seasons[seasonKey]) throw new Error('Saison ' + season + ' non disponible');
+      var episodes = data.seasons[seasonKey];
+      for (var i = 0; i < episodes.length; i++) {
+        var ep = episodes[i];
+        if (ep.episode_number === episode) {
+          var url = ep.url || (ep.source && ep.source.url);
+          if (!url) throw new Error('URL non trouvee pour S' + season + 'E' + episode);
+          return [{
+            name: 'ToFlix',
+            title: 'S' + season + 'E' + episode + ' - ' + (ep.title || 'VF'),
+            url: url,
+            quality: 'HD',
+            format: url.indexOf('.m3u8') !== -1 ? 'm3u8' : 'mp4',
+            headers: {
+              'Referer': referer,
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+          }];
+        }
+      }
+      throw new Error('Episode S' + season + 'E' + episode + ' non trouve en FastFlux');
+    });
+}
+
+function fetchSeriesZeus(tmdbId, season, episode) {
+  var sseUrl = ZEUS_BASE + '?sse&type=tv&id=' + tmdbId + '&s=' + season + '&e=' + episode;
+  return fetchZeusUrl(sseUrl, function(src, lang, quality) {
+    return 'S' + season + 'E' + episode + ' - ' + (src.name || lang) + ' ' + quality;
+  });
+}
+
+function fetchSeries(apiUrl, referer, tmdbId, season, episode) {
+  var seasonNum = season || 1;
+  var episodeNum = episode || 1;
+
+  var fastfluxPromise = fetchSeriesFastFlux(apiUrl, referer, tmdbId, seasonNum, episodeNum)
+    .catch(function() { return []; });
+  var zeusPromise = fetchSeriesZeus(tmdbId, seasonNum, episodeNum)
+    .catch(function() { return []; });
+
+  return Promise.all([fastfluxPromise, zeusPromise])
+    .then(function(results) {
+      var streams = results[0].concat(results[1]);
+      if (streams.length === 0) throw new Error('Aucune source disponible');
+      return streams;
+    });
+}
+
+// =============================================================
+// POINT D'ENTRÉE PRINCIPAL
+// =============================================================
+
+function getStreamsWithApi(apiUrl, referer, tmdbId, mediaType, season, episode) {
+  if (mediaType === 'tv') {
+    return fetchSeries(apiUrl, referer, tmdbId, season, episode);
+  }
+  return fetchMovie(apiUrl, referer, tmdbId);
+}
+
+function getStreams(tmdbId, mediaType, season, episode, title) {
+  return detectToflixEndpoint()
+    .then(function(endpoint) {
+      TOFLIX_API     = endpoint.api;
+      TOFLIX_REFERER = endpoint.referer;
+      ZEUS_REFERER   = endpoint.referer;
+      return getStreamsWithApi(endpoint.api, endpoint.referer, tmdbId, mediaType, season, episode);
+    })
+    .catch(function(err) {
+      console.error('[ToFlix] Erreur:', err.message || err);
+      return [];
+    });
+}
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams: getStreams };
+} else {
+  global.getStreams = getStreams;
+}

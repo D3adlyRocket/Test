@@ -37,7 +37,7 @@ function detectToflixEndpoint() {
     .catch(function() {
       console.warn('[ToFlix] domains.json échoué, fallback: toflix.' + TOFLIX_FALLBACK);
       return {
-        api:     'https://api.toflix.' + TOFLIX_FALLBACK + '/toflix_api.php',
+        api:     'https://api.tfx05.' + TOFLIX_FALLBACK + '/toflix_api.php',
         referer: 'https://tfx05.' + TOFLIX_FALLBACK + '/'
       };
     });

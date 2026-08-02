@@ -215,7 +215,6 @@ function makeStream(url, headers, quality, displaySize, serverSource, title, yea
   const lineResTag = getResolutionEmoji(quality);
   const cleanTitle = (title || "").replace(/[^a-zA-Z0-9]/g, ".");
   
-  // Line 5: Removed 🔗 emoji to prevent unwanted UI gaps
   const filenameStr = `${cleanTitle}.${year || '2026'}.${meta.isImax ? 'IMAX.' : ''}${quality}.AMZN.WEB-DL.${meta.language.replace(/\s+/g, ".")}.${meta.audioCodec.replace(/[^\w.]/g, "")}.${meta.format}.MSubs`;
 
   const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
@@ -226,8 +225,7 @@ function makeStream(url, headers, quality, displaySize, serverSource, title, yea
 
   const fullCardDescription = [line1, line2, line3, line4, line5].join("\n");
   
-  // Mobile Display Fix: Embed description within name property separated by line break
-  const headerName = `${sortTag}Movies4u • ${quality} • ${serverSource}\n${fullCardDescription}`;
+  const headerName = `${sortTag}Movies4u • ${quality} • ${serverSource}`;
 
   return {
     qualityRank,
@@ -461,7 +459,6 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
       for (const route of routes) {
         const routeText = `${route.label} ${route.url}`.toLowerCase();
         
-        // --- HubCloud Stream Processing ---
         if (routeText.includes("hubcloud")) {
           const hcStreams = await extractHubCloud(route.url, release.url);
           for (const s of hcStreams) {
@@ -483,7 +480,6 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
             rawStreams.push(streamObj);
           }
         } 
-        // --- Direct M4U Player Processing ---
         else if (routeText.includes("m4uplay") || routeText.includes("stream")) {
           const m3u8Url = await extractDirectM3u8(route.url);
           if (m3u8Url) {
@@ -509,7 +505,6 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
     } catch (_) {}
   }
 
-  // Deduplicate streams by URL
   const seen = new Set();
   const filteredStreams = rawStreams.filter(stream => {
     if (!stream.data.url || seen.has(stream.data.url)) return false;
@@ -517,7 +512,6 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
     return true;
   });
 
-  // Sort Array by Quality Rank and Size before returning to client
   filteredStreams.sort((a, b) => {
     if (b.qualityRank !== a.qualityRank) {
       return b.qualityRank - a.qualityRank;

@@ -1,4 +1,4 @@
-// movies4u.js - Movies4u native provider with makeStream engine & Zero-Width TV Sorting
+// movies4u.js - Full Integration: UI TV Fix + Zero-Width Sort + M4U Direct Extractor
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new2.movies4u.clinic";
@@ -153,15 +153,6 @@ function hubCloudServer(text, link) {
   return "HubCloud";
 }
 
-function unpackJS(p, a, c, k) {
-  while (c--) {
-    if (k[c]) {
-      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
-    }
-  }
-  return p;
-}
-
 async function detectFileSize(url, headers = {}) {
   try {
     const resp = await fetch(url, { method: "HEAD", headers, skipSizeCheck: true, redirect: "follow" });
@@ -226,7 +217,7 @@ function makeStream(url, headers, quality, displaySize, serverSource, title, yea
   const line4 = meta.isImax ? `👁️ IMAX | 🌐 Movies4u | 📦 ${serverSource}` : `🌐 Movies4u | 📦 ${serverSource}`;
   const line5 = filenameStr;
 
-  // Assembly (Matching the 4KHDHub Engine logic)
+  // Assembly (Brute-forcing UI fields for Android TV parity)
   const headerLayout = `${sortTag}Movies4u • ${quality} • ${serverSource}`;
   const fullLayout = [line1, line2, line3, line4, line5].join("\n");
 
@@ -236,7 +227,7 @@ function makeStream(url, headers, quality, displaySize, serverSource, title, yea
     data: {
       name: headerLayout,
       title: fullLayout,
-      size: fullLayout, // Brute-forcing the UI fields like the reference script
+      size: fullLayout, 
       description: fullLayout,
       url: url,
       behaviorHints: {
@@ -253,32 +244,49 @@ function makeStream(url, headers, quality, displaySize, serverSource, title, yea
 /*                         EXTRACTORS & RESOLVERS                             */
 /* ========================================================================== */
 
+function unpackJS(p, a, c, k) {
+  while (c--) {
+    if (k[c]) {
+      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
+    }
+  }
+  return p;
+}
+
 async function extractDirectM3u8(playerUrl) {
   try {
     const resp = await fetch(playerUrl, { headers: { ...HEADERS, Referer: "https://m4uplay.store/" }, skipSizeCheck: true });
     const html = await resp.text();
+    
+    // 1. Try finding direct link in plain text
     let m3u8 = html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] || html.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
     
+    // 2. Try finding relative path
     if (!m3u8) {
       const rel = html.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
       if (rel) m3u8 = "https://m4uplay.store" + rel;
     }
-
+    
+    // 3. Try unpacking eval() payload if obfuscated
     if (!m3u8) {
       const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\).*?\}\('(.*)',(\d+),(\d+),'(.*)'\.split\('\|'\)/s);
       if (packedMatch) {
         const unpacked = unpackJS(packedMatch[1], parseInt(packedMatch[2]), parseInt(packedMatch[3]), packedMatch[4].split("|"));
         m3u8 = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] || unpacked.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
         if (!m3u8) {
-          const relUnpacked = unpacked.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
-          if (relUnpacked) m3u8 = "https://m4uplay.store" + relUnpacked;
+          const rel = unpacked.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
+          if (rel) m3u8 = "https://m4uplay.store" + rel;
         }
       }
     }
-    return m3u8 || null;
-  } catch (_) {
-    return null;
+    
+    if (m3u8) {
+      return m3u8.replace("master.txt", "master.m3u8");
+    }
+  } catch (e) {
+    console.error("[Movies4u] Player direct parsing failed:", e);
   }
+  return null;
 }
 
 async function extractHubCloud(url, referer) {
@@ -485,18 +493,22 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
           }
         } 
         else if (routeText.includes("m4uplay") || routeText.includes("stream")) {
-          const m3u8Url = await extractDirectM3u8(route.url);
-          if (m3u8Url) {
+          const directM3u8 = await extractDirectM3u8(route.url);
+          
+          if (directM3u8) {
             const meta = parseExtraMetadata(release.label + " " + (release.size || ""), route.label);
-            const finalQuality = await detectDynamicQuality(m3u8Url, HEADERS, release.quality);
-            const displaySize = meta.size;
+            const m4uHeaders = { ...HEADERS, Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store" };
+            
+            const finalQuality = await detectDynamicQuality(directM3u8, m4uHeaders, release.quality);
+            const sizeData = await detectFileSize(directM3u8, m4uHeaders);
+            const displaySize = sizeData && sizeData.string ? sizeData.string : meta.size;
 
             const streamObj = makeStream(
-              m3u8Url,
-              { ...HEADERS, Referer: "https://m4uplay.store/" },
+              directM3u8,
+              m4uHeaders,
               finalQuality,
               displaySize,
-              "M4U Direct",
+              "M4U Player Direct",
               title,
               year,
               meta

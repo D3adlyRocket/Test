@@ -1,4 +1,4 @@
-// movies4u.js - Full Integration: UI TV Fix + Zero-Width Sort + M4U Direct Extractor
+// movies4u.js - Full Integration: UI TV Fix + Zero-Width Sort + M4U Direct Extractor (Fixed Routing)
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new2.movies4u.clinic";
@@ -33,8 +33,6 @@ function getInvertedSortTag(val, maxBaseline = 999999) {
   const safeVal = Math.max(0, parseInt(val, 10) || 0);
   const inverted = Math.max(0, maxBaseline - safeVal);
   const binaryStr = inverted.toString(2).padStart(20, '0');
-  
-  // \u200B = '0', \uFEFF = '1'
   return binaryStr.split('').map(bit => bit === '1' ? "\uFEFF" : "\u200B").join('');
 }
 
@@ -420,6 +418,38 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
     return [];
   }
 
+  const rawStreams = [];
+
+  // ─── OPTION A: DIRECT LINKS ON MAIN PAGE (Common for Movies) ───
+  const directAnchors = [...detailHtml.matchAll(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
+  for (const anc of directAnchors) {
+    const href = anc[1];
+    const textContext = anc[2].replace(/<[^>]+>/g, " ").trim();
+    
+    if (href.includes("m4uplay.store")) {
+      const directM3u8 = await extractDirectM3u8(href);
+      if (directM3u8) {
+        const m4uHeaders = { ...HEADERS, Referer: "https://m4uplay.store/", Origin: "https://m4uplay.store" };
+        const meta = parseExtraMetadata(textContext, href);
+        const finalQuality = await detectDynamicQuality(directM3u8, m4uHeaders, textContext);
+        const sizeData = await detectFileSize(directM3u8, m4uHeaders);
+        const displaySize = sizeData && sizeData.string ? sizeData.string : (meta.size !== "N/A" ? meta.size : "Unknown");
+
+        rawStreams.push(makeStream(
+          directM3u8,
+          m4uHeaders,
+          finalQuality,
+          displaySize,
+          "M4U Player Direct",
+          title,
+          year,
+          meta
+        ));
+      }
+    }
+  }
+
+  // ─── OPTION B: REDIRECT LINKS IN FOLDERS (Common for TV & Multiple Qualities) ───
   const releasePages = [];
   const headingBlocks = [...detailHtml.matchAll(/<h4[^>]*>([\s\S]*?)<\/h4>([\s\S]*?)(?=<h4|$)/gi)];
 
@@ -442,8 +472,6 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
       }
     }
   }
-
-  const rawStreams = [];
 
   for (const release of releasePages) {
     try {
@@ -478,7 +506,7 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
             const finalQuality = await detectDynamicQuality(s.url, s.headers, release.quality);
             const displaySize = s.size || meta.size;
 
-            const streamObj = makeStream(
+            rawStreams.push(makeStream(
               s.url,
               s.headers,
               finalQuality,
@@ -487,12 +515,10 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
               title,
               year,
               meta
-            );
-
-            rawStreams.push(streamObj);
+            ));
           }
         } 
-        else if (routeText.includes("m4uplay") || routeText.includes("stream")) {
+        else if (route.url.includes("m4uplay.store") || routeText.includes("m4uplay")) {
           const directM3u8 = await extractDirectM3u8(route.url);
           
           if (directM3u8) {
@@ -501,9 +527,9 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
             
             const finalQuality = await detectDynamicQuality(directM3u8, m4uHeaders, release.quality);
             const sizeData = await detectFileSize(directM3u8, m4uHeaders);
-            const displaySize = sizeData && sizeData.string ? sizeData.string : meta.size;
+            const displaySize = sizeData && sizeData.string ? sizeData.string : (meta.size !== "N/A" ? meta.size : "Unknown");
 
-            const streamObj = makeStream(
+            rawStreams.push(makeStream(
               directM3u8,
               m4uHeaders,
               finalQuality,
@@ -512,9 +538,7 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
               title,
               year,
               meta
-            );
-
-            rawStreams.push(streamObj);
+            ));
           }
         }
       }

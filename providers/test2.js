@@ -1,4 +1,4 @@
-// movies4u.js - Movies4u native provider with FSL HubCloud resolution, M4U Direct parsing, Zero-Width Binary Sorting & Multi-Line Layout
+// movies4u.js - Movies4u native provider with FSL HubCloud resolution, M4U Direct parsing & Mobile/TV UI Scaffolding
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new2.movies4u.clinic";
@@ -62,6 +62,16 @@ function parseSizeToMB(sizeStr) {
 /*                           METADATA & HELPERS                               */
 /* ========================================================================== */
 
+// Tweaked #1: Resolution Emojis 🌟 (4K/2160p), 🔥 (1080p), 💎 (720p)
+function getResolutionEmoji(res) {
+  const clean = String(res || '').toLowerCase();
+  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return "🌟 4K";
+  if (clean.includes("1080") || clean.includes("fhd")) return "🔥 1080p";
+  if (clean.includes("720") || clean.includes("hd")) return "💎 720p";
+  if (clean.includes("480") || clean.includes("sd")) return "📱 480p";
+  return "📺 " + (res || "1080p");
+}
+
 function extractQuality(text) {
   const u = (text || "").toLowerCase();
   if (/\b(2160p|4k|uhd)\b/.test(u)) return "4K";
@@ -72,8 +82,10 @@ function extractQuality(text) {
   return "Unknown";
 }
 
-function parseExtraMetadata(text) {
-  const norm = (text || "").toUpperCase();
+// Tweaked #3 & #4: Subheading Line 3 Codecs/Audio & Line 4 IMAX parsing
+function parseExtraMetadata(text, filename = "") {
+  const norm = `${text} ${filename}`.toUpperCase();
+  
   let lang = "Multi-Audio";
   if (norm.includes("DUAL")) lang = "Multi Audio";
   if (norm.includes("ENGLISH") && !norm.includes("HINDI")) lang = "English";
@@ -87,20 +99,29 @@ function parseExtraMetadata(text) {
   
   let format = "MKV";
   if (norm.includes("MP4")) format = "MP4";
-  if (norm.includes("HEVC") || norm.includes("X265") || norm.includes("H265")) format += " (x265)";
-  else if (norm.includes("X264") || norm.includes("H264")) format += " (x264)";
 
-  const extras = [];
-  if (norm.includes("HDR")) extras.push("HDR");
-  if (norm.includes("DOLBY") || norm.includes("DV") || norm.includes("VISION") || norm.includes("ATMOS") || norm.includes("DD5")) extras.push("Dolby Vision/5.1");
-  if (norm.includes("10BIT")) extras.push("10-Bit");
-  if (norm.includes("REMUX")) extras.push("Remux");
+  // Codec Tag: 🌈 HDR or ✨ H.264 / H.265 / HEVC
+  let codecTag = "✨ H.264";
+  if (norm.includes("HDR") || norm.includes("DV") || norm.includes("VISION")) codecTag = "🌈 HDR";
+  else if (norm.includes("HEVC") || norm.includes("X265") || norm.includes("H265") || norm.includes("H.265")) codecTag = "✨ HEVC";
+  else if (norm.includes("X264") || norm.includes("H264") || norm.includes("H.264")) codecTag = "✨ H.264";
+
+  // Audio Codec: 🎧 DDP5.1 / Atmos / AAC
+  let audioCodec = "🎧 DDP5.1";
+  if (norm.includes("ATMOS")) audioCodec = "🎧 Dolby Atmos";
+  else if (norm.includes("DD5") || norm.includes("DDP5") || norm.includes("5.1")) audioCodec = "🎧 DDP5.1";
+  else if (norm.includes("AAC")) audioCodec = "🎧 AAC";
+
+  // IMAX Detection
+  const isImax = norm.includes("IMAX") ? "👁️ IMAX" : null;
 
   return {
     language: lang,
     size: size,
     format: format,
-    extras: extras.length > 0 ? extras.join(" | ") : "Standard Dynamic Range"
+    codecTag: codecTag,
+    audioCodec: audioCodec,
+    isImax: isImax
   };
 }
 
@@ -418,7 +439,7 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
         if (routeText.includes("hubcloud")) {
           const hcStreams = await extractHubCloud(route.url, release.url);
           for (const s of hcStreams) {
-            const meta = parseExtraMetadata(release.label + " " + (release.size || ""));
+            const meta = parseExtraMetadata(release.label + " " + (release.size || ""), route.label);
             const finalQuality = await detectDynamicQuality(s.url, s.headers, release.quality);
             const displaySize = s.size || meta.size;
 
@@ -427,20 +448,29 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
             const sizeInMB = parseSizeToMB(displaySize);
             const sortTag = getInvertedSortTag((qualityRank * 100000) + sizeInMB, 999999);
 
-            // Subheadings UI Structure
-            const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
-            const line2 = `📺 ${finalQuality} | 🗣️ ${meta.language} | 💾 ${displaySize}`;
-            const line3 = `🎞️ ${meta.format} | ✨ ${meta.extras}`;
-            const line4 = `🌐 Movies4u | 📦 ${s.source}`;
+            // Construct exact 5 Subheading lines
+            const lineResTag = getResolutionEmoji(finalQuality); // Tweaked #1
+            const cleanTitle = title.replace(/[^a-zA-Z0-9]/g, ".");
+            const filenameStr = `${cleanTitle}.${year || '2026'}.${meta.isImax ? 'IMAX.' : ''}${finalQuality}.AMZN.WEB-DL.${meta.language.replace(/\s+/g, ".")}.${meta.audioCodec.replace(/[^\w.]/g, "")}.${meta.format}.MSubs`;
 
-            const formattedSubtitles = [line1, line2, line3, line4].join("\n");
+            const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
+            const line2 = `${lineResTag} | 🗣️ ${meta.language} | 💾 ${displaySize}`;
+            const line3 = `🎞️ ${meta.format} | ${meta.codecTag} | ${meta.audioCodec}`; // Tweaked #3
+            const line4 = meta.isImax ? `👁️ IMAX | 🌐 Movies4u | 📦 ${s.source}` : `🌐 Movies4u | 📦 ${s.source}`; // Tweaked #4
+            const line5 = `🔗 ${filenameStr}`; // Tweaked #5
+
+            const fullCardDescription = [line1, line2, line3, line4, line5].join("\n");
+
+            // Tweaked #2: Construct inside `name` so mobile apps display subheadings properly!
+            const headerName = `${sortTag}Movies4u • ${finalQuality} • ${s.source}\n${fullCardDescription}`;
 
             rawStreams.push({
-              name: `${sortTag}Movies4u • ${finalQuality} • ${s.source}`,
-              title: formattedSubtitles,
-              description: formattedSubtitles,
+              name: headerName,
+              title: fullCardDescription,
+              description: fullCardDescription,
               url: s.url,
-              quality: finalQuality,
+              qualityRank: qualityRank,
+              sizeInMB: sizeInMB,
               headers: s.headers,
               provider: "Movies4u",
               behaviorHints: {
@@ -456,7 +486,7 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
         else if (routeText.includes("m4uplay") || routeText.includes("stream")) {
           const m3u8Url = await extractDirectM3u8(route.url);
           if (m3u8Url) {
-            const meta = parseExtraMetadata(release.label + " " + (release.size || ""));
+            const meta = parseExtraMetadata(release.label + " " + (release.size || ""), route.label);
             const finalQuality = await detectDynamicQuality(m3u8Url, HEADERS, release.quality);
             const displaySize = meta.size;
 
@@ -465,20 +495,26 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
             const sizeInMB = parseSizeToMB(displaySize);
             const sortTag = getInvertedSortTag((qualityRank * 100000) + sizeInMB, 999999);
 
-            // Subheadings UI Structure
-            const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
-            const line2 = `📺 ${finalQuality} | 🗣️ ${meta.language} | 💾 ${displaySize}`;
-            const line3 = `🎞️ ${meta.format} | ✨ ${meta.extras}`;
-            const line4 = `🌐 Movies4u | 📦 M4U Direct`;
+            const lineResTag = getResolutionEmoji(finalQuality);
+            const cleanTitle = title.replace(/[^a-zA-Z0-9]/g, ".");
+            const filenameStr = `${cleanTitle}.${year || '2026'}.${meta.isImax ? 'IMAX.' : ''}${finalQuality}.AMZN.WEB-DL.${meta.language.replace(/\s+/g, ".")}.${meta.audioCodec.replace(/[^\w.]/g, "")}.${meta.format}.MSubs`;
 
-            const formattedSubtitles = [line1, line2, line3, line4].join("\n");
+            const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
+            const line2 = `${lineResTag} | 🗣️ ${meta.language} | 💾 ${displaySize}`;
+            const line3 = `🎞️ ${meta.format} | ${meta.codecTag} | ${meta.audioCodec}`;
+            const line4 = meta.isImax ? `👁️ IMAX | 🌐 Movies4u | 📦 M4U Direct` : `🌐 Movies4u | 📦 M4U Direct`;
+            const line5 = `🔗 ${filenameStr}`;
+
+            const fullCardDescription = [line1, line2, line3, line4, line5].join("\n");
+            const headerName = `${sortTag}Movies4u • ${finalQuality} • M4U Direct\n${fullCardDescription}`;
 
             rawStreams.push({
-              name: `${sortTag}Movies4u • ${finalQuality} • M4U Direct`,
-              title: formattedSubtitles,
-              description: formattedSubtitles,
+              name: headerName,
+              title: fullCardDescription,
+              description: fullCardDescription,
               url: m3u8Url,
-              quality: finalQuality,
+              qualityRank: qualityRank,
+              sizeInMB: sizeInMB,
               headers: { ...HEADERS, Referer: "https://m4uplay.store/" },
               provider: "Movies4u",
               behaviorHints: {
@@ -496,11 +532,21 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
 
   // Deduplicate streams by URL
   const seen = new Set();
-  return rawStreams.filter(stream => {
+  const filteredStreams = rawStreams.filter(stream => {
     if (!stream.url || seen.has(stream.url)) return false;
     seen.add(stream.url);
     return true;
   });
+
+  // Tweaked #6: Force Array Sort by Quality Rank and Size before outputting to TV interface
+  filteredStreams.sort((a, b) => {
+    if (b.qualityRank !== a.qualityRank) {
+      return b.qualityRank - a.qualityRank; // Higher quality score top
+    }
+    return b.sizeInMB - a.sizeInMB; // Larger size top
+  });
+
+  return filteredStreams;
 }
 
 module.exports = { getStreams };

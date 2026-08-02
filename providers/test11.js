@@ -251,7 +251,7 @@ function qualityLabelFromHeight(height) {
 /*                          STREAM LAYOUT ENGINE                              */
 /* ========================================================================== */
 
-function makeStream(url, quality, displaySize, title, year, subtitles) {
+function makeStream(url, quality, displaySize, title, year, mediaType, season, episode, subtitles) {
   const qualityRank = getQualityRank(quality);
   const sizeInMB = parseSizeToMB(displaySize);
   
@@ -261,17 +261,26 @@ function makeStream(url, quality, displaySize, title, year, subtitles) {
   // Clean values
   const lineResTag = getResolutionEmoji(quality);
   const cleanTitle = (title || "").replace(/[^a-zA-Z0-9]/g, ".");
-  const filenameStr = `${cleanTitle}.${year || '2026'}.${quality}.WEB-DL.Multi-Audio.AAC.MKV.MSubs`;
+  const isTvSeries = mediaType === "tv";
+  const sNum = season || 1;
+  const eNum = episode || 1;
+
+  const filenameStr = isTvSeries 
+    ? `${cleanTitle}.S${String(sNum).padStart(2, '0')}E${String(eNum).padStart(2, '0')}.${quality}.WEB-DL.Multi-Audio.HEVC.AAC.MKV.MSubs`
+    : `${cleanTitle}.${year || '2026'}.${quality}.WEB-DL.Multi-Audio.HEVC.AAC.MKV.MSubs`;
 
   // Layout lines
-  const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
+  const line1 = isTvSeries
+    ? `🎬 ${title}${year ? ` (${year})` : ""} | S${sNum}E${eNum}`
+    : `🎬 ${title}${year ? ` (${year})` : ""}`;
+    
   const line2 = `${lineResTag} | 🗣️ Multi-Audio | 💾 ${displaySize}`;
-  const line3 = `🎞️ MKV | ✨ H.264 | 🎧 AAC`;
-  const line4 = `🌐 Goated | 📦 Adaptive HLS`;
+  const line3 = `🎞️ MKV | ✨ HEVC | 🎧 AAC`;
+  const line4 = `🌐 Goated | 📥 WEB-DL`;
   const line5 = filenameStr;
 
   // Assembly (Android TV and Mobile Layout Parity)
-  const headerLayout = `${sortTag}Goated • ${quality} • Adaptive`;
+  const headerLayout = `${sortTag}Goated • ${quality} • Multi-Audio`;
   const fullLayout = [line1, line2, line3, line4, line5].join("\n");
 
   return {
@@ -389,6 +398,9 @@ async function getStreams(tmdbId, mediaType, season, episode) {
       displaySize,
       title || "Unknown Title",
       year || "2026",
+      mediaType,
+      season,
+      episode,
       subtitles
     );
 

@@ -1,4 +1,4 @@
-// movies4u.js - Movies4u native provider with FSL HubCloud resolution, M4U Direct parsing & 4-Line Layout
+// movies4u.js - Movies4u native provider with FSL HubCloud resolution, M4U Direct parsing, Zero-Width Binary Sorting & Multi-Line Layout
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new2.movies4u.clinic";
@@ -23,6 +23,39 @@ async function getBaseUrl() {
     cachedBaseUrl = FALLBACK_URL;
   }
   return cachedBaseUrl;
+}
+
+/* ========================================================================== */
+/*                    ZERO-WIDTH BINARY SORTING ENGINE                        */
+/* ========================================================================== */
+
+function getInvertedSortTag(val, maxBaseline = 999999) {
+  const safeVal = Math.max(0, parseInt(val, 10) || 0);
+  const inverted = Math.max(0, maxBaseline - safeVal);
+  const binaryStr = inverted.toString(2).padStart(20, '0');
+  
+  // \u200B = '0', \uFEFF = '1'
+  return binaryStr.split('').map(bit => bit === '1' ? "\uFEFF" : "\u200B").join('');
+}
+
+function getQualityRank(res) {
+  const clean = String(res || '').toLowerCase();
+  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return 4;
+  if (clean.includes("1080") || clean.includes("fhd") || clean.includes("fullhd")) return 3;
+  if (clean.includes("720") || clean.includes("hd")) return 2;
+  if (clean.includes("480") || clean.includes("sd") || clean.includes("360")) return 1;
+  return 0;
+}
+
+function parseSizeToMB(sizeStr) {
+  if (!sizeStr || sizeStr === "N/A") return 0;
+  const match = String(sizeStr).match(/([\d.]+)\s*(GB|MB)/i);
+  if (!match) return 0;
+  const num = parseFloat(match[1]);
+  const unit = match[2].toUpperCase();
+  if (unit === "GB") return Math.floor(num * 1024);
+  if (unit === "MB") return Math.floor(num);
+  return 0;
 }
 
 /* ========================================================================== */
@@ -169,7 +202,6 @@ async function detectDynamicQuality(url, headers = {}, fallbackLabel = "", runti
 /*                         EXTRACTORS & RESOLVERS                             */
 /* ========================================================================== */
 
-// Direct m4uplay / HTML5 M3U8 extraction
 async function extractDirectM3u8(playerUrl) {
   try {
     const resp = await fetch(playerUrl, { headers: { ...HEADERS, Referer: "https://m4uplay.store/" }, skipSizeCheck: true });
@@ -198,7 +230,6 @@ async function extractDirectM3u8(playerUrl) {
   }
 }
 
-// HubCloud HTML Native Extractor with FSL Bypass
 async function extractHubCloud(url, referer) {
   try {
     let currentUrl = url.replace("hubcloud.foo", "hubcloud.cx").replace("hubcloud.ink", "hubcloud.dad");
@@ -236,7 +267,7 @@ async function extractHubCloud(url, referer) {
     const streams = await Promise.all(buttons.map(async (button) => {
       let link = button.link;
       if (/pixeldra|pixelserver|pixel server/i.test(button.text)) {
-        return null; // Skip Pixeldrain as per requirement
+        return null;
       } else if (/gpdl\.|download\s*\[server\s*:\s*10gbps/i.test(`${button.link} ${button.text}`)) {
         try {
           const gateway = await fetch(link, { redirect: "manual", headers: { ...HEADERS, Referer: pageUrl }, skipSizeCheck: true });
@@ -291,7 +322,6 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
   const base = await getBaseUrl();
   const tmdbNum = tmdbId.toString().replace("tmdb:", "");
 
-  // Fetch TMDB Metadata for Title & Year
   let title = "", year = "";
   try {
     const type = mediaType === "tv" ? "tv" : "movie";
@@ -304,7 +334,6 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
 
   if (!title) return [];
 
-  // 1. Search Movies4u Post
   let postUrl = null;
   try {
     const searchResp = await fetch(`${base}/?s=${encodeURIComponent(title)}`, { headers: HEADERS, skipSizeCheck: true });
@@ -326,7 +355,6 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
 
   if (!postUrl) return [];
 
-  // 2. Extract Link Pages from Post Detail
   let detailHtml = "";
   try {
     const detailResp = await fetch(postUrl, { headers: HEADERS, skipSizeCheck: true });
@@ -358,7 +386,6 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
     }
   }
 
-  // 3. Extract HubCloud & M4uPlay Stream Targets from Intermediate Release Pages
   const rawStreams = [];
 
   for (const release of releasePages) {
@@ -393,14 +420,35 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
           for (const s of hcStreams) {
             const meta = parseExtraMetadata(release.label + " " + (release.size || ""));
             const finalQuality = await detectDynamicQuality(s.url, s.headers, release.quality);
-            
+            const displaySize = s.size || meta.size;
+
+            // Sorting metadata calculation
+            const qualityRank = getQualityRank(finalQuality);
+            const sizeInMB = parseSizeToMB(displaySize);
+            const sortTag = getInvertedSortTag((qualityRank * 100000) + sizeInMB, 999999);
+
+            // Subheadings UI Structure
+            const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
+            const line2 = `📺 ${finalQuality} | 🗣️ ${meta.language} | 💾 ${displaySize}`;
+            const line3 = `🎞️ ${meta.format} | ✨ ${meta.extras}`;
+            const line4 = `🌐 Movies4u | 📦 ${s.source}`;
+
+            const formattedSubtitles = [line1, line2, line3, line4].join("\n");
+
             rawStreams.push({
-              name: `Movies4u • ${finalQuality} • ${s.source}`,
-              title: `${meta.language} • ${meta.size}\n${meta.format} | ${meta.extras}\nHubCloud Direct Stream`,
+              name: `${sortTag}Movies4u • ${finalQuality} • ${s.source}`,
+              title: formattedSubtitles,
+              description: formattedSubtitles,
               url: s.url,
               quality: finalQuality,
               headers: s.headers,
-              provider: "Movies4u"
+              provider: "Movies4u",
+              behaviorHints: {
+                notWebReady: true,
+                proxyHeaders: {
+                  request: s.headers
+                }
+              }
             });
           }
         } 
@@ -410,14 +458,35 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
           if (m3u8Url) {
             const meta = parseExtraMetadata(release.label + " " + (release.size || ""));
             const finalQuality = await detectDynamicQuality(m3u8Url, HEADERS, release.quality);
+            const displaySize = meta.size;
+
+            // Sorting metadata calculation
+            const qualityRank = getQualityRank(finalQuality);
+            const sizeInMB = parseSizeToMB(displaySize);
+            const sortTag = getInvertedSortTag((qualityRank * 100000) + sizeInMB, 999999);
+
+            // Subheadings UI Structure
+            const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
+            const line2 = `📺 ${finalQuality} | 🗣️ ${meta.language} | 💾 ${displaySize}`;
+            const line3 = `🎞️ ${meta.format} | ✨ ${meta.extras}`;
+            const line4 = `🌐 Movies4u | 📦 M4U Direct`;
+
+            const formattedSubtitles = [line1, line2, line3, line4].join("\n");
 
             rawStreams.push({
-              name: `Movies4u • ${finalQuality} • M4U Direct`,
-              title: `${meta.language} • ${meta.size}\n${meta.format} | ${meta.extras}\nM4U Player Stream`,
+              name: `${sortTag}Movies4u • ${finalQuality} • M4U Direct`,
+              title: formattedSubtitles,
+              description: formattedSubtitles,
               url: m3u8Url,
               quality: finalQuality,
               headers: { ...HEADERS, Referer: "https://m4uplay.store/" },
-              provider: "Movies4u"
+              provider: "Movies4u",
+              behaviorHints: {
+                notWebReady: true,
+                proxyHeaders: {
+                  request: { ...HEADERS, Referer: "https://m4uplay.store/" }
+                }
+              }
             });
           }
         }

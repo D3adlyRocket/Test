@@ -1,739 +1,437 @@
-/** StreamPlay - Movies4U Provider Only */
-var __defProp = Object.defineProperty;
-var __defProps = Object.defineProperties;
-var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
-var __getOwnPropDescs = Object.getOwnPropertyDescriptors;
-var __getOwnPropNames = Object.getOwnPropertyNames;
-var __getOwnPropSymbols = Object.getOwnPropertySymbols;
-var __propIsEnum = Object.prototype.propertyIsEnumerable;
-var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
-var __spreadValues = (a, b) => {
-  for (var prop in b || (b = {}))
-    if (__hasOwnProp.call(b, prop))
-      __defNormalProp(a, prop, b[prop]);
-  if (__getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(b)) {
-      if (__propIsEnum.call(b, prop))
-        __defNormalProp(a, prop, b[prop]);
-    }
-  return a;
-};
-var __spreadProps = (a, b) => __defProps(a, __getOwnPropDescs(b));
-var __objRest = (source, exclude) => {
-  var target = {};
-  for (var prop in source)
-    if (__hasOwnProp.call(source, prop) && exclude.indexOf(prop) < 0)
-      target[prop] = source[prop];
-  if (source != null && __getOwnPropSymbols)
-    for (var prop of __getOwnPropSymbols(source)) {
-      if (exclude.indexOf(prop) < 0 && __propIsEnum.call(source, prop))
-        target[prop] = source[prop];
-    }
-  return target;
-};
-var __commonJS = (cb, mod) => function __require() {
-  return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
-};
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
+// movies4u.js - Movies4u native provider with FSL HubCloud resolution, M4U Direct parsing & 4-Line Layout
+
+const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
+const FALLBACK_URL = "https://new2.movies4u.clinic";
+const WORKER_PROXY = "https://lucky-star-3059.salman-sohail93.workers.dev";
+const TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
+
+const HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Referer": FALLBACK_URL,
+  "Cookie": "xla=s4t"
 };
 
-// src/config/domains.js
-var require_domains = __commonJS({
-  "src/config/domains.js"(exports2, module2) {
-    module2.exports = Object.freeze({
-      TMDB_API: "https://api.themoviedb.org/3",
-      PHISHER_DOMAINS: "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json",
-      WORKER: "https://lucky-star-3059.salman-sohail93.workers.dev",
-      MOVIES4U_FALLBACK: "https://new2.movies4u.clinic",
-      GDFLIX_MIRRORS: ["https://new3.gdflix.cfd", "https://new2.gdflix.cfd"]
-    });
+let cachedBaseUrl = null;
+
+async function getBaseUrl() {
+  if (cachedBaseUrl) return cachedBaseUrl;
+  try {
+    const resp = await fetch(DOMAINS_URL, { skipSizeCheck: true });
+    const data = await resp.json();
+    cachedBaseUrl = data.movies4u || data.movies4uhd || FALLBACK_URL;
+  } catch (_) {
+    cachedBaseUrl = FALLBACK_URL;
   }
-});
+  return cachedBaseUrl;
+}
 
-// src/providers/vcloud.js
-var require_vcloud = __commonJS({
-  "src/providers/vcloud.js"(exports2, module2) {
-    var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
-    function clean(value) {
-      return String(value || "").replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").trim();
+/* ========================================================================== */
+/*                           METADATA & HELPERS                               */
+/* ========================================================================== */
+
+function extractQuality(text) {
+  const u = (text || "").toLowerCase();
+  if (/\b(2160p|4k|uhd)\b/.test(u)) return "4K";
+  if (/\b(1080p|1080)(?!(?:\s*gb|\s*mb|\s*b))\b/.test(u)) return "1080p";
+  if (/\b(720p|720)(?!(?:\s*gb|\s*mb|\s*b))\b/.test(u)) return "720p";
+  if (/\b(480p|480)(?!(?:\s*gb|\s*mb|\s*b))\b/.test(u)) return "480p";
+  if (/\b(360p|360)(?!(?:\s*gb|\s*mb|\s*b))\b/.test(u)) return "360p";
+  return "Unknown";
+}
+
+function parseExtraMetadata(text) {
+  const norm = (text || "").toUpperCase();
+  let lang = "Multi-Audio";
+  if (norm.includes("DUAL")) lang = "Multi Audio";
+  if (norm.includes("ENGLISH") && !norm.includes("HINDI")) lang = "English";
+  
+  const sizeMatch = norm.match(/(\d+(?:\.\d+)?\s*[MGB]B)/i);
+  let size = sizeMatch ? sizeMatch[0].replace(/\s+/g, "") : "N/A";
+  if (size === "N/A") {
+    const backupMatch = norm.match(/(\d+\.\d+)\s?G/);
+    if (backupMatch) size = backupMatch[1] + "GB";
+  }
+  
+  let format = "MKV";
+  if (norm.includes("MP4")) format = "MP4";
+  if (norm.includes("HEVC") || norm.includes("X265") || norm.includes("H265")) format += " (x265)";
+  else if (norm.includes("X264") || norm.includes("H264")) format += " (x264)";
+
+  const extras = [];
+  if (norm.includes("HDR")) extras.push("HDR");
+  if (norm.includes("DOLBY") || norm.includes("DV") || norm.includes("VISION") || norm.includes("ATMOS") || norm.includes("DD5")) extras.push("Dolby Vision/5.1");
+  if (norm.includes("10BIT")) extras.push("10-Bit");
+  if (norm.includes("REMUX")) extras.push("Remux");
+
+  return {
+    language: lang,
+    size: size,
+    format: format,
+    extras: extras.length > 0 ? extras.join(" | ") : "Standard Dynamic Range"
+  };
+}
+
+function safeUrl(value) {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value);
+    parsed.pathname = parsed.pathname.split("/").map(segment => {
+      try { return encodeURIComponent(decodeURIComponent(segment)); }
+      catch (_) { return encodeURIComponent(segment); }
+    }).join("/");
+    return parsed.toString();
+  } catch (_) {
+    return value;
+  }
+}
+
+function wrapFslMkvUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (!(host === "r2.cloudflarestorage.com" || host.endsWith(".r2.cloudflarestorage.com"))) return url;
+    return `${WORKER_PROXY}/media/file.mkv?url=${encodeURIComponent(url)}`;
+  } catch (_) {
+    return url;
+  }
+}
+
+function hubCloudServer(text, link) {
+  const value = `${text || ""} ${link || ""}`.toLowerCase();
+  if (/gpdl\.|server\s*:\s*10gbps/.test(value)) return "HubCloud Pixel 10Gbps";
+  if (/fslv2/.test(value)) return "HubCloud FSLv2";
+  if (/fsl/.test(value)) return "HubCloud FSL";
+  if (/s3 server/.test(value)) return "HubCloud S3";
+  if (/mega server/.test(value)) return "HubCloud Mega";
+  if (/pdl server/.test(value)) return "HubCloud PDL";
+  if (/buzzserver/.test(value)) return "HubCloud BuzzServer";
+  if (/pixeldrain/.test(value)) return "HubCloud Pixeldrain";
+  if (/pixel\.|pixelserver/.test(value)) return "HubCloud Pixel";
+  if (/workers\.dev|download file/.test(value)) return "HubCloud Direct";
+  return "HubCloud";
+}
+
+function unpackJS(p, a, c, k) {
+  while (c--) {
+    if (k[c]) {
+      p = p.replace(new RegExp("\\b" + c.toString(a) + "\\b", "g"), k[c]);
     }
-    function origin(url) {
-      const match = String(url).match(/^(https?:\/\/[^/]+)/i);
-      return match ? match[1] : "";
+  }
+  return p;
+}
+
+async function detectFileSize(url, headers = {}) {
+  try {
+    const resp = await fetch(url, { method: "HEAD", headers, skipSizeCheck: true, redirect: "follow" });
+    const size = resp.headers.get("content-length");
+    if (!size) return null;
+    const bytes = parseInt(size);
+    let readableSize = "";
+    if (bytes >= 1024 * 1024 * 1024) {
+      readableSize = (bytes / (1024 * 1024 * 1024)).toFixed(1) + "GB";
+    } else {
+      readableSize = Math.round(bytes / (1024 * 1024)) + "MB";
     }
-    function absolute(value, base) {
-      if (!value)
-        return null;
-      const url = String(value).replace(/&amp;/gi, "&").trim();
-      if (/^https?:\/\//i.test(url))
-        return url;
-      if (url.startsWith("/"))
-        return origin(base) + url;
-      return String(base).replace(/\/[^/]*$/, "/") + url.replace(/^\.\//, "");
+    return { bytes, string: readableSize };
+  } catch (_) {}
+  return null;
+}
+
+async function detectDynamicQuality(url, headers = {}, fallbackLabel = "", runtimeMinutes = 120) {
+  try {
+    if (!url) return "1080p";
+    const decodedUrl = decodeURIComponent(url).toLowerCase();
+    let detected = extractQuality(decodedUrl);
+    if (detected !== "Unknown") return detected;
+
+    if (fallbackLabel) {
+      detected = extractQuality(fallbackLabel.toLowerCase());
+      if (detected !== "Unknown") return detected;
     }
-    function anchors(html, base) {
-      const output = [];
-      const regex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-      let match;
-      while (match = regex.exec(html)) {
-        const url = absolute(match[1], base);
-        if (url)
-          output.push({ url, text: clean(match[2]) });
+
+    const sizeData = await detectFileSize(url, headers);
+    if (sizeData && sizeData.bytes) {
+      const totalGB = sizeData.bytes / (1024 * 1024 * 1024);
+      const minutes = parseInt(runtimeMinutes) || 120;
+      const hours = minutes / 60;
+      const gbPerHour = totalGB / hours;
+
+      if (gbPerHour >= 6.5) return "4K";
+      if (gbPerHour >= 0.95) return "1080p";
+      if (gbPerHour >= 0.35) return "720p";
+      return "480p";
+    }
+  } catch (_) {}
+  return "1080p";
+}
+
+/* ========================================================================== */
+/*                         EXTRACTORS & RESOLVERS                             */
+/* ========================================================================== */
+
+// Direct m4uplay / HTML5 M3U8 extraction
+async function extractDirectM3u8(playerUrl) {
+  try {
+    const resp = await fetch(playerUrl, { headers: { ...HEADERS, Referer: "https://m4uplay.store/" }, skipSizeCheck: true });
+    const html = await resp.text();
+    let m3u8 = html.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] || html.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
+    
+    if (!m3u8) {
+      const rel = html.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
+      if (rel) m3u8 = "https://m4uplay.store" + rel;
+    }
+
+    if (!m3u8) {
+      const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\).*?\}\('(.*)',(\d+),(\d+),'(.*)'\.split\('\|'\)/s);
+      if (packedMatch) {
+        const unpacked = unpackJS(packedMatch[1], parseInt(packedMatch[2]), parseInt(packedMatch[3]), packedMatch[4].split("|"));
+        m3u8 = unpacked.match(/https?:\/\/[^\s"'<>]+\.m3u8[^\s"'<>]*/i)?.[0] || unpacked.match(/https?:\/\/[^\s"'<>]+master\.txt[^\s"'<>]*/i)?.[0];
+        if (!m3u8) {
+          const relUnpacked = unpacked.match(/\/(?:3o|stream)\/[^\s"'<>]+(?:m3u8|txt)/i)?.[0];
+          if (relUnpacked) m3u8 = "https://m4uplay.store" + relUnpacked;
+        }
       }
-      return output;
     }
-    function getResponse(url, referer, redirect) {
-      return __async(this, null, function* () {
-        return fetch(url, {
-          redirect: redirect || "follow",
-          headers: __spreadValues({ "User-Agent": USER_AGENT, Accept: "text/html,*/*;q=0.8" }, referer ? { Referer: referer } : {})
-        });
-      });
+    return m3u8 || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// HubCloud HTML Native Extractor with FSL Bypass
+async function extractHubCloud(url, referer) {
+  try {
+    let currentUrl = url.replace("hubcloud.foo", "hubcloud.cx").replace("hubcloud.ink", "hubcloud.dad");
+    let resp = await fetch(currentUrl, { headers: { ...HEADERS, Referer: referer }, skipSizeCheck: true });
+    let html = await resp.text();
+    let pageUrl = resp.url || currentUrl;
+
+    const generate = html.match(/<a[^>]+href="([^"]*hubcloud\.php[^"]*)"/i)?.[1] || 
+                     html.match(/id="download"[^>]+href="([^"]+)"/i)?.[1] || 
+                     html.match(/var url = '([^']+)'/)?.[1];
+    
+    if (generate) {
+      const next = new URL(generate, pageUrl).href;
+      resp = await fetch(next, { headers: { ...HEADERS, Referer: pageUrl }, skipSizeCheck: true });
+      html = await resp.text();
+      pageUrl = resp.url || next;
     }
-    function decodeTwice(value) {
-      try {
-        return atob(atob(value));
-      } catch (_) {
-        return "";
-      }
+
+    const header = html.match(/class="card-header">([^<]+)</i)?.[1] || html.match(/<title>([^<]+)<\/title>/i)?.[1] || "";
+    const sizeMatch = html.match(/id="size">([^<]+)</i)?.[1] || html.match(/([\d.]+\s*(?:GB|MB))/i)?.[1];
+    const size = sizeMatch ? sizeMatch.trim() : undefined;
+    const quality = extractQuality(header);
+
+    const buttonMatches = [...html.matchAll(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
+    const buttons = [];
+
+    for (const match of buttonMatches) {
+      const link = match[1];
+      const text = match[2].replace(/<[^>]+>/g, " ").toLowerCase();
+      if (!link || !/(download file|download\s*\[server|fsl|buzzserver|pixeldra|pixelserver|pixel server|s3 server|mega server|pdl server)/i.test(text)) continue;
+      if (/workers\.dev/i.test(link) && /download file/i.test(text)) continue;
+      buttons.push({ link: new URL(link, pageUrl).href, text });
     }
-    function extractIntermediate(html) {
-      const script = String(html);
-      const encoded = script.match(/atob\(atob\(['"]([^'"]+)['"]\)\)/i);
-      if (encoded)
-        return decodeTwice(encoded[1]);
-      const plain = script.match(/var\s+url\s*=\s*['"]([^'"]+)['"]/i);
-      return plain ? plain[1] : "";
-    }
-    function qualityFrom(value) {
-      const match = String(value).match(/(2160|1080|720|480|360)p?/i);
-      if (!match)
-        return "Unknown";
-      return match[1] === "2160" ? "4K" : `${match[1]}p`;
-    }
-    function resolveServer(server, label, referer) {
-      return __async(this, null, function* () {
-        let url = server.url;
-        const text = server.text;
-        let name = text || "V-Cloud";
-        if (/buzzserver/i.test(text)) {
-          const response = yield getResponse(url.replace(/\/$/, "") + "/download", url, "manual");
-          const target = response.headers.get("hx-redirect");
-          if (!target)
-            return null;
-          url = absolute(target, url);
-          name = "BuzzServer";
-        } else if (/pixeldra|pixelserver|\bpixel\b/i.test(text)) {
-          if (!/download/i.test(url))
-            url = origin(url) + "/api/file/" + url.split("/").filter(Boolean).pop() + "?download";
-          name = "Pixeldrain";
-        } else if (/10\s*gbps/i.test(text)) {
-          const response = yield getResponse(url, referer, "follow");
-          url = response.url || url;
-          if (url.includes("link="))
-            url = decodeURIComponent(url.split("link=").pop());
-          name = "10Gbps";
-          if (response.body && response.body.cancel)
-            yield response.body.cancel();
-        } else if (/fslv2/i.test(text))
-          name = "FSLv2";
-        else if (/\bfsl\b/i.test(text))
-          name = "FSL";
-        else if (/pdl server/i.test(text))
-          name = "PDL";
-        else if (/s3 server/i.test(text))
-          name = "S3";
-        else if (/mega server/i.test(text))
-          name = "Mega";
-        return { name, url, quality: qualityFrom(label), headers: { "User-Agent": USER_AGENT, Referer: referer } };
-      });
-    }
-    function resolveVCloud(url, referer, label) {
-      return __async(this, null, function* () {
+
+    const streams = await Promise.all(buttons.map(async (button) => {
+      let link = button.link;
+      if (/pixeldra|pixelserver|pixel server/i.test(button.text)) {
+        return null; // Skip Pixeldrain as per requirement
+      } else if (/gpdl\.|download\s*\[server\s*:\s*10gbps/i.test(`${button.link} ${button.text}`)) {
         try {
-          let response = yield getResponse(url, referer);
-          if (!response.ok)
-            return { streams: [], blocked: `HTTP ${response.status}` };
-          let html = yield response.text();
-          let pageUrl = response.url || url;
-          if (/api\/index\.php/i.test(pageUrl)) {
-            const next = anchors(html, pageUrl).find((item) => /download|v-?cloud|continue/i.test(item.text + " " + item.url));
-            if (!next)
-              return { streams: [], blocked: "api/index.php target missing" };
-            response = yield getResponse(next.url, pageUrl);
-            if (!response.ok)
-              return { streams: [], blocked: `HTTP ${response.status}` };
-            html = yield response.text();
-            pageUrl = response.url || next.url;
-          }
-          const intermediate = absolute(extractIntermediate(html), pageUrl);
-          if (!intermediate)
-            return { streams: [], blocked: "encoded intermediate URL missing" };
-          response = yield getResponse(intermediate, pageUrl);
-          if (!response.ok)
-            return { streams: [], blocked: `intermediate HTTP ${response.status}` };
-          const serverHtml = yield response.text();
-          const serverPage = response.url || intermediate;
-          const candidates = anchors(serverHtml, serverPage).filter((item) => /fsl|buzz|pixel|pdl|10\s*gbps|s3 server|mega server/i.test(item.text));
-          const results = yield Promise.all(candidates.map((item) => resolveServer(item, label, serverPage).catch(() => null)));
-          return { streams: results.filter(Boolean), blocked: null };
-        } catch (error) {
-          return { streams: [], blocked: error && error.message ? error.message : String(error) };
+          const gateway = await fetch(link, { redirect: "manual", headers: { ...HEADERS, Referer: pageUrl }, skipSizeCheck: true });
+          const worker = gateway.headers.get("location");
+          if (!worker) return null;
+          const generated = await fetch(new URL(worker, link).href, { redirect: "manual", headers: { ...HEADERS, Referer: link }, skipSizeCheck: true });
+          const wrapper = generated.headers.get("location");
+          if (!wrapper) return null;
+          link = new URL(wrapper).searchParams.get("link");
+          if (!link) return null;
+        } catch (_) {
+          return null;
         }
-      });
-    }
-    module2.exports = { resolveVCloud };
-  }
-});
-
-// src/shared/html.js
-var require_html = __commonJS({
-  "src/shared/html.js"(exports2, module2) {
-    var cheerio3 = require("cheerio-without-node-native");
-    function parseHtml(html) {
-      return cheerio3.load(typeof html === "string" ? html : "");
-    }
-    function decodeBase64(value) {
-      if (!value)
-        return "";
-      if (typeof globalThis.atob === "function")
-        return globalThis.atob(value);
-      if (typeof Buffer !== "undefined")
-        return Buffer.from(value, "base64").toString("utf8");
-      throw new Error("No base64 decoder is available in this runtime");
-    }
-    function absoluteUrl2(value, baseUrl) {
-      if (!value)
-        return "";
-      try {
-        return new URL(value, baseUrl).href;
-      } catch (_) {
-        return "";
-      }
-    }
-    module2.exports = { absoluteUrl: absoluteUrl2, decodeBase64, parseHtml };
-  }
-});
-
-// src/shared/http.js
-var require_http = __commonJS({
-  "src/shared/http.js"(exports2, module2) {
-    var DEFAULT_TIMEOUT_MS = 3e4;
-    var RETRYABLE_STATUS = /* @__PURE__ */ new Set([408, 425, 429, 500, 502, 503, 504]);
-    function sleep(ms) {
-      return new Promise((resolve) => setTimeout(resolve, ms));
-    }
-    function mergeHeaders(...sets) {
-      const result = {};
-      for (const set of sets) {
-        if (!set)
-          continue;
-        for (const key of Object.keys(set)) {
-          if (set[key] !== void 0 && set[key] !== null && set[key] !== "")
-            result[key] = String(set[key]);
+      } else if (/buzzserver/i.test(button.text)) {
+        try {
+          const response2 = await fetch(link, { redirect: "manual", headers: { ...HEADERS, Referer: pageUrl }, skipSizeCheck: true });
+          link = response2.headers.get("hx-redirect") || response2.headers.get("location");
+          if (!link) return null;
+          link = new URL(link, button.link).href;
+        } catch (_) {
+          return null;
         }
       }
-      return result;
-    }
-    function request(_0) {
-      return __async(this, arguments, function* (url, options = {}) {
-        const _a = options, {
-          timeoutMs = DEFAULT_TIMEOUT_MS,
-          retries = 1,
-          retryDelayMs = 300
-        } = _a, fetchOptions = __objRest(_a, [
-          "timeoutMs",
-          "retries",
-          "retryDelayMs"
-        ]);
-        let lastError;
-        for (let attempt = 0; attempt <= retries; attempt += 1) {
-          const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-          const timer = controller ? setTimeout(() => controller.abort(), timeoutMs) : null;
-          try {
-            const response = yield fetch(url, __spreadProps(__spreadValues({
-              skipSizeCheck: true
-            }, fetchOptions), {
-              signal: controller ? controller.signal : fetchOptions.signal
-            }));
-            if (!response.ok && RETRYABLE_STATUS.has(response.status) && attempt < retries) {
-              yield sleep(retryDelayMs * (attempt + 1));
-              continue;
-            }
-            return response;
-          } catch (error) {
-            lastError = error;
-            if (attempt >= retries)
-              throw error;
-            yield sleep(retryDelayMs * (attempt + 1));
-          } finally {
-            if (timer)
-              clearTimeout(timer);
-          }
-        }
-        throw lastError || new Error(`Request failed: ${url}`);
-      });
-    }
-    module2.exports = { DEFAULT_TIMEOUT_MS, mergeHeaders, request };
-  }
-});
 
-// src/shared/streams.js
-var require_streams = __commonJS({
-  "src/shared/streams.js"(exports2, module2) {
-    var { mergeHeaders } = require_http();
-    function parseQuality2(...values) {
-      const text = values.filter(Boolean).join(" ").toLowerCase();
-      if (/\b(?:2160p?|4k|uhd)\b/.test(text))
-        return "4K";
-      for (const quality of [1440, 1080, 720, 576, 480, 360, 240]) {
-        if (new RegExp(`\\b${quality}p?\\b`).test(text))
-          return `${quality}p`;
+      const source = hubCloudServer(button.text, button.link);
+      if (/HubCloud FSL/i.test(source)) {
+        link = wrapFslMkvUrl(link);
       }
-      return "Unknown";
-    }
-    function parseMediaAttributes(...values) {
-      var _a;
-      const text = values.filter(Boolean).join(" ");
-      const languages = [];
-      const languagePatterns = [
-        ["Hindi", /\b(?:hindi|hin)\b/i],
-        ["English", /\b(?:english|eng)\b/i],
-        ["Tamil", /\b(?:tamil|tam)\b/i],
-        ["Telugu", /\b(?:telugu|tel)\b/i],
-        ["Malayalam", /\b(?:malayalam|mal)\b/i],
-        ["Kannada", /\b(?:kannada|kan)\b/i]
-      ];
-      for (const [name, pattern] of languagePatterns)
-        if (pattern.test(text))
-          languages.push(name);
+
       return {
-        quality: parseQuality2(text),
-        hdr: /\b(?:hdr10\+?|dolby\s*vision|dv)\b/i.test(text),
-        codec: /\b(?:hevc|h\.?265|x265)\b/i.test(text) ? "HEVC" : /\b(?:avc|h\.?264|x264)\b/i.test(text) ? "AVC" : void 0,
-        audio: /\b(?:dual[ -]?audio|multi[ -]?audio|dual)\b/i.test(text) ? "Dual/Multi Audio" : void 0,
-        languages,
-        size: (_a = text.match(/\b\d+(?:\.\d+)?\s*(?:GB|MB)\b/i)) == null ? void 0 : _a[0]
+        source,
+        title: [quality, size].filter(Boolean).join(" • "),
+        url: safeUrl(link),
+        quality,
+        size,
+        headers: { ...HEADERS, Referer: pageUrl },
+        subtitles: []
       };
-    }
-    function normalizeStream(stream, defaults = {}) {
-      if (!stream || !/^https?:\/\//i.test(stream.url || ""))
-        return null;
-      const attributes = parseMediaAttributes(stream.url, stream.title, stream.name, stream.label, stream.fileName);
-      return __spreadValues(__spreadValues(__spreadValues(__spreadValues(__spreadValues({
-        url: stream.url,
-        quality: stream.quality || parseQuality2(stream.url, stream.title, stream.name),
-        title: stream.title || stream.name || defaults.title || "Stream",
-        headers: mergeHeaders(defaults.headers, stream.headers),
-        subtitles: stream.subtitles || []
-      }, stream.size || attributes.size ? { size: stream.size || attributes.size } : {}), stream.hdr !== void 0 || attributes.hdr ? { hdr: stream.hdr !== void 0 ? stream.hdr : attributes.hdr } : {}), stream.codec || attributes.codec ? { codec: stream.codec || attributes.codec } : {}), stream.audio || attributes.audio ? { audio: stream.audio || attributes.audio } : {}), stream.languages || attributes.languages.length ? { languages: stream.languages || attributes.languages } : {});
-    }
-    function qualityRank(quality) {
-      const text = String(quality || "").toUpperCase();
-      if (text === "4K" || text.includes("2160"))
-        return 2160;
-      const match = text.match(/(1440|1080|720|480|360|240)/);
-      return match ? Number(match[1]) : 0;
-    }
-    function normalizeDisplayQuality(value) {
-      const rank = qualityRank(value);
-      return rank === 2160 ? "4K" : rank > 0 ? `${rank}p` : "Unknown";
-    }
-    function streamOrderPrefix(quality, seekable) {
-      var _a;
-      const qualityPosition = (_a = { "4K": 0, "1080p": 1, "720p": 2, "480p": 3, "360p": 4, "240p": 5 }[quality]) != null ? _a : 8;
-      const seekPosition = seekable === true ? 1 : seekable === false ? 3 : 2;
-      return "\u200B".repeat(qualityPosition * 3 + seekPosition);
-    }
-    function getSeekableHint(stream) {
-      if (stream && (stream.seekable === true || stream.seekable === false)) {
-        return stream.seekable;
-      }
-      const url = String((stream == null ? void 0 : stream.url) || "").toLowerCase();
-      const source = String((stream == null ? void 0 : stream.source) || (stream == null ? void 0 : stream.name) || "").toLowerCase();
-      if (/hubcloud\s*fsl|\bfsl\b/i.test(source) || /cloudflarestorage\.com\/hub\//i.test(url)) {
-        return true;
-      }
-      if (/\.m3u8(?:$|[?#])/i.test(url)) {
-        return true;
-      }
-      if (/hubcloud\s*pixel\s*10gbps|10gbps/i.test(source)) {
-        return false;
-      }
-      return "unknown";
-    }
-    function seekableOrderRank(hint) {
-      if (hint === true)
-        return 2;
-      if (hint === "unknown")
-        return 1;
-      if (hint === false)
-        return 0;
-      return 1;
-    }
-    function uniqueExactStreams3(streams) {
-      const seen = /* @__PURE__ */ new Set();
-      const valid = [];
-      for (const stream of streams || []) {
-        if (!stream || !stream.url)
-          continue;
-        const quality = normalizeDisplayQuality(stream.quality || stream.name || stream.title);
-        const rawSource = stream.source || stream.provider || "Direct";
-        const canonicalSource = rawSource.replace(/\s*\([^)]*no\s*seek[^)]*\)/gi, "").trim();
-        const key = `${quality}|${canonicalSource}|${stream.url}`;
-        if (seen.has(key))
-          continue;
-        seen.add(key);
-        const provider = "Movies4U";
-        const seekable = getSeekableHint(__spreadProps(__spreadValues({}, stream), { source: canonicalSource }));
-        let displaySource = canonicalSource;
-        if (seekable === false && !/\(no\s*seek\)/i.test(displaySource)) {
-          displaySource = `${displaySource} (No Seek)`;
-        }
-        const prefix = streamOrderPrefix(quality, seekable);
-        const name = `${prefix}${provider} \u2022 ${quality} \u2022 ${displaySource}`;
-        valid.push(__spreadProps(__spreadValues({}, stream), {
-          name,
-          quality,
-          source: canonicalSource,
-          provider,
-          seekable
-        }));
-      }
-      return valid.sort((a, b) => {
-        const qDiff = qualityRank(b.quality) - qualityRank(a.quality);
-        if (qDiff !== 0)
-          return qDiff;
-        return seekableOrderRank(b.seekable) - seekableOrderRank(a.seekable);
-      });
-    }
-    function mapConcurrent3(items, concurrency, fn) {
-      return __async(this, null, function* () {
-        if (!Array.isArray(items) || !items.length)
-          return [];
-        const limit = Math.max(1, Number(concurrency) || 4);
-        const results = new Array(items.length);
-        let index = 0;
-        function worker() {
-          return __async(this, null, function* () {
-            while (index < items.length) {
-              const i = index++;
-              try {
-                results[i] = yield fn(items[i], i);
-              } catch (err) {
-                results[i] = null;
-              }
-            }
-          });
-        }
-        const workers = [];
-        for (let w = 0; w < Math.min(limit, items.length); w++) {
-          workers.push(worker());
-        }
-        yield Promise.all(workers);
-        return results;
-      });
-    }
-    module2.exports = {
-      normalizeStream,
-      parseMediaAttributes,
-      parseQuality: parseQuality2,
-      qualityRank,
-      normalizeDisplayQuality,
-      streamOrderPrefix,
-      getSeekableHint,
-      uniqueExactStreams: uniqueExactStreams3,
-      mapConcurrent: mapConcurrent3
-    };
+    }));
+
+    return streams.filter(Boolean);
+  } catch (_) {
+    return [];
   }
-});
+}
 
-// src/providers/movies4u.js
-var require_movies4u = __commonJS({
-  "src/providers/movies4u.js"(exports2, module2) {
-    var DOMAINS = require_domains();
-    var TMDB_API = DOMAINS.TMDB_API;
-    var WORKER = DOMAINS.WORKER;
-    var { resolveVCloud } = require_vcloud();
-    var { mapConcurrent, uniqueExactStreams } = require_streams();
-    var TMDB_KEY = "439c478a771f35c05022f9feabcca01c";
-    var DOMAINS_URL = DOMAINS.PHISHER_DOMAINS;
-    var MOVIES4U_FALLBACK = DOMAINS.MOVIES4U_FALLBACK;
-    var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36";
+/* ========================================================================== */
+/*                           MAIN PROVIDER LOGIC                              */
+/* ========================================================================== */
 
-    function requestText(url, referer) {
-      return __async(this, null, function* () {
-        let lastError;
-        for (let attempt = 0; attempt < 2; attempt++) {
-          try {
-            const response = yield fetch(url, {
-              redirect: "follow",
-              headers: __spreadValues({
-                "User-Agent": USER_AGENT,
-                Accept: "text/html,application/json;q=0.9,*/*;q=0.8"
-              }, referer ? { Referer: referer } : {})
+async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
+  const base = await getBaseUrl();
+  const tmdbNum = tmdbId.toString().replace("tmdb:", "");
+
+  // Fetch TMDB Metadata for Title & Year
+  let title = "", year = "";
+  try {
+    const type = mediaType === "tv" ? "tv" : "movie";
+    const tmdbResp = await fetch(`https://api.themoviedb.org/3/${type}/${tmdbNum}?api_key=${TMDB_API_KEY}`, { skipSizeCheck: true });
+    const meta = await tmdbResp.json();
+    title = type === "tv" ? meta.name : meta.title;
+    const releaseDate = type === "tv" ? meta.first_air_date : meta.release_date;
+    if (releaseDate) year = releaseDate.split("-")[0];
+  } catch (_) {}
+
+  if (!title) return [];
+
+  // 1. Search Movies4u Post
+  let postUrl = null;
+  try {
+    const searchResp = await fetch(`${base}/?s=${encodeURIComponent(title)}`, { headers: HEADERS, skipSizeCheck: true });
+    const searchHtml = await searchResp.text();
+    const articles = [...searchHtml.matchAll(/<article[\s\S]*?<a href="([^"]+)"[^>]*rel="bookmark">([^<]+)<\/a>/gi)];
+    
+    for (const art of articles) {
+      const link = art[1];
+      const artTitle = art[2].toLowerCase();
+      const cleanTarget = title.toLowerCase();
+
+      if (artTitle.includes(cleanTarget) && (!year || artTitle.includes(year))) {
+        if (mediaType === "tv" && !/season|series/i.test(artTitle)) continue;
+        postUrl = link;
+        break;
+      }
+    }
+  } catch (_) {}
+
+  if (!postUrl) return [];
+
+  // 2. Extract Link Pages from Post Detail
+  let detailHtml = "";
+  try {
+    const detailResp = await fetch(postUrl, { headers: HEADERS, skipSizeCheck: true });
+    detailHtml = await detailResp.text();
+  } catch (_) {
+    return [];
+  }
+
+  const releasePages = [];
+  const headingBlocks = [...detailHtml.matchAll(/<h4[^>]*>([\s\S]*?)<\/h4>([\s\S]*?)(?=<h4|$)/gi)];
+
+  for (const block of headingBlocks) {
+    const label = block[1].replace(/<[^>]+>/g, " ").trim();
+    const body = block[2];
+
+    if (mediaType === "tv" && !new RegExp(`season\\s*0?${season}(?:\\D|$)`, "i").test(label)) continue;
+
+    const quality = extractQuality(label);
+    const sizeMatch = label.match(/\b\d+(?:\.\d+)?\s*(?:GB|MB)(?:\/E)?\b/i);
+    const size = sizeMatch ? sizeMatch[0] : undefined;
+
+    const anchors = [...body.matchAll(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
+    for (const anc of anchors) {
+      const href = anc[1];
+      const anchorText = anc[2].replace(/<[^>]+>/g, "").trim();
+      if (/m4ulinks\./i.test(href)) {
+        releasePages.push({ url: href, quality, size, label, anchorText });
+      }
+    }
+  }
+
+  // 3. Extract HubCloud & M4uPlay Stream Targets from Intermediate Release Pages
+  const rawStreams = [];
+
+  for (const release of releasePages) {
+    try {
+      const relResp = await fetch(release.url, { headers: { ...HEADERS, Referer: postUrl }, skipSizeCheck: true });
+      const relHtml = await relResp.text();
+
+      const routes = [];
+      const subHeadings = [...relHtml.matchAll(/<h[45][^>]*>([\s\S]*?)<\/h[45]>([\s\S]*?)(?=<h[45]|$)/gi)];
+
+      for (const sub of subHeadings) {
+        const hText = sub[1].replace(/<[^>]+>/g, "").trim();
+        const body = sub[2];
+
+        if (mediaType === "tv") {
+          const epMatch = hText.match(/episodes?\s*:\s*0*(\d+)/i);
+          if (!epMatch || parseInt(epMatch[1]) !== parseInt(episode)) continue;
+        }
+
+        const subAnchors = [...body.matchAll(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)];
+        for (const sa of subAnchors) {
+          routes.push({ url: sa[1], label: sa[2].replace(/<[^>]+>/g, "").trim() });
+        }
+      }
+
+      for (const route of routes) {
+        const routeText = `${route.label} ${route.url}`.toLowerCase();
+        
+        // --- HubCloud Stream Processing ---
+        if (routeText.includes("hubcloud")) {
+          const hcStreams = await extractHubCloud(route.url, release.url);
+          for (const s of hcStreams) {
+            const meta = parseExtraMetadata(release.label + " " + (release.size || ""));
+            const finalQuality = await detectDynamicQuality(s.url, s.headers, release.quality);
+            
+            rawStreams.push({
+              name: `Movies4u • ${finalQuality} • ${s.source}`,
+              title: `${meta.language} • ${meta.size}\n${meta.format} | ${meta.extras}\nHubCloud Direct Stream`,
+              url: s.url,
+              quality: finalQuality,
+              headers: s.headers,
+              provider: "Movies4u"
             });
-            if (!response.ok)
-              throw new Error(`HTTP ${response.status} for ${url}`);
-            return response.text();
-          } catch (error) {
-            lastError = error;
           }
-        }
-        throw lastError;
-      });
-    }
+        } 
+        // --- Direct M4U Player Processing ---
+        else if (routeText.includes("m4uplay") || routeText.includes("stream")) {
+          const m3u8Url = await extractDirectM3u8(route.url);
+          if (m3u8Url) {
+            const meta = parseExtraMetadata(release.label + " " + (release.size || ""));
+            const finalQuality = await detectDynamicQuality(m3u8Url, HEADERS, release.quality);
 
-    function getMediaInfo(tmdbId, mediaType) {
-      return __async(this, null, function* () {
-        const endpoint = mediaType === "tv" ? "tv" : "movie";
-        const url = `${TMDB_API}/${endpoint}/${tmdbId}?api_key=${TMDB_KEY}&append_to_response=external_ids`;
-        const data = JSON.parse(yield requestText(url));
-        return {
-          title: mediaType === "tv" ? data.name : data.title,
-          year: Number(String(mediaType === "tv" ? data.first_air_date : data.release_date).slice(0, 4)) || null,
-          imdbId: data.imdb_id || (data.external_ids && data.external_ids.imdb_id) || null
-        };
-      });
-    }
-
-    function getMovies4uBase() {
-      return __async(this, null, function* () {
-        try {
-          const domains = JSON.parse(yield requestText(DOMAINS_URL));
-          if (domains.movies4u)
-            return String(domains.movies4u).replace(/\/$/, "");
-        } catch (_) {
-        }
-        return MOVIES4U_FALLBACK;
-      });
-    }
-
-    function searchMovies4u(base, query) {
-      return __async(this, null, function* () {
-        const data = JSON.parse(yield requestText(`${base}/search.php?q=${encodeURIComponent(query)}`, base));
-        return (data.hits || []).map((hit) => hit && hit.document).filter(Boolean);
-      });
-    }
-
-    function chooseResult(results, media, mediaType) {
-      const imdbMatch = results.find((item) => media.imdbId && item.imdb_id === media.imdbId);
-      if (imdbMatch)
-        return imdbMatch;
-      const title = String(media.title || "").toLowerCase();
-      const year = String(media.year || "");
-      return results.find((item) => {
-        const value = String(item.post_title || "").toLowerCase();
-        return value.includes(title) && (!year || value.includes(year)) && (mediaType !== "tv" || /season|series|episode/i.test(value));
-      }) || results[0];
-    }
-
-    function absoluteUrl(value, base) {
-      if (!value)
-        return null;
-      const url = String(value).trim();
-      if (/^https?:\/\//i.test(url))
-        return url;
-      const origin = String(base || "").match(/^(https?:\/\/[^/]+)/i);
-      if (!origin)
-        return null;
-      if (url.startsWith("/"))
-        return origin[1] + url;
-      return String(base).replace(/\/[^/]*$/, "/").replace(/\/$/, "/") + url.replace(/^\.\//, "");
-    }
-
-    function cleanText(value) {
-      return String(value || "").replace(/<script[\s\S]*?<\/script>/gi, " ").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/gi, " ").replace(/&amp;/gi, "&").replace(/\s+/g, " ").trim();
-    }
-
-    function headingBlocks(html) {
-      const blocks = [];
-      const regex = /<(h[3-5])\b[^>]*>([\s\S]*?)<\/\1>([\s\S]*?)(?=<h[3-5]\b|$)/gi;
-      let match;
-      while (match = regex.exec(html))
-        blocks.push({ heading: cleanText(match[2]), body: match[3] });
-      return blocks;
-    }
-
-    function anchors(html, base) {
-      const values = [];
-      const regex = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
-      let match;
-      while (match = regex.exec(html)) {
-        const url = absoluteUrl(match[1].replace(/&amp;/gi, "&"), base);
-        if (url)
-          values.push({ url, text: cleanText(match[2]) });
-      }
-      return values;
-    }
-
-    function movieReleaseLinks(html, base) {
-      const links = [];
-      for (const block of headingBlocks(html)) {
-        for (const anchor of anchors(block.body, base)) {
-          if (/nexdrive|dwd-button|download now/i.test(anchor.url + " " + anchor.text + " " + block.body)) {
-            links.push({ url: anchor.url, label: block.heading });
+            rawStreams.push({
+              name: `Movies4u • ${finalQuality} • M4U Direct`,
+              title: `${meta.language} • ${meta.size}\n${meta.format} | ${meta.extras}\nM4U Player Stream`,
+              url: m3u8Url,
+              quality: finalQuality,
+              headers: { ...HEADERS, Referer: "https://m4uplay.store/" },
+              provider: "Movies4u"
+            });
           }
         }
       }
-      return links;
-    }
-
-    function episodeReleaseLinks(html, base, season, episode) {
-      const links = [];
-      const seasonRegex = new RegExp(`season\\s*0?${season}(?:\\D|$)`, "i");
-      for (const block of headingBlocks(html)) {
-        if (!seasonRegex.test(block.heading))
-          continue;
-        for (const anchor of anchors(block.body, base)) {
-          if (/(g-?direct|v-?cloud|single|download|nexdrive)/i.test(anchor.text + " " + anchor.url)) {
-            links.push({ url: anchor.url, label: block.heading });
-          }
-        }
-      }
-      return links;
-    }
-
-    function qualityFrom(label) {
-      const match = String(label).match(/(2160|1080|720|480|360)p?/i);
-      if (!match)
-        return "Unknown";
-      return match[1] === "2160" ? "4K" : `${match[1]}p`;
-    }
-
-    function discoverCandidates(tmdbId, mediaType, season, episode) {
-      return __async(this, null, function* () {
-        if (!tmdbId || !["movie", "tv"].includes(mediaType))
-          return [];
-        if (mediaType === "tv" && (!season || !episode))
-          return [];
-        try {
-          const [base, media] = yield Promise.all([getMovies4uBase(), getMediaInfo(tmdbId, mediaType)]);
-          let results = media.imdbId ? yield searchMovies4u(base, media.imdbId) : [];
-          if (!results.length)
-            results = yield searchMovies4u(base, media.title);
-          const result = chooseResult(results, media, mediaType);
-          if (!result || !result.permalink)
-            return [];
-          const detailUrl = absoluteUrl(result.permalink, base);
-          const detail = yield requestText(detailUrl, base);
-          const releases = mediaType === "movie" ? movieReleaseLinks(detail, base) : episodeReleaseLinks(detail, base, Number(season), Number(episode));
-          const candidateJobs = releases.map((release) => __async(this, null, function* () {
-            try {
-              const page = yield requestText(release.url, base);
-              let routes = [];
-              if (mediaType === "tv" && episode) {
-                const episodeRegex = new RegExp(`episodes?\\s*:\\s*0?${episode}(?:\\D|$)`, "i");
-                for (const block of headingBlocks(page)) {
-                  if (!episodeRegex.test(block.heading))
-                    continue;
-                  routes = anchors(block.body, release.url);
-                  break;
-                }
-              } else {
-                routes = anchors(page, release.url);
-              }
-              const useful = routes.filter((item) => /g-?direct|instant|fastdl|v-?cloud|resumable|vcloud\.zip/i.test(item.text + " " + item.url));
-              const quality = qualityFrom(release.label);
-              return useful.map((route) => ({
-                provider: "Movies4U",
-                source: /vcloud\.zip|v-?cloud|resumable/i.test(route.text + " " + route.url) ? "VCloud" : "FastDL",
-                quality,
-                url: route.url,
-                label: release.label,
-                referer: release.url,
-                headers: { "User-Agent": USER_AGENT, Referer: release.url },
-                resolverType: /vcloud\.zip|v-?cloud|resumable/i.test(route.text + " " + route.url) ? "vcloud" : "fastdl"
-              }));
-            } catch (_) {
-              return [];
-            }
-          }));
-          const candidatesList = yield Promise.all(candidateJobs);
-          return candidatesList.flat();
-        } catch (error) {
-          console.log(`[Movies4U Candidates] ${error && error.message ? error.message : error}`);
-          return [];
-        }
-      });
-    }
-
-    function resolveCandidate(candidate) {
-      return __async(this, null, function* () {
-        if (!candidate || !candidate.url)
-          return [];
-        try {
-          if (candidate.resolverType === "vcloud") {
-            const resolved = yield resolveVCloud(candidate.url, candidate.referer, candidate.label || candidate.quality);
-            return (resolved.streams || []).map((stream) => __spreadProps(__spreadValues({}, stream), {
-              quality: candidate.quality || stream.quality,
-              provider: "Movies4U",
-              source: stream.name || "VCloud",
-              subtitles: []
-            }));
-          }
-
-          if (candidate.resolverType === "fastdl") {
-            const workerUrl = `${WORKER}/?url=${encodeURIComponent(candidate.url)}&referer=${encodeURIComponent(candidate.referer)}`;
-            const res = yield requestText(workerUrl, candidate.referer);
-            const data = JSON.parse(res);
-            if (data && data.url) {
-              return [{
-                url: data.url,
-                quality: candidate.quality,
-                provider: "Movies4U",
-                source: "FastDL",
-                headers: { "User-Agent": USER_AGENT, Referer: candidate.referer },
-                subtitles: []
-              }];
-            }
-          }
-
-          return [];
-        } catch (_) {
-          return [];
-        }
-      });
-    }
-
-    function getStreams(tmdbId, mediaType, season, episode) {
-      return __async(this, null, function* () {
-        try {
-          const candidates = yield discoverCandidates(tmdbId, mediaType, season, episode);
-          const resolvedResults = yield mapConcurrent(candidates, 4, resolveCandidate);
-          const flat = resolvedResults.flat().filter(Boolean);
-          return uniqueExactStreams(flat);
-        } catch (error) {
-          console.log(`[Movies4U] ${error && error.message ? error.message : error}`);
-          return [];
-        }
-      });
-    }
-
-    module2.exports = { discoverCandidates, resolveCandidate, getStreams };
+    } catch (_) {}
   }
-});
 
-// Entry Point
-var movies4u = require_movies4u();
-module.exports = {
-  getStreams: movies4u.getStreams
-};
+  // Deduplicate streams by URL
+  const seen = new Set();
+  return rawStreams.filter(stream => {
+    if (!stream.url || seen.has(stream.url)) return false;
+    seen.add(stream.url);
+    return true;
+  });
+}
+
+module.exports = { getStreams };

@@ -224,16 +224,14 @@ function makeStream(url, headers, quality, displaySize, serverSource, title, yea
   const line5 = filenameStr;
 
   const fullCardDescription = [line1, line2, line3, line4, line5].join("\n");
-  
-  const headerName = `${sortTag}Movies4u • ${quality} • ${serverSource}\n${fullCardDescription}`;
 
   return {
     qualityRank,
     sizeInMB,
     data: {
-      name: headerName,
+      name: `${sortTag}Movies4u • ${quality} • ${serverSource}`,
+      description: fullCardDescription,
       title: "",
-      description: "",
       url: url,
       behaviorHints: {
         notWebReady: true,

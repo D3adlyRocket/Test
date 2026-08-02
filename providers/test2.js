@@ -210,28 +210,34 @@ async function detectDynamicQuality(url, headers = {}, fallbackLabel = "", runti
 function makeStream(url, headers, quality, displaySize, serverSource, title, year, meta) {
   const qualityRank = getQualityRank(quality);
   const sizeInMB = parseSizeToMB(displaySize);
+  
+  // Zero-Width Sort Tag
   const sortTag = getInvertedSortTag((qualityRank * 100000) + sizeInMB, 999999);
 
+  // Clean values
   const lineResTag = getResolutionEmoji(quality);
   const cleanTitle = (title || "").replace(/[^a-zA-Z0-9]/g, ".");
-  
   const filenameStr = `${cleanTitle}.${year || '2026'}.${meta.isImax ? 'IMAX.' : ''}${quality}.AMZN.WEB-DL.${meta.language.replace(/\s+/g, ".")}.${meta.audioCodec.replace(/[^\w.]/g, "")}.${meta.format}.MSubs`;
 
+  // Layout lines
   const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
   const line2 = `${lineResTag} | 🗣️ ${meta.language} | 💾 ${displaySize}`;
   const line3 = `🎞️ ${meta.format} | ${meta.codecTag} | ${meta.audioCodec}`;
   const line4 = meta.isImax ? `👁️ IMAX | 🌐 Movies4u | 📦 ${serverSource}` : `🌐 Movies4u | 📦 ${serverSource}`;
   const line5 = filenameStr;
 
-  const fullCardDescription = [line1, line2, line3, line4, line5].join("\n");
+  // Assembly (Matching the 4KHDHub Engine logic)
+  const headerLayout = `${sortTag}Movies4u • ${quality} • ${serverSource}`;
+  const fullLayout = [line1, line2, line3, line4, line5].join("\n");
 
   return {
     qualityRank,
     sizeInMB,
     data: {
-      name: `${sortTag}Movies4u • ${quality} • ${serverSource}`,
-      description: fullCardDescription,
-      title: "",
+      name: headerLayout,
+      title: fullLayout,
+      size: fullLayout, // Brute-forcing the UI fields like the reference script
+      description: fullLayout,
       url: url,
       behaviorHints: {
         notWebReady: true,

@@ -1,4 +1,4 @@
-// movies4u.js - Movies4u native provider with FSL HubCloud resolution, M4U Direct parsing & Mobile/TV UI Scaffolding
+// movies4u.js - Movies4u native provider with makeStream engine & Zero-Width TV Sorting
 
 const DOMAINS_URL = "https://raw.githubusercontent.com/phisher98/TVVVV/refs/heads/main/domains.json";
 const FALLBACK_URL = "https://new2.movies4u.clinic";
@@ -26,7 +26,7 @@ async function getBaseUrl() {
 }
 
 /* ========================================================================== */
-/*                    ZERO-WIDTH BINARY SORTING ENGINE                        */
+/*                    ZERO-WIDTH INVERTED SORTING ENGINE                      */
 /* ========================================================================== */
 
 function getInvertedSortTag(val, maxBaseline = 999999) {
@@ -62,7 +62,6 @@ function parseSizeToMB(sizeStr) {
 /*                           METADATA & HELPERS                               */
 /* ========================================================================== */
 
-// Tweaked #1: Resolution Emojis 🌟 (4K/2160p), 🔥 (1080p), 💎 (720p)
 function getResolutionEmoji(res) {
   const clean = String(res || '').toLowerCase();
   if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return "🌟 4K";
@@ -82,7 +81,6 @@ function extractQuality(text) {
   return "Unknown";
 }
 
-// Tweaked #3 & #4: Subheading Line 3 Codecs/Audio & Line 4 IMAX parsing
 function parseExtraMetadata(text, filename = "") {
   const norm = `${text} ${filename}`.toUpperCase();
   
@@ -100,29 +98,19 @@ function parseExtraMetadata(text, filename = "") {
   let format = "MKV";
   if (norm.includes("MP4")) format = "MP4";
 
-  // Codec Tag: 🌈 HDR or ✨ H.264 / H.265 / HEVC
   let codecTag = "✨ H.264";
   if (norm.includes("HDR") || norm.includes("DV") || norm.includes("VISION")) codecTag = "🌈 HDR";
   else if (norm.includes("HEVC") || norm.includes("X265") || norm.includes("H265") || norm.includes("H.265")) codecTag = "✨ HEVC";
   else if (norm.includes("X264") || norm.includes("H264") || norm.includes("H.264")) codecTag = "✨ H.264";
 
-  // Audio Codec: 🎧 DDP5.1 / Atmos / AAC
   let audioCodec = "🎧 DDP5.1";
   if (norm.includes("ATMOS")) audioCodec = "🎧 Dolby Atmos";
   else if (norm.includes("DD5") || norm.includes("DDP5") || norm.includes("5.1")) audioCodec = "🎧 DDP5.1";
   else if (norm.includes("AAC")) audioCodec = "🎧 AAC";
 
-  // IMAX Detection
   const isImax = norm.includes("IMAX") ? "👁️ IMAX" : null;
 
-  return {
-    language: lang,
-    size: size,
-    format: format,
-    codecTag: codecTag,
-    audioCodec: audioCodec,
-    isImax: isImax
-  };
+  return { language: lang, size, format, codecTag, audioCodec, isImax };
 }
 
 function safeUrl(value) {
@@ -180,12 +168,9 @@ async function detectFileSize(url, headers = {}) {
     const size = resp.headers.get("content-length");
     if (!size) return null;
     const bytes = parseInt(size);
-    let readableSize = "";
-    if (bytes >= 1024 * 1024 * 1024) {
-      readableSize = (bytes / (1024 * 1024 * 1024)).toFixed(1) + "GB";
-    } else {
-      readableSize = Math.round(bytes / (1024 * 1024)) + "MB";
-    }
+    let readableSize = bytes >= 1024 * 1024 * 1024 
+      ? (bytes / (1024 * 1024 * 1024)).toFixed(1) + "GB" 
+      : Math.round(bytes / (1024 * 1024)) + "MB";
     return { bytes, string: readableSize };
   } catch (_) {}
   return null;
@@ -206,8 +191,7 @@ async function detectDynamicQuality(url, headers = {}, fallbackLabel = "", runti
     const sizeData = await detectFileSize(url, headers);
     if (sizeData && sizeData.bytes) {
       const totalGB = sizeData.bytes / (1024 * 1024 * 1024);
-      const minutes = parseInt(runtimeMinutes) || 120;
-      const hours = minutes / 60;
+      const hours = (parseInt(runtimeMinutes) || 120) / 60;
       const gbPerHour = totalGB / hours;
 
       if (gbPerHour >= 6.5) return "4K";
@@ -217,6 +201,50 @@ async function detectDynamicQuality(url, headers = {}, fallbackLabel = "", runti
     }
   } catch (_) {}
   return "1080p";
+}
+
+/* ========================================================================== */
+/*                          STREAM LAYOUT ENGINE                              */
+/* ========================================================================== */
+
+function makeStream(url, headers, quality, displaySize, serverSource, title, year, meta) {
+  const qualityRank = getQualityRank(quality);
+  const sizeInMB = parseSizeToMB(displaySize);
+  const sortTag = getInvertedSortTag((qualityRank * 100000) + sizeInMB, 999999);
+
+  const lineResTag = getResolutionEmoji(quality);
+  const cleanTitle = (title || "").replace(/[^a-zA-Z0-9]/g, ".");
+  
+  // Line 5: Removed 🔗 emoji to prevent unwanted UI gaps
+  const filenameStr = `${cleanTitle}.${year || '2026'}.${meta.isImax ? 'IMAX.' : ''}${quality}.AMZN.WEB-DL.${meta.language.replace(/\s+/g, ".")}.${meta.audioCodec.replace(/[^\w.]/g, "")}.${meta.format}.MSubs`;
+
+  const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
+  const line2 = `${lineResTag} | 🗣️ ${meta.language} | 💾 ${displaySize}`;
+  const line3 = `🎞️ ${meta.format} | ${meta.codecTag} | ${meta.audioCodec}`;
+  const line4 = meta.isImax ? `👁️ IMAX | 🌐 Movies4u | 📦 ${serverSource}` : `🌐 Movies4u | 📦 ${serverSource}`;
+  const line5 = filenameStr;
+
+  const fullCardDescription = [line1, line2, line3, line4, line5].join("\n");
+  
+  // Mobile Display Fix: Embed description within name property separated by line break
+  const headerName = `${sortTag}Movies4u • ${quality} • ${serverSource}\n${fullCardDescription}`;
+
+  return {
+    qualityRank,
+    sizeInMB,
+    data: {
+      name: headerName,
+      title: fullCardDescription,
+      description: fullCardDescription,
+      url: url,
+      behaviorHints: {
+        notWebReady: true,
+        proxyHeaders: {
+          request: headers
+        }
+      }
+    }
+  };
 }
 
 /* ========================================================================== */
@@ -320,12 +348,10 @@ async function extractHubCloud(url, referer) {
 
       return {
         source,
-        title: [quality, size].filter(Boolean).join(" • "),
         url: safeUrl(link),
         quality,
         size,
-        headers: { ...HEADERS, Referer: pageUrl },
-        subtitles: []
+        headers: { ...HEADERS, Referer: pageUrl }
       };
     }));
 
@@ -443,43 +469,18 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
             const finalQuality = await detectDynamicQuality(s.url, s.headers, release.quality);
             const displaySize = s.size || meta.size;
 
-            // Sorting metadata calculation
-            const qualityRank = getQualityRank(finalQuality);
-            const sizeInMB = parseSizeToMB(displaySize);
-            const sortTag = getInvertedSortTag((qualityRank * 100000) + sizeInMB, 999999);
+            const streamObj = makeStream(
+              s.url,
+              s.headers,
+              finalQuality,
+              displaySize,
+              s.source,
+              title,
+              year,
+              meta
+            );
 
-            // Construct exact 5 Subheading lines
-            const lineResTag = getResolutionEmoji(finalQuality); // Tweaked #1
-            const cleanTitle = title.replace(/[^a-zA-Z0-9]/g, ".");
-            const filenameStr = `${cleanTitle}.${year || '2026'}.${meta.isImax ? 'IMAX.' : ''}${finalQuality}.AMZN.WEB-DL.${meta.language.replace(/\s+/g, ".")}.${meta.audioCodec.replace(/[^\w.]/g, "")}.${meta.format}.MSubs`;
-
-            const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
-            const line2 = `${lineResTag} | 🗣️ ${meta.language} | 💾 ${displaySize}`;
-            const line3 = `🎞️ ${meta.format} | ${meta.codecTag} | ${meta.audioCodec}`; // Tweaked #3
-            const line4 = meta.isImax ? `👁️ IMAX | 🌐 Movies4u | 📦 ${s.source}` : `🌐 Movies4u | 📦 ${s.source}`; // Tweaked #4
-            const line5 = `🔗 ${filenameStr}`; // Tweaked #5
-
-            const fullCardDescription = [line1, line2, line3, line4, line5].join("\n");
-
-            // Tweaked #2: Construct inside `name` so mobile apps display subheadings properly!
-            const headerName = `${sortTag}Movies4u • ${finalQuality} • ${s.source}\n${fullCardDescription}`;
-
-            rawStreams.push({
-              name: headerName,
-              title: fullCardDescription,
-              description: fullCardDescription,
-              url: s.url,
-              qualityRank: qualityRank,
-              sizeInMB: sizeInMB,
-              headers: s.headers,
-              provider: "Movies4u",
-              behaviorHints: {
-                notWebReady: true,
-                proxyHeaders: {
-                  request: s.headers
-                }
-              }
-            });
+            rawStreams.push(streamObj);
           }
         } 
         // --- Direct M4U Player Processing ---
@@ -490,40 +491,18 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
             const finalQuality = await detectDynamicQuality(m3u8Url, HEADERS, release.quality);
             const displaySize = meta.size;
 
-            // Sorting metadata calculation
-            const qualityRank = getQualityRank(finalQuality);
-            const sizeInMB = parseSizeToMB(displaySize);
-            const sortTag = getInvertedSortTag((qualityRank * 100000) + sizeInMB, 999999);
+            const streamObj = makeStream(
+              m3u8Url,
+              { ...HEADERS, Referer: "https://m4uplay.store/" },
+              finalQuality,
+              displaySize,
+              "M4U Direct",
+              title,
+              year,
+              meta
+            );
 
-            const lineResTag = getResolutionEmoji(finalQuality);
-            const cleanTitle = title.replace(/[^a-zA-Z0-9]/g, ".");
-            const filenameStr = `${cleanTitle}.${year || '2026'}.${meta.isImax ? 'IMAX.' : ''}${finalQuality}.AMZN.WEB-DL.${meta.language.replace(/\s+/g, ".")}.${meta.audioCodec.replace(/[^\w.]/g, "")}.${meta.format}.MSubs`;
-
-            const line1 = `🎬 ${title}${year ? ` (${year})` : ""}`;
-            const line2 = `${lineResTag} | 🗣️ ${meta.language} | 💾 ${displaySize}`;
-            const line3 = `🎞️ ${meta.format} | ${meta.codecTag} | ${meta.audioCodec}`;
-            const line4 = meta.isImax ? `👁️ IMAX | 🌐 Movies4u | 📦 M4U Direct` : `🌐 Movies4u | 📦 M4U Direct`;
-            const line5 = `🔗 ${filenameStr}`;
-
-            const fullCardDescription = [line1, line2, line3, line4, line5].join("\n");
-            const headerName = `${sortTag}Movies4u • ${finalQuality} • M4U Direct\n${fullCardDescription}`;
-
-            rawStreams.push({
-              name: headerName,
-              title: fullCardDescription,
-              description: fullCardDescription,
-              url: m3u8Url,
-              qualityRank: qualityRank,
-              sizeInMB: sizeInMB,
-              headers: { ...HEADERS, Referer: "https://m4uplay.store/" },
-              provider: "Movies4u",
-              behaviorHints: {
-                notWebReady: true,
-                proxyHeaders: {
-                  request: { ...HEADERS, Referer: "https://m4uplay.store/" }
-                }
-              }
-            });
+            rawStreams.push(streamObj);
           }
         }
       }
@@ -533,20 +512,20 @@ async function getStreams(tmdbId, mediaType, season = 1, episode = 1) {
   // Deduplicate streams by URL
   const seen = new Set();
   const filteredStreams = rawStreams.filter(stream => {
-    if (!stream.url || seen.has(stream.url)) return false;
-    seen.add(stream.url);
+    if (!stream.data.url || seen.has(stream.data.url)) return false;
+    seen.add(stream.data.url);
     return true;
   });
 
-  // Tweaked #6: Force Array Sort by Quality Rank and Size before outputting to TV interface
+  // Sort Array by Quality Rank and Size before returning to client
   filteredStreams.sort((a, b) => {
     if (b.qualityRank !== a.qualityRank) {
-      return b.qualityRank - a.qualityRank; // Higher quality score top
+      return b.qualityRank - a.qualityRank;
     }
-    return b.sizeInMB - a.sizeInMB; // Larger size top
+    return b.sizeInMB - a.sizeInMB;
   });
 
-  return filteredStreams;
+  return filteredStreams.map(item => item.data);
 }
 
 module.exports = { getStreams };

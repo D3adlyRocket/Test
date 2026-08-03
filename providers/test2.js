@@ -1,5 +1,5 @@
 /**
- * 1shows - Configured with `makeStream` for TV/Mobile UI Compatibility
+ * 1shows - Configured with Goated Header & Subheading Layout for TV/Mobile UI Compatibility
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -56,6 +56,41 @@ var PAGE_HEADERS = {
   "User-Agent": USER_AGENT
 };
 var DOWNLOAD_KEY_HEX = "7a03086357a2147dab4d757e8ed2ff8b5dc8707ee3d473afcb80d97727afa191";
+
+/* ----------------------------------------------------------------------------
+ * ZERO-WIDTH SORTING & RESOLUTION HELPERS (GOATED PATTERN)
+ * ---------------------------------------------------------------------------- */
+
+function getInvertedSortTag(val, maxBaseline = 999999) {
+  const safeVal = Math.max(0, parseInt(val, 10) || 0);
+  const inverted = Math.max(0, maxBaseline - safeVal);
+  const binaryStr = inverted.toString(2).padStart(20, '0');
+  return binaryStr.split('').map(bit => bit === '1' ? "\uFEFF" : "\u200B").join('');
+}
+
+function parseSizeToMB(sizeStr) {
+  if (!sizeStr || sizeStr === "N/A" || sizeStr === "Unknown" || sizeStr === "Unknown Size") return 0;
+  const match = String(sizeStr).match(/([\d.]+)\s*(GB|MB)/i);
+  if (!match) return 0;
+  const num = parseFloat(match[1]);
+  const unit = match[2].toUpperCase();
+  if (unit === "GB") return Math.floor(num * 1024);
+  if (unit === "MB") return Math.floor(num);
+  return 0;
+}
+
+function getResolutionEmoji(res) {
+  const clean = String(res || '').toLowerCase();
+  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return "🌟 4K";
+  if (clean.includes("1080") || clean.includes("fhd")) return "🔥 1080p";
+  if (clean.includes("720") || clean.includes("hd")) return "💎 720p";
+  if (clean.includes("480") || clean.includes("sd")) return "📱 480p";
+  return "📺 " + (res || "1080p");
+}
+
+/* ----------------------------------------------------------------------------
+ * HTTP & PARSING HELPERS
+ * ---------------------------------------------------------------------------- */
 
 function fetchJson(url, options) {
   return __async(this, null, function* () {
@@ -170,6 +205,10 @@ function joinBytes(first, second) {
   joined.set(second, first.length);
   return joined;
 }
+
+/* ----------------------------------------------------------------------------
+ * CRYPTOGRAPHIC SOLVERS (AES-GCM / WASM / PURE JS)
+ * ---------------------------------------------------------------------------- */
 
 var AES_SBOX = new Uint8Array([
   99, 124, 119, 123, 242, 107, 111, 197, 48, 1, 103, 43, 254, 215, 171, 118,
@@ -456,6 +495,10 @@ function decryptDownload(payload, token) {
     }
   });
 }
+
+/* ----------------------------------------------------------------------------
+ * METADATA & SOURCE EXTRACTORS
+ * ---------------------------------------------------------------------------- */
 
 function fetchDownloadSources(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
@@ -913,30 +956,30 @@ function playbackReferer(url, fallback) {
   return fallback || `${SITE_URL}/`;
 }
 
+/* ----------------------------------------------------------------------------
+ * STREAM LAYOUT ENGINE (HEADER & SUBHEADINGS INTEGRATION)
+ * ---------------------------------------------------------------------------- */
+
 function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
   const text = `${sourceLabel || ""} ${filename || ""} ${url || ""}`.replace(/р/gi, "p");
 
-  // Quality & Emoji
+  // Quality & Res Emoji
   let q = qualityFromLabel(text);
-  let qEmoji = "📱";
-  if (q === "2160p") qEmoji = "🌟";
-  else if (q === "1080p") qEmoji = "🔥";
-  else if (q === "720p") qEmoji = "💎";
-  else if (q === "480p") qEmoji = "📱";
-  const qLine = `${qEmoji} ${q}`;
+  let qEmoji = getResolutionEmoji(q);
+  const qLine = `${qEmoji}`;
 
   // Audio Language Tag
-  let audioLang = "🌍 Multi-Audio";
+  let audioLang = "🗣️ Multi-Audio";
   if (/dual[- .]?audio/i.test(text)) {
-    audioLang = "🌍 Dual-Audio";
+    audioLang = "🗣️ Dual-Audio";
   } else if (/multi[- .]?audio/i.test(text)) {
-    audioLang = "🌍 Multi-Audio";
+    audioLang = "🗣️ Multi-Audio";
   } else {
     const langs = ["Hindi", "English", "Tamil", "Telugu", "Malayalam", "Bengali"].filter(l => new RegExp(`\\b${l}\\b`, "i").test(text));
     if (langs.length > 1) {
-      audioLang = `🌍 ${langs.join("-")}`;
+      audioLang = `🗣️ ${langs.join("-")}`;
     } else if (langs.length === 1) {
-      audioLang = `🌍 ${langs[0]}`;
+      audioLang = `🗣️ ${langs[0]}`;
     }
   }
 
@@ -952,11 +995,11 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
   const formatLine = `🎞️ ${ext}`;
 
   // Codec
-  let codec = "H.264";
+  let codec = "HEVC";
   if (/\b(?:HEVC|x265|H[.]?265)\b/i.test(text)) codec = "HEVC";
   else if (/\b(?:x264|AVC|H[.]?264)\b/i.test(text)) codec = "H.264";
   else if (/\bAV1\b/i.test(text)) codec = "AV1";
-  const codecLine = `⚡ ${codec}`;
+  const codecLine = `✨ ${codec}`;
 
   // Audio Codec
   let audioCodec = "AAC";
@@ -982,7 +1025,7 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
 }
 
 /**
- * makeStream - Standardized Stream Builder function for TV, Mobile & Desktop clients
+ * makeStream - Configured with Goated Layout Architecture
  */
 function makeStream(source, resolved, index, total, mediaMeta) {
   const url = resolved.url;
@@ -992,39 +1035,52 @@ function makeStream(source, resolved, index, total, mediaMeta) {
 
   const info = parseStreamInfo(rawFileName, source.label, url, source.size);
 
-  // Top Header Line: 1Shows • Quality • [Route]
-  const headerName = `1Shows • ${info.q} • [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
+  const qRank = qualityRank(info.q);
+  const sizeInMB = parseSizeToMB(info.sz);
+  const sortTag = getInvertedSortTag((qRank * 100000) + sizeInMB, 999999);
 
-  // Subheading Line 1: Movie Name (Year) or Series Name (Year) | S1E1
-  const line1 = mediaMeta.mediaType === "tv"
-    ? `🎦 ${mediaMeta.title} (${mediaMeta.year || "N/A"}) | S${mediaMeta.season}E${mediaMeta.episode}`
-    : `🎦 ${mediaMeta.title} (${mediaMeta.year || "N/A"})`;
+  /* --- HEADER LAYOUT --- */
+  const headerLayout = `${sortTag}1Shows • ${info.q} • [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
 
-  // Subheading Line 2: Quality | Audio | Size
-  const line2 = `${info.qLine} | ${info.audioLang} | ${info.sizeLine}`;
+  /* --- SUBHEADINGS LAYOUT --- */
+  const line1_TitleHeader = mediaMeta.mediaType === "tv"
+    ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
+    : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
 
-  // Subheading Line 3: Format | Codec | Audio Tech
-  const line3 = `${info.formatLine} | ${info.codecLine} | ${info.audioLine}`;
+  const line2_SubheadingQuality = `${info.qLine} | ${info.audioLang} | ${info.sizeLine}`;
+  const line3_SubheadingTech = `${info.formatLine} | ${info.codecLine} | ${info.audioLine}`;
+  const line4_SubheadingSource = `🌐 ${provider} | 📥 ${route} | ${info.releaseLine}`;
+  const line5_SubheadingFilename = rawFileName;
 
-  // Subheading Line 4: Provider | Route | Release Type
-  const line4 = `🔗 ${provider} | 🌐 ${route} | ${info.releaseLine}`;
+  const fullLayout = [
+    line1_TitleHeader,
+    line2_SubheadingQuality,
+    line3_SubheadingTech,
+    line4_SubheadingSource,
+    line5_SubheadingFilename
+  ].join("\n");
 
-  // Subheading Line 5: Raw File Name
-  const line5 = rawFileName;
-
-  const fullSubtitle = [line1, line2, line3, line4, line5].join("\n");
+  const headers = {
+    "User-Agent": USER_AGENT,
+    Referer: playbackReferer(url, source.url)
+  };
 
   return {
-    name: headerName,
-    title: fullSubtitle,
-    description: fullSubtitle,
+    name: headerLayout,
+    title: fullLayout,
+    size: fullLayout,
+    description: fullLayout,
     url: url,
     quality: info.q,
-    size: info.sz,
+    qualityRank: qRank,
+    sizeInMB: sizeInMB,
     type: typeFromUrl(url),
-    headers: {
-      "User-Agent": USER_AGENT,
-      Referer: playbackReferer(url, source.url)
+    headers: headers,
+    behaviorHints: {
+      notWebReady: true,
+      proxyHeaders: {
+        request: headers
+      }
     }
   };
 }
@@ -1101,6 +1157,10 @@ function mediaFingerprint(stream) {
   }
 }
 
+/* ----------------------------------------------------------------------------
+ * MAIN PROVIDER FUNCTION
+ * ---------------------------------------------------------------------------- */
+
 function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
   return __async(this, null, function* () {
     const typeStr = String(mediaType || "").toLowerCase().trim();
@@ -1176,14 +1236,12 @@ function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
         return true;
       });
 
-      // 1. Sort streams by quality descending (2160p -> 1080p -> 720p -> 480p)
-      streams.sort((a, b) => qualityRank(b.quality) - qualityRank(a.quality));
-
-      // 2. Prefix zero-width spaces (\u200B) for client UI ordering retention
-      streams.forEach((stream) => {
-        const rank = qualityRank(stream.quality);
-        const zeroWidthPrefix = "\u200B".repeat(5 - rank);
-        stream.name = zeroWidthPrefix + stream.name;
+      // Sort streams by Quality Rank descending, then File Size descending
+      streams.sort((a, b) => {
+        if (b.qualityRank !== a.qualityRank) {
+          return b.qualityRank - a.qualityRank;
+        }
+        return b.sizeInMB - a.sizeInMB;
       });
 
       return streams;

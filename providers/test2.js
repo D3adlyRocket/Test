@@ -963,12 +963,10 @@ function playbackReferer(url, fallback) {
 function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
   const text = `${sourceLabel || ""} ${filename || ""} ${url || ""}`.replace(/р/gi, "p");
 
-  // Quality & Res Emoji
   let q = qualityFromLabel(text);
   let qEmoji = getResolutionEmoji(q);
   const qLine = `${qEmoji}`;
 
-  // Audio Language Tag
   let audioLang = "🗣️ Multi-Audio";
   if (/dual[- .]?audio/i.test(text)) {
     audioLang = "🗣️ Dual-Audio";
@@ -983,25 +981,21 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
     }
   }
 
-  // Size
   const sz = detectedSize || sizeFromLabel(text) || "Unknown Size";
   const sizeLine = `💾 ${sz}`;
 
-  // Format (Container)
   let ext = "MKV";
   if (/\.mp4/i.test(filename) || /\.mp4/i.test(url)) ext = "MP4";
   else if (/\.mkv/i.test(filename) || /\.mkv/i.test(url)) ext = "MKV";
   else if (/\.webm/i.test(filename) || /\.webm/i.test(url)) ext = "WEBM";
   const formatLine = `🎞️ ${ext}`;
 
-  // Codec
   let codec = "HEVC";
   if (/\b(?:HEVC|x265|H[.]?265)\b/i.test(text)) codec = "HEVC";
   else if (/\b(?:x264|AVC|H[.]?264)\b/i.test(text)) codec = "H.264";
   else if (/\bAV1\b/i.test(text)) codec = "AV1";
   const codecLine = `✨ ${codec}`;
 
-  // Audio Codec
   let audioCodec = "AAC";
   if (/\b(?:DDP?\s?5\.1|DD\+\s?5\.1|EAC3)\b/i.test(text)) audioCodec = "DDP 5.1";
   else if (/\bDDP?\s?2\.0\b/i.test(text)) audioCodec = "DDP 2.0";
@@ -1011,7 +1005,6 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
   else if (/\bAAC\b/i.test(text)) audioCodec = "AAC";
   const audioLine = `🎧 ${audioCodec}`;
 
-  // Source / Release Type
   let releaseType = "WEB-DL";
   if (/\bBluRay\b/i.test(text)) releaseType = "BluRay";
   else if (/\bWEBRip\b/i.test(text)) releaseType = "WEBRip";
@@ -1068,8 +1061,7 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   return {
     name: headerLayout,
     title: fullLayout,
-    size: fullLayout,
-    description: fullLayout,
+    description: fullLayout, // NOTE: Completely removed 'size' property mapping to prevent UI override.
     url: url,
     quality: info.q,
     qualityRank: qRank,
@@ -1122,11 +1114,11 @@ function isStreamAlive(stream) {
       const hlsPlaylist = response.ok && (/mpegurl|application\/vnd\.apple\.mpegurl/i.test(contentType) || /\.m3u8(?:$|[?#])/i.test(stream.url));
       
       if (rangedMedia) {
-        const detectedSize = formatFileSize(rangeTotal);
-        if (detectedSize) {
-          stream.size = detectedSize;
-        }
+         // Fix: Only calculating `sizeInMB` for accurate stream sorting. 
+         // Deliberately NOT setting `stream.size` anymore so the UI won't collapse the layout.
+         stream.sizeInMB = Math.floor(rangeTotal / (1024 * 1024));
       }
+      
       if (/video\/mp4/i.test(contentType))
         stream.type = "video/mp4";
       else if (/video\/webm/i.test(contentType))

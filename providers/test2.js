@@ -1,5 +1,6 @@
 /**
- * 1shows - Universal Mobile & Android TV Optimized
+ * 1shows - Built from src/1shows/
+ * Generated: 2026-08-02T10:01:57.341Z
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -30,42 +31,16 @@ var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36";
 var API_HEADERS = {
   Accept: "application/json",
+  Origin: SITE_URL,
+  Referer: `${SITE_URL}/`,
   "User-Agent": USER_AGENT
 };
 var PAGE_HEADERS = {
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+  Referer: `${SITE_URL}/`,
   "User-Agent": USER_AGENT
 };
 var DOWNLOAD_KEY_HEX = "7a03086357a2147dab4d757e8ed2ff8b5dc8707ee3d473afcb80d97727afa191";
-
-function resolveSettings(extraConfig) {
-  let settings = {
-    language: "any",
-    minQuality: "any",
-    sortBy: "seeders"
-  };
-  try {
-    let source = extraConfig;
-    if (!source && typeof globalThis !== "undefined") {
-      source = globalThis.SCRAPER_SETTINGS || globalThis.SETTINGS || globalThis.settings;
-    }
-    if (!source && typeof global !== "undefined") {
-      source = global.SCRAPER_SETTINGS || global.SETTINGS || global.settings;
-    }
-    if (!source && typeof window !== "undefined") {
-      source = window.SCRAPER_SETTINGS || window.SETTINGS || window.settings;
-    }
-    if (source) {
-      if (source.language) settings.language = String(source.language).trim();
-      if (source.minQuality) settings.minQuality = String(source.minQuality).trim();
-      if (source.sortBy) settings.sortBy = String(source.sortBy).trim();
-    }
-  } catch (e) {
-    // Fallback safe settings parsing
-  }
-  return settings;
-}
-
 function fetchJson(url, options) {
   return __async(this, null, function* () {
     const response = yield fetch(url, options);
@@ -74,16 +49,27 @@ function fetchJson(url, options) {
     return response.json();
   });
 }
-
 function fetchText(url, options) {
   return __async(this, null, function* () {
-    const response = yield fetch(url, options);
+    const request = Object.assign({}, options || {}, {
+      skipSizeCheck: true,
+      cfKiller: true
+    });
+    let response = yield fetch(url, request);
+    if ((response.status === 403 || response.status === 503) && typeof globalThis.Cloudflare !== "undefined" && globalThis.Cloudflare.solve) {
+      const solvedHeaders = yield globalThis.Cloudflare.solve(url);
+      response = yield fetch(
+        url,
+        Object.assign({}, request, {
+          headers: Object.assign({}, request.headers || {}, solvedHeaders || {})
+        })
+      );
+    }
     if (!response.ok)
       throw new Error(`HTTP ${response.status}: ${url}`);
     return { html: yield response.text(), url: response.url || url };
   });
 }
-
 function absoluteUrl(value, base) {
   if (!value)
     return "";
@@ -93,22 +79,18 @@ function absoluteUrl(value, base) {
     return "";
   }
 }
-
 function decodeHtml(value) {
   return String(value || "").replace(/&amp;/gi, "&").replace(/&#0*39;|&apos;/gi, "'").replace(/&quot;/gi, '"').replace(/&lt;/gi, "<").replace(/&gt;/gi, ">");
 }
-
 function stripTags(value) {
   return decodeHtml(String(value || "").replace(/<[^>]*>/g, " ")).replace(/\s+/g, " ").trim();
 }
-
 function attribute(tag, name) {
   const match = String(tag || "").match(
     new RegExp(`\\b${name}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, "i")
   );
   return match ? decodeHtml(match[2]) : "";
 }
-
 function anchors(html, base) {
   const found = [];
   const pattern = /<a\b[^>]*>[\s\S]*?<\/a>/gi;
@@ -120,7 +102,6 @@ function anchors(html, base) {
   }
   return found;
 }
-
 function hexToBytes(value) {
   const hex = String(value || "").trim();
   if (!hex || hex.length % 2)
@@ -134,34 +115,294 @@ function hexToBytes(value) {
   }
   return bytes;
 }
-
+function writeBytes(exports2, allocName, writeName, bytes) {
+  const pointer = exports2[allocName](bytes.length);
+  if (!pointer)
+    throw new Error("1Shows decryptor allocation failed");
+  if (exports2.memory) {
+    new Uint8Array(exports2.memory.buffer, pointer, bytes.length).set(bytes);
+  } else {
+    for (let index = 0; index < bytes.length; index += 1) {
+      exports2[writeName](pointer + index, bytes[index]);
+    }
+  }
+  return pointer;
+}
+function readBytes(exports2, readName, pointer, length) {
+  if (exports2.memory) {
+    return new Uint8Array(exports2.memory.buffer.slice(pointer, pointer + length));
+  }
+  const bytes = new Uint8Array(length);
+  for (let index = 0; index < length; index += 1) {
+    bytes[index] = exports2[readName](pointer + index);
+  }
+  return bytes;
+}
 function joinBytes(first, second) {
   const joined = new Uint8Array(first.length + second.length);
   joined.set(first, 0);
   joined.set(second, first.length);
   return joined;
 }
-
 var AES_SBOX = new Uint8Array([
-  99, 124, 119, 123, 242, 107, 111, 197, 48, 1, 103, 43, 254, 215, 171, 118,
-  202, 130, 201, 125, 250, 89, 71, 240, 173, 212, 162, 175, 156, 164, 114, 192,
-  183, 253, 147, 38, 54, 63, 247, 204, 52, 165, 229, 241, 113, 216, 49, 21,
-  4, 199, 35, 195, 24, 150, 5, 154, 7, 18, 128, 226, 235, 39, 178, 117,
-  9, 131, 44, 26, 27, 110, 90, 160, 82, 59, 214, 179, 41, 227, 47, 132,
-  83, 209, 0, 237, 32, 252, 177, 91, 106, 203, 190, 57, 74, 76, 88, 207,
-  208, 239, 170, 251, 67, 77, 51, 133, 69, 249, 2, 127, 80, 60, 159, 168,
-  81, 163, 64, 143, 146, 157, 56, 245, 188, 182, 218, 33, 16, 255, 243, 210,
-  205, 12, 19, 236, 95, 151, 68, 23, 196, 167, 126, 61, 100, 93, 25, 115,
-  96, 129, 79, 220, 34, 42, 144, 136, 70, 238, 184, 20, 222, 94, 11, 219,
-  224, 50, 58, 10, 73, 6, 36, 92, 194, 211, 172, 98, 145, 149, 228, 121,
-  231, 200, 55, 109, 141, 213, 78, 169, 108, 86, 244, 234, 101, 122, 174, 8,
-  186, 120, 37, 46, 28, 166, 180, 198, 232, 221, 116, 31, 75, 189, 139, 138,
-  112, 62, 181, 102, 72, 3, 246, 14, 97, 53, 87, 185, 134, 193, 29, 158,
-  225, 248, 152, 17, 105, 217, 142, 148, 155, 30, 135, 233, 206, 85, 40, 223,
-  140, 161, 137, 13, 191, 230, 66, 104, 65, 153, 45, 15, 176, 84, 187, 22
+  99,
+  124,
+  119,
+  123,
+  242,
+  107,
+  111,
+  197,
+  48,
+  1,
+  103,
+  43,
+  254,
+  215,
+  171,
+  118,
+  202,
+  130,
+  201,
+  125,
+  250,
+  89,
+  71,
+  240,
+  173,
+  212,
+  162,
+  175,
+  156,
+  164,
+  114,
+  192,
+  183,
+  253,
+  147,
+  38,
+  54,
+  63,
+  247,
+  204,
+  52,
+  165,
+  229,
+  241,
+  113,
+  216,
+  49,
+  21,
+  4,
+  199,
+  35,
+  195,
+  24,
+  150,
+  5,
+  154,
+  7,
+  18,
+  128,
+  226,
+  235,
+  39,
+  178,
+  117,
+  9,
+  131,
+  44,
+  26,
+  27,
+  110,
+  90,
+  160,
+  82,
+  59,
+  214,
+  179,
+  41,
+  227,
+  47,
+  132,
+  83,
+  209,
+  0,
+  237,
+  32,
+  252,
+  177,
+  91,
+  106,
+  203,
+  190,
+  57,
+  74,
+  76,
+  88,
+  207,
+  208,
+  239,
+  170,
+  251,
+  67,
+  77,
+  51,
+  133,
+  69,
+  249,
+  2,
+  127,
+  80,
+  60,
+  159,
+  168,
+  81,
+  163,
+  64,
+  143,
+  146,
+  157,
+  56,
+  245,
+  188,
+  182,
+  218,
+  33,
+  16,
+  255,
+  243,
+  210,
+  205,
+  12,
+  19,
+  236,
+  95,
+  151,
+  68,
+  23,
+  196,
+  167,
+  126,
+  61,
+  100,
+  93,
+  25,
+  115,
+  96,
+  129,
+  79,
+  220,
+  34,
+  42,
+  144,
+  136,
+  70,
+  238,
+  184,
+  20,
+  222,
+  94,
+  11,
+  219,
+  224,
+  50,
+  58,
+  10,
+  73,
+  6,
+  36,
+  92,
+  194,
+  211,
+  172,
+  98,
+  145,
+  149,
+  228,
+  121,
+  231,
+  200,
+  55,
+  109,
+  141,
+  213,
+  78,
+  169,
+  108,
+  86,
+  244,
+  234,
+  101,
+  122,
+  174,
+  8,
+  186,
+  120,
+  37,
+  46,
+  28,
+  166,
+  180,
+  198,
+  232,
+  221,
+  116,
+  31,
+  75,
+  189,
+  139,
+  138,
+  112,
+  62,
+  181,
+  102,
+  72,
+  3,
+  246,
+  14,
+  97,
+  53,
+  87,
+  185,
+  134,
+  193,
+  29,
+  158,
+  225,
+  248,
+  152,
+  17,
+  105,
+  217,
+  142,
+  148,
+  155,
+  30,
+  135,
+  233,
+  206,
+  85,
+  40,
+  223,
+  140,
+  161,
+  137,
+  13,
+  191,
+  230,
+  66,
+  104,
+  65,
+  153,
+  45,
+  15,
+  176,
+  84,
+  187,
+  22
 ]);
 var AES_RCON = new Uint8Array([0, 1, 2, 4, 8, 16, 32, 64, 128, 27, 54]);
-
 function expandAes256Key(key) {
   if (key.length !== 32)
     throw new Error("Invalid AES-256 key");
@@ -190,11 +431,9 @@ function expandAes256Key(key) {
   }
   return expanded;
 }
-
 function aesXtime(value) {
   return (value << 1 ^ (value & 128 ? 27 : 0)) & 255;
 }
-
 function aesEncryptBlock(input, expandedKey) {
   const state = new Uint8Array(input);
   for (let i = 0; i < 16; i += 1)
@@ -229,12 +468,10 @@ function aesEncryptBlock(input, expandedKey) {
   }
   return state;
 }
-
 function xorBlock(target, block) {
   for (let i = 0; i < 16; i += 1)
     target[i] ^= block[i];
 }
-
 function ghashMultiply(value, hashKey) {
   const result = new Uint8Array(16);
   const current = new Uint8Array(hashKey);
@@ -251,7 +488,6 @@ function ghashMultiply(value, hashKey) {
   }
   return result;
 }
-
 function ghashUpdate(state, hashKey, bytes) {
   for (let offset = 0; offset < bytes.length; offset += 16) {
     const block = new Uint8Array(16);
@@ -260,7 +496,6 @@ function ghashUpdate(state, hashKey, bytes) {
     state.set(ghashMultiply(state, hashKey));
   }
 }
-
 function writeBitLength(block, offset, byteLength) {
   let bits = byteLength * 8;
   for (let index = 7; index >= 0; index -= 1) {
@@ -268,7 +503,6 @@ function writeBitLength(block, offset, byteLength) {
     bits = Math.floor(bits / 256);
   }
 }
-
 function incrementCounter(counter) {
   for (let index = 15; index >= 12; index -= 1) {
     counter[index] = counter[index] + 1 & 255;
@@ -276,7 +510,6 @@ function incrementCounter(counter) {
       break;
   }
 }
-
 function constantTimeEqual(first, second) {
   if (first.length !== second.length)
     return false;
@@ -285,7 +518,6 @@ function constantTimeEqual(first, second) {
     difference |= first[i] ^ second[i];
   return difference === 0;
 }
-
 function decryptDownloadPureJs(payload, token) {
   const key = hexToBytes(DOWNLOAD_KEY_HEX);
   const iv = hexToBytes(payload.iv);
@@ -325,7 +557,6 @@ function decryptDownloadPureJs(payload, token) {
   }
   return JSON.parse(new TextDecoder().decode(plaintext));
 }
-
 function decryptDownloadWithWebCrypto(payload, token) {
   return __async(this, null, function* () {
     const cryptoApi = globalThis.crypto;
@@ -351,21 +582,87 @@ function decryptDownloadWithWebCrypto(payload, token) {
     return JSON.parse(new TextDecoder().decode(decrypted));
   });
 }
-
+function decryptDownloadWithWasm(payload, token) {
+  return __async(this, null, function* () {
+    if (typeof WebAssembly === "undefined" || !WebAssembly.instantiate) {
+      throw new Error("WebAssembly is unavailable");
+    }
+    const manifest = yield fetchJson(`${SITE_URL}/makimaDL-manifest.json`, {
+      headers: API_HEADERS
+    });
+    const wasmUrl = absoluteUrl(manifest.url, SITE_URL);
+    if (!wasmUrl || !manifest.exports)
+      throw new Error("Invalid decryptor manifest");
+    const response = yield fetch(wasmUrl, { headers: PAGE_HEADERS });
+    if (!response.ok)
+      throw new Error(`Decryptor HTTP ${response.status}`);
+    const loaded = yield WebAssembly.instantiate(yield response.arrayBuffer(), {
+      env: {
+        abort() {
+          throw new Error("1Shows decryptor aborted");
+        }
+      }
+    });
+    const exports2 = (loaded.instance || loaded).exports;
+    const names = manifest.exports;
+    const key = hexToBytes(token);
+    const iv = hexToBytes(payload.iv);
+    const ciphertext = hexToBytes(payload.ct);
+    const tag = hexToBytes(payload.tag);
+    try {
+      const keyPointer = writeBytes(exports2, names.alloc, names.writeByte, key);
+      const ivPointer = writeBytes(exports2, names.alloc, names.writeByte, iv);
+      const ciphertextPointer = writeBytes(
+        exports2,
+        names.alloc,
+        names.writeByte,
+        ciphertext
+      );
+      const tagPointer = writeBytes(exports2, names.alloc, names.writeByte, tag);
+      const outputPointer = exports2[names.alloc](ciphertext.length);
+      const outputLength = exports2[names.decryptDownload](
+        keyPointer,
+        key.length,
+        ivPointer,
+        iv.length,
+        ciphertextPointer,
+        ciphertext.length,
+        tagPointer,
+        tag.length,
+        outputPointer
+      );
+      if (outputLength <= 0 || outputLength > ciphertext.length) {
+        throw new Error("1Shows download decryption failed");
+      }
+      const decoded = new TextDecoder().decode(
+        readBytes(exports2, names.readByte, outputPointer, outputLength)
+      );
+      return JSON.parse(decoded);
+    } finally {
+      if (exports2[names.reset])
+        exports2[names.reset]();
+    }
+  });
+}
 function decryptDownload(payload, token) {
   return __async(this, null, function* () {
     try {
-      return yield decryptDownloadWithWebCrypto(payload, token);
-    } catch (webCryptoError) {
+      return decryptDownloadPureJs(payload, token);
+    } catch (pureJsError) {
+      console.log(
+        `[1Shows] Pure JS decrypt unavailable, trying Web Crypto: ${pureJsError.message}`
+      );
       try {
-        return decryptDownloadPureJs(payload, token);
-      } catch (pureJsError) {
-        throw new Error(`All decryption strategies failed: ${pureJsError.message}`);
+        return yield decryptDownloadWithWebCrypto(payload, token);
+      } catch (webCryptoError) {
+        console.log(
+          `[1Shows] Web Crypto decrypt unavailable, trying WASM: ${webCryptoError.message}`
+        );
+        return decryptDownloadWithWasm(payload, token);
       }
     }
   });
 }
-
 function fetchDownloadSources(tmdbId, mediaType, season, episode) {
   return __async(this, null, function* () {
     const tokenData = yield fetchJson(`${API_URL}/download-token`, {
@@ -386,7 +683,6 @@ function fetchDownloadSources(tmdbId, mediaType, season, episode) {
     return Array.isArray(decrypted.sources) ? decrypted.sources : [];
   });
 }
-
 function fetchMediaYear(tmdbId, mediaType) {
   return __async(this, null, function* () {
     try {
@@ -402,14 +698,12 @@ function fetchMediaYear(tmdbId, mediaType) {
     }
   });
 }
-
 function hasWrongYear(label, expectedYear) {
   if (!expectedYear)
     return false;
   const years = String(label || "").match(/\b(?:19|20)\d{2}\b/g) || [];
   return years.some((year) => Math.abs(Number(year) - expectedYear) > 1);
 }
-
 function isDirectMedia(url) {
   if (/\.(?:m3u8|mpd|mp4|mkv|webm)(?:$|[?#])/i.test(url))
     return true;
@@ -421,7 +715,6 @@ function isDirectMedia(url) {
     return false;
   }
 }
-
 function isKnownUnplayableHost(url) {
   try {
     const host = new URL(url).hostname.toLowerCase();
@@ -430,7 +723,6 @@ function isKnownUnplayableHost(url) {
     return false;
   }
 }
-
 function normalizeDirectUrl(url) {
   const value = String(url || "").replace(/ /g, "%20");
   try {
@@ -445,7 +737,6 @@ function normalizeDirectUrl(url) {
   }
   return value;
 }
-
 function preferredDownloadLink(links) {
   const usableLinks = links.filter(
     (link) => link && link.href && !isKnownUnplayableHost(link.href)
@@ -463,7 +754,6 @@ function preferredDownloadLink(links) {
   const direct = usableLinks.find((link) => isDirectMedia(link.href));
   return direct || null;
 }
-
 function routeName(value, url) {
   const text = String(value || "");
   if (/fast cloud|zipdisk/i.test(text))
@@ -496,11 +786,10 @@ function routeName(value, url) {
   }
   return "Direct";
 }
-
 function resolveStreamTape(embedUrl, referer) {
   return __async(this, null, function* () {
     const page = yield fetchText(embedUrl, {
-      headers: Object.assign({}, PAGE_HEADERS, referer ? { Referer: referer } : {})
+      headers: Object.assign({}, PAGE_HEADERS, { Referer: referer })
     });
     if (/video not found/i.test(page.html))
       return "";
@@ -520,12 +809,11 @@ function resolveStreamTape(embedUrl, referer) {
     return "";
   });
 }
-
 function resolveKmhdPlayer(playerUrl) {
   return __async(this, null, function* () {
     var _a;
     const page = yield fetchText(playerUrl, {
-      headers: Object.assign({}, PAGE_HEADERS)
+      headers: Object.assign({}, PAGE_HEADERS, { Referer: `${SITE_URL}/` })
     });
     const streamTapeId = (_a = page.html.match(
       /streamtape_res\s*:\s*["']([^"']+)["']/i
@@ -538,7 +826,6 @@ function resolveKmhdPlayer(playerUrl) {
     );
   });
 }
-
 function fetchKmhdFilePage(fileUrl) {
   return __async(this, null, function* () {
     const parsed = new URL(fileUrl);
@@ -560,25 +847,27 @@ function fetchKmhdFilePage(fileUrl) {
         method: "POST",
         headers: Object.assign({}, PAGE_HEADERS, {
           "Content-Type": "application/x-www-form-urlencoded",
-          Origin: parsed.origin
-        })
+          Origin: parsed.origin,
+          Referer: `${parsed.origin}/locked?redirect=${encodeURIComponent(redirect)}`
+        }),
+        skipSizeCheck: true
       });
     } catch (e) {
     }
     return fetchText(fileUrl, {
       headers: Object.assign({}, PAGE_HEADERS, {
-        Cookie: "unlocked=true"
+        Cookie: "unlocked=true",
+        Referer: `${SITE_URL}/`
       })
     });
   });
 }
-
 function resolveGdIndexUrls(fileUrl, referer) {
   return __async(this, null, function* () {
     var _a;
     try {
       const page = yield fetchText(fileUrl, {
-        headers: Object.assign({}, PAGE_HEADERS)
+        headers: Object.assign({}, PAGE_HEADERS, { Referer: referer })
       });
       const parsed = new URL(page.url);
       const fileId = (_a = parsed.pathname.match(/\/file\/([^/?#]+)/i)) == null ? void 0 : _a[1];
@@ -586,15 +875,15 @@ function resolveGdIndexUrls(fileUrl, referer) {
         return [];
       const wfileUrl = `${parsed.origin}/wfile/${fileId}`;
       const indexPage = yield fetchText(wfileUrl, {
-        headers: Object.assign({}, PAGE_HEADERS)
+        headers: Object.assign({}, PAGE_HEADERS, { Referer: page.url })
       });
       return anchors(indexPage.html, indexPage.url).filter((link) => /download/i.test(link.text) && isDirectMedia(link.href)).map((link) => normalizeDirectUrl(link.href));
     } catch (error) {
+      console.log(`[1Shows] KatMovies GD Index unavailable: ${error.message}`);
       return [];
     }
   });
 }
-
 function resolveKatMoviesUrls(source) {
   return __async(this, null, function* () {
     var _a;
@@ -610,6 +899,7 @@ function resolveKatMoviesUrls(source) {
           return [];
         gdFileUrl = `https://gd.kmhd.eu/file/${encodeURIComponent(gdId)}`;
       } catch (error) {
+        console.log(`[1Shows] KatMovies file unavailable: ${error.message}`);
         return [];
       }
     }
@@ -618,12 +908,11 @@ function resolveKatMoviesUrls(source) {
     return resolveGdIndexUrls(gdFileUrl, sourceUrl);
   });
 }
-
 function resolveFilmyFlyUrls(source) {
   return __async(this, null, function* () {
     try {
       const page = yield fetchText(source.url, {
-        headers: Object.assign({}, PAGE_HEADERS)
+        headers: Object.assign({}, PAGE_HEADERS, { Referer: `${SITE_URL}/` })
       });
       const choices = anchors(page.html, page.url).filter(
         (link) => /cloud direct|pixeldrain|hubcloud/i.test(link.text)
@@ -651,25 +940,30 @@ function resolveFilmyFlyUrls(source) {
         release: releaseDetailsFromUrl(item.url) || sharedRelease || ""
       }));
     } catch (error) {
+      console.log(`[1Shows] ${source.label || "FilmyFly"} unavailable: ${error.message}`);
       return [];
     }
   });
 }
-
 function resolveDirectUrls(source) {
   return __async(this, null, function* () {
     const url = normalizeDirectUrl(source.url);
     return url && !isKnownUnplayableHost(url) ? [url] : [];
   });
 }
-
 function resolveSourceUrl(_0) {
-  return __async(this, arguments, function* (source, depth = 0, referer = "", route = "") {
+  return __async(this, arguments, function* (source, depth = 0, referer = `${SITE_URL}/`, route = "") {
     if (depth > 5)
       return null;
     const sourceUrl = absoluteUrl(source.url, SITE_URL);
-    if (!sourceUrl || isKnownUnplayableHost(sourceUrl))
+    if (!sourceUrl)
       return null;
+    if (isKnownUnplayableHost(sourceUrl)) {
+      console.log(
+        `[1Shows] ${source.label || "Download"} skipped: unsupported playback host`
+      );
+      return null;
+    }
     if (isDirectMedia(sourceUrl)) {
       return {
         url: normalizeDirectUrl(sourceUrl),
@@ -681,19 +975,31 @@ function resolveSourceUrl(_0) {
         const url = yield resolveKmhdPlayer(sourceUrl);
         return url ? { url, route: route || "Streamtape" } : null;
       } catch (error) {
+        console.log(
+          `[1Shows] KatMovies player unavailable: ${error.message}`
+        );
         return null;
       }
     }
     try {
       const page = yield fetchText(sourceUrl, {
-        headers: Object.assign({}, PAGE_HEADERS)
+        headers: Object.assign({}, PAGE_HEADERS, { Referer: referer })
       });
       const scriptedRedirect = page.html.match(
         /window\.location(?:\.href)?\s*=\s*["']([^"']+)["']/i
       );
       const pageLinks = anchors(page.html, page.url);
+      const fslLink = /(?:^|\.)sportverse\.cc$/i.test(
+        new URL(page.url).hostname
+      ) ? pageLinks.find((link) => {
+        try {
+          return new URL(link.href).hostname.toLowerCase().endsWith(".r2.cloudflarestorage.com");
+        } catch (e) {
+          return false;
+        }
+      }) : null;
       const preferred = preferredDownloadLink(pageLinks);
-      const nextLink = scriptedRedirect ? { href: absoluteUrl(scriptedRedirect[1], page.url), text: "" } : preferred;
+      const nextLink = fslLink ? fslLink : scriptedRedirect ? { href: absoluteUrl(scriptedRedirect[1], page.url), text: "" } : preferred;
       const nextUrl = nextLink && nextLink.href;
       if (!nextUrl || nextUrl === sourceUrl)
         return null;
@@ -704,11 +1010,11 @@ function resolveSourceUrl(_0) {
         route || routeName(nextLink.text, nextUrl)
       );
     } catch (error) {
+      console.log(`[1Shows] ${source.label || sourceUrl} unavailable: ${error.message}`);
       return null;
     }
   });
 }
-
 function sourceName(label) {
   if (/4khdhub|hubcloud/i.test(label))
     return "HubCloud";
@@ -720,7 +1026,6 @@ function sourceName(label) {
     return "Premium HM";
   return "Download";
 }
-
 function sourceFamily(label, url) {
   if (/4khdhub|hubcloud/i.test(label))
     return "hubcloud";
@@ -739,7 +1044,6 @@ function sourceFamily(label, url) {
   }
   return "other";
 }
-
 function qualityFromLabel(label) {
   const normalized = String(label || "").replace(/р/gi, "p");
   if (/\b(?:2160p|4k)\b/i.test(normalized))
@@ -747,12 +1051,10 @@ function qualityFromLabel(label) {
   const match = normalized.match(/\b(1080|720|480)p\b/i);
   return match ? `${match[1]}p` : "Unknown";
 }
-
 function sizeFromLabel(label) {
   const match = String(label || "").match(/([\d.]+)\s*(GB|MB|KB)/i);
   return match ? `${match[1]} ${match[2].toUpperCase()}` : "";
 }
-
 function filenameFromUrl(url) {
   var _a;
   try {
@@ -768,12 +1070,10 @@ function filenameFromUrl(url) {
     return "";
   }
 }
-
 function releaseDetailsFromUrl(url) {
   const filename = filenameFromUrl(url);
   return releaseDetailsFromText(filename);
 }
-
 function releaseDetailsFromText(value) {
   var _a, _b, _c, _d, _e;
   const filename = String(value || "").replace(/р/gi, "p");
@@ -807,7 +1107,6 @@ function releaseDetailsFromText(value) {
   ].filter(Boolean);
   return groups.join(" \xB7 ");
 }
-
 function displayQuality(resolved, fallback) {
   const resolution = qualityFromLabel(`${fallback || ""} ${resolved.url || ""}`);
   if (!resolved.release)
@@ -815,7 +1114,6 @@ function displayQuality(resolved, fallback) {
   const details = resolved.release.split(" \xB7 ").filter((part) => !/^.+\(\d{4}\)$/.test(part)).map((part) => part.replace(new RegExp(`^${resolution}\\s*`, "i"), "")).filter(Boolean).join(" \xB7 ");
   return details ? `${resolution} \xB7 ${details}` : resolution;
 }
-
 function formatFileSize(bytes) {
   const value = Number(bytes);
   if (!Number.isFinite(value) || value <= 0)
@@ -826,7 +1124,6 @@ function formatFileSize(bytes) {
     return `${(value / 1024 ** 2).toFixed(value >= 10 * 1024 ** 2 ? 1 : 2).replace(/\.0+$/, "")} MB`;
   return `${Math.round(value / 1024)} KB`;
 }
-
 function typeFromUrl(url) {
   if (/\.m3u8(?:$|[?#])/i.test(url))
     return "application/x-mpegURL";
@@ -837,7 +1134,16 @@ function typeFromUrl(url) {
   }
   return "video/x-matroska";
 }
-
+function playbackReferer(url, fallback) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.toLowerCase().includes("streamtape")) {
+      return `${parsed.protocol}//${parsed.hostname}/`;
+    }
+  } catch (e) {
+  }
+  return fallback || `${SITE_URL}/`;
+}
 function streamFromUrl(source, resolved, index, total) {
   const url = resolved.url;
   const name = sourceName(source.label || "");
@@ -857,11 +1163,11 @@ function streamFromUrl(source, resolved, index, total) {
     size: sizeFromLabel(source.label || ""),
     type: typeFromUrl(url),
     headers: {
-      "User-Agent": USER_AGENT
+      "User-Agent": USER_AGENT,
+      Referer: playbackReferer(url, source.url)
     }
   };
 }
-
 function resolveSource(source) {
   return __async(this, null, function* () {
     const family = sourceFamily(source.label || "", source.url);
@@ -874,22 +1180,62 @@ function resolveSource(source) {
     );
   });
 }
-
 function isStreamAlive(stream) {
   return __async(this, null, function* () {
+    const startedAt = Date.now();
     try {
       const response = yield fetch(stream.url, {
-        method: "HEAD",
-        headers: stream.headers || {},
-        redirect: "follow"
+        method: "GET",
+        headers: Object.assign({}, stream.headers || {}, {
+          Range: "bytes=0-1"
+        }),
+        redirect: "follow",
+        skipSizeCheck: true
       });
-      return response.ok || response.status === 405;
+      const contentRange = String(
+        response.headers && response.headers.get ? response.headers.get("content-range") || "" : ""
+      );
+      const contentType = String(
+        response.headers && response.headers.get ? response.headers.get("content-type") || "" : ""
+      ).toLowerCase();
+      const rangeTotal = Number(((_a = contentRange.match(/\/(\d+)$/)) == null ? void 0 : _a[1]) || 0);
+      const rangedMedia = response.status === 206 && /^bytes\s+0-1\//i.test(contentRange) && rangeTotal >= 1024 * 1024;
+      const hlsPlaylist = response.ok && (/mpegurl|application\/vnd\.apple\.mpegurl/i.test(contentType) || /\.m3u8(?:$|[?#])/i.test(stream.url));
+      
+      // FIX FOR ANDROID TV: If standard range probe fails due to TV network stack/CORS 
+      // but the URL responds with a standard 200 OK or redirect, do not drop it!
+      const fallbackTvAcceptable = response.ok || response.status === 206 || response.status === 302 || response.status === 301;
+
+      if (!rangedMedia && !hlsPlaylist && !fallbackTvAcceptable) {
+        console.log(
+          `[1Shows] Dead source removed: HTTP ${response.status}, ${contentType || "unknown type"}`
+        );
+        return false;
+      }
+
+      if (rangedMedia) {
+        const detectedSize = formatFileSize(rangeTotal);
+        if (detectedSize) {
+          stream.size = detectedSize;
+        }
+      }
+      if (/video\/mp4/i.test(contentType))
+        stream.type = "video/mp4";
+      else if (/video\/webm/i.test(contentType))
+        stream.type = "video/webm";
+      else if (/matroska/i.test(contentType))
+        stream.type = "video/x-matroska";
+      else if (/mpegurl/i.test(contentType))
+        stream.type = "application/x-mpegURL";
+        
+      stream._probeMs = Date.now() - startedAt;
+      return true; // Returns true for TV and mobile as long as the endpoint answers valid HTTP headers
     } catch (error) {
-      return true;
+      console.log(`[1Shows] Dead source removed: ${error.message}`);
+      return false;
     }
   });
 }
-
 function mediaFingerprint(stream) {
   if (!/1Shows - KatMovies/i.test(stream.name || ""))
     return "";
@@ -902,11 +1248,9 @@ function mediaFingerprint(stream) {
     return "";
   }
 }
-
-function getStreams(tmdbId, mediaType, season, episode, userSettings) {
+function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
   return __async(this, null, function* () {
     const normalizedType = mediaType === "series" ? "tv" : mediaType;
-    const settings = resolveSettings(userSettings);
     if (!tmdbId || normalizedType !== "movie" && normalizedType !== "tv") {
       return [];
     }
@@ -914,6 +1258,8 @@ function getStreams(tmdbId, mediaType, season, episode, userSettings) {
       return [];
     }
     try {
+      const mediaLabel = normalizedType === "tv" ? `series ${tmdbId} S${season}E${episode}` : `movie ${tmdbId}`;
+      console.log(`[1Shows] Loading exact download sources for ${mediaLabel}`);
       const results = yield Promise.all([
         fetchDownloadSources(
           String(tmdbId),
@@ -926,7 +1272,7 @@ function getStreams(tmdbId, mediaType, season, episode, userSettings) {
       const sources = results[0];
       const year = results[1];
       const matchingSources = sources.filter(
-        (source) => source && source.url && !hasWrongYear(`${source.label || ""} ${source.url}`, year)
+        (source) => source && source.url && (!onlyFamily || sourceFamily(source.label || "", source.url) === onlyFamily) && !hasWrongYear(`${source.label || ""} ${source.url}`, year)
       );
       const resolvedGroups = yield Promise.all(matchingSources.map(resolveSource));
       const resolved = [].concat.apply([], resolvedGroups);
@@ -962,11 +1308,14 @@ function getStreams(tmdbId, mediaType, season, episode, userSettings) {
         delete stream._probeMs;
         return true;
       });
+      console.log(
+        `[1Shows] Returning ${streams.length} exact source(s) from ${sources.length} download entries`
+      );
       return streams;
     } catch (error) {
+      console.error(`[1Shows] Error: ${error.message}`);
       return [];
     }
   });
 }
-
 module.exports = { getStreams };

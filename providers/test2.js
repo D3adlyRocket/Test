@@ -1,5 +1,5 @@
 /**
- * 1shows - Configured with Movies4U Multi-Line Subheading Format & Quality Sorting
+ * 1shows - Configured with `makeStream` for TV/Mobile UI Compatibility
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -981,7 +981,10 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
   return { q, qLine, audioLang, sizeLine, formatLine, codecLine, audioLine, releaseLine, sz };
 }
 
-function streamFromUrl(source, resolved, index, total, mediaMeta) {
+/**
+ * makeStream - Standardized Stream Builder function for TV, Mobile & Desktop clients
+ */
+function makeStream(source, resolved, index, total, mediaMeta) {
   const url = resolved.url;
   const provider = sourceName(source.label || "");
   const route = resolved.route || routeName("", url);
@@ -989,33 +992,33 @@ function streamFromUrl(source, resolved, index, total, mediaMeta) {
 
   const info = parseStreamInfo(rawFileName, source.label, url, source.size);
 
-  // Header: 1Shows • Quality • [Route]
+  // Top Header Line: 1Shows • Quality • [Route]
   const headerName = `1Shows • ${info.q} • [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
 
-  // Line 1: Movie Name (Year) or Series Name (Year) | S1E1
+  // Subheading Line 1: Movie Name (Year) or Series Name (Year) | S1E1
   const line1 = mediaMeta.mediaType === "tv"
     ? `🎦 ${mediaMeta.title} (${mediaMeta.year || "N/A"}) | S${mediaMeta.season}E${mediaMeta.episode}`
     : `🎦 ${mediaMeta.title} (${mediaMeta.year || "N/A"})`;
 
-  // Line 2: 🌟 2160p or 🔥 1080p | 🌍 Dual-Audio | 💾 Size
+  // Subheading Line 2: Quality | Audio | Size
   const line2 = `${info.qLine} | ${info.audioLang} | ${info.sizeLine}`;
 
-  // Line 3: 🎞️ Format | ⚡ Codec | 🎧 Audio
+  // Subheading Line 3: Format | Codec | Audio Tech
   const line3 = `${info.formatLine} | ${info.codecLine} | ${info.audioLine}`;
 
-  // Line 4: 🔗 Provider | 🌐 Route | 📥 Release Type
+  // Subheading Line 4: Provider | Route | Release Type
   const line4 = `🔗 ${provider} | 🌐 ${route} | ${info.releaseLine}`;
 
-  // Line 5: Raw File Name
+  // Subheading Line 5: Raw File Name
   const line5 = rawFileName;
 
-  const fullDescription = [line1, line2, line3, line4, line5].join("\n");
+  const fullSubtitle = [line1, line2, line3, line4, line5].join("\n");
 
   return {
     name: headerName,
-    title: fullDescription,
-    description: fullDescription,
-    url,
+    title: fullSubtitle,
+    description: fullSubtitle,
+    url: url,
     quality: info.q,
     size: info.sz,
     type: typeFromUrl(url),
@@ -1034,7 +1037,7 @@ function resolveSource(source, mediaMeta) {
       (item, index) => item && item.url && resolvedItems.findIndex((candidate) => candidate && candidate.url === item.url) === index
     );
     return uniqueItems.map(
-      (item, index) => streamFromUrl(source, item, index, uniqueItems.length, mediaMeta)
+      (item, index) => makeStream(source, item, index, uniqueItems.length, mediaMeta)
     );
   });
 }

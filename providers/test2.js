@@ -58,7 +58,7 @@ var PAGE_HEADERS = {
 var DOWNLOAD_KEY_HEX = "7a03086357a2147dab4d757e8ed2ff8b5dc8707ee3d473afcb80d97727afa191";
 
 /* ----------------------------------------------------------------------------
- * ZERO-WIDTH SORTING & RESOLUTION HELPERS (GOATED/MOVIES4U MATCHED PATTERN)
+ * ZERO-WIDTH SORTING & RESOLUTION HELPERS (GETINVERTED TRICK)
  * ---------------------------------------------------------------------------- */
 
 function getInvertedSortTag(val, maxBaseline = 999999) {
@@ -946,7 +946,7 @@ function playbackReferer(url, fallback) {
 }
 
 /* ----------------------------------------------------------------------------
- * STREAM LAYOUT ENGINE (MOBILE + TV COMPATIBILITY ENGINE MATCHING GOATED SPEC)
+ * STREAM LAYOUT ENGINE (MOBILE + TV COMPATIBILITY ENGINE)
  * ---------------------------------------------------------------------------- */
 
 function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr) {
@@ -979,14 +979,12 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
   else if (/\.webm/i.test(filename) || /\.webm/i.test(url)) ext = "WEBM";
   const formatLine = `🎞️ ${ext}`;
 
-  // Codec formatting: ⚡ x265 or x264
   let codecVal = "HEVC";
   if (/\b(?:HEVC|x265|H[.]?265)\b/i.test(text)) codecVal = "x265";
   else if (/\b(?:x264|AVC|H[.]?264)\b/i.test(text)) codecVal = "x264";
   else if (/\bAV1\b/i.test(text)) codecVal = "AV1";
   const codecLine = `⚡ ${codecVal}`;
 
-  // Audio codec formatting with Atmos: 🎧 DDP 5.1 • 🔊 Atmos
   let audioCodec = "AAC";
   if (/\b(?:DDP?\s?5\.1|DD\+\s?5\.1|EAC3)\b/i.test(text)) audioCodec = "DDP 5.1";
   else if (/\bDDP?\s?2\.0\b/i.test(text)) audioCodec = "DDP 2.0";
@@ -994,10 +992,9 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
   else if (/\bTrueHD\b/i.test(text)) audioCodec = "TrueHD";
   else if (/\bAAC\b/i.test(text)) audioCodec = "AAC";
   
+  let audioLine = `🎧 ${audioCodec}`;
   if (/\bAtmos\b/i.test(text)) {
     audioLine = `🎧 ${audioCodec} • 🔊 Atmos`;
-  } else {
-    audioLine = `🎧 ${audioCodec}`;
   }
 
   let releaseType = "WEB-DL";
@@ -1009,15 +1006,14 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
   else if (/\bHDTV\b/i.test(text)) releaseType = "HDTV";
   const releaseLine = releaseType;
 
-  // Subheading 4 format: 🌈 HDR • 10Bit | ✨ DV | 📝 ESub
+  // Exact filename-based parsing for HDR, DV, and ESub (fallback to empty if not present)
   const hdrTags = [];
   if (/\bHDR10\+\b/i.test(text)) hdrTags.push("HDR10+");
   else if (/\bHDR\b/i.test(text)) hdrTags.push("HDR");
   if (/\b10[- ]?bit\b/i.test(text)) hdrTags.push("10Bit");
   
   const hdrPart = hdrTags.length > 0 ? `🌈 ${hdrTags.join(" • ")}` : "";
-  
-  const dvPart = (/\bDV\b|\bDolby[- ]?Vision\b/i.test(text)) ? "✨ DV" : "";
+  const dvPart = (/\bDV\b|\bDolby[- ]?Vision\b|\bDoVi\b/i.test(text)) ? "✨ DV" : "";
   const subPart = (/\bESub\b|\bEnglish\s*Sub\b/i.test(text)) ? "📝 ESub" : "";
 
   const sub4Parts = [hdrPart, dvPart, subPart].filter(Boolean);
@@ -1039,12 +1035,15 @@ function makeStream(source, resolved, index, total, mediaMeta) {
 
   const qRank = qualityRank(info.q);
   const sizeInMB = parseSizeToMB(info.sz);
+
+  /* --- GETINVERTED SORT TAG CALCULATION --- */
+  // Quality rank receives a 100,000 weight, plus the size in MB
   const sortTag = getInvertedSortTag((qRank * 100000) + sizeInMB, 999999);
 
-  /* --- HEADER LAYOUT --- */
-  const headerLayout = `${sortTag}1Shows • ${info.q} • [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
+  /* --- HEADER LAYOUT WITH ZERO-WIDTH INVERTED TAG --- */
+  const headerLayout = `${sortTag}1Shows • [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
 
-  /* --- SUBHEADINGS LAYOUT (Goated strict formatting for Mobile + TV viewports) --- */
+  /* --- SUBHEADINGS LAYOUT --- */
   const line1_TitleHeader = mediaMeta.mediaType === "tv"
     ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
     : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
@@ -1052,17 +1051,23 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   const line2_SubheadingQuality = [info.qLine, info.audioLang, info.sizeLine].filter(Boolean).join(" | ");
   const line3_SubheadingTech = [info.formatLine, info.codecLine, info.audioLine].filter(Boolean).join(" | ");
   
-  // Subheading 4 & 5 Swapped order configuration
-  const line4_Enhancements = info.enhancementsLine || `🌈 HDR | ✨ DV | 📝 ESub`;
-  const line5_SourceInfo = `🔗 ${provider} | 🌐 ${route} | 📥 ${info.releaseLine} | ${rawFileName}`;
+  // Subheading 4 enhancements (HDR/DV/ESub if found, otherwise empty line filtered out)
+  const line4_Enhancements = info.enhancementsLine;
+  
+  // Subheading 5 source info and Subheading 6 filename split completely onto its own line
+  const line5_SourceInfo = `🔗 ${provider} | 🌐 ${route} | 📥 ${info.releaseLine}`;
+  const line6_Filename = rawFileName;
 
-  const fullLayout = [
+  const lines = [
     line1_TitleHeader,
     line2_SubheadingQuality,
     line3_SubheadingTech,
     line4_Enhancements,
-    line5_SourceInfo
-  ].join("\n");
+    line5_SourceInfo,
+    line6_Filename
+  ].filter(l => l !== ""); // Cleanly strip empty lines if optional enhancements are not present
+
+  const fullLayout = lines.join("\n");
 
   const headers = {
     "User-Agent": USER_AGENT,
@@ -1238,7 +1243,7 @@ function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
         return true;
       });
 
-      // Sort streams by Quality Rank descending, then File Size descending
+      // Sort streams using Quality Rank and File Size correctly
       streams.sort((a, b) => {
         if (b.qualityRank !== a.qualityRank) {
           return b.qualityRank - a.qualityRank;

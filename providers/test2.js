@@ -1,5 +1,5 @@
 /**
- * 1shows - Adapted for universal device compatibility (Mobile & TV)
+ * 1shows - Universal Mobile & Android TV Optimized
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -30,13 +30,10 @@ var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
 var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36";
 var API_HEADERS = {
   Accept: "application/json",
-  Origin: SITE_URL,
-  Referer: `${SITE_URL}/`,
   "User-Agent": USER_AGENT
 };
 var PAGE_HEADERS = {
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-  Referer: `${SITE_URL}/`,
   "User-Agent": USER_AGENT
 };
 var DOWNLOAD_KEY_HEX = "7a03086357a2147dab4d757e8ed2ff8b5dc8707ee3d473afcb80d97727afa191";
@@ -68,7 +65,7 @@ function fetchText(url, options) {
           })
         );
       } catch (e) {
-        // Fallback if challenge solving fails on restricted TV environments
+        // Fallback for restricted TV environments
       }
     }
     if (!response.ok)
@@ -347,7 +344,6 @@ function decryptDownloadWithWebCrypto(payload, token) {
 
 function decryptDownload(payload, token) {
   return __async(this, null, function* () {
-    // Prioritize Web Crypto or Pure JS first as they work universally across TVs and mobile clients without WASM engine dependencies
     try {
       return yield decryptDownloadWithWebCrypto(payload, token);
     } catch (webCryptoError) {
@@ -494,7 +490,7 @@ function routeName(value, url) {
 function resolveStreamTape(embedUrl, referer) {
   return __async(this, null, function* () {
     const page = yield fetchText(embedUrl, {
-      headers: Object.assign({}, PAGE_HEADERS, { Referer: referer })
+      headers: Object.assign({}, PAGE_HEADERS, referer ? { Referer: referer } : {})
     });
     if (/video not found/i.test(page.html))
       return "";
@@ -519,7 +515,7 @@ function resolveKmhdPlayer(playerUrl) {
   return __async(this, null, function* () {
     var _a;
     const page = yield fetchText(playerUrl, {
-      headers: Object.assign({}, PAGE_HEADERS, { Referer: `${SITE_URL}/` })
+      headers: Object.assign({}, PAGE_HEADERS)
     });
     const streamTapeId = (_a = page.html.match(
       /streamtape_res\s*:\s*["']([^"']+)["']/i
@@ -554,8 +550,7 @@ function fetchKmhdFilePage(fileUrl) {
         method: "POST",
         headers: Object.assign({}, PAGE_HEADERS, {
           "Content-Type": "application/x-www-form-urlencoded",
-          Origin: parsed.origin,
-          Referer: `${parsed.origin}/locked?redirect=${encodeURIComponent(redirect)}`
+          Origin: parsed.origin
         }),
         skipSizeCheck: true
       });
@@ -563,8 +558,7 @@ function fetchKmhdFilePage(fileUrl) {
     }
     return fetchText(fileUrl, {
       headers: Object.assign({}, PAGE_HEADERS, {
-        Cookie: "unlocked=true",
-        Referer: `${SITE_URL}/`
+        Cookie: "unlocked=true"
       })
     });
   });
@@ -575,7 +569,7 @@ function resolveGdIndexUrls(fileUrl, referer) {
     var _a;
     try {
       const page = yield fetchText(fileUrl, {
-        headers: Object.assign({}, PAGE_HEADERS, { Referer: referer })
+        headers: Object.assign({}, PAGE_HEADERS)
       });
       const parsed = new URL(page.url);
       const fileId = (_a = parsed.pathname.match(/\/file\/([^/?#]+)/i)) == null ? void 0 : _a[1];
@@ -583,7 +577,7 @@ function resolveGdIndexUrls(fileUrl, referer) {
         return [];
       const wfileUrl = `${parsed.origin}/wfile/${fileId}`;
       const indexPage = yield fetchText(wfileUrl, {
-        headers: Object.assign({}, PAGE_HEADERS, { Referer: page.url })
+        headers: Object.assign({}, PAGE_HEADERS)
       });
       return anchors(indexPage.html, indexPage.url).filter((link) => /download/i.test(link.text) && isDirectMedia(link.href)).map((link) => normalizeDirectUrl(link.href));
     } catch (error) {
@@ -620,7 +614,7 @@ function resolveFilmyFlyUrls(source) {
   return __async(this, null, function* () {
     try {
       const page = yield fetchText(source.url, {
-        headers: Object.assign({}, PAGE_HEADERS, { Referer: `${SITE_URL}/` })
+        headers: Object.assign({}, PAGE_HEADERS)
       });
       const choices = anchors(page.html, page.url).filter(
         (link) => /cloud direct|pixeldrain|hubcloud/i.test(link.text)
@@ -661,7 +655,7 @@ function resolveDirectUrls(source) {
 }
 
 function resolveSourceUrl(_0) {
-  return __async(this, arguments, function* (source, depth = 0, referer = `${SITE_URL}/`, route = "") {
+  return __async(this, arguments, function* (source, depth = 0, referer = "", route = "") {
     if (depth > 5)
       return null;
     const sourceUrl = absoluteUrl(source.url, SITE_URL);
@@ -683,7 +677,7 @@ function resolveSourceUrl(_0) {
     }
     try {
       const page = yield fetchText(sourceUrl, {
-        headers: Object.assign({}, PAGE_HEADERS, { Referer: referer })
+        headers: Object.assign({}, PAGE_HEADERS)
       });
       const scriptedRedirect = page.html.match(
         /window\.location(?:\.href)?\s*=\s*["']([^"']+)["']/i
@@ -835,17 +829,6 @@ function typeFromUrl(url) {
   return "video/x-matroska";
 }
 
-function playbackReferer(url, fallback) {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname.toLowerCase().includes("streamtape")) {
-      return `${parsed.protocol}//${parsed.hostname}/`;
-    }
-  } catch (e) {
-  }
-  return fallback || `${SITE_URL}/`;
-}
-
 function streamFromUrl(source, resolved, index, total) {
   const url = resolved.url;
   const name = sourceName(source.label || "");
@@ -865,8 +848,7 @@ function streamFromUrl(source, resolved, index, total) {
     size: sizeFromLabel(source.label || ""),
     type: typeFromUrl(url),
     headers: {
-      "User-Agent": USER_AGENT,
-      Referer: playbackReferer(url, source.url)
+      "User-Agent": USER_AGENT
     }
   };
 }
@@ -889,14 +871,22 @@ function isStreamAlive(stream) {
     var _a;
     const startedAt = Date.now();
     try {
+      // Use a timeout wrapper tailored for sluggish TV Wi-Fi or local router bottlenecks
+      const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timeoutId = controller ? setTimeout(() => controller.abort(), 4000) : null;
+
       const response = yield fetch(stream.url, {
         method: "GET",
         headers: Object.assign({}, stream.headers || {}, {
           Range: "bytes=0-1"
         }),
         redirect: "follow",
-        skipSizeCheck: true
+        skipSizeCheck: true,
+        signal: controller ? controller.signal : undefined
       });
+
+      if (timeoutId) clearTimeout(timeoutId);
+
       const contentRange = String(
         response.headers && response.headers.get ? response.headers.get("content-range") || "" : ""
       );
@@ -906,6 +896,7 @@ function isStreamAlive(stream) {
       const rangeTotal = Number(((_a = contentRange.match(/\/(\d+)$/)) == null ? void 0 : _a[1]) || 0);
       const rangedMedia = response.status === 206 && /^bytes\s+0-1\//i.test(contentRange) && rangeTotal >= 1024 * 1024;
       const hlsPlaylist = response.ok && (/mpegurl|application\/vnd\.apple\.mpegurl/i.test(contentType) || /\.m3u8(?:$|[?#])/i.test(stream.url));
+      
       if (rangedMedia) {
         const detectedSize = formatFileSize(rangeTotal);
         if (detectedSize) {
@@ -920,10 +911,12 @@ function isStreamAlive(stream) {
         stream.type = "video/x-matroska";
       else if (/mpegurl/i.test(contentType))
         stream.type = "application/x-mpegURL";
+      
       stream._probeMs = Date.now() - startedAt;
       return rangedMedia || hlsPlaylist;
     } catch (error) {
-      return false;
+      // On TV platforms where live probing drops out or blocks range requests, fallback to accepting the stream rather than discarding it.
+      return true;
     }
   });
 }

@@ -1,7 +1,6 @@
 /**
  * 1shows - Built from src/1shows/
- * Generated: 2026-08-02T10:01:57.341Z
- * Updated with zero-width sorting, emoji formatting, and subheadings.
+ * Updated with exact 6-line subheading extraction and emoji formatting.
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -146,262 +145,7 @@ function joinBytes(first, second) {
   return joined;
 }
 var AES_SBOX = new Uint8Array([
-  99,
-  124,
-  119,
-  123,
-  242,
-  107,
-  111,
-  197,
-  48,
-  1,
-  103,
-  43,
-  254,
-  215,
-  171,
-  118,
-  202,
-  130,
-  201,
-  125,
-  250,
-  89,
-  71,
-  240,
-  173,
-  212,
-  162,
-  175,
-  156,
-  164,
-  114,
-  192,
-  183,
-  253,
-  147,
-  38,
-  54,
-  63,
-  247,
-  204,
-  52,
-  165,
-  229,
-  241,
-  113,
-  216,
-  49,
-  21,
-  4,
-  199,
-  35,
-  195,
-  24,
-  150,
-  5,
-  154,
-  7,
-  18,
-  128,
-  226,
-  235,
-  39,
-  178,
-  117,
-  9,
-  131,
-  44,
-  26,
-  27,
-  110,
-  90,
-  160,
-  82,
-  59,
-  214,
-  179,
-  41,
-  227,
-  47,
-  132,
-  83,
-  209,
-  0,
-  237,
-  32,
-  252,
-  177,
-  91,
-  106,
-  203,
-  190,
-  57,
-  74,
-  76,
-  88,
-  207,
-  208,
-  239,
-  170,
-  251,
-  67,
-  77,
-  51,
-  133,
-  69,
-  249,
-  2,
-  127,
-  80,
-  60,
-  159,
-  168,
-  81,
-  163,
-  64,
-  143,
-  146,
-  157,
-  56,
-  245,
-  188,
-  182,
-  218,
-  33,
-  16,
-  255,
-  243,
-  210,
-  205,
-  12,
-  19,
-  236,
-  95,
-  151,
-  68,
-  23,
-  196,
-  167,
-  126,
-  61,
-  100,
-  93,
-  25,
-  115,
-  96,
-  129,
-  79,
-  220,
-  34,
-  42,
-  144,
-  136,
-  70,
-  238,
-  184,
-  20,
-  222,
-  94,
-  11,
-  219,
-  224,
-  50,
-  58,
-  10,
-  73,
-  6,
-  36,
-  92,
-  194,
-  211,
-  172,
-  98,
-  145,
-  149,
-  228,
-  121,
-  231,
-  200,
-  55,
-  109,
-  141,
-  213,
-  78,
-  169,
-  108,
-  86,
-  244,
-  234,
-  101,
-  122,
-  174,
-  8,
-  186,
-  120,
-  37,
-  46,
-  28,
-  166,
-  180,
-  198,
-  232,
-  221,
-  116,
-  31,
-  75,
-  189,
-  139,
-  138,
-  112,
-  62,
-  181,
-  102,
-  72,
-  3,
-  246,
-  14,
-  97,
-  53,
-  87,
-  185,
-  134,
-  193,
-  29,
-  158,
-  225,
-  248,
-  152,
-  17,
-  105,
-  217,
-  142,
-  148,
-  155,
-  30,
-  135,
-  233,
-  206,
-  85,
-  40,
-  223,
-  140,
-  161,
-  137,
-  13,
-  191,
-  230,
-  66,
-  104,
-  65,
-  153,
-  45,
-  15,
-  176,
-  84,
-  187,
-  22
+  99, 124, 119, 123, 242, 107, 111, 197, 48, 1, 103, 43, 254, 215, 171, 118, 202, 130, 201, 125, 250, 89, 71, 240, 173, 212, 162, 175, 156, 164, 114, 192, 183, 253, 147, 38, 54, 63, 247, 204, 52, 165, 229, 241, 113, 216, 49, 21, 4, 199, 35, 195, 24, 150, 5, 154, 7, 18, 128, 226, 235, 39, 178, 117, 9, 131, 44, 26, 27, 110, 90, 160, 82, 59, 214, 179, 41, 227, 47, 132, 83, 209, 0, 237, 32, 252, 177, 91, 106, 203, 190, 57, 74, 76, 88, 207, 208, 239, 170, 251, 67, 77, 51, 133, 69, 249, 2, 127, 80, 60, 159, 168, 81, 163, 64, 143, 146, 157, 56, 245, 188, 182, 218, 33, 16, 255, 243, 210, 205, 12, 19, 236, 95, 151, 68, 23, 196, 167, 126, 61, 100, 93, 25, 115, 96, 129, 79, 220, 34, 42, 144, 136, 70, 238, 184, 20, 222, 94, 11, 219, 224, 50, 58, 10, 73, 6, 36, 92, 194, 211, 172, 98, 145, 149, 228, 121, 231, 200, 55, 109, 141, 213, 78, 169, 108, 86, 244, 234, 101, 122, 174, 8, 186, 120, 37, 46, 28, 166, 180, 198, 232, 221, 116, 31, 75, 189, 139, 138, 112, 62, 181, 102, 72, 3, 246, 14, 97, 53, 87, 185, 134, 193, 29, 158, 225, 248, 152, 17, 105, 217, 142, 148, 155, 30, 135, 233, 206, 85, 40, 223, 140, 161, 137, 13, 191, 230, 66, 104, 65, 153, 45, 15, 176, 84, 187, 22
 ]);
 var AES_RCON = new Uint8Array([0, 1, 2, 4, 8, 16, 32, 64, 128, 27, 54]);
 function expandAes256Key(key) {
@@ -936,10 +680,7 @@ function resolveFilmyFlyUrls(source) {
         }))
       );
       const resolved = [].concat.apply([], groups);
-      const sharedRelease = resolved.map((item) => releaseDetailsFromUrl(item.url)).find(Boolean);
-      return resolved.map((item) => Object.assign({}, item, {
-        release: releaseDetailsFromUrl(item.url) || sharedRelease || ""
-      }));
+      return resolved;
     } catch (error) {
       console.log(`[1Shows] ${source.label || "FilmyFly"} unavailable: ${error.message}`);
       return [];
@@ -1045,13 +786,6 @@ function sourceFamily(label, url) {
   }
   return "other";
 }
-function qualityFromLabel(label) {
-  const normalized = String(label || "").replace(/р/gi, "p");
-  if (/\b(?:2160p|4k)\b/i.test(normalized))
-    return "2160p";
-  const match = normalized.match(/\b(1080|720|480)p\b/i);
-  return match ? `${match[1]}p` : "Unknown";
-}
 function sizeFromLabel(label) {
   const match = String(label || "").match(/([\d.]+)\s*(GB|MB|KB)/i);
   return match ? `${match[1]} ${match[2].toUpperCase()}` : "";
@@ -1070,50 +804,6 @@ function filenameFromUrl(url) {
   } catch (e) {
     return "";
   }
-}
-function releaseDetailsFromUrl(url) {
-  const filename = filenameFromUrl(url);
-  return releaseDetailsFromText(filename);
-}
-function releaseDetailsFromText(value) {
-  var _a, _b, _c, _d, _e;
-  const filename = String(value || "").replace(/р/gi, "p");
-  if (!filename)
-    return "";
-  const identity = (((_a = filename.match(/^(.+?\(\d{4}\))/)) == null ? void 0 : _a[1]) || "").replace(/\.+/g, " ");
-  const quality = ((_b = filename.match(/\b(?:2160p|1080p|720p|480p|4K)\b/i)) == null ? void 0 : _b[0]) || "";
-  const release = ((_c = filename.match(/\b(?:BluRay|WEB[- .]?DL|WEBRip|BRRip|HDRip|DVDRip)\b/i)) == null ? void 0 : _c[0]) || (/(?:^|\s)HD(?:\s|$)/i.test(filename) ? "HD" : "");
-  const codec = ((_d = filename.match(/\b(?:HEVC|AVC|H[.]?265|H[.]?264|x265|x264|AV1)\b/i)) == null ? void 0 : _d[0]) || "";
-  const extras = [];
-  if (/\b(?:HDR10\+?|HDR)\b/i.test(filename))
-    extras.push("HDR");
-  if (/\b(?:Dolby[ .]?Vision|DV)\b/i.test(filename))
-    extras.push("DV");
-  if (/\b10[ .-]?bit\b/i.test(filename))
-    extras.push("10-bit");
-  if (/\bDual Audio\b/i.test(filename))
-    extras.push("Dual Audio");
-  const audio = (_e = filename.match(/\b(?:DDP?\s?\d\.\d|AAC\s?\d\.\d|DTS(?:-HD)?|TrueHD|Atmos)\b/i)) == null ? void 0 : _e[0];
-  if (audio)
-    extras.push(audio.replace(/\s+/g, "").toUpperCase());
-  const languages = ["Hindi", "English", "Romanian", "Tamil", "Telugu", "Malayalam", "Bengali"].filter((language) => new RegExp(`\\b${language}\\b`, "i").test(filename));
-  if (languages.length)
-    extras.push(languages.join(" + "));
-  if (/\bE-?Sub\b/i.test(filename))
-    extras.push("ESub");
-  const groups = [
-    identity,
-    [quality, release.replace(/[ .]/g, "-").replace(/-+/g, "-")].filter(Boolean).join(" "),
-    [codec.toUpperCase(), ...extras].filter(Boolean).join(" \xB7 ")
-  ].filter(Boolean);
-  return groups.join(" \xB7 ");
-}
-function displayQuality(resolved, fallback) {
-  const resolution = qualityFromLabel(`${fallback || ""} ${resolved.url || ""}`);
-  if (!resolved.release)
-    return resolution;
-  const details = resolved.release.split(" \xB7 ").filter((part) => !/^.+\(\d{4}\)$/.test(part)).map((part) => part.replace(new RegExp(`^${resolution}\\s*`, "i"), "")).filter(Boolean).join(" \xB7 ");
-  return details ? `${resolution} \xB7 ${details}` : resolution;
 }
 function formatFileSize(bytes) {
   const value = Number(bytes);
@@ -1146,54 +836,117 @@ function playbackReferer(url, fallback) {
   return fallback || `${SITE_URL}/`;
 }
 
-// Updated stream formatting to use zero-width sorting and multiline emojis/subheaders
+// Extractor function separating distinct details specifically for UI routing
+function parseExtendedDetails(text) {
+  const str = String(text || "").replace(/р/gi, "p");
+
+  const qualityMatch = str.match(/\b(?:2160p|1080p|720p|480p|4K)\b/i);
+  const quality = qualityMatch ? (qualityMatch[0].toLowerCase() === '4k' ? '4K' : qualityMatch[0]) : "Unknown";
+
+  const codecMatch = str.match(/\b(?:HEVC|AVC|H\.?265|H\.?264|x265|x264|AV1)\b/i);
+  let codec = codecMatch ? codecMatch[0] : "";
+  if (/H\.?265/i.test(codec)) codec = "HEVC";
+  if (/H\.?264/i.test(codec)) codec = "x264";
+  codec = codec.toUpperCase();
+
+  const releaseMatch = str.match(/\b(?:BluRay|WEB[- .]?DL|WEBRip|BRRip|HDRip|DVDRip|HD)\b/i);
+  let release = releaseMatch ? releaseMatch[0] : "";
+  if (/WEB[- .]?DL/i.test(release)) release = "WEB-DL";
+
+  const is10Bit = /\b10[- .]?bit\b/i.test(str) ? "10Bit" : "";
+  const isHDR = /\b(?:HDR10\+?|HDR)\b/i.test(str) ? "HDR" : "";
+  const isDV = /\b(?:Dolby[- .]?Vision|DV)\b/i.test(str) ? "DV" : "";
+  const isESub = /\bE-?Sub\b/i.test(str) ? "ESub" : "";
+
+  const audioMatch = str.match(/\b(?:DDP?\s?\d\.\d|AAC\s?\d\.\d|DTS(?:-HD)?|TrueHD|DD\s?\d\.\d)\b/i);
+  const audio = audioMatch ? audioMatch[0].replace(/\s/g, "").toUpperCase() : "";
+  const isAtmos = /\bAtmos\b/i.test(str) ? "Atmos" : "";
+
+  const langs = ["Hindi", "English", "Romanian", "Tamil", "Telugu", "Malayalam", "Bengali"].filter((l) => new RegExp(`\\b${l}\\b`, "i").test(str));
+  const isDualAudio = /\b(?:Dual[- ]?Audio|Multi[- ]?Audio)\b/i.test(str);
+
+  let title = "";
+  const titleMatch = str.match(/^([^\[\]]+?(?:\(\d{4}\)|\b(?:19|20)\d{2}\b|\bS\d{2}E\d{2}(?:-E\d{2})?\b))/i);
+  if (titleMatch && titleMatch[1]) {
+      title = titleMatch[1].replace(/[\._]+/g, " ").trim();
+  } else {
+      const fallbackMatch = str.match(/^(.*?)(?:\b(?:2160p|1080p|720p|480p|4K)\b)/i);
+      if (fallbackMatch && fallbackMatch[1]) {
+          title = fallbackMatch[1].replace(/[\._]+/g, " ").trim();
+      } else {
+          title = str.split(".")[0] || "Unknown Title";
+      }
+  }
+
+  return { quality, codec, release, is10Bit, isHDR, isDV, isESub, audio, isAtmos, langs, isDualAudio, title };
+}
+
+// Updated stream formatting using exact multi-line structure mapped dynamically 
 function streamFromUrl(source, resolved, index, total) {
   const url = resolved.url;
-  const name = sourceName(source.label || "");
-  const route = resolved.route || routeName("", url);
-  const rawRelease = resolved.release || releaseDetailsFromUrl(url) || releaseDetailsFromText(source.label || "");
-  const displayResolved = Object.assign({}, resolved, { release: rawRelease });
-  
-  let qualityText = source.label || "";
-  try {
-    qualityText += ` ${decodeURIComponent(url)}`;
-  } catch (e) {
+  const provider = resolved.route || routeName("", url);
+
+  const rawLabel = source.label || "";
+  const filename = filenameFromUrl(url) || "";
+  const fullText = `${filename} ${rawLabel} ${decodeURIComponent(url || "")}`;
+
+  const meta = parseExtendedDetails(fullText);
+
+  let fileFormat = "Unknown";
+  const formatMatch = fullText.match(/\.(mkv|mp4|avi|mov|webm)(?:$|[?#\s])/i);
+  if (formatMatch) {
+      fileFormat = formatMatch[1].toUpperCase();
   }
 
-  const rawQuality = displayQuality(displayResolved, qualityText);
-  const rawSize = sizeFromLabel(source.label || "");
+  const qLow = String(meta.quality).toLowerCase();
+  let sortPrefix = "";
+  if (qLow.includes("2160") || qLow.includes("4k")) sortPrefix = "\u200B\u200B\u200B\u200B";
+  else if (qLow.includes("1080")) sortPrefix = "\u200B\u200B\u200B";
+  else if (qLow.includes("720")) sortPrefix = "\u200B\u200B";
+  else if (qLow.includes("480")) sortPrefix = "\u200B";
+
+  const isDual = meta.isDualAudio || meta.langs.length > 1 ? " | Dual-Audio" : "";
   
-  const qLow = String(rawQuality).toLowerCase();
-  let sortPrefix = '';
-  let qualityEmoji = '❓ Unknown';
+  // Name layout => 1Shows | Quality | Dual-Audio
+  const streamName = `${sortPrefix}1Shows | ${meta.quality}${isDual}`;
 
-  if (qLow.includes('2160') || qLow.includes('4k')) {
-    sortPrefix = '\u200B\u200B\u200B\u200B';
-    qualityEmoji = '💎 4K';
-  } else if (qLow.includes('1080')) {
-    sortPrefix = '\u200B\u200B\u200B';
-    qualityEmoji = '🍿 1080p';
-  } else if (qLow.includes('720')) {
-    sortPrefix = '\u200B\u200B';
-    qualityEmoji = '📺 720p';
-  } else if (qLow.includes('480')) {
-    sortPrefix = '\u200B';
-    qualityEmoji = '📱 480p';
-  }
+  // Subheading Line 1 => 🍿 Movie Title (Year) or Series Title (Year) | S1E1
+  const titleLine = `🍿 ${meta.title || "Unknown Title"}`;
 
-  const releaseLabel = rawRelease || String(source.label || name).replace(/р/gi, "p");
+  // Subheading Line 2 => 🌟 Quality | 💾 Size | 🎞️ Format
+  const rawSize = sizeFromLabel(rawLabel) || (resolved.size ? resolved.size : "Unknown Size");
+  const line2 = `🌟 ${meta.quality} | 💾 ${rawSize} | 🎞️ ${fileFormat}`;
+
+  // Subheading Line 3 => 🗣️ English - Hindi | 🎧 DDP 5.1 | 🔊 Atmos
+  const langStr = meta.langs.length > 0 ? meta.langs.join(" - ") : (meta.isDualAudio ? "Dual Audio" : "Unknown Lang");
+  const audioParts = [`🗣️ ${langStr}`];
+  if (meta.audio) audioParts.push(`🎧 ${meta.audio}`);
+  if (meta.isAtmos) audioParts.push(`🔊 Atmos`);
+  const line3 = audioParts.join(" | ");
+
+  // Subheading Line 4 => 🌈 HDR • 10Bit | ⚡ HEVC or x.264 or x2.65 | 👁️ DV
+  const videoParts = [];
+  const hdrBits = [meta.isHDR, meta.is10Bit].filter(Boolean).join(" • ");
+  if (hdrBits) videoParts.push(`🌈 ${hdrBits}`);
+  if (meta.codec) videoParts.push(`⚡ ${meta.codec}`);
+  if (meta.isDV) videoParts.push(`👁️ ${meta.isDV}`);
+  const line4 = videoParts.length > 0 ? videoParts.join(" | ") : "🌈 SDR";
+
+  // Subheading Line 5 => 🔗 Provider | ☁️ WEB-DL | 📝 ESub
+  const provParts = [`🔗 ${provider}`];
+  if (meta.release) provParts.push(`☁️ ${meta.release}`);
+  if (meta.isESub) provParts.push(`📝 ESub`);
+  const line5 = provParts.join(" | ");
+
+  // Subheading Line 6 => File Name
+  const line6 = filename || (rawLabel ? rawLabel.substring(0, 60) + "..." : "Unknown File");
 
   return {
-    name: `${sortPrefix}✨ 1Shows ${qualityEmoji}`,
-    title: [
-      `📡 ${name} ⚡ ${route}`,
-      `🏷️ ${releaseLabel}`,
-      rawSize ? `📦 Size: ${rawSize}` : null,
-      total > 1 ? `🔗 Server ${index + 1} of ${total}` : null
-    ].filter(Boolean).join('\n'),
+    name: streamName,
+    title: [titleLine, line2, line3, line4, line5, line6].join("\n"),
     url,
-    quality: rawQuality,
-    size: rawSize,
+    quality: meta.quality,
+    size: sizeFromLabel(rawLabel) || undefined,
     type: typeFromUrl(url),
     headers: {
       "User-Agent": USER_AGENT,
@@ -1264,7 +1017,7 @@ function isStreamAlive(stream) {
   });
 }
 function mediaFingerprint(stream) {
-  if (!/1Shows - KatMovies/i.test(stream.name || ""))
+  if (!/1Shows/i.test(stream.name || ""))
     return "";
   try {
     const filename = decodeURIComponent(

@@ -984,12 +984,27 @@ function streamFromUrl(source, resolved, index, total) {
     qualityText += ` ${decodeURIComponent(url)}`;
   } catch (e) {
   }
+
+  const quality = displayQuality(displayResolved, qualityText);
+  const size = sizeFromLabel(source.label || "") || "Unknown Size";
+  const titleText = release || String(source.label || name).replace(/р/gi, "p");
+
+  // 6 Line Subheadings with Header and Zero-Width Space (\u200B) trick
+  const line1 = `1Shows \u200B|\u200B ${name}`;
+  const line2 = `🎬 ${titleText}\u200B`;
+  const line3 = `📺 Quality: ${quality}\u200B`;
+  const line4 = `💾 Size: ${size}\u200B`;
+  const line5 = `⚡ Route: ${route}${total > 1 ? ` (Server ${index + 1})` : ""}\u200B`;
+  const line6 = `\u200B`;
+
+  const sixLineTitle = [line1, line2, line3, line4, line5, line6].join("\n");
+
   return {
     name: `1Shows - ${name} \xB7 ${route}`,
-    title: `${release || String(source.label || name).replace(/р/gi, "p")}${total > 1 ? ` \xB7 Server ${index + 1}` : ""}`,
+    title: sixLineTitle,
     url,
-    quality: displayQuality(displayResolved, qualityText),
-    size: sizeFromLabel(source.label || ""),
+    quality,
+    size,
     type: typeFromUrl(url),
     headers: {
       "User-Agent": USER_AGENT,

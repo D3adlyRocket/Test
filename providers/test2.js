@@ -38,10 +38,37 @@ var PAGE_HEADERS = {
 };
 var DOWNLOAD_KEY_HEX = "7a03086357a2147dab4d757e8ed2ff8b5dc8707ee3d473afcb80d97727afa191";
 
+function resolveSettings(extraConfig) {
+  let settings = {
+    language: "any",
+    minQuality: "any",
+    sortBy: "seeders"
+  };
+  try {
+    let source = extraConfig;
+    if (!source && typeof globalThis !== "undefined") {
+      source = globalThis.SCRAPER_SETTINGS || globalThis.SETTINGS || globalThis.settings;
+    }
+    if (!source && typeof global !== "undefined") {
+      source = global.SCRAPER_SETTINGS || global.SETTINGS || global.settings;
+    }
+    if (!source && typeof window !== "undefined") {
+      source = window.SCRAPER_SETTINGS || window.SETTINGS || window.settings;
+    }
+    if (source) {
+      if (source.language) settings.language = String(source.language).trim();
+      if (source.minQuality) settings.minQuality = String(source.minQuality).trim();
+      if (source.sortBy) settings.sortBy = String(source.sortBy).trim();
+    }
+  } catch (e) {
+    // Fallback safe settings parsing
+  }
+  return settings;
+}
+
 function fetchJson(url, options) {
   return __async(this, null, function* () {
-    const opts = Object.assign({ skipSizeCheck: true }, options || {});
-    const response = yield fetch(url, opts);
+    const response = yield fetch(url, options);
     if (!response.ok)
       throw new Error(`HTTP ${response.status}: ${url}`);
     return response.json();
@@ -50,24 +77,7 @@ function fetchJson(url, options) {
 
 function fetchText(url, options) {
   return __async(this, null, function* () {
-    const request = Object.assign({}, options || {}, {
-      skipSizeCheck: true,
-      cfKiller: true
-    });
-    let response = yield fetch(url, request);
-    if ((response.status === 403 || response.status === 503) && typeof globalThis.Cloudflare !== "undefined" && globalThis.Cloudflare.solve) {
-      try {
-        const solvedHeaders = yield globalThis.Cloudflare.solve(url);
-        response = yield fetch(
-          url,
-          Object.assign({}, request, {
-            headers: Object.assign({}, request.headers || {}, solvedHeaders || {})
-          })
-        );
-      } catch (e) {
-        // Fallback for restricted TV environments
-      }
-    }
+    const response = yield fetch(url, options);
     if (!response.ok)
       throw new Error(`HTTP ${response.status}: ${url}`);
     return { html: yield response.text(), url: response.url || url };
@@ -551,8 +561,7 @@ function fetchKmhdFilePage(fileUrl) {
         headers: Object.assign({}, PAGE_HEADERS, {
           "Content-Type": "application/x-www-form-urlencoded",
           Origin: parsed.origin
-        }),
-        skipSizeCheck: true
+        })
       });
     } catch (e) {
     }
@@ -868,54 +877,14 @@ function resolveSource(source) {
 
 function isStreamAlive(stream) {
   return __async(this, null, function* () {
-    var _a;
-    const startedAt = Date.now();
     try {
-      // Use a timeout wrapper tailored for sluggish TV Wi-Fi or local router bottlenecks
-      const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timeoutId = controller ? setTimeout(() => controller.abort(), 4000) : null;
-
       const response = yield fetch(stream.url, {
-        method: "GET",
-        headers: Object.assign({}, stream.headers || {}, {
-          Range: "bytes=0-1"
-        }),
-        redirect: "follow",
-        skipSizeCheck: true,
-        signal: controller ? controller.signal : undefined
+        method: "HEAD",
+        headers: stream.headers || {},
+        redirect: "follow"
       });
-
-      if (timeoutId) clearTimeout(timeoutId);
-
-      const contentRange = String(
-        response.headers && response.headers.get ? response.headers.get("content-range") || "" : ""
-      );
-      const contentType = String(
-        response.headers && response.headers.get ? response.headers.get("content-type") || "" : ""
-      ).toLowerCase();
-      const rangeTotal = Number(((_a = contentRange.match(/\/(\d+)$/)) == null ? void 0 : _a[1]) || 0);
-      const rangedMedia = response.status === 206 && /^bytes\s+0-1\//i.test(contentRange) && rangeTotal >= 1024 * 1024;
-      const hlsPlaylist = response.ok && (/mpegurl|application\/vnd\.apple\.mpegurl/i.test(contentType) || /\.m3u8(?:$|[?#])/i.test(stream.url));
-      
-      if (rangedMedia) {
-        const detectedSize = formatFileSize(rangeTotal);
-        if (detectedSize) {
-          stream.size = detectedSize;
-        }
-      }
-      if (/video\/mp4/i.test(contentType))
-        stream.type = "video/mp4";
-      else if (/video\/webm/i.test(contentType))
-        stream.type = "video/webm";
-      else if (/matroska/i.test(contentType))
-        stream.type = "video/x-matroska";
-      else if (/mpegurl/i.test(contentType))
-        stream.type = "application/x-mpegURL";
-      
-      stream._probeMs = Date.now() - startedAt;
-      return rangedMedia || hlsPlaylist;
+      return response.ok || response.status === 405;
     } catch (error) {
-      // On TV platforms where live probing drops out or blocks range requests, fallback to accepting the stream rather than discarding it.
       return true;
     }
   });
@@ -934,9 +903,10 @@ function mediaFingerprint(stream) {
   }
 }
 
-function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
+function getStreams(tmdbId, mediaType, season, episode, userSettings) {
   return __async(this, null, function* () {
     const normalizedType = mediaType === "series" ? "tv" : mediaType;
+    const settings = resolveSettings(userSettings);
     if (!tmdbId || normalizedType !== "movie" && normalizedType !== "tv") {
       return [];
     }
@@ -956,7 +926,7 @@ function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
       const sources = results[0];
       const year = results[1];
       const matchingSources = sources.filter(
-        (source) => source && source.url && (!onlyFamily || sourceFamily(source.label || "", source.url) === onlyFamily) && !hasWrongYear(`${source.label || ""} ${source.url}`, year)
+        (source) => source && source.url && !hasWrongYear(`${source.label || ""} ${source.url}`, year)
       );
       const resolvedGroups = yield Promise.all(matchingSources.map(resolveSource));
       const resolved = [].concat.apply([], resolvedGroups);

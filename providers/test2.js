@@ -1006,7 +1006,6 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
   else if (/\bHDTV\b/i.test(text)) releaseType = "HDTV";
   const releaseLine = releaseType;
 
-  // Exact filename-based parsing for HDR, DV, and ESub (fallback to empty if not present)
   const hdrTags = [];
   if (/\bHDR10\+\b/i.test(text)) hdrTags.push("HDR10+");
   else if (/\bHDR\b/i.test(text)) hdrTags.push("HDR");
@@ -1023,7 +1022,7 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
 }
 
 /**
- * makeStream - Configured with Goated Mobile & TV Layout Architecture for robust rendering
+ * makeStream - Configured with Goated Mobile & TV Layout Architecture
  */
 function makeStream(source, resolved, index, total, mediaMeta) {
   const url = resolved.url;
@@ -1036,25 +1035,20 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   const qRank = qualityRank(info.q);
   const sizeInMB = parseSizeToMB(info.sz);
 
-  /* --- GETINVERTED SORT TAG CALCULATION --- */
-  // Quality rank receives a 100,000 weight, plus the size in MB
   const sortTag = getInvertedSortTag((qRank * 100000) + sizeInMB, 999999);
 
-  /* --- HEADER LAYOUT WITH QUALITY INCLUDED --- */
+  /* --- HEADER LAYOUT --- */
   const headerLayout = `${sortTag}1Shows | ${info.q} | [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
 
   /* --- SUBHEADINGS LAYOUT --- */
+  // Direct title header starting immediately with the media emoji
   const line1_TitleHeader = mediaMeta.mediaType === "tv"
     ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
     : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
 
   const line2_SubheadingQuality = [info.qLine, info.audioLang, info.sizeLine].filter(Boolean).join(" | ");
   const line3_SubheadingTech = [info.formatLine, info.codecLine, info.audioLine].filter(Boolean).join(" | ");
-  
-  // Subheading 4 enhancements (HDR/DV/ESub if found, otherwise empty line filtered out)
   const line4_Enhancements = info.enhancementsLine;
-  
-  // Subheading 5 source info and Subheading 6 filename split completely onto its own line
   const line5_SourceInfo = `🔗 ${provider} | 🌐 ${route} | 📥 ${info.releaseLine}`;
   const line6_Filename = rawFileName;
 
@@ -1065,7 +1059,7 @@ function makeStream(source, resolved, index, total, mediaMeta) {
     line4_Enhancements,
     line5_SourceInfo,
     line6_Filename
-  ].filter(l => l !== ""); // Cleanly strip empty lines if optional enhancements are not present
+  ].filter(l => l !== "");
 
   const fullLayout = lines.join("\n");
 
@@ -1077,10 +1071,10 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   return {
     name: headerLayout,
     title: fullLayout,
-    size: fullLayout,
     description: fullLayout,
     url: url,
-    quality: info.q,
+    // Setting quality to null stops Stremio from auto-injecting "2160p • " in line 1
+    quality: null,
     qualityRank: qRank,
     sizeInMB: sizeInMB,
     type: typeFromUrl(url),
@@ -1243,7 +1237,6 @@ function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
         return true;
       });
 
-      // Sort streams using Quality Rank and File Size correctly
       streams.sort((a, b) => {
         if (b.qualityRank !== a.qualityRank) {
           return b.qualityRank - a.qualityRank;

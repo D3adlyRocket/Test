@@ -1,6 +1,5 @@
 /**
- * 1shows - Fixed for TV / Smart TV Runtimes & Native App UIs
- * Includes quality ordering, zero-width sorting prefixes, and clean field separation.
+ * 1shows - Configured with Movies4U Multi-Line Subheading Format & Quality Sorting
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -479,18 +478,20 @@ function fetchDownloadSources(tmdbId, mediaType, season, episode) {
   });
 }
 
-function fetchMediaYear(tmdbId, mediaType) {
+function fetchMediaDetails(tmdbId, mediaType) {
   return __async(this, null, function* () {
     try {
+      const endpoint = mediaType === "tv" ? "tv" : "movie";
       const data = yield fetchJson(
-        `${TMDB_URL}/${mediaType === "tv" ? "tv" : "movie"}/${encodeURIComponent(tmdbId)}?api_key=${TMDB_API_KEY}`,
+        `${TMDB_URL}/${endpoint}/${encodeURIComponent(tmdbId)}?api_key=${TMDB_API_KEY}`,
         { headers: { Accept: "application/json", "User-Agent": USER_AGENT } }
       );
-      return Number(
-        String(data.release_date || data.first_air_date || "").slice(0, 4)
-      ) || null;
+      const title = data.title || data.name || data.original_title || data.original_name || "Unknown";
+      const dateStr = data.release_date || data.first_air_date || "";
+      const year = Number(dateStr.slice(0, 4)) || null;
+      return { title, year };
     } catch (e) {
-      return null;
+      return { title: "Unknown", year: null };
     }
   });
 }
@@ -741,10 +742,7 @@ function resolveFilmyFlyUrls(source) {
         }))
       );
       const resolved = [].concat.apply([], groups);
-      const sharedRelease = resolved.map((item) => releaseDetailsFromUrl(item.url)).find(Boolean);
-      return resolved.map((item) => Object.assign({}, item, {
-        release: releaseDetailsFromUrl(item.url) || sharedRelease || ""
-      }));
+      return resolved;
     } catch (error) {
       return [];
     }
@@ -850,7 +848,7 @@ function qualityFromLabel(label) {
   if (/\b(?:2160p|4k)\b/i.test(normalized))
     return "2160p";
   const match = normalized.match(/\b(1080|720|480)p\b/i);
-  return match ? `${match[1]}p` : "Unknown";
+  return match ? `${match[1]}p` : "480p";
 }
 
 function qualityRank(qualityStr) {
@@ -880,52 +878,6 @@ function filenameFromUrl(url) {
   } catch (e) {
     return "";
   }
-}
-
-function releaseDetailsFromUrl(url) {
-  return releaseDetailsFromText(filenameFromUrl(url));
-}
-
-function releaseDetailsFromText(value) {
-  var _a, _b, _c, _d, _e;
-  const filename = String(value || "").replace(/р/gi, "p");
-  if (!filename)
-    return "";
-  const identity = (((_a = filename.match(/^(.+?\(\d{4}\))/)) == null ? void 0 : _a[1]) || "").replace(/\.+/g, " ");
-  const quality = ((_b = filename.match(/\b(?:2160p|1080p|720p|480p|4K)\b/i)) == null ? void 0 : _b[0]) || "";
-  const release = ((_c = filename.match(/\b(?:BluRay|WEB[- .]?DL|WEBRip|BRRip|HDRip|DVDRip)\b/i)) == null ? void 0 : _c[0]) || (/(?:^|\s)HD(?:\s|$)/i.test(filename) ? "HD" : "");
-  const codec = ((_d = filename.match(/\b(?:HEVC|AVC|H[.]?265|H[.]?264|x265|x264|AV1)\b/i)) == null ? void 0 : _d[0]) || "";
-  const extras = [];
-  if (/\b(?:HDR10\+?|HDR)\b/i.test(filename))
-    extras.push("HDR");
-  if (/\b(?:Dolby[ .]?Vision|DV)\b/i.test(filename))
-    extras.push("DV");
-  if (/\b10[ .-]?bit\b/i.test(filename))
-    extras.push("10-bit");
-  if (/\bDual Audio\b/i.test(filename))
-    extras.push("Dual Audio");
-  const audio = (_e = filename.match(/\b(?:DDP?\s?\d\.\d|AAC\s?\d\.\d|DTS(?:-HD)?|TrueHD|Atmos)\b/i)) == null ? void 0 : _e[0];
-  if (audio)
-    extras.push(audio.replace(/\s+/g, "").toUpperCase());
-  const languages = ["Hindi", "English", "Romanian", "Tamil", "Telugu", "Malayalam", "Bengali"].filter((language) => new RegExp(`\\b${language}\\b`, "i").test(filename));
-  if (languages.length)
-    extras.push(languages.join(" + "));
-  if (/\bE-?Sub\b/i.test(filename))
-    extras.push("ESub");
-  const groups = [
-    identity,
-    [quality, release.replace(/[ .]/g, "-").replace(/-+/g, "-")].filter(Boolean).join(" "),
-    [codec.toUpperCase(), ...extras].filter(Boolean).join(" · ")
-  ].filter(Boolean);
-  return groups.join(" · ");
-}
-
-function displayQuality(resolved, fallback) {
-  const resolution = qualityFromLabel(`${fallback || ""} ${resolved.url || ""}`);
-  if (!resolved.release)
-    return resolution;
-  const details = resolved.release.split(" · ").filter((part) => !/^.+\(\d{4}\)$/.test(part)).map((part) => part.replace(new RegExp(`^${resolution}\\s*`, "i"), "")).filter(Boolean).join(" · ");
-  return details ? `${resolution} · ${details}` : resolution;
 }
 
 function formatFileSize(bytes) {
@@ -961,35 +913,111 @@ function playbackReferer(url, fallback) {
   return fallback || `${SITE_URL}/`;
 }
 
-function streamFromUrl(source, resolved, index, total) {
+function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
+  const text = `${sourceLabel || ""} ${filename || ""} ${url || ""}`.replace(/р/gi, "p");
+
+  // Quality & Emoji
+  let q = qualityFromLabel(text);
+  let qEmoji = "📱";
+  if (q === "2160p") qEmoji = "🌟";
+  else if (q === "1080p") qEmoji = "🔥";
+  else if (q === "720p") qEmoji = "💎";
+  else if (q === "480p") qEmoji = "📱";
+  const qLine = `${qEmoji} ${q}`;
+
+  // Audio Language Tag
+  let audioLang = "🌍 Multi-Audio";
+  if (/dual[- .]?audio/i.test(text)) {
+    audioLang = "🌍 Dual-Audio";
+  } else if (/multi[- .]?audio/i.test(text)) {
+    audioLang = "🌍 Multi-Audio";
+  } else {
+    const langs = ["Hindi", "English", "Tamil", "Telugu", "Malayalam", "Bengali"].filter(l => new RegExp(`\\b${l}\\b`, "i").test(text));
+    if (langs.length > 1) {
+      audioLang = `🌍 ${langs.join("-")}`;
+    } else if (langs.length === 1) {
+      audioLang = `🌍 ${langs[0]}`;
+    }
+  }
+
+  // Size
+  const sz = detectedSize || sizeFromLabel(text) || "Unknown Size";
+  const sizeLine = `💾 ${sz}`;
+
+  // Format (Container)
+  let ext = "MKV";
+  if (/\.mp4/i.test(filename) || /\.mp4/i.test(url)) ext = "MP4";
+  else if (/\.mkv/i.test(filename) || /\.mkv/i.test(url)) ext = "MKV";
+  else if (/\.webm/i.test(filename) || /\.webm/i.test(url)) ext = "WEBM";
+  const formatLine = `🎞️ ${ext}`;
+
+  // Codec
+  let codec = "H.264";
+  if (/\b(?:HEVC|x265|H[.]?265)\b/i.test(text)) codec = "HEVC";
+  else if (/\b(?:x264|AVC|H[.]?264)\b/i.test(text)) codec = "H.264";
+  else if (/\bAV1\b/i.test(text)) codec = "AV1";
+  const codecLine = `⚡ ${codec}`;
+
+  // Audio Codec
+  let audioCodec = "AAC";
+  if (/\b(?:DDP?\s?5\.1|DD\+\s?5\.1|EAC3)\b/i.test(text)) audioCodec = "DDP 5.1";
+  else if (/\bDDP?\s?2\.0\b/i.test(text)) audioCodec = "DDP 2.0";
+  else if (/\bAtmos\b/i.test(text)) audioCodec = "Dolby Atmos";
+  else if (/\bDTS(?:-HD)?\b/i.test(text)) audioCodec = "DTS";
+  else if (/\bTrueHD\b/i.test(text)) audioCodec = "TrueHD";
+  else if (/\bAAC\b/i.test(text)) audioCodec = "AAC";
+  const audioLine = `🎧 ${audioCodec}`;
+
+  // Source / Release Type
+  let releaseType = "WEB-DL";
+  if (/\bBluRay\b/i.test(text)) releaseType = "BluRay";
+  else if (/\bWEBRip\b/i.test(text)) releaseType = "WEBRip";
+  else if (/\bWEB[- .]?DL\b/i.test(text)) releaseType = "WEB-DL";
+  else if (/\bHDRip\b/i.test(text)) releaseType = "HDRip";
+  else if (/\bDVDRip\b/i.test(text)) releaseType = "DVDRip";
+  else if (/\bHDTV\b/i.test(text)) releaseType = "HDTV";
+  const releaseLine = `📥 ${releaseType}`;
+
+  return { q, qLine, audioLang, sizeLine, formatLine, codecLine, audioLine, releaseLine, sz };
+}
+
+function streamFromUrl(source, resolved, index, total, mediaMeta) {
   const url = resolved.url;
   const provider = sourceName(source.label || "");
   const route = resolved.route || routeName("", url);
-  const release = resolved.release || releaseDetailsFromUrl(url) || releaseDetailsFromText(source.label || "");
-  const displayResolved = Object.assign({}, resolved, { release });
+  const rawFileName = filenameFromUrl(url) || `${provider}_file`;
 
-  let qualityText = source.label || "";
-  try {
-    qualityText += ` ${decodeURIComponent(url)}`;
-  } catch (e) {}
+  const info = parseStreamInfo(rawFileName, source.label, url, source.size);
 
-  const resQuality = qualityFromLabel(qualityText);
-  const detailedQuality = displayQuality(displayResolved, qualityText);
-  const size = sizeFromLabel(source.label || "") || "";
+  // Header: 1Shows • Quality • [Route]
+  const headerName = `1Shows • ${info.q} • [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
 
-  // Short header string for name
-  const headerName = `1Shows • ${provider} [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
+  // Line 1: Movie Name (Year) or Series Name (Year) | S1E1
+  const line1 = mediaMeta.mediaType === "tv"
+    ? `🎦 ${mediaMeta.title} (${mediaMeta.year || "N/A"}) | S${mediaMeta.season}E${mediaMeta.episode}`
+    : `🎦 ${mediaMeta.title} (${mediaMeta.year || "N/A"})`;
 
-  // Quality details string for subtext
-  const descriptionText = [detailedQuality !== "Unknown" ? detailedQuality : resQuality, size].filter(Boolean).join(" • ");
+  // Line 2: 🌟 2160p or 🔥 1080p | 🌍 Dual-Audio | 💾 Size
+  const line2 = `${info.qLine} | ${info.audioLang} | ${info.sizeLine}`;
+
+  // Line 3: 🎞️ Format | ⚡ Codec | 🎧 Audio
+  const line3 = `${info.formatLine} | ${info.codecLine} | ${info.audioLine}`;
+
+  // Line 4: 🔗 Provider | 🌐 Route | 📥 Release Type
+  const line4 = `🔗 ${provider} | 🌐 ${route} | ${info.releaseLine}`;
+
+  // Line 5: Raw File Name
+  const line5 = rawFileName;
+
+  const fullDescription = [line1, line2, line3, line4, line5].join("\n");
 
   return {
     name: headerName,
-    title: descriptionText,
-    description: descriptionText,
+    title: fullDescription,
+    description: fullDescription,
     url,
-    quality: resQuality,
-    size,
+    quality: info.q,
+    size: info.sz,
     type: typeFromUrl(url),
     headers: {
       "User-Agent": USER_AGENT,
@@ -998,7 +1026,7 @@ function streamFromUrl(source, resolved, index, total) {
   };
 }
 
-function resolveSource(source) {
+function resolveSource(source, mediaMeta) {
   return __async(this, null, function* () {
     const family = sourceFamily(source.label || "", source.url);
     const resolvedItems = family === "katmovies" ? (yield resolveKatMoviesUrls(source)).map((url) => ({ url, route: "GD Index" })) : family === "filmyfly" ? yield resolveFilmyFlyUrls(source) : family === "direct" ? (yield resolveDirectUrls(source)).map((url) => ({ url, route: "Direct" })) : [yield resolveSourceUrl(source)];
@@ -1006,7 +1034,7 @@ function resolveSource(source) {
       (item, index) => item && item.url && resolvedItems.findIndex((candidate) => candidate && candidate.url === item.url) === index
     );
     return uniqueItems.map(
-      (item, index) => streamFromUrl(source, item, index, uniqueItems.length)
+      (item, index) => streamFromUrl(source, item, index, uniqueItems.length, mediaMeta)
     );
   });
 }
@@ -1094,14 +1122,23 @@ function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
           parsedSeason,
           parsedEpisode
         ),
-        fetchMediaYear(String(tmdbId), normalizedType)
+        fetchMediaDetails(String(tmdbId), normalizedType)
       ]);
       const sources = results[0];
-      const year = results[1];
+      const tmdbMeta = results[1];
+
+      const mediaMeta = {
+        title: tmdbMeta.title,
+        year: tmdbMeta.year,
+        mediaType: normalizedType,
+        season: parsedSeason,
+        episode: parsedEpisode
+      };
+
       const matchingSources = sources.filter(
-        (source) => source && source.url && (!onlyFamily || sourceFamily(source.label || "", source.url) === onlyFamily) && !hasWrongYear(`${source.label || ""} ${source.url}`, year)
+        (source) => source && source.url && (!onlyFamily || sourceFamily(source.label || "", source.url) === onlyFamily) && !hasWrongYear(`${source.label || ""} ${source.url}`, mediaMeta.year)
       );
-      const resolvedGroups = yield Promise.all(matchingSources.map(resolveSource));
+      const resolvedGroups = yield Promise.all(matchingSources.map(source => resolveSource(source, mediaMeta)));
       const resolved = [].concat.apply([], resolvedGroups);
       const uniqueResolved = resolved.filter(
         (stream, index) => stream && stream.url && resolved.findIndex(

@@ -1,5 +1,5 @@
 /**
- * 1shows - Configured with Goated Header & Subheading Layout for TV/Mobile UI Compatibility
+ * 1shows - Configured with Fully Fixed Mobile & TV Layout, Precise Sizes, and Video Tags
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -58,7 +58,7 @@ var PAGE_HEADERS = {
 var DOWNLOAD_KEY_HEX = "7a03086357a2147dab4d757e8ed2ff8b5dc8707ee3d473afcb80d97727afa191";
 
 /* ----------------------------------------------------------------------------
- * ZERO-WIDTH SORTING & RESOLUTION HELPERS (GOATED PATTERN)
+ * ZERO-WIDTH SORTING & RESOLUTION HELPERS (MOVIES4U MATCHED PATTERN)
  * ---------------------------------------------------------------------------- */
 
 function getInvertedSortTag(val, maxBaseline = 999999) {
@@ -864,7 +864,7 @@ function sourceName(label) {
     return "FilmyFly";
   if (/premium\s*hm/i.test(label))
     return "Premium HM";
-  return "Download";
+  return "KatMovies";
 }
 
 function sourceFamily(label, url) {
@@ -957,10 +957,10 @@ function playbackReferer(url, fallback) {
 }
 
 /* ----------------------------------------------------------------------------
- * STREAM LAYOUT ENGINE (HEADER & SUBHEADINGS INTEGRATION)
+ * STREAM LAYOUT ENGINE (MOVIES4U MATCHED MOBILE/TV COMPATIBILITY)
  * ---------------------------------------------------------------------------- */
 
-function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
+function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr) {
   const text = `${sourceLabel || ""} ${filename || ""} ${url || ""}`.replace(/р/gi, "p");
 
   let q = qualityFromLabel(text);
@@ -981,8 +981,8 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
     }
   }
 
-  const sz = detectedSize || sizeFromLabel(text) || "Unknown Size";
-  const sizeLine = `💾 ${sz}`;
+  const sz = detectedSize || directSizeStr || sizeFromLabel(text) || "";
+  const sizeLine = sz ? `💾 ${sz}` : "";
 
   let ext = "MKV";
   if (/\.mp4/i.test(filename) || /\.mp4/i.test(url)) ext = "MP4";
@@ -990,11 +990,12 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
   else if (/\.webm/i.test(filename) || /\.webm/i.test(url)) ext = "WEBM";
   const formatLine = `🎞️ ${ext}`;
 
-  let codec = "HEVC";
-  if (/\b(?:HEVC|x265|H[.]?265)\b/i.test(text)) codec = "HEVC";
-  else if (/\b(?:x264|AVC|H[.]?264)\b/i.test(text)) codec = "H.264";
-  else if (/\bAV1\b/i.test(text)) codec = "AV1";
-  const codecLine = `✨ ${codec}`;
+  // Codec formatting: ⚡ HEVC • x264 or x265
+  let codecVal = "HEVC";
+  if (/\b(?:HEVC|x265|H[.]?265)\b/i.test(text)) codecVal = "x265";
+  else if (/\b(?:x264|AVC|H[.]?264)\b/i.test(text)) codecVal = "x264";
+  else if (/\bAV1\b/i.test(text)) codecVal = "AV1";
+  const codecLine = `⚡ ${codecVal}`;
 
   let audioCodec = "AAC";
   if (/\b(?:DDP?\s?5\.1|DD\+\s?5\.1|EAC3)\b/i.test(text)) audioCodec = "DDP 5.1";
@@ -1012,13 +1013,22 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize) {
   else if (/\bHDRip\b/i.test(text)) releaseType = "HDRip";
   else if (/\bDVDRip\b/i.test(text)) releaseType = "DVDRip";
   else if (/\bHDTV\b/i.test(text)) releaseType = "HDTV";
-  const releaseLine = `📥 ${releaseType}`;
+  const releaseLine = releaseType;
 
-  return { q, qLine, audioLang, sizeLine, formatLine, codecLine, audioLine, releaseLine, sz };
+  // Video enhancements: HDR, 10Bit, DV, Atmos tags with emojis
+  const tags = [];
+  if (/\bDV\b|\bDolby[- ]?Vision\b/i.test(text)) tags.push("vision 🟢 DV");
+  if (/\bHDR10\+\b/i.test(text)) tags.push("sparkle 🌟 HDR10+");
+  else if (/\bHDR\b/i.test(text)) tags.push("sparkle 🌟 HDR");
+  if (/\b10[- ]?bit\b/i.test(text)) tags.push("art 🎨 10Bit");
+  if (/\bAtmos\b/i.test(text)) tags.push("surround 🔊 Atmos");
+  const enhancementsLine = tags.length > 0 ? `✨ ${tags.join(" | ")}` : "";
+
+  return { q, qLine, audioLang, sizeLine, formatLine, codecLine, audioLine, releaseLine, enhancementsLine, sz };
 }
 
 /**
- * makeStream - Configured with Goated Layout Architecture
+ * makeStream - Configured with Movies4U Layout Architecture for Zero-Width & Mobile/TV UI Support
  */
 function makeStream(source, resolved, index, total, mediaMeta) {
   const url = resolved.url;
@@ -1026,7 +1036,7 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   const route = resolved.route || routeName("", url);
   const rawFileName = filenameFromUrl(url) || `${provider}_file`;
 
-  const info = parseStreamInfo(rawFileName, source.label, url, source.size);
+  const info = parseStreamInfo(rawFileName, source.label, url, source.size, source.directSize);
 
   const qRank = qualityRank(info.q);
   const sizeInMB = parseSizeToMB(info.sz);
@@ -1035,22 +1045,26 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   /* --- HEADER LAYOUT --- */
   const headerLayout = `${sortTag}1Shows • ${info.q} • [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
 
-  /* --- SUBHEADINGS LAYOUT --- */
+  /* --- SUBHEADINGS LAYOUT (Movies4U strict field format for Mobile + TV) --- */
   const line1_TitleHeader = mediaMeta.mediaType === "tv"
     ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
     : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
 
-  const line2_SubheadingQuality = `${info.qLine} | ${info.audioLang} | ${info.sizeLine}`;
-  const line3_SubheadingTech = `${info.formatLine} | ${info.codecLine} | ${info.audioLine}`;
-  const line4_SubheadingSource = `🌐 ${provider} | 📥 ${route} | ${info.releaseLine}`;
-  const line5_SubheadingFilename = rawFileName;
+  const line2_SubheadingQuality = [info.qLine, info.audioLang, info.sizeLine].filter(Boolean).join(" | ");
+  const line3_SubheadingTech = [info.formatLine, info.codecLine, info.audioLine].filter(Boolean).join(" | ");
+  
+  // Line 4 strict format: 🔗 KatMovies or FilmyFly | 🌐 GD Index or Pixeldrain | 📥 WEB-DL or WEB-RIP
+  const line4_SubheadingSource = `🔗 ${provider} | 🌐 ${route} | 📥 ${info.releaseLine}`;
+  
+  // Line 5: Enhancements (HDR, 10Bit, DV, Atmos) or Filename fallback
+  const line5_Extra = info.enhancementsLine ? `${info.enhancementsLine} | ${rawFileName}` : rawFileName;
 
   const fullLayout = [
     line1_TitleHeader,
     line2_SubheadingQuality,
     line3_SubheadingTech,
     line4_SubheadingSource,
-    line5_SubheadingFilename
+    line5_Extra
   ].join("\n");
 
   const headers = {
@@ -1061,7 +1075,7 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   return {
     name: headerLayout,
     title: fullLayout,
-    description: fullLayout, // NOTE: Completely removed 'size' property mapping to prevent UI override.
+    description: fullLayout,
     url: url,
     quality: info.q,
     qualityRank: qRank,
@@ -1114,8 +1128,6 @@ function isStreamAlive(stream) {
       const hlsPlaylist = response.ok && (/mpegurl|application\/vnd\.apple\.mpegurl/i.test(contentType) || /\.m3u8(?:$|[?#])/i.test(stream.url));
       
       if (rangedMedia) {
-         // Fix: Only calculating `sizeInMB` for accurate stream sorting. 
-         // Deliberately NOT setting `stream.size` anymore so the UI won't collapse the layout.
          stream.sizeInMB = Math.floor(rangeTotal / (1024 * 1024));
       }
       

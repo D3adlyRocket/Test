@@ -1040,8 +1040,8 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   // Quality rank receives a 100,000 weight, plus the size in MB
   const sortTag = getInvertedSortTag((qRank * 100000) + sizeInMB, 999999);
 
-  /* --- HEADER LAYOUT WITH ZERO-WIDTH INVERTED TAG --- */
-  const headerLayout = `${sortTag}1Shows • [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
+  /* --- HEADER LAYOUT WITH QUALITY INCLUDED --- */
+  const headerLayout = `${sortTag}1Shows | ${info.q} | [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
 
   /* --- SUBHEADINGS LAYOUT --- */
   const line1_TitleHeader = mediaMeta.mediaType === "tv"

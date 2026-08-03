@@ -1,5 +1,5 @@
 /**
- * 1shows - Configured with Fully Fixed Mobile & TV Layout, Precise Sizes, and Video Tags
+ * 1shows - Configured with Fully Fixed Mobile & TV Layout, Precise Sizes, Video Tags, and Subtitle mapping
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -58,7 +58,7 @@ var PAGE_HEADERS = {
 var DOWNLOAD_KEY_HEX = "7a03086357a2147dab4d757e8ed2ff8b5dc8707ee3d473afcb80d97727afa191";
 
 /* ----------------------------------------------------------------------------
- * ZERO-WIDTH SORTING & RESOLUTION HELPERS (MOVIES4U MATCHED PATTERN)
+ * ZERO-WIDTH SORTING & RESOLUTION HELPERS (GOATED/MOVIES4U MATCHED PATTERN)
  * ---------------------------------------------------------------------------- */
 
 function getInvertedSortTag(val, maxBaseline = 999999) {
@@ -923,17 +923,6 @@ function filenameFromUrl(url) {
   }
 }
 
-function formatFileSize(bytes) {
-  const value = Number(bytes);
-  if (!Number.isFinite(value) || value <= 0)
-    return "";
-  if (value >= 1024 ** 3)
-    return `${(value / 1024 ** 3).toFixed(value >= 10 * 1024 ** 3 ? 1 : 2).replace(/\.0+$/, "")} GB`;
-  if (value >= 1024 ** 2)
-    return `${(value / 1024 ** 2).toFixed(value >= 10 * 1024 ** 2 ? 1 : 2).replace(/\.0+$/, "")} MB`;
-  return `${Math.round(value / 1024)} KB`;
-}
-
 function typeFromUrl(url) {
   if (/\.m3u8(?:$|[?#])/i.test(url))
     return "application/x-mpegURL";
@@ -957,7 +946,7 @@ function playbackReferer(url, fallback) {
 }
 
 /* ----------------------------------------------------------------------------
- * STREAM LAYOUT ENGINE (MOVIES4U MATCHED MOBILE/TV COMPATIBILITY)
+ * STREAM LAYOUT ENGINE (MOBILE + TV COMPATIBILITY ENGINE MATCHING GOATED SPEC)
  * ---------------------------------------------------------------------------- */
 
 function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr) {
@@ -990,21 +979,26 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
   else if (/\.webm/i.test(filename) || /\.webm/i.test(url)) ext = "WEBM";
   const formatLine = `🎞️ ${ext}`;
 
-  // Codec formatting: ⚡ HEVC • x264 or x265
+  // Codec formatting: ⚡ x265 or x264
   let codecVal = "HEVC";
   if (/\b(?:HEVC|x265|H[.]?265)\b/i.test(text)) codecVal = "x265";
   else if (/\b(?:x264|AVC|H[.]?264)\b/i.test(text)) codecVal = "x264";
   else if (/\bAV1\b/i.test(text)) codecVal = "AV1";
   const codecLine = `⚡ ${codecVal}`;
 
+  // Audio codec formatting with Atmos: 🎧 DDP 5.1 • 🔊 Atmos
   let audioCodec = "AAC";
   if (/\b(?:DDP?\s?5\.1|DD\+\s?5\.1|EAC3)\b/i.test(text)) audioCodec = "DDP 5.1";
   else if (/\bDDP?\s?2\.0\b/i.test(text)) audioCodec = "DDP 2.0";
-  else if (/\bAtmos\b/i.test(text)) audioCodec = "Dolby Atmos";
   else if (/\bDTS(?:-HD)?\b/i.test(text)) audioCodec = "DTS";
   else if (/\bTrueHD\b/i.test(text)) audioCodec = "TrueHD";
   else if (/\bAAC\b/i.test(text)) audioCodec = "AAC";
-  const audioLine = `🎧 ${audioCodec}`;
+  
+  if (/\bAtmos\b/i.test(text)) {
+    audioLine = `🎧 ${audioCodec} • 🔊 Atmos`;
+  } else {
+    audioLine = `🎧 ${audioCodec}`;
+  }
 
   let releaseType = "WEB-DL";
   if (/\bBluRay\b/i.test(text)) releaseType = "BluRay";
@@ -1015,20 +1009,25 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
   else if (/\bHDTV\b/i.test(text)) releaseType = "HDTV";
   const releaseLine = releaseType;
 
-  // Video enhancements: HDR, 10Bit, DV, Atmos tags with emojis
-  const tags = [];
-  if (/\bDV\b|\bDolby[- ]?Vision\b/i.test(text)) tags.push("vision 🟢 DV");
-  if (/\bHDR10\+\b/i.test(text)) tags.push("sparkle 🌟 HDR10+");
-  else if (/\bHDR\b/i.test(text)) tags.push("sparkle 🌟 HDR");
-  if (/\b10[- ]?bit\b/i.test(text)) tags.push("art 🎨 10Bit");
-  if (/\bAtmos\b/i.test(text)) tags.push("surround 🔊 Atmos");
-  const enhancementsLine = tags.length > 0 ? `✨ ${tags.join(" | ")}` : "";
+  // Subheading 4 format: 🌈 HDR • 10Bit | ✨ DV | 📝 ESub
+  const hdrTags = [];
+  if (/\bHDR10\+\b/i.test(text)) hdrTags.push("HDR10+");
+  else if (/\bHDR\b/i.test(text)) hdrTags.push("HDR");
+  if (/\b10[- ]?bit\b/i.test(text)) hdrTags.push("10Bit");
+  
+  const hdrPart = hdrTags.length > 0 ? `🌈 ${hdrTags.join(" • ")}` : "";
+  
+  const dvPart = (/\bDV\b|\bDolby[- ]?Vision\b/i.test(text)) ? "✨ DV" : "";
+  const subPart = (/\bESub\b|\bEnglish\s*Sub\b/i.test(text)) ? "📝 ESub" : "";
+
+  const sub4Parts = [hdrPart, dvPart, subPart].filter(Boolean);
+  const enhancementsLine = sub4Parts.join(" | ");
 
   return { q, qLine, audioLang, sizeLine, formatLine, codecLine, audioLine, releaseLine, enhancementsLine, sz };
 }
 
 /**
- * makeStream - Configured with Movies4U Layout Architecture for Zero-Width & Mobile/TV UI Support
+ * makeStream - Configured with Goated Mobile & TV Layout Architecture for robust rendering
  */
 function makeStream(source, resolved, index, total, mediaMeta) {
   const url = resolved.url;
@@ -1045,7 +1044,7 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   /* --- HEADER LAYOUT --- */
   const headerLayout = `${sortTag}1Shows • ${info.q} • [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
 
-  /* --- SUBHEADINGS LAYOUT (Movies4U strict field format for Mobile + TV) --- */
+  /* --- SUBHEADINGS LAYOUT (Goated strict formatting for Mobile + TV viewports) --- */
   const line1_TitleHeader = mediaMeta.mediaType === "tv"
     ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
     : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
@@ -1053,18 +1052,16 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   const line2_SubheadingQuality = [info.qLine, info.audioLang, info.sizeLine].filter(Boolean).join(" | ");
   const line3_SubheadingTech = [info.formatLine, info.codecLine, info.audioLine].filter(Boolean).join(" | ");
   
-  // Line 4 strict format: 🔗 KatMovies or FilmyFly | 🌐 GD Index or Pixeldrain | 📥 WEB-DL or WEB-RIP
-  const line4_SubheadingSource = `🔗 ${provider} | 🌐 ${route} | 📥 ${info.releaseLine}`;
-  
-  // Line 5: Enhancements (HDR, 10Bit, DV, Atmos) or Filename fallback
-  const line5_Extra = info.enhancementsLine ? `${info.enhancementsLine} | ${rawFileName}` : rawFileName;
+  // Subheading 4 & 5 Swapped order configuration
+  const line4_Enhancements = info.enhancementsLine || `🌈 HDR | ✨ DV | 📝 ESub`;
+  const line5_SourceInfo = `🔗 ${provider} | 🌐 ${route} | 📥 ${info.releaseLine} | ${rawFileName}`;
 
   const fullLayout = [
     line1_TitleHeader,
     line2_SubheadingQuality,
     line3_SubheadingTech,
-    line4_SubheadingSource,
-    line5_Extra
+    line4_Enhancements,
+    line5_SourceInfo
   ].join("\n");
 
   const headers = {
@@ -1075,6 +1072,7 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   return {
     name: headerLayout,
     title: fullLayout,
+    size: fullLayout,
     description: fullLayout,
     url: url,
     quality: info.q,
@@ -1149,7 +1147,7 @@ function isStreamAlive(stream) {
 }
 
 function mediaFingerprint(stream) {
-  if (!/1Shows - KatMovies/i.test(stream.name || ""))
+  if (!/1Shows/i.test(stream.name || ""))
     return "";
   try {
     const filename = decodeURIComponent(

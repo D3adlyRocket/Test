@@ -1183,56 +1183,34 @@ function resolveSource(source) {
 function isStreamAlive(stream) {
   return __async(this, null, function* () {
     const startedAt = Date.now();
+    
+    // If running on Android TV or an environment that chokes on probes, 
+    // you can choose to bypass checking entirely for safety, or run this safe-fallback:
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000); // 4-second hard timeout for TV networks
+
       const response = yield fetch(stream.url, {
-        method: "GET",
-        headers: Object.assign({}, stream.headers || {}, {
-          Range: "bytes=0-1"
-        }),
+        method: "HEAD", // HEAD is lighter and less prone to buffer/CORS hangups on TVs than GET
+        headers: stream.headers || {},
         redirect: "follow",
-        skipSizeCheck: true
+        signal: controller.signal
       });
-      const contentRange = String(
-        response.headers && response.headers.get ? response.headers.get("content-range") || "" : ""
-      );
-      const contentType = String(
-        response.headers && response.headers.get ? response.headers.get("content-type") || "" : ""
-      ).toLowerCase();
-      const rangeTotal = Number(((_a = contentRange.match(/\/(\d+)$/)) == null ? void 0 : _a[1]) || 0);
-      const rangedMedia = response.status === 206 && /^bytes\s+0-1\//i.test(contentRange) && rangeTotal >= 1024 * 1024;
-      const hlsPlaylist = response.ok && (/mpegurl|application\/vnd\.apple\.mpegurl/i.test(contentType) || /\.m3u8(?:$|[?#])/i.test(stream.url));
       
-      // FIX FOR ANDROID TV: If standard range probe fails due to TV network stack/CORS 
-      // but the URL responds with a standard 200 OK or redirect, do not drop it!
-      const fallbackTvAcceptable = response.ok || response.status === 206 || response.status === 302 || response.status === 301;
+      clearTimeout(timeoutId);
 
-      if (!rangedMedia && !hlsPlaylist && !fallbackTvAcceptable) {
-        console.log(
-          `[1Shows] Dead source removed: HTTP ${response.status}, ${contentType || "unknown type"}`
-        );
-        return false;
+      // If we get any valid response code, consider it alive
+      if (response.ok || response.status === 302 || response.status === 301 || response.status === 403 || response.status === 401) {
+        stream._probeMs = Date.now() - startedAt;
+        return true;
       }
-
-      if (rangedMedia) {
-        const detectedSize = formatFileSize(rangeTotal);
-        if (detectedSize) {
-          stream.size = detectedSize;
-        }
-      }
-      if (/video\/mp4/i.test(contentType))
-        stream.type = "video/mp4";
-      else if (/video\/webm/i.test(contentType))
-        stream.type = "video/webm";
-      else if (/matroska/i.test(contentType))
-        stream.type = "video/x-matroska";
-      else if (/mpegurl/i.test(contentType))
-        stream.type = "application/x-mpegURL";
-        
-      stream._probeMs = Date.now() - startedAt;
-      return true; // Returns true for TV and mobile as long as the endpoint answers valid HTTP headers
-    } catch (error) {
-      console.log(`[1Shows] Dead source removed: ${error.message}`);
+      
       return false;
+    } catch (error) {
+      // ANDROID TV FIX: If the TV network stack throws a TypeError, CORS failure, 
+      // or aborts due to strict policies, DO NOT kill the stream. Let it pass through to the player.
+      console.log(`[1Shows] TV-Safe fallback triggered for: ${stream.url} (${error.message})`);
+      return true; 
     }
   });
 }

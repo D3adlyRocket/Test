@@ -1,5 +1,5 @@
 /**
- * 1shows - Fixed for TV / Smart TV Runtimes
+ * 1shows - Fixed for TV / Smart TV Runtimes & Native App UIs
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -973,37 +973,37 @@ function playbackReferer(url, fallback) {
   return fallback || `${SITE_URL}/`;
 }
 
+/**
+ * Optimized for Native TV & Mobile App Item Cards
+ */
 function streamFromUrl(source, resolved, index, total) {
   const url = resolved.url;
-  const name = sourceName(source.label || "");
+  const provider = sourceName(source.label || "");
   const route = resolved.route || routeName("", url);
   const release = resolved.release || releaseDetailsFromUrl(url) || releaseDetailsFromText(source.label || "");
   const displayResolved = Object.assign({}, resolved, { release });
+
   let qualityText = source.label || "";
   try {
     qualityText += ` ${decodeURIComponent(url)}`;
-  } catch (e) {
-  }
+  } catch (e) {}
 
-  const quality = displayQuality(displayResolved, qualityText);
+  const resQuality = qualityFromLabel(qualityText);
+  const detailedQuality = displayQuality(displayResolved, qualityText);
   const size = sizeFromLabel(source.label || "") || "Unknown Size";
-  const titleText = release || String(source.label || name).replace(/р/gi, "p");
 
-  // 6 Line Subheadings with Header and Zero-Width Space (\u200B) trick
-  const line1 = `1Shows \u200B|\u200B ${name}`;
-  const line2 = `🎬 ${titleText}\u200B`;
-  const line3 = `📺 Quality: ${quality}\u200B`;
-  const line4 = `💾 Size: ${size}\u200B`;
-  const line5 = `⚡ Route: ${route}${total > 1 ? ` (Server ${index + 1})` : ""}\u200B`;
-  const line6 = `\u200B`;
+  // Clean, punchy name for Row 1 in the UI
+  const streamName = `1Shows • ${provider} [${route}${total > 1 ? ` ${index + 1}` : ""}]`;
 
-  const sixLineTitle = [line1, line2, line3, line4, line5, line6].join("\n");
+  // Full single-line summary string for title/description
+  const streamTitle = `${streamName} | ${detailedQuality} | ${size}`;
 
   return {
-    name: `1Shows - ${name} \xB7 ${route}`,
-    title: sixLineTitle,
+    name: streamName,
+    title: streamTitle,
+    description: streamTitle,
     url,
-    quality,
+    quality: detailedQuality !== "Unknown" ? detailedQuality : resQuality,
     size,
     type: typeFromUrl(url),
     headers: {
@@ -1067,8 +1067,6 @@ function isStreamAlive(stream) {
       stream._probeMs = Date.now() - startedAt;
       return response.ok || response.status === 206 || rangedMedia || hlsPlaylist;
     } catch (error) {
-      // On Smart TV JS runtimes, fetch on media links often fails due to CORS or network policies.
-      // Retain stream for native TV player (ExoPlayer/mpv/WebOS player) direct playback attempt.
       console.log(`[1Shows] Probe skipped/failed on TV for stream: ${error.message}`);
       return true;
     }

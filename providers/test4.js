@@ -159,12 +159,12 @@ function makeVidloveStream(sourceItem, index, total, mediaMeta) {
 
   const sortTag = getInvertedSortTag((qRank * 100000) + sizeInMB, 999999);
 
-  /* --- HEADER LAYOUT --- */
-  const headerLayout = `${sortTag}Vidlove | ${info.q} | [${serverLabel}${total > 1 ? ` ${index + 1}` : ""}]`;
+  /* --- 1SHOWS STYLE HEADER LAYOUT (Contains \n so mobile renders title body) --- */
+  const headerName = `${sortTag}Vidlove\n${info.q} [${serverLabel}${total > 1 ? ` ${index + 1}` : ""}]`;
 
   /* --- SUBHEADINGS LAYOUT --- */
   const line1_TitleHeader = mediaMeta.mediaType === "tv"
-    ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
+    ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} - S${mediaMeta.season}E${mediaMeta.episode}`
     : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
 
   const line2_SubheadingQuality = [info.qLine, info.audioLang, info.sizeLine].filter(Boolean).join(" | ");
@@ -188,9 +188,8 @@ function makeVidloveStream(sourceItem, index, total, mediaMeta) {
   };
 
   return {
-    name: headerLayout,
+    name: headerName,
     title: fullLayout,
-    description: fullLayout,
     url: url,
     quality: null,
     qualityRank: qRank,

@@ -111,7 +111,7 @@ function makeStream(sourceItem, index, total, mediaMeta) {
     ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
     : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
 
-  const line2_SubheadingQuality = `${qEmoji} | 🗣️ Multi-Audio`;
+  const line2_SubheadingQuality = `${qEmoji} | 🗣️ Original-Audio`;
   const line3_SubheadingTech = `🎞️ MKV | ⚡ HEVC | 🎧 AAC`;
   const line4_SourceInfo = `🔗 Vidlove | 🌐 ${serverLabel} | 📥 WEB-DL`;
 

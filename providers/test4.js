@@ -53,6 +53,14 @@ function qualityRank(qualityStr) {
   return 0;
 }
 
+// Added from goated.js for Nuvio compatibility
+function getInvertedSortTag(val, maxBaseline = 999999) {
+  const safeVal = Math.max(0, parseInt(val, 10) || 0);
+  const inverted = Math.max(0, maxBaseline - safeVal);
+  const binaryStr = inverted.toString(2).padStart(20, '0');
+  return binaryStr.split('').map(bit => bit === '1' ? "\uFEFF" : "\u200B").join('');
+}
+
 /* ----------------------------------------------------------------------------
  * METADATA FETCHING
  * ---------------------------------------------------------------------------- */
@@ -78,7 +86,7 @@ function fetchMediaDetails(tmdbId, mediaType) {
 }
 
 /* ----------------------------------------------------------------------------
- * STREAM MAKER (1SHOWS PATTERN)
+ * STREAM MAKER (NUVIO LAYOUT PARITY)
  * ---------------------------------------------------------------------------- */
 
 function makeStream(sourceItem, index, total, mediaMeta) {
@@ -89,20 +97,25 @@ function makeStream(sourceItem, index, total, mediaMeta) {
 
   const q = qualityFromText(fullText);
   const qEmoji = getResolutionEmoji(q);
+  const qRank = qualityRank(q);
 
-  /* --- LEFT BADGE (NAME) --- */
-  const name = `Vidlove\n${q} [${serverLabel}${total > 1 ? ` ${index + 1}` : ""}]`;
+  /* --- NUVIO ZERO-WIDTH SORTING & HEADER --- */
+  // Sort by quality first, fallback to source size/index. We use index inversion for deterministic fallback
+  const sortTag = getInvertedSortTag((qRank * 100000) + (100 - index), 999999);
+  
+  // Format the top stream name exactly like goated.js bullet point layout
+  const headerLayout = `${sortTag}Vidlove • ${q} • ${serverLabel}`;
 
-  /* --- SUBHEADINGS (TITLE) --- */
+  /* --- NUVIO FULL LAYOUT LINES --- */
   const line1_TitleHeader = mediaMeta.mediaType === "tv"
-    ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} - S${mediaMeta.season}E${mediaMeta.episode}`
+    ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
     : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
 
   const line2_SubheadingQuality = `${qEmoji} | 🗣️ Multi-Audio`;
   const line3_SubheadingTech = `🎞️ MKV | ⚡ HEVC | 🎧 AAC`;
   const line4_SourceInfo = `🔗 Vidlove | 🌐 ${serverLabel} | 📥 WEB-DL`;
 
-  const title = [
+  const fullLayout = [
     line1_TitleHeader,
     line2_SubheadingQuality,
     line3_SubheadingTech,
@@ -115,10 +128,12 @@ function makeStream(sourceItem, index, total, mediaMeta) {
   };
 
   return {
-    _rank: qualityRank(q),
+    _rank: qRank,
     stream: {
-      name: name,
-      title: title,
+      name: headerLayout,
+      title: fullLayout,
+      size: fullLayout,           // CRITICAL FOR NUVIO MOBILE
+      description: fullLayout,    // CRITICAL FOR NUVIO MOBILE
       url: url,
       behaviorHints: {
         notWebReady: true,
@@ -240,10 +255,7 @@ function getStreams(tmdbId, type, season = null, episode = null) {
         makeStream(sourceItem, idx, rawSources.length, mediaMeta)
       );
 
-      // Sort streams in JavaScript array by quality rank
-      wrappedStreams.sort((a, b) => b._rank - a._rank);
-
-      // Extract raw stream objects for Stremio engine
+      // Extract raw stream objects for engine
       return wrappedStreams.map(w => w.stream);
     } catch (e) {
       return [];
@@ -251,4 +263,9 @@ function getStreams(tmdbId, type, season = null, episode = null) {
   });
 }
 
-module.exports = { getStreams };
+// Added environment export compatibility 
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+}

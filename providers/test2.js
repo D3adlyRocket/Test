@@ -1,5 +1,5 @@
 /**
- * 1shows - Configured with Fixed Mobile & TV Layout, Precise Sizes, and Stream Formatting
+ * 1shows - Fully Restored Script with Fixed Mobile & TV Subheadings / Nuvio Layout Compatibility
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -946,7 +946,7 @@ function playbackReferer(url, fallback) {
 }
 
 /* ----------------------------------------------------------------------------
- * STREAM LAYOUT ENGINE (VIDLOVE METHOD & MOBILE + TV COMPATIBILITY ENGINE)
+ * STREAM LAYOUT ENGINE (NUVIO MOBILE + TV FIXED COMPATIBILITY)
  * ---------------------------------------------------------------------------- */
 
 function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr) {
@@ -954,48 +954,76 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
 
   let q = qualityFromLabel(text);
   let qEmoji = getResolutionEmoji(q);
+  const qLine = `${qEmoji}`;
 
-  let audioLang = "Multi-Audio";
+  let audioLang = "🗣️ Multi-Audio";
   if (/dual[- .]?audio/i.test(text)) {
-    audioLang = "Dual-Audio";
+    audioLang = "🗣️ Dual-Audio";
   } else if (/multi[- .]?audio/i.test(text)) {
-    audioLang = "Multi-Audio";
+    audioLang = "🗣️ Multi-Audio";
   } else {
     const langs = ["Hindi", "English", "Tamil", "Telugu", "Malayalam", "Bengali"].filter(l => new RegExp(`\\b${l}\\b`, "i").test(text));
     if (langs.length > 1) {
-      audioLang = langs.join("-");
+      audioLang = `🗣️ ${langs.join("-")}`;
     } else if (langs.length === 1) {
-      audioLang = langs[0];
+      audioLang = `🗣️ ${langs[0]}`;
     }
   }
 
   const sz = detectedSize || directSizeStr || sizeFromLabel(text) || "";
+  const sizeLine = sz ? `💾 ${sz}` : "";
+
+  let ext = "MKV";
+  if (/\.mp4/i.test(filename) || /\.mp4/i.test(url)) ext = "MP4";
+  else if (/\.mkv/i.test(filename) || /\.mkv/i.test(url)) ext = "MKV";
+  else if (/\.webm/i.test(filename) || /\.webm/i.test(url)) ext = "WEBM";
+  const formatLine = `🎞️ ${ext}`;
 
   let codecVal = "x265";
   if (/\b(?:HEVC|x265|H[.]?265)\b/i.test(text)) codecVal = "x265";
   else if (/\b(?:x264|AVC|H[.]?264)\b/i.test(text)) codecVal = "x264";
   else if (/\bAV1\b/i.test(text)) codecVal = "AV1";
+  const codecLine = `⚡ ${codecVal}`;
 
-  let audioCodec = "DDP 5.1";
+  let audioCodec = "AAC";
   if (/\b(?:DDP?\s?5\.1|DD\+\s?5\.1|EAC3)\b/i.test(text)) audioCodec = "DDP 5.1";
   else if (/\bDDP?\s?2\.0\b/i.test(text)) audioCodec = "DDP 2.0";
   else if (/\bDTS(?:-HD)?\b/i.test(text)) audioCodec = "DTS";
   else if (/\bTrueHD\b/i.test(text)) audioCodec = "TrueHD";
   else if (/\bAAC\b/i.test(text)) audioCodec = "AAC";
-
+  
+  let audioLine = `🎧 ${audioCodec}`;
   if (/\bAtmos\b/i.test(text)) {
-    audioCodec += " Atmos";
+    audioLine = `🎧 ${audioCodec} Atmos`;
   }
+
+  let releaseType = "WEB-DL";
+  if (/\bBluRay\b/i.test(text)) releaseType = "BluRay";
+  else if (/\bWEBRip\b/i.test(text)) releaseType = "WEBRip";
+  else if (/\bWEB[- .]?DL\b/i.test(text)) releaseType = "WEB-DL";
+  else if (/\bHDRip\b/i.test(text)) releaseType = "HDRip";
+  else if (/\bDVDRip\b/i.test(text)) releaseType = "DVDRip";
+  else if (/\bHDTV\b/i.test(text)) releaseType = "HDTV";
+  const releaseLine = releaseType;
 
   const hdrTags = [];
   if (/\bHDR10\+\b/i.test(text)) hdrTags.push("HDR10+");
   else if (/\bHDR\b/i.test(text)) hdrTags.push("HDR");
-  if (/\bDV\b|\bDolby[- ]?Vision\b|\bDoVi\b/i.test(text)) hdrTags.push("DV");
-  if (/\bESub\b|\bEnglish\s*Sub\b/i.test(text)) hdrTags.push("ESub");
+  if (/\b10[- ]?bit\b/i.test(text)) hdrTags.push("10Bit");
+  
+  const hdrPart = hdrTags.length > 0 ? `🌈 ${hdrTags.join(" • ")}` : "";
+  const dvPart = (/\bDV\b|\bDolby[- ]?Vision\b|\bDoVi\b/i.test(text)) ? "✨ DV" : "";
+  const subPart = (/\bESub\b|\bEnglish\s*Sub\b/i.test(text)) ? "📝 ESub" : "";
 
-  return { q, qEmoji, audioLang, sz, codecVal, audioCodec, hdrTags: hdrTags.join(" • ") };
+  const sub4Parts = [hdrPart, dvPart, subPart].filter(Boolean);
+  const enhancementsLine = sub4Parts.join(" • ");
+
+  return { q, qLine, audioLang, sizeLine, formatLine, codecLine, audioLine, releaseLine, enhancementsLine, sz };
 }
 
+/**
+ * makeStream - Configured with Exact Nuvio Bullet Layout (Fixes 2160p - Unknown bug)
+ */
 function makeStream(source, resolved, index, total, mediaMeta) {
   const url = resolved.url;
   const provider = sourceName(source.label || "");
@@ -1005,30 +1033,30 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   const info = parseStreamInfo(rawFileName, source.label, url, source.size, source.directSize);
 
   const qRank = qualityRank(info.q);
-  let sizeInMB = parseSizeToMB(info.sz);
-
-  let formattedSize = info.sz;
-  if (!formattedSize && sizeInMB > 0) {
-    formattedSize = sizeInMB >= 1024 ? `${(sizeInMB / 1024).toFixed(1)} GB` : `${sizeInMB} MB`;
-  }
+  const sizeInMB = parseSizeToMB(info.sz);
 
   const sortTag = getInvertedSortTag((qRank * 100000) + sizeInMB, 999999);
 
-  /* Vidlove-style standard layout */
-  const nameLayout = `${sortTag}1Shows\n${info.q}`;
+  /* --- NUVIO HEADER LAYOUT (Using bullets • prevents pipe splitting bug) --- */
+  const headerLayout = `${sortTag}1Shows • ${info.q} • ${route}${total > 1 ? ` ${index + 1}` : ""}`;
 
-  const mediaTitleStr = mediaMeta.mediaType === "tv"
-    ? `${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} S${mediaMeta.season}E${mediaMeta.episode}`
-    : `${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
+  /* --- NUVIO SUBHEADINGS LAYOUT --- */
+  const line1_TitleHeader = mediaMeta.mediaType === "tv"
+    ? `🍿 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} • ${info.q}${info.sz ? ` [${info.sz}]` : ""}`
+    : `🍿 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} • ${info.q}${info.sz ? ` [${info.sz}]` : ""}`;
 
-  const sizePart = formattedSize ? `[${formattedSize}]` : "";
+  const line2_SubheadingQuality = [info.audioLang, info.codecLine, info.audioLine].filter(Boolean).join(" | ");
+  const line3_SubheadingTech = [info.enhancementsLine].filter(Boolean).join(" | ");
+  const line4_SourceInfo = `🔗 ${provider} (${route}) | 📄 ${rawFileName}`;
 
-  /* Line 1 contains Title, Quality, and Size in brackets so TV parsers don't display "Unknown" */
-  const line1 = `🎬 ${mediaTitleStr} • ${info.q} ${sizePart}`.trim();
-  const line2 = `🗣️ ${info.audioLang} | ⚡ ${info.codecVal} | 🎧 ${info.audioCodec}${info.hdrTags ? ` | 🌈 ${info.hdrTags}` : ""}`;
-  const line3 = `🔗 ${provider} (${route}) | 📄 ${rawFileName}`;
+  const lines = [
+    line1_TitleHeader,
+    line2_SubheadingQuality,
+    line3_SubheadingTech,
+    line4_SourceInfo
+  ].filter(l => l !== "");
 
-  const fullTitle = `${line1}\n${line2}\n${line3}`;
+  const fullLayout = lines.join("\n");
 
   const headers = {
     "User-Agent": USER_AGENT,
@@ -1036,13 +1064,14 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   };
 
   return {
-    name: nameLayout,
-    title: fullTitle,
+    name: headerLayout,
+    title: fullLayout,
+    size: fullLayout,           // CRITICAL FOR NUVIO MOBILE & TV LAYOUT
+    description: fullLayout,    // CRITICAL FOR NUVIO MOBILE & TV LAYOUT
     url: url,
+    type: typeFromUrl(url),
     qualityRank: qRank,
     sizeInMB: sizeInMB,
-    type: typeFromUrl(url),
-    headers: headers,
     behaviorHints: {
       notWebReady: true,
       proxyHeaders: {
@@ -1208,6 +1237,12 @@ function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
         return b.sizeInMB - a.sizeInMB;
       });
 
+      // Cleanup internal sorting helper properties before returning
+      streams.forEach(s => {
+        delete s.qualityRank;
+        delete s.sizeInMB;
+      });
+
       return streams;
     } catch (error) {
       return [];
@@ -1215,4 +1250,8 @@ function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
   });
 }
 
-module.exports = { getStreams };
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = { getStreams };
+} else {
+  global.getStreams = getStreams;
+}

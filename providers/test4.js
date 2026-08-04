@@ -159,13 +159,17 @@ function makeVidloveStream(sourceItem, index, total, mediaMeta) {
 
   const sortTag = getInvertedSortTag((qRank * 100000) + sizeInMB, 999999);
 
-  /* --- 1SHOWS STYLE HEADER LAYOUT (Contains \n so mobile renders title body) --- */
+  /* --- 1SHOWS STYLE HEADER --- */
   const headerName = `${sortTag}Vidlove\n${info.q} [${serverLabel}${total > 1 ? ` ${index + 1}` : ""}]`;
 
   /* --- SUBHEADINGS LAYOUT --- */
+  const displayTitle = (mediaMeta.title && mediaMeta.title !== "Unknown")
+    ? mediaMeta.title
+    : (sourceItem.fallbackTitle || "Unknown Title");
+
   const line1_TitleHeader = mediaMeta.mediaType === "tv"
-    ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} - S${mediaMeta.season}E${mediaMeta.episode}`
-    : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
+    ? `🎬 ${displayTitle}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
+    : `🎬 ${displayTitle}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
 
   const line2_SubheadingQuality = [info.qLine, info.audioLang, info.sizeLine].filter(Boolean).join(" | ");
   const line3_SubheadingTech = [info.formatLine, info.codecLine, info.audioLine].filter(Boolean).join(" | ");
@@ -190,6 +194,7 @@ function makeVidloveStream(sourceItem, index, total, mediaMeta) {
   return {
     name: headerName,
     title: fullLayout,
+    description: fullLayout, // REQUIRED FOR STREMIO MOBILE UI
     url: url,
     quality: null,
     qualityRank: qRank,
@@ -235,6 +240,8 @@ function fetchServerSource(server, tmdbId, type, season, episode) {
         return [];
       }
 
+      const meta = data.meta || {};
+      const fallbackTitle = meta.name || meta.title || meta.original_title || meta.original_name || "";
       const label = data.source.label || server;
 
       if (hasQualities) {
@@ -242,6 +249,7 @@ function fetchServerSource(server, tmdbId, type, season, episode) {
           .filter((q) => q && q.url)
           .map((q) => ({
             serverLabel: label,
+            fallbackTitle,
             url: q.url,
             quality: q.quality || "",
             size: "",
@@ -252,6 +260,7 @@ function fetchServerSource(server, tmdbId, type, season, episode) {
       return [
         {
           serverLabel: label,
+          fallbackTitle,
           url: data.source.url,
           quality: "",
           size: "",

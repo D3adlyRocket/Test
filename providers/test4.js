@@ -23,29 +23,11 @@ var __async = (__this, __arguments, generator) => {
 
 var TMDB_URL = "https://api.themoviedb.org/3";
 var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36";
+var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 /* ----------------------------------------------------------------------------
- * ZERO-WIDTH SORTING & RESOLUTION HELPERS
+ * HELPER & PARSER FUNCTIONS
  * ---------------------------------------------------------------------------- */
-
-function getInvertedSortTag(val, maxBaseline = 999999) {
-  const safeVal = Math.max(0, parseInt(val, 10) || 0);
-  const inverted = Math.max(0, maxBaseline - safeVal);
-  const binaryStr = inverted.toString(2).padStart(20, '0');
-  return binaryStr.split('').map(bit => bit === '1' ? "\uFEFF" : "\u200B").join('');
-}
-
-function parseSizeToMB(sizeStr) {
-  if (!sizeStr || sizeStr === "N/A" || sizeStr === "Unknown") return 0;
-  const match = String(sizeStr).match(/([\d.]+)\s*(GB|MB)/i);
-  if (!match) return 0;
-  const num = parseFloat(match[1]);
-  const unit = match[2].toUpperCase();
-  if (unit === "GB") return Math.floor(num * 1024);
-  if (unit === "MB") return Math.floor(num);
-  return 0;
-}
 
 function qualityFromText(text) {
   const normalized = String(text || "").replace(/р/gi, "p");
@@ -69,13 +51,6 @@ function qualityRank(qualityStr) {
   if (/720p/i.test(qualityStr)) return 2;
   if (/480p/i.test(qualityStr)) return 1;
   return 0;
-}
-
-function typeFromUrl(url) {
-  if (/\.m3u8(?:$|[?#])/i.test(url)) return "application/x-mpegURL";
-  if (/\.mpd(?:$|[?#])/i.test(url)) return "application/dash+xml";
-  if (/\.mp4(?:$|[?#])/i.test(url)) return "video/mp4";
-  return "video/x-matroska";
 }
 
 /* ----------------------------------------------------------------------------
@@ -103,108 +78,53 @@ function fetchMediaDetails(tmdbId, mediaType) {
 }
 
 /* ----------------------------------------------------------------------------
- * PARSER & STREAM FORMATTER
+ * STREAM MAKER (1SHOWS PATTERN)
  * ---------------------------------------------------------------------------- */
 
-function parseStreamInfo(rawQuality, serverLabel, url, sizeStr) {
-  const text = `${rawQuality || ""} ${serverLabel || ""} ${url || ""}`.replace(/р/gi, "p");
-
-  const q = qualityFromText(text);
-  const qEmoji = getResolutionEmoji(q);
-  const qLine = `${qEmoji}`;
-
-  let audioLang = "🗣️ Multi-Audio";
-  if (/dual[- .]?audio/i.test(text)) audioLang = "🗣️ Dual-Audio";
-  else if (/multi[- .]?audio/i.test(text)) audioLang = "🗣️ Multi-Audio";
-
-  const sz = sizeStr || "";
-  const sizeLine = sz ? `💾 ${sz}` : "";
-
-  let ext = "MKV";
-  if (/\.mp4/i.test(url)) ext = "MP4";
-  else if (/\.m3u8/i.test(url)) ext = "HLS";
-  else if (/\.mkv/i.test(url)) ext = "MKV";
-  const formatLine = `🎞️ ${ext}`;
-
-  let codecVal = "HEVC";
-  if (/\b(?:HEVC|x265|H[.]?265)\b/i.test(text)) codecVal = "x265";
-  else if (/\b(?:x264|AVC|H[.]?264)\b/i.test(text)) codecVal = "x264";
-  else if (/\bAV1\b/i.test(text)) codecVal = "AV1";
-  const codecLine = `⚡ ${codecVal}`;
-
-  let audioCodec = "AAC";
-  if (/\b(?:DDP?\s?5\.1|EAC3)\b/i.test(text)) audioCodec = "DDP 5.1";
-  else if (/\bAtmos\b/i.test(text)) audioCodec = "Atmos";
-  const audioLine = `🎧 ${audioCodec}`;
-
-  const releaseLine = "WEB-DL";
-
-  const hdrPart = /\bHDR\b/i.test(text) ? "🌈 HDR" : "";
-  const dvPart = /\bDV\b|\bDolby[- ]?Vision\b/i.test(text) ? "✨ DV" : "";
-  const subPart = /\bESub\b/i.test(text) ? "📝 ESub" : "";
-
-  const enhancementsLine = [hdrPart, dvPart, subPart].filter(Boolean).join(" | ");
-
-  return { q, qLine, audioLang, sizeLine, formatLine, codecLine, audioLine, releaseLine, enhancementsLine, sz };
-}
-
-function makeVidloveStream(sourceItem, index, total, mediaMeta) {
+function makeStream(sourceItem, index, total, mediaMeta) {
   const url = sourceItem.url;
   const serverLabel = sourceItem.serverLabel || "Vidlove";
+  const rawQuality = sourceItem.quality || "";
+  const fullText = `${rawQuality} ${serverLabel} ${url}`;
 
-  const info = parseStreamInfo(sourceItem.quality, serverLabel, url, sourceItem.size);
+  const q = qualityFromText(fullText);
+  const qEmoji = getResolutionEmoji(q);
 
-  const qRank = qualityRank(info.q);
-  const sizeInMB = parseSizeToMB(info.sz);
+  /* --- LEFT BADGE (NAME) --- */
+  const name = `Vidlove\n${q} [${serverLabel}${total > 1 ? ` ${index + 1}` : ""}]`;
 
-  const sortTag = getInvertedSortTag((qRank * 100000) + sizeInMB, 999999);
-
-  /* --- 1SHOWS STYLE HEADER --- */
-  const headerName = `${sortTag}Vidlove\n${info.q} [${serverLabel}${total > 1 ? ` ${index + 1}` : ""}]`;
-
-  /* --- SUBHEADINGS LAYOUT --- */
-  const displayTitle = (mediaMeta.title && mediaMeta.title !== "Unknown")
-    ? mediaMeta.title
-    : (sourceItem.fallbackTitle || "Unknown Title");
-
+  /* --- SUBHEADINGS (TITLE) --- */
   const line1_TitleHeader = mediaMeta.mediaType === "tv"
-    ? `🎬 ${displayTitle}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
-    : `🎬 ${displayTitle}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
+    ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} - S${mediaMeta.season}E${mediaMeta.episode}`
+    : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
 
-  const line2_SubheadingQuality = [info.qLine, info.audioLang, info.sizeLine].filter(Boolean).join(" | ");
-  const line3_SubheadingTech = [info.formatLine, info.codecLine, info.audioLine].filter(Boolean).join(" | ");
-  const line4_Enhancements = info.enhancementsLine;
-  const line5_SourceInfo = `🔗 Vidlove | 🌐 ${serverLabel} | 📥 ${info.releaseLine}`;
+  const line2_SubheadingQuality = `${qEmoji} | 🗣️ Multi-Audio`;
+  const line3_SubheadingTech = `🎞️ MKV | ⚡ HEVC | 🎧 AAC`;
+  const line4_SourceInfo = `🔗 Vidlove | 🌐 ${serverLabel} | 📥 WEB-DL`;
 
-  const lines = [
+  const title = [
     line1_TitleHeader,
     line2_SubheadingQuality,
     line3_SubheadingTech,
-    line4_Enhancements,
-    line5_SourceInfo
-  ].filter(l => l !== "");
-
-  const fullLayout = lines.join("\n");
+    line4_SourceInfo
+  ].filter(Boolean).join("\n");
 
   const headers = {
-    Referer: "https://player.vidlove.cc/",
+    "Referer": "https://player.vidlove.cc/",
     "User-Agent": USER_AGENT
   };
 
   return {
-    name: headerName,
-    title: fullLayout,
-    description: fullLayout, // REQUIRED FOR STREMIO MOBILE UI
-    url: url,
-    quality: null,
-    qualityRank: qRank,
-    sizeInMB: sizeInMB,
-    type: sourceItem.type === "direct" ? typeFromUrl(url) : "video/x-matroska",
-    headers: headers,
-    behaviorHints: {
-      notWebReady: true,
-      proxyHeaders: {
-        request: headers
+    _rank: qualityRank(q),
+    stream: {
+      name: name,
+      title: title,
+      url: url,
+      behaviorHints: {
+        notWebReady: true,
+        proxyHeaders: {
+          request: headers
+        }
       }
     }
   };
@@ -315,18 +235,16 @@ function getStreams(tmdbId, type, season = null, episode = null) {
       };
 
       const rawSources = rawServerResults.flat();
-      const streams = rawSources.map((sourceItem, idx) => 
-        makeVidloveStream(sourceItem, idx, rawSources.length, mediaMeta)
+      
+      const wrappedStreams = rawSources.map((sourceItem, idx) => 
+        makeStream(sourceItem, idx, rawSources.length, mediaMeta)
       );
 
-      streams.sort((a, b) => {
-        if (b.qualityRank !== a.qualityRank) {
-          return b.qualityRank - a.qualityRank;
-        }
-        return b.sizeInMB - a.sizeInMB;
-      });
+      // Sort streams in JavaScript array by quality rank
+      wrappedStreams.sort((a, b) => b._rank - a._rank);
 
-      return streams;
+      // Extract raw stream objects for Stremio engine
+      return wrappedStreams.map(w => w.stream);
     } catch (e) {
       return [];
     }

@@ -71,17 +71,6 @@ function qualityRank(qualityStr) {
   return 0;
 }
 
-function filenameFromUrl(url) {
-  try {
-    const parsed = new URL(url);
-    const pathName = parsed.pathname.split("/").filter(Boolean).pop() || "";
-    if (!pathName) return "";
-    return decodeURIComponent(pathName.replace(/\+/g, " ")).trim();
-  } catch (e) {
-    return "";
-  }
-}
-
 function typeFromUrl(url) {
   if (/\.m3u8(?:$|[?#])/i.test(url)) return "application/x-mpegURL";
   if (/\.mpd(?:$|[?#])/i.test(url)) return "application/dash+xml";
@@ -162,7 +151,6 @@ function parseStreamInfo(rawQuality, serverLabel, url, sizeStr) {
 function makeVidloveStream(sourceItem, index, total, mediaMeta) {
   const url = sourceItem.url;
   const serverLabel = sourceItem.serverLabel || "Vidlove";
-  const rawFileName = filenameFromUrl(url) || `${serverLabel}_file`;
 
   const info = parseStreamInfo(sourceItem.quality, serverLabel, url, sourceItem.size);
 
@@ -183,15 +171,13 @@ function makeVidloveStream(sourceItem, index, total, mediaMeta) {
   const line3_SubheadingTech = [info.formatLine, info.codecLine, info.audioLine].filter(Boolean).join(" | ");
   const line4_Enhancements = info.enhancementsLine;
   const line5_SourceInfo = `🔗 Vidlove | 🌐 ${serverLabel} | 📥 ${info.releaseLine}`;
-  const line6_Filename = rawFileName;
 
   const lines = [
     line1_TitleHeader,
     line2_SubheadingQuality,
     line3_SubheadingTech,
     line4_Enhancements,
-    line5_SourceInfo,
-    line6_Filename
+    line5_SourceInfo
   ].filter(l => l !== "");
 
   const fullLayout = lines.join("\n");
@@ -206,7 +192,7 @@ function makeVidloveStream(sourceItem, index, total, mediaMeta) {
     title: fullLayout,
     description: fullLayout,
     url: url,
-    quality: null, // Bypasses default quality tag prefix injection
+    quality: null,
     qualityRank: qRank,
     sizeInMB: sizeInMB,
     type: sourceItem.type === "direct" ? typeFromUrl(url) : "video/x-matroska",

@@ -1,5 +1,5 @@
 /**
- * 1shows - Configured with Fast Concurrency Fetching, Nuvio Engine Parity, Precise Sizes & Video Tags
+ * 1shows - Fixed Runtime Compatibility & Robust Stream Recovery
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -58,7 +58,7 @@ var PAGE_HEADERS = {
 var DOWNLOAD_KEY_HEX = "7a03086357a2147dab4d757e8ed2ff8b5dc8707ee3d473afcb80d97727afa191";
 
 /* ----------------------------------------------------------------------------
- * ZERO-WIDTH SORTING & RESOLUTION HELPERS (GETINVERTED TRICK)
+ * ZERO-WIDTH SORTING & RESOLUTION HELPERS
  * ---------------------------------------------------------------------------- */
 
 function getInvertedSortTag(val, maxBaseline = 999999) {
@@ -89,27 +89,30 @@ function getResolutionEmoji(res) {
 }
 
 /* ----------------------------------------------------------------------------
- * HTTP & TIMEOUT HELPERS (FAST RESOLUTION)
+ * SAFE HTTP HELPERS
  * ---------------------------------------------------------------------------- */
 
-function fetchWithTimeout(url, options = {}, timeoutMs = 2500) {
+function fetchWithTimeout(url, options = {}, timeoutMs = 8000) {
   return __async(this, null, function* () {
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const response = yield fetch(url, Object.assign({}, options, { signal: controller.signal }));
-      clearTimeout(id);
-      return response;
-    } catch (err) {
-      clearTimeout(id);
-      throw err;
+    if (typeof AbortController !== "undefined") {
+      const controller = new AbortController();
+      const id = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = yield fetch(url, Object.assign({}, options, { signal: controller.signal }));
+        clearTimeout(id);
+        return response;
+      } catch (err) {
+        clearTimeout(id);
+        throw err;
+      }
     }
+    return fetch(url, options);
   });
 }
 
 function fetchJson(url, options) {
   return __async(this, null, function* () {
-    const response = yield fetchWithTimeout(url, options, 4000);
+    const response = yield fetchWithTimeout(url, options, 8000);
     if (!response.ok)
       throw new Error(`HTTP ${response.status}: ${url}`);
     return response.json();
@@ -122,7 +125,7 @@ function fetchText(url, options) {
       skipSizeCheck: true,
       cfKiller: true
     });
-    let response = yield fetchWithTimeout(url, request, 3500);
+    let response = yield fetchWithTimeout(url, request, 8000);
     if ((response.status === 403 || response.status === 503) && typeof globalThis.Cloudflare !== "undefined" && globalThis.Cloudflare.solve) {
       const solvedHeaders = yield globalThis.Cloudflare.solve(url);
       response = yield fetchWithTimeout(
@@ -130,7 +133,7 @@ function fetchText(url, options) {
         Object.assign({}, request, {
           headers: Object.assign({}, request.headers || {}, solvedHeaders || {})
         }),
-        3500
+        8000
       );
     }
     if (!response.ok)
@@ -447,7 +450,7 @@ function decryptDownloadWithWasm(payload, token) {
     const wasmUrl = absoluteUrl(manifest.url, SITE_URL);
     if (!wasmUrl || !manifest.exports)
       throw new Error("Invalid decryptor manifest");
-    const response = yield fetchWithTimeout(wasmUrl, { headers: PAGE_HEADERS }, 3000);
+    const response = yield fetchWithTimeout(wasmUrl, { headers: PAGE_HEADERS }, 5000);
     if (!response.ok)
       throw new Error(`Decryptor HTTP ${response.status}`);
     const loaded = yield WebAssembly.instantiate(yield response.arrayBuffer(), {
@@ -715,7 +718,7 @@ function fetchKmhdFilePage(fileUrl) {
           Referer: `${parsed.origin}/locked?redirect=${encodeURIComponent(redirect)}`
         }),
         skipSizeCheck: true
-      }, 2000);
+      }, 4000);
     } catch (e) {
     }
     return fetchText(fileUrl, {
@@ -816,7 +819,7 @@ function resolveDirectUrls(source) {
 
 function resolveSourceUrl(_0) {
   return __async(this, arguments, function* (source, depth = 0, referer = `${SITE_URL}/`, route = "") {
-    if (depth > 3) return null; // Decreased depth limit for faster returns
+    if (depth > 5) return null;
     const sourceUrl = absoluteUrl(source.url, SITE_URL);
     if (!sourceUrl || isKnownUnplayableHost(sourceUrl)) {
       return null;
@@ -960,7 +963,7 @@ function playbackReferer(url, fallback) {
 }
 
 /* ----------------------------------------------------------------------------
- * STREAM LAYOUT ENGINE (NUVIO MOBILE + TV COMPATIBILITY ENGINE)
+ * STREAM LAYOUT ENGINE (NUVIO TV/MOBILE READY)
  * ---------------------------------------------------------------------------- */
 
 function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr) {
@@ -1048,10 +1051,8 @@ function makeStream(source, resolved, index, total, mediaMeta) {
 
   const sortTag = getInvertedSortTag((qRank * 100000) + sizeInMB, 999999);
 
-  /* --- HEADER LAYOUT (SINGLE-LINE BULLET FORMAT FOR NUVIO) --- */
   const headerLayout = `${sortTag}1Shows • ${info.q} • ${route}${total > 1 ? ` #${index + 1}` : ""}`;
 
-  /* --- FULL SUBHEADINGS LAYOUT --- */
   const line1_TitleHeader = mediaMeta.mediaType === "tv"
     ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
     : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
@@ -1081,8 +1082,8 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   return {
     name: headerLayout,
     title: fullLayout,
-    size: fullLayout,           // CRITICAL FOR NUVIO MOBILE LAYOUT
-    description: fullLayout,    // CRITICAL FOR NUVIO MOBILE LAYOUT
+    size: fullLayout,
+    description: fullLayout,
     url: url,
     qualityRank: qRank,
     sizeInMB: sizeInMB,
@@ -1114,15 +1115,14 @@ function isStreamAlive(stream) {
   return __async(this, null, function* () {
     const startedAt = Date.now();
     try {
-      // Set quick 2 second maximum timeout per link check
       const response = yield fetchWithTimeout(stream.url, {
-        method: "HEAD", // Use HEAD first for maximum speed
+        method: "GET",
         headers: Object.assign({}, stream.headers || {}, {
           Range: "bytes=0-1"
         }),
         redirect: "follow",
         skipSizeCheck: true
-      }, 2000);
+      }, 5000);
 
       const contentRange = String(
         response.headers && response.headers.get ? response.headers.get("content-range") || "" : ""
@@ -1149,9 +1149,8 @@ function isStreamAlive(stream) {
         stream.type = "application/x-mpegURL";
       
       stream._probeMs = Date.now() - startedAt;
-      return response.ok || response.status === 206 || rangedMedia || hlsPlaylist;
+      return response.ok || response.status === 206 || response.status === 403 || response.status === 405 || rangedMedia || hlsPlaylist;
     } catch (error) {
-      // Default to keeping stream on timeout to prevent missing viable links
       return true;
     }
   });
@@ -1171,7 +1170,7 @@ function mediaFingerprint(stream) {
 }
 
 /* ----------------------------------------------------------------------------
- * MAIN PROVIDER FUNCTION
+ * MAIN PROVIDER ENTRY POINT
  * ---------------------------------------------------------------------------- */
 
 function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
@@ -1191,7 +1190,6 @@ function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
     }
 
     try {
-      // Run API requests concurrently
       const results = yield Promise.all([
         fetchDownloadSources(
           String(tmdbId),
@@ -1216,7 +1214,6 @@ function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
         (source) => source && source.url && (!onlyFamily || sourceFamily(source.label || "", source.url) === onlyFamily) && !hasWrongYear(`${source.label || ""} ${source.url}`, mediaMeta.year)
       );
       
-      // Parallelize source resolving
       const resolvedGroups = yield Promise.all(matchingSources.map(source => resolveSource(source, mediaMeta)));
       const resolved = [].concat.apply([], resolvedGroups);
       const uniqueResolved = resolved.filter(
@@ -1225,7 +1222,6 @@ function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
         ) === index
       );
 
-      // Fast async parallel stream validation
       const checked = yield Promise.all(
         uniqueResolved.map(
           (stream) => __async(this, null, function* () {

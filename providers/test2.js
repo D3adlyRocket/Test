@@ -1,5 +1,5 @@
 /**
- * 1shows - Fully Restored Script with Fixed Mobile & TV Subheadings / Nuvio Layout Compatibility
+ * 1shows - Updated Stream Subheadings Layout (5-Line Spec)
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -81,7 +81,7 @@ function parseSizeToMB(sizeStr) {
 
 function getResolutionEmoji(res) {
   const clean = String(res || '').toLowerCase();
-  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return "🌟 4K";
+  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return "🌟 2160p";
   if (clean.includes("1080") || clean.includes("fhd")) return "🔥 1080p";
   if (clean.includes("720") || clean.includes("hd")) return "💎 720p";
   if (clean.includes("480") || clean.includes("sd")) return "📱 480p";
@@ -946,7 +946,7 @@ function playbackReferer(url, fallback) {
 }
 
 /* ----------------------------------------------------------------------------
- * STREAM LAYOUT ENGINE (NUVIO MOBILE + TV FIXED COMPATIBILITY)
+ * STREAM LAYOUT ENGINE (5-LINE SUBHEADINGS SPECIFICATION)
  * ---------------------------------------------------------------------------- */
 
 function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr) {
@@ -980,8 +980,9 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
   const formatLine = `🎞️ ${ext}`;
 
   let codecVal = "x265";
-  if (/\b(?:HEVC|x265|H[.]?265)\b/i.test(text)) codecVal = "x265";
-  else if (/\b(?:x264|AVC|H[.]?264)\b/i.test(text)) codecVal = "x264";
+  if (/\bHEVC\b/i.test(text)) codecVal = "HEVC";
+  else if (/\bx265\b|H[.]?265/i.test(text)) codecVal = "x265";
+  else if (/\bx264\b|AVC|H[.]?264/i.test(text)) codecVal = "x264";
   else if (/\bAV1\b/i.test(text)) codecVal = "AV1";
   const codecLine = `⚡ ${codecVal}`;
 
@@ -991,20 +992,11 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
   else if (/\bDTS(?:-HD)?\b/i.test(text)) audioCodec = "DTS";
   else if (/\bTrueHD\b/i.test(text)) audioCodec = "TrueHD";
   else if (/\bAAC\b/i.test(text)) audioCodec = "AAC";
-  
+
   let audioLine = `🎧 ${audioCodec}`;
   if (/\bAtmos\b/i.test(text)) {
-    audioLine = `🎧 ${audioCodec} Atmos`;
+    audioLine = `🎧 ${audioCodec} • 🔊 Atmos`;
   }
-
-  let releaseType = "WEB-DL";
-  if (/\bBluRay\b/i.test(text)) releaseType = "BluRay";
-  else if (/\bWEBRip\b/i.test(text)) releaseType = "WEBRip";
-  else if (/\bWEB[- .]?DL\b/i.test(text)) releaseType = "WEB-DL";
-  else if (/\bHDRip\b/i.test(text)) releaseType = "HDRip";
-  else if (/\bDVDRip\b/i.test(text)) releaseType = "DVDRip";
-  else if (/\bHDTV\b/i.test(text)) releaseType = "HDTV";
-  const releaseLine = releaseType;
 
   const hdrTags = [];
   if (/\bHDR10\+\b/i.test(text)) hdrTags.push("HDR10+");
@@ -1015,14 +1007,13 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
   const dvPart = (/\bDV\b|\bDolby[- ]?Vision\b|\bDoVi\b/i.test(text)) ? "✨ DV" : "";
   const subPart = (/\bESub\b|\bEnglish\s*Sub\b/i.test(text)) ? "📝 ESub" : "";
 
-  const sub4Parts = [hdrPart, dvPart, subPart].filter(Boolean);
-  const enhancementsLine = sub4Parts.join(" • ");
+  const enhancementsLine = [hdrPart, dvPart, subPart].filter(Boolean).join(" | ");
 
-  return { q, qLine, audioLang, sizeLine, formatLine, codecLine, audioLine, releaseLine, enhancementsLine, sz };
+  return { q, qLine, audioLang, sizeLine, formatLine, codecLine, audioLine, enhancementsLine, sz };
 }
 
 /**
- * makeStream - Configured with Exact Nuvio Bullet Layout (Fixes 2160p - Unknown bug)
+ * makeStream - Configured with Exact 5-Line Subheading Specification
  */
 function makeStream(source, resolved, index, total, mediaMeta) {
   const url = resolved.url;
@@ -1037,23 +1028,34 @@ function makeStream(source, resolved, index, total, mediaMeta) {
 
   const sortTag = getInvertedSortTag((qRank * 100000) + sizeInMB, 999999);
 
-  /* --- NUVIO HEADER LAYOUT (Using bullets • prevents pipe splitting bug) --- */
+  /* --- HEADER TITLE LAYOUT --- */
   const headerLayout = `${sortTag}1Shows • ${info.q} • ${route}${total > 1 ? ` ${index + 1}` : ""}`;
 
-  /* --- NUVIO SUBHEADINGS LAYOUT --- */
+  /* --- 5-LINE SUBHEADINGS SPECIFICATION --- */
+  // Line 1: 🍿 Movies Name (Year) or 🍿 Series Name (Year) | S1E1
   const line1_TitleHeader = mediaMeta.mediaType === "tv"
-    ? `🍿 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} • ${info.q}${info.sz ? ` [${info.sz}]` : ""}`
-    : `🍿 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} • ${info.q}${info.sz ? ` [${info.sz}]` : ""}`;
+    ? `🍿 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
+    : `🍿 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
 
-  const line2_SubheadingQuality = [info.audioLang, info.codecLine, info.audioLine].filter(Boolean).join(" | ");
-  const line3_SubheadingTech = [info.enhancementsLine].filter(Boolean).join(" | ");
-  const line4_SourceInfo = `🔗 ${provider} (${route}) | 📄 ${rawFileName}`;
+  // Line 2: 🌟2160p or 🔥 1080p or 💎 720p | 🗣️ Language Dual-Audio or Multi-Audio | 💾 Size
+  const line2_SubheadingQuality = [info.qLine, info.audioLang, info.sizeLine].filter(Boolean).join(" | ");
+
+  // Line 3: 🎞️ Format | ⚡ HEVC • x264 or x265 🎧 DDP 5.1 • 🔊 Atmos
+  const techCodecs = [info.codecLine, info.audioLine].filter(Boolean).join(" ");
+  const line3_SubheadingTech = [info.formatLine, techCodecs].filter(Boolean).join(" | ");
+
+  // Line 4: Any extra info such as 🌈 HDR • 10Bit | ✨ DV | 📝 ESub
+  const line4_SubheadingExtras = info.enhancementsLine;
+
+  // Line 5: 🔗 KatMovies or FilmyFly | 🌐 GD Index or Pixeldrain
+  const line5_SourceInfo = `🔗 ${provider} | 🌐 ${route}`;
 
   const lines = [
     line1_TitleHeader,
     line2_SubheadingQuality,
     line3_SubheadingTech,
-    line4_SourceInfo
+    line4_SubheadingExtras,
+    line5_SourceInfo
   ].filter(l => l !== "");
 
   const fullLayout = lines.join("\n");
@@ -1066,8 +1068,8 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   return {
     name: headerLayout,
     title: fullLayout,
-    size: fullLayout,           // CRITICAL FOR NUVIO MOBILE & TV LAYOUT
-    description: fullLayout,    // CRITICAL FOR NUVIO MOBILE & TV LAYOUT
+    size: fullLayout,           // NUVIO MOBILE & TV COMPATIBILITY
+    description: fullLayout,    // NUVIO MOBILE & TV COMPATIBILITY
     url: url,
     type: typeFromUrl(url),
     qualityRank: qRank,
@@ -1237,7 +1239,6 @@ function getStreams(tmdbId, mediaType, season, episode, onlyFamily) {
         return b.sizeInMB - a.sizeInMB;
       });
 
-      // Cleanup internal sorting helper properties before returning
       streams.forEach(s => {
         delete s.qualityRank;
         delete s.sizeInMB;

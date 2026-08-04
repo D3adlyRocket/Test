@@ -1,5 +1,5 @@
 /**
- * 1shows - Configured with Fully Fixed Mobile & TV Layout, Precise Sizes, Video Tags, and Subtitle mapping
+ * 1shows - Configured with Fixed Mobile & TV Layout, Precise Sizes, and Stream Formatting
  */
 var __async = (__this, __arguments, generator) => {
   return new Promise((resolve, reject) => {
@@ -58,7 +58,7 @@ var PAGE_HEADERS = {
 var DOWNLOAD_KEY_HEX = "7a03086357a2147dab4d757e8ed2ff8b5dc8707ee3d473afcb80d97727afa191";
 
 /* ----------------------------------------------------------------------------
- * ZERO-WIDTH SORTING & RESOLUTION HELPERS (GETINVERTED TRICK)
+ * ZERO-WIDTH SORTING & RESOLUTION HELPERS
  * ---------------------------------------------------------------------------- */
 
 function getInvertedSortTag(val, maxBaseline = 999999) {
@@ -946,7 +946,7 @@ function playbackReferer(url, fallback) {
 }
 
 /* ----------------------------------------------------------------------------
- * STREAM LAYOUT ENGINE (MOBILE + TV COMPATIBILITY ENGINE)
+ * STREAM LAYOUT ENGINE (VIDLOVE METHOD & MOBILE + TV COMPATIBILITY ENGINE)
  * ---------------------------------------------------------------------------- */
 
 function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr) {
@@ -954,76 +954,48 @@ function parseStreamInfo(filename, sourceLabel, url, detectedSize, directSizeStr
 
   let q = qualityFromLabel(text);
   let qEmoji = getResolutionEmoji(q);
-  const qLine = `${qEmoji}`;
 
-  let audioLang = "🗣️ Multi-Audio";
+  let audioLang = "Multi-Audio";
   if (/dual[- .]?audio/i.test(text)) {
-    audioLang = "🗣️ Dual-Audio";
+    audioLang = "Dual-Audio";
   } else if (/multi[- .]?audio/i.test(text)) {
-    audioLang = "🗣️ Multi-Audio";
+    audioLang = "Multi-Audio";
   } else {
     const langs = ["Hindi", "English", "Tamil", "Telugu", "Malayalam", "Bengali"].filter(l => new RegExp(`\\b${l}\\b`, "i").test(text));
     if (langs.length > 1) {
-      audioLang = `🗣️ ${langs.join("-")}`;
+      audioLang = langs.join("-");
     } else if (langs.length === 1) {
-      audioLang = `🗣️ ${langs[0]}`;
+      audioLang = langs[0];
     }
   }
 
   const sz = detectedSize || directSizeStr || sizeFromLabel(text) || "";
-  const sizeLine = sz ? `💾 ${sz}` : "";
 
-  let ext = "MKV";
-  if (/\.mp4/i.test(filename) || /\.mp4/i.test(url)) ext = "MP4";
-  else if (/\.mkv/i.test(filename) || /\.mkv/i.test(url)) ext = "MKV";
-  else if (/\.webm/i.test(filename) || /\.webm/i.test(url)) ext = "WEBM";
-  const formatLine = `🎞️ ${ext}`;
-
-  let codecVal = "HEVC";
+  let codecVal = "x265";
   if (/\b(?:HEVC|x265|H[.]?265)\b/i.test(text)) codecVal = "x265";
   else if (/\b(?:x264|AVC|H[.]?264)\b/i.test(text)) codecVal = "x264";
   else if (/\bAV1\b/i.test(text)) codecVal = "AV1";
-  const codecLine = `⚡ ${codecVal}`;
 
-  let audioCodec = "AAC";
+  let audioCodec = "DDP 5.1";
   if (/\b(?:DDP?\s?5\.1|DD\+\s?5\.1|EAC3)\b/i.test(text)) audioCodec = "DDP 5.1";
   else if (/\bDDP?\s?2\.0\b/i.test(text)) audioCodec = "DDP 2.0";
   else if (/\bDTS(?:-HD)?\b/i.test(text)) audioCodec = "DTS";
   else if (/\bTrueHD\b/i.test(text)) audioCodec = "TrueHD";
   else if (/\bAAC\b/i.test(text)) audioCodec = "AAC";
-  
-  let audioLine = `🎧 ${audioCodec}`;
-  if (/\bAtmos\b/i.test(text)) {
-    audioLine = `🎧 ${audioCodec} • 🔊 Atmos`;
-  }
 
-  let releaseType = "WEB-DL";
-  if (/\bBluRay\b/i.test(text)) releaseType = "BluRay";
-  else if (/\bWEBRip\b/i.test(text)) releaseType = "WEBRip";
-  else if (/\bWEB[- .]?DL\b/i.test(text)) releaseType = "WEB-DL";
-  else if (/\bHDRip\b/i.test(text)) releaseType = "HDRip";
-  else if (/\bDVDRip\b/i.test(text)) releaseType = "DVDRip";
-  else if (/\bHDTV\b/i.test(text)) releaseType = "HDTV";
-  const releaseLine = releaseType;
+  if (/\bAtmos\b/i.test(text)) {
+    audioCodec += " Atmos";
+  }
 
   const hdrTags = [];
   if (/\bHDR10\+\b/i.test(text)) hdrTags.push("HDR10+");
   else if (/\bHDR\b/i.test(text)) hdrTags.push("HDR");
-  if (/\b10[- ]?bit\b/i.test(text)) hdrTags.push("10Bit");
-  
-  const hdrPart = hdrTags.length > 0 ? `🌈 ${hdrTags.join(" • ")}` : "";
-  const dvPart = (/\bDV\b|\bDolby[- ]?Vision\b|\bDoVi\b/i.test(text)) ? "✨ DV" : "";
-  const subPart = (/\bESub\b|\bEnglish\s*Sub\b/i.test(text)) ? "📝 ESub" : "";
+  if (/\bDV\b|\bDolby[- ]?Vision\b|\bDoVi\b/i.test(text)) hdrTags.push("DV");
+  if (/\bESub\b|\bEnglish\s*Sub\b/i.test(text)) hdrTags.push("ESub");
 
-  const sub4Parts = [hdrPart, dvPart, subPart].filter(Boolean);
-  const enhancementsLine = sub4Parts.join(" | ");
-
-  return { q, qLine, audioLang, sizeLine, formatLine, codecLine, audioLine, releaseLine, enhancementsLine, sz };
+  return { q, qEmoji, audioLang, sz, codecVal, audioCodec, hdrTags: hdrTags.join(" • ") };
 }
 
-/**
- * makeStream - Configured with Goated Mobile & TV Layout Architecture
- */
 function makeStream(source, resolved, index, total, mediaMeta) {
   const url = resolved.url;
   const provider = sourceName(source.label || "");
@@ -1033,34 +1005,30 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   const info = parseStreamInfo(rawFileName, source.label, url, source.size, source.directSize);
 
   const qRank = qualityRank(info.q);
-  const sizeInMB = parseSizeToMB(info.sz);
+  let sizeInMB = parseSizeToMB(info.sz);
+
+  let formattedSize = info.sz;
+  if (!formattedSize && sizeInMB > 0) {
+    formattedSize = sizeInMB >= 1024 ? `${(sizeInMB / 1024).toFixed(1)} GB` : `${sizeInMB} MB`;
+  }
 
   const sortTag = getInvertedSortTag((qRank * 100000) + sizeInMB, 999999);
 
-  /* --- HEADER LAYOUT (MOBILE OPTIMIZED 2-LINE BADGE) --- */
-  const headerLayout = `${sortTag}1Shows\n${info.q}`;
+  /* Vidlove-style standard layout */
+  const nameLayout = `${sortTag}1Shows\n${info.q}`;
 
-  /* --- SUBHEADINGS LAYOUT --- */
-  const line1_TitleHeader = mediaMeta.mediaType === "tv"
-    ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}`
-    : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
+  const mediaTitleStr = mediaMeta.mediaType === "tv"
+    ? `${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} S${mediaMeta.season}E${mediaMeta.episode}`
+    : `${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
 
-  const line2_SubheadingQuality = [info.qLine, info.audioLang, info.sizeLine].filter(Boolean).join(" | ");
-  const line3_SubheadingTech = [info.formatLine, info.codecLine, info.audioLine].filter(Boolean).join(" | ");
-  const line4_Enhancements = info.enhancementsLine;
-  const line5_SourceInfo = `🔗 ${provider} | 🌐 ${route}${total > 1 ? ` ${index + 1}` : ""} | 📥 ${info.releaseLine}`;
-  const line6_Filename = rawFileName;
+  const sizePart = formattedSize ? `[${formattedSize}]` : "";
 
-  const lines = [
-    line1_TitleHeader,
-    line2_SubheadingQuality,
-    line3_SubheadingTech,
-    line4_Enhancements,
-    line5_SourceInfo,
-    line6_Filename
-  ].filter(l => l !== "");
+  /* Line 1 contains Title, Quality, and Size in brackets so TV parsers don't display "Unknown" */
+  const line1 = `🎬 ${mediaTitleStr} • ${info.q} ${sizePart}`.trim();
+  const line2 = `🗣️ ${info.audioLang} | ⚡ ${info.codecVal} | 🎧 ${info.audioCodec}${info.hdrTags ? ` | 🌈 ${info.hdrTags}` : ""}`;
+  const line3 = `🔗 ${provider} (${route}) | 📄 ${rawFileName}`;
 
-  const fullLayout = lines.join("\n");
+  const fullTitle = `${line1}\n${line2}\n${line3}`;
 
   const headers = {
     "User-Agent": USER_AGENT,
@@ -1068,11 +1036,9 @@ function makeStream(source, resolved, index, total, mediaMeta) {
   };
 
   return {
-    name: headerLayout,
-    title: fullLayout,
-    description: fullLayout,
+    name: nameLayout,
+    title: fullTitle,
     url: url,
-    quality: null,
     qualityRank: qRank,
     sizeInMB: sizeInMB,
     type: typeFromUrl(url),

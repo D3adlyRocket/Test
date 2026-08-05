@@ -1,518 +1,251 @@
-// StreamFlix Provider for Nuvio
-// Ported from StreamFlix API
-const cheerio = require('cheerio-without-node-native');
-
-// Constants
-const TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-const STREAMFLIX_API_BASE = "https://api.streamflix.app";
-const CONFIG_URL = `${STREAMFLIX_API_BASE}/config/config-streamflixapp.json`;
-const DATA_URL = `${STREAMFLIX_API_BASE}/data.json`;
-const WEBSOCKET_URL = "wss://chilflix-410be-default-rtdb.asia-southeast1.firebasedatabase.app/.ws?ns=chilflix-410be-default-rtdb&v=5";
-
-// Global cache
-let cache = {
-  config: null,
-  configTimestamp: 0,
-  data: null,
-  dataTimestamp: 0,
+/**
+ * netmirror - Built from src/netmirror/
+ * Generated: 2026-08-05T03:41:45.956Z
+ */
+var __async = (__this, __arguments, generator) => {
+  return new Promise((resolve, reject) => {
+    var fulfilled = (value) => {
+      try {
+        step(generator.next(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var rejected = (value) => {
+      try {
+        step(generator.throw(value));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
+    step((generator = generator.apply(__this, __arguments)).next());
+  });
 };
-const CACHE_TTL = 1000 * 60 * 5; // 5 minutes
 
-// The stream links carry the release filename, which is where the only honest
-// statement about resolution lives: `BrBa.S01E01.720p.BrRip.x264.400MB-Pahe.in.mkv`
-// is a 720p file no matter which mirror serves it. Labelling every premium
-// mirror 1080p and every standard one 720p by rule put 720p files into the
-// caller's 1080p slot; when the filename says nothing, so do we.
-function qualityFromLink(link) {
-  const match = String(link || '').match(/\b(2160p|4k|1080p|720p|480p|360p)\b/i);
-  if (!match) return null;
-  return match[1].toLowerCase() === '4k' ? '2160p' : match[1].toLowerCase();
+// src/netmirror/index.js
+var TMDB_API_KEY = "1865f43a0549ca50d341dd9ab8b29f49";
+var PLATFORMS = [
+  { key: "nf", name: "Netflix" },
+  { key: "pv", name: "Prime Video" },
+  { key: "hs", name: "Hotstar / Disney+" }
+];
+var NEWTV_HEADERS = {
+  "Cache-Control": "no-cache, no-store, must-revalidate",
+  "Pragma": "no-cache",
+  "Expires": "0",
+  "X-Requested-With": "NetmirrorNewTV v1.0",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:136.0) Gecko/20100101 Firefox/136.0 /OS.GatuNewTV v1.0",
+  "Accept": "application/json, text/plain, */*"
+};
+var NEWTV_DOMAINS = [
+  "aHR0cHM6Ly9tb2JpbGVkZXRlY3RzLmNvbQ==",
+  "aHR0cHM6Ly9tb2JpbGVkZXRlY3QuYXBw",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0LmFydA==",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0LmNj",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0LmNsaWNr",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0Lmluaw==",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0LmxpdmU=",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0LnBybw==",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0LnNob3A=",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0LnNpdGU=",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0LnNwYWNl",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0LnN0b3Jl",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0LnZpcA==",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0Lndpa2k=",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0Lnh5eg==",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0cy5hcnQ=",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0cy5jYw==",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0cy5pbmZv",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0cy5pbms=",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0cy5saXZl",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0cy5wcm8=",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0cy5zdG9yZQ==",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0cy50b3A=",
+  "aHR0cHM6Ly9tb2JpZGV0ZWN0cy54eXo="
+];
+var resolvedApiUrl = "";
+function safeAtob(encoded) {
+  if (typeof atob === "function")
+    return atob(encoded);
+  return Buffer.from(encoded, "base64").toString("binary");
 }
-
-// Helper function for HTTP requests
-function makeRequest(url, options = {}) {
-  const defaultHeaders = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-    'Accept': 'application/json, text/plain, */*',
-    'Accept-Language': 'en-US,en;q=0.5',
-    'Connection': 'keep-alive'
-  };
-
-  return fetch(url, {
-    ...options,
-    headers: {
-      ...defaultHeaders,
-      ...options.headers
+function buildHeaders(ott, extra) {
+  const h = {};
+  const keys = Object.keys(NEWTV_HEADERS);
+  for (let i = 0; i < keys.length; i++)
+    h[keys[i]] = NEWTV_HEADERS[keys[i]];
+  h["Ott"] = ott;
+  if (extra) {
+    const ek = Object.keys(extra);
+    for (let i = 0; i < ek.length; i++)
+      h[ek[i]] = extra[ek[i]];
+  }
+  return h;
+}
+function resolveApiUrl() {
+  return __async(this, null, function* () {
+    if (resolvedApiUrl)
+      return resolvedApiUrl;
+    for (let di = 0; di < NEWTV_DOMAINS.length; di++) {
+      const base = safeAtob(NEWTV_DOMAINS[di]).replace(/\/$/, "");
+      try {
+        const r = yield fetch(base + "/checknewtv.php", { headers: NEWTV_HEADERS });
+        const d = yield r.json();
+        if (d.token_hash) {
+          resolvedApiUrl = safeAtob(d.token_hash).replace(/\/$/, "");
+          return resolvedApiUrl;
+        }
+      } catch (_) {
+      }
     }
-  }).then(response => {
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    return response;
+    throw new Error("NetMirror: failed to resolve API URL");
   });
 }
-
-// Get config data with caching
-function getConfig() {
-  const now = Date.now();
-  if (cache.config && now - cache.configTimestamp < CACHE_TTL) {
-    return Promise.resolve(cache.config);
-  }
-
-  console.log('[StreamFlix] Fetching config data...');
-  return makeRequest(CONFIG_URL)
-    .then(response => response.json())
-    .then(json => {
-      cache.config = json;
-      cache.configTimestamp = now;
-      console.log('[StreamFlix] Config data cached successfully');
-      return json;
-    })
-    .catch(error => {
-      console.error('[StreamFlix] Failed to fetch config:', error.message);
-      throw error;
-    });
-}
-
-// Get data with caching
-function getData() {
-  const now = Date.now();
-  if (cache.data && now - cache.dataTimestamp < CACHE_TTL) {
-    return Promise.resolve(cache.data);
-  }
-
-  console.log('[StreamFlix] Fetching data...');
-  return makeRequest(DATA_URL)
-    .then(response => response.json())
-    .then(json => {
-      cache.data = json;
-      cache.dataTimestamp = now;
-      console.log('[StreamFlix] Data cached successfully');
-      return json;
-    })
-    .catch(error => {
-      console.error('[StreamFlix] Failed to fetch data:', error.message);
-      throw error;
-    });
-}
-
-// Search for content by title
-function searchContent(title, year, mediaType) {
-  console.log(`[StreamFlix] Searching for: "${title}" (${year})`);
-  
-  return getData()
-    .then(data => {
-      if (!data || !data.data) {
-        throw new Error('Invalid data structure received');
-      }
-
-      const searchQuery = title.toLowerCase();
-      const results = data.data.filter(item => {
-        if (!item.moviename) return false;
-
-        // Whole words, not substrings. `includes` matched "It" inside
-        // "Bitter" and "Up" inside "Uptown", which is how a search could
-        // select a different film entirely and still look like a hit.
-        const itemWords = new Set(item.moviename.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
-        const titleWords = searchQuery.split(/[^a-z0-9]+/).filter(Boolean);
-        if (titleWords.length === 0) return false;
-
-        // Check if all words from search query are present in the item title
-        return titleWords.every(word => itemWords.has(word));
+function fetchEpisodesPage(seasonId, startPage, seasonNumber, ott, apiBase) {
+  return __async(this, null, function* () {
+    const episodes = [];
+    let pg = startPage;
+    while (true) {
+      const r = yield fetch(apiBase + "/newtv/episodes.php?id=" + seasonId + "&page=" + pg, {
+        headers: buildHeaders(ott)
       });
-
-      console.log(`[StreamFlix] Found ${results.length} search results`);
-      return results;
-    });
+      const data = yield r.json();
+      const epList = data.episodes || [];
+      for (let ei = 0; ei < epList.length; ei++) {
+        const ep = epList[ei];
+        if (!ep)
+          continue;
+        const epNum = ep.ep ? parseInt(ep.ep, 10) : null;
+        episodes.push({ id: ep.id, s: seasonNumber, ep: epNum });
+      }
+      if (data.nextPageShow !== 1)
+        break;
+      pg++;
+    }
+    return episodes;
+  });
 }
-
-// Find best match from search results
-function findBestMatch(targetTitle, results) {
-  if (!results || results.length === 0) {
-    return null;
-  }
-
-  let bestMatch = null;
-  let bestScore = 0;
-
-  for (const result of results) {
-    const score = calculateSimilarity(
-      targetTitle.toLowerCase(),
-      result.moviename.toLowerCase()
-    );
-    
-    if (score > bestScore) {
-      bestScore = score;
-      bestMatch = result;
-    }
-  }
-
-  console.log(`[StreamFlix] Best match: "${bestMatch?.moviename}" (score: ${bestScore.toFixed(2)})`);
-  return bestMatch;
-}
-
-// Calculate string similarity
-function calculateSimilarity(str1, str2) {
-  const words1 = str1.split(/\s+/);
-  const words2 = str2.split(/\s+/);
-  
-  let matches = 0;
-  for (const word of words1) {
-    if (word.length > 2 && words2.some(w => w.includes(word) || word.includes(w))) {
-      matches++;
-    }
-  }
-  
-  return matches / Math.max(words1.length, words2.length);
-}
-
-// WebSocket-based episode fetching (real implementation per series.py/api.js)
-function getEpisodesFromWebSocket(movieKey, totalSeasons = 1) {
-  return new Promise((resolve, reject) => {
-    let WSImpl = null;
-    try {
-      WSImpl = typeof WebSocket !== 'undefined' ? WebSocket : require('ws');
-    } catch (e) {
-      WSImpl = null;
-    }
-
-    if (!WSImpl) {
-      return reject(new Error('WebSocket implementation not available'));
-    }
-
-    const ws = new WSImpl(
-      'wss://chilflix-410be-default-rtdb.asia-southeast1.firebasedatabase.app/.ws?ns=chilflix-410be-default-rtdb&v=5'
-    );
-
-    const seasonsData = {};
-    let currentSeason = 1;
-    let completedSeasons = 0;
-    let messageBuffer = '';
-    let expectedResponses = 0;
-    let responsesReceived = 0;
-
-    const overallTimeout = setTimeout(() => {
-      try { ws.close(); } catch {}
-      reject(new Error('WebSocket timeout'));
-    }, 30000);
-
-    function sendSeasonRequest(season) {
-      const payload = {
-        t: 'd',
-        d: { a: 'q', r: season, b: { p: `Data/${movieKey}/seasons/${season}/episodes`, h: '' } }
-      };
-      try {
-        ws.send(JSON.stringify(payload));
-      } catch (e) {
-        // Ignore send errors; will be picked up by 'error' event
+function getAllEpisodes(postData, ott, apiBase) {
+  return __async(this, null, function* () {
+    const episodes = [];
+    const seasonList = postData.season || [];
+    let selectedIdx = -1;
+    for (let i = 0; i < seasonList.length; i++) {
+      if (seasonList[i].selected === true) {
+        selectedIdx = i;
+        break;
       }
     }
-
-    ws.onopen = function () {
-      sendSeasonRequest(currentSeason);
-    };
-
-    ws.onmessage = function (evt) {
-      try {
-        const message = (typeof evt.data === 'string') ? evt.data : evt.data.toString();
-
-        // numeric count of expected messages sometimes sent
-        if (/^\d+$/.test(message.trim())) {
-          expectedResponses = parseInt(message.trim(), 10);
-          responsesReceived = 0;
-          return;
+    const selectedSeasonId = selectedIdx >= 0 ? seasonList[selectedIdx].id : postData.nextPageSeason;
+    const selectedSeasonNumber = selectedIdx >= 0 ? selectedIdx + 1 : null;
+    const embedded = postData.episodes || [];
+    for (let i = 0; i < embedded.length; i++) {
+      const ep = embedded[i];
+      if (!ep)
+        continue;
+      const epNum = ep.ep ? parseInt(ep.ep, 10) : null;
+      episodes.push({ id: ep.id, s: selectedSeasonNumber, ep: epNum });
+    }
+    if (postData.nextPageShow === 1 && selectedSeasonId) {
+      const more = yield fetchEpisodesPage(selectedSeasonId, 2, selectedSeasonNumber, ott, apiBase);
+      for (let i = 0; i < more.length; i++)
+        episodes.push(more[i]);
+    }
+    for (let idx = 0; idx < seasonList.length; idx++) {
+      const s = seasonList[idx];
+      if (s.id !== selectedSeasonId && s.id) {
+        const more = yield fetchEpisodesPage(s.id, 1, idx + 1, ott, apiBase);
+        for (let i = 0; i < more.length; i++)
+          episodes.push(more[i]);
+      }
+    }
+    return episodes;
+  });
+}
+function fetchFromPlatform(ott, platformName, title, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    const apiBase = yield resolveApiUrl();
+    const searchR = yield fetch(apiBase + "/newtv/search.php?s=" + encodeURIComponent(title), {
+      headers: buildHeaders(ott)
+    });
+    const searchData = yield searchR.json();
+    if (!searchData.searchResult || searchData.searchResult.length === 0)
+      return null;
+    const contentId = searchData.searchResult[0].id;
+    const postR = yield fetch(apiBase + "/newtv/post.php?id=" + contentId, {
+      headers: buildHeaders(ott, { Lastep: "", Usertoken: "" })
+    });
+    const postData = yield postR.json();
+    let targetId;
+    if (mediaType === "tv") {
+      const allEps = yield getAllEpisodes(postData, ott, apiBase);
+      let found = null;
+      for (let i = 0; i < allEps.length; i++) {
+        if (allEps[i] && allEps[i].s === season && allEps[i].ep === episode) {
+          found = allEps[i];
+          break;
         }
-
-        messageBuffer += message;
-
+      }
+      if (!found)
+        return null;
+      targetId = found.id;
+    } else {
+      const isSeries = postData.type === "t" || postData.episodes && postData.episodes.filter(function(e) {
+        return e !== null;
+      }).length > 0;
+      if (isSeries)
+        return null;
+      targetId = postData.main_id || contentId;
+    }
+    const playerR = yield fetch(apiBase + "/newtv/player.php?id=" + targetId, {
+      headers: buildHeaders(ott, { Usertoken: "" })
+    });
+    const player = yield playerR.json();
+    if (player.status === "ok" && player.video_link) {
+      return {
+        name: "NetMirror / " + platformName,
+        title: mediaType === "tv" ? "S" + String(season).padStart(2, "0") + "E" + String(episode).padStart(2, "0") + " \u2022 HLS" : title + " \u2022 HLS",
+        url: player.video_link,
+        quality: "Auto",
+        headers: { Referer: player.referer || apiBase }
+      };
+    }
+    return null;
+  });
+}
+function getStreams(tmdbId, mediaType, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      const tmdbType = mediaType === "tv" ? "tv" : "movie";
+      const tmdbR = yield fetch(
+        "https://api.themoviedb.org/3/" + tmdbType + "/" + tmdbId + "?api_key=" + TMDB_API_KEY,
+        { headers: { "User-Agent": "Mozilla/5.0", "Accept": "application/json" } }
+      );
+      const tmdbData = yield tmdbR.json();
+      const title = mediaType === "tv" ? tmdbData.name : tmdbData.title;
+      if (!title)
+        return [];
+      console.log("[NetMirror] " + mediaType + ' "' + title + '" S' + season + "E" + episode);
+      const streams = [];
+      for (let pi = 0; pi < PLATFORMS.length; pi++) {
+        const p = PLATFORMS[pi];
         try {
-          const data = JSON.parse(messageBuffer);
-          messageBuffer = '';
-
-          if (data.t === 'c') {
-            return; // handshake complete
-          }
-
-          if (data.t === 'd') {
-            const d_data = data.d || {};
-            const b_data = d_data.b || {};
-
-            // completion for current season
-            if (d_data.r === currentSeason && b_data.s === 'ok') {
-              completedSeasons++;
-              if (completedSeasons < totalSeasons) {
-                currentSeason++;
-                expectedResponses = 0;
-                responsesReceived = 0;
-                sendSeasonRequest(currentSeason);
-              } else {
-                clearTimeout(overallTimeout);
-                try { ws.close(); } catch {}
-                resolve(seasonsData);
-              }
-              return;
-            }
-
-            // episode data
-            if (b_data.d) {
-              const episodes = b_data.d;
-              const seasonEpisodes = seasonsData[currentSeason] || {};
-              for (const [epKey, epData] of Object.entries(episodes)) {
-                if (epData && typeof epData === 'object') {
-                  seasonEpisodes[parseInt(epKey, 10)] = {
-                    key: epData.key,
-                    link: epData.link,
-                    name: epData.name,
-                    overview: epData.overview,
-                    runtime: epData.runtime,
-                    still_path: epData.still_path,
-                    vote_average: epData.vote_average
-                  };
-                  responsesReceived++;
-                }
-              }
-              seasonsData[currentSeason] = seasonEpisodes;
-
-              // If we know how many to expect and we reached/exceeded it, do nothing here.
-              // The season completion is signaled by b.s === 'ok' above which we handle to advance.
-            }
+          const result = yield fetchFromPlatform(p.key, p.name, title, mediaType, season, episode);
+          if (result) {
+            streams.push(result);
+            console.log("[NetMirror] " + p.key + " ok: " + result.url);
           }
         } catch (e) {
-          // Incomplete JSON in buffer, wait for more
-          if (messageBuffer.length > 100000) {
-            messageBuffer = '';
-          }
+          console.log("[NetMirror] " + p.key + " failed: " + e.message);
         }
-      } catch (err) {
-        // ignore parse errors; will continue buffering
       }
-    };
-
-    ws.onerror = function (err) {
-      clearTimeout(overallTimeout);
-      reject(new Error('WebSocket error'));
-    };
-
-    ws.onclose = function () {
-      clearTimeout(overallTimeout);
-    };
+      console.log("[NetMirror] " + streams.length + " stream(s) found");
+      return streams;
+    } catch (e) {
+      console.error("[NetMirror] Fatal: " + e.message);
+      return [];
+    }
   });
 }
-
-// Main function that Nuvio will call
-function getStreams(tmdbId, mediaType = 'movie', seasonNum = null, episodeNum = null) {
-  console.log(`[StreamFlix] Fetching streams for TMDB ID: ${tmdbId}, Type: ${mediaType}`);
-  
-  if (seasonNum !== null) {
-    console.log(`[StreamFlix] Season: ${seasonNum}, Episode: ${episodeNum}`);
-  }
-
-  // Get TMDB info first
-  const tmdbUrl = `https://api.themoviedb.org/3/${mediaType === 'tv' ? 'tv' : 'movie'}/${tmdbId}?api_key=${TMDB_API_KEY}`;
-  
-  return makeRequest(tmdbUrl)
-    .then(response => response.json())
-    .then(tmdbData => {
-      const title = mediaType === 'tv' ? tmdbData.name : tmdbData.title;
-      const year = mediaType === 'tv' 
-        ? tmdbData.first_air_date?.substring(0, 4) 
-        : tmdbData.release_date?.substring(0, 4);
-
-      if (!title) {
-        throw new Error('Could not extract title from TMDB response');
-      }
-
-      console.log(`[StreamFlix] TMDB Info: "${title}" (${year})`);
-
-      // Search for content
-      return searchContent(title, year, mediaType)
-        .then(searchResults => {
-          if (searchResults.length === 0) {
-            console.log('[StreamFlix] No search results found');
-            return [];
-          }
-
-          const selectedResult = findBestMatch(title, searchResults);
-          if (!selectedResult) {
-            console.log('[StreamFlix] No suitable match found');
-            return [];
-          }
-
-          // Get config for stream URLs
-          return getConfig()
-            .then(config => {
-              if (mediaType === 'movie') {
-                // Process movie streams
-                return processMovieStreams(selectedResult, config);
-              } else {
-                // Process TV show streams
-                return processTVStreams(selectedResult, config, seasonNum, episodeNum);
-              }
-            });
-        });
-    })
-    .catch(error => {
-      console.error(`[StreamFlix] Error in getStreams: ${error.message}`);
-      return [];
-    });
-}
-
-// Process movie streams
-function processMovieStreams(movieData, config) {
-  console.log(`[StreamFlix] Processing movie streams for: ${movieData.moviename}`);
-  
-  const streams = [];
-  
-  // Premium streams (higher quality)
-  if (config.premium && movieData.movielink) {
-    config.premium.forEach((baseUrl, index) => {
-      const streamUrl = `${baseUrl}${movieData.movielink}`;
-      streams.push({
-        name: "StreamFlix",
-        title: `${movieData.moviename} - Premium Quality`,
-        url: streamUrl,
-        quality: qualityFromLink(movieData.movielink),
-        size: movieData.movieduration || "Unknown",
-        type: 'direct',
-        headers: {
-          'Referer': 'https://api.streamflix.app',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      });
-    });
-  }
-  
-  // Regular movie streams
-  if (config.movies && movieData.movielink) {
-    config.movies.forEach((baseUrl, index) => {
-      const streamUrl = `${baseUrl}${movieData.movielink}`;
-      streams.push({
-        name: "StreamFlix",
-        title: `${movieData.moviename} - Standard Quality`,
-        url: streamUrl,
-        quality: qualityFromLink(movieData.movielink),
-        size: movieData.movieduration || "Unknown",
-        type: 'direct',
-        headers: {
-          'Referer': 'https://api.streamflix.app',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
-      });
-    });
-  }
-
-  console.log(`[StreamFlix] Generated ${streams.length} movie streams`);
-  return streams;
-}
-
-// Process TV show streams
-function processTVStreams(tvData, config, seasonNum, episodeNum) {
-  console.log(`[StreamFlix] Processing TV streams for: ${tvData.moviename}`);
-  
-  // Extract total seasons from duration field
-  const seasonMatch = tvData.movieduration?.match(/(\d+)\s+Season/);
-  const totalSeasons = seasonMatch ? parseInt(seasonMatch[1]) : 1;
-  
-  return getEpisodesFromWebSocket(tvData.moviekey, totalSeasons)
-    .then(seasonsData => {
-      const streams = [];
-      
-      // If specific episode requested
-      if (seasonNum !== null && episodeNum !== null) {
-        const seasonData = seasonsData[seasonNum];
-        if (seasonData) {
-          const episodeData = seasonData[episodeNum - 1];
-          if (episodeData && config.premium) {
-            config.premium.forEach(baseUrl => {
-              const streamUrl = `${baseUrl}${episodeData.link}`;
-              streams.push({
-                name: "StreamFlix",
-                title: `${tvData.moviename} S${seasonNum}E${episodeNum} - ${episodeData.name}`,
-                url: streamUrl,
-                quality: qualityFromLink(episodeData.link),
-                size: episodeData.runtime ? `${episodeData.runtime}min` : "Unknown",
-                type: 'direct',
-                headers: {
-                  'Referer': 'https://api.streamflix.app',
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                }
-              });
-            });
-          }
-        }
-      } else {
-        // Return all episodes for all seasons
-        for (const [season, episodes] of Object.entries(seasonsData)) {
-          for (const [epIndex, episodeData] of Object.entries(episodes)) {
-            if (config.premium && episodeData.link) {
-              const epNum = parseInt(epIndex) + 1;
-              config.premium.forEach(baseUrl => {
-                const streamUrl = `${baseUrl}${episodeData.link}`;
-                streams.push({
-                  name: "StreamFlix",
-                  title: `${tvData.moviename} S${season}E${epNum} - ${episodeData.name}`,
-                  url: streamUrl,
-                  quality: qualityFromLink(episodeData.link),
-                  size: episodeData.runtime ? `${episodeData.runtime}min` : "Unknown",
-                  type: 'direct',
-                  headers: {
-                    'Referer': 'https://api.streamflix.app',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                  }
-                });
-              });
-            }
-          }
-        }
-      }
-      
-      // Fallback if no episodes found
-      if (streams.length === 0 && config.premium && seasonNum !== null && episodeNum !== null) {
-        const fallbackUrl = `${config.premium[0]}tv/${tvData.moviekey}/s${seasonNum}/episode${episodeNum}.mkv`;
-        streams.push({
-          name: "StreamFlix",
-          title: `${tvData.moviename} S${seasonNum}E${episodeNum} (Fallback)`,
-          url: fallbackUrl,
-          quality: null,
-          size: "Unknown",
-          type: 'direct',
-          headers: {
-            'Referer': 'https://api.streamflix.app',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          }
-        });
-      }
-
-      console.log(`[StreamFlix] Generated ${streams.length} TV streams`);
-      return streams;
-    })
-    .catch(error => {
-      console.error('[StreamFlix] WebSocket failed, using fallback:', error.message);
-      
-      // Generate fallback stream
-      if (config.premium && seasonNum !== null && episodeNum !== null) {
-        const fallbackUrl = `${config.premium[0]}tv/${tvData.moviekey}/s${seasonNum}/episode${episodeNum}.mkv`;
-        return [{
-          name: "StreamFlix",
-          title: `${tvData.moviename} S${seasonNum}E${episodeNum} (Fallback)`,
-          url: fallbackUrl,
-          quality: null,
-          size: "Unknown",
-          type: 'direct',
-          headers: {
-            'Referer': 'https://api.streamflix.app',
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-          }
-        }];
-      }
-      
-      return [];
-    });
-}
-
-// Export for React Native
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
-} else {
-  global.getStreams = getStreams;
-}
+module.exports = { getStreams };

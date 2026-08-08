@@ -1,7 +1,7 @@
 // AnimeSalt Provider for Nuvio
 // NO async/await! Only .then() chains!
 
-var TMDB_KEY = 'd80ba92bc7cefe3359668d30d06f3305'
+var TMDB_KEY = '439c478a771f35c05022f9feabcca01c'
 var BASE = 'https://animesalt.link'
 var CDN = 'https://as-cdn21.top'
 var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
@@ -136,7 +136,7 @@ function getEpisodeUrl(seriesUrl, season, episode) {
 }
 
 function getEpisodeUrlFromHtml(html, season, episode) {
-  var epRegex = new RegExp('href="(https://animesalt\\.ac/episode/[^"]*' + season + 'x' + episode + '[^"]*)"')
+  var epRegex = new RegExp('href="(https://animesalt\\.link/episode/[^"]*' + season + 'x' + episode + '[^"]*)"')
   var epMatch = html.match(epRegex)
   if (epMatch) return epMatch[1]
   return null

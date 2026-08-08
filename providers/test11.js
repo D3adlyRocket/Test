@@ -48,7 +48,7 @@ function searchSite(title, mediaType, year) {
       var articleMatch
       while ((articleMatch = articleRegex.exec(searchHtml)) !== null) {
         var articleHtml = articleMatch[1]
-        var linkMatch = articleHtml.match(/href="(https:\/\/animesalt\.ac\/(series|movies)\/([^\/\"]+)\/?)\"/)
+        var linkMatch = articleHtml.match(/href="(https:\/\/animesalt\.link\/(series|movies)\/([^\/\"]+)\/?)\"/)
         var titleMatch = articleHtml.match(/class="entry-title"[^>]*>([^<]+)</)
         var yearMatch = articleHtml.match(/class="year"[^>]*>(\d{4})</)
 

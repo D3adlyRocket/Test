@@ -258,8 +258,9 @@ async function getStreamsFromWatchPage(watchUrl, mediaMeta = {}) {
             const groupId = gmatch[1];
             if (!['hsub', 'sub', 'dub'].includes(groupId)) continue;
             const isDub = groupId === 'dub';
+            
             const audioHeaderTag = isDub ? 'English [DUB]' : 'Japanese [SUB]';
-            const audioSubLine = isDub ? 'English - [DUB]' : 'Japanese - [SUB]';
+            const audioSubLine = isDub ? 'English 🇺🇸 - [DUB]' : 'Japanese 🇯🇵 - [SUB]';
 
             const videoRegex = /data-video="([^"]*)"/g;
             let vmatch;
@@ -267,6 +268,11 @@ async function getStreamsFromWatchPage(watchUrl, mediaMeta = {}) {
             while ((vmatch = videoRegex.exec(gmatch[0])) !== null) {
                 const embedUrl = vmatch[1];
                 serverIdx++;
+                
+                const serverSubLine = isDub 
+                    ? `🗂️ Server ${serverIdx} • 🔉 English Dubbed` 
+                    : `🗂️ Server ${serverIdx} • 📑 English Subtitles`;
+
                 const embedStreams = await extractFromEmbed(embedUrl);
                 for (const s of embedStreams) {
                     if (seenUrls.has(s.url)) continue;
@@ -276,6 +282,7 @@ async function getStreamsFromWatchPage(watchUrl, mediaMeta = {}) {
                         quality: s.quality,
                         audioHeaderTag,
                         audioSubLine,
+                        serverSubLine,
                         headers: s.headers
                     });
                 }
@@ -301,8 +308,9 @@ async function getStreamsFromWatchPage(watchUrl, mediaMeta = {}) {
 
             const line3 = `${qEmoji} | 🗣️ ${s.audioSubLine}`;
             const line4 = `🔗 AniKai | ⌛ ${mediaMeta.duration || '24m'} | ⚡ H.264`;
+            const line5 = s.serverSubLine;
 
-            const fullLayout = [line1, line2, line3, line4].filter(Boolean).join('\n');
+            const fullLayout = [line1, line2, line3, line4, line5].filter(Boolean).join('\n');
 
             return {
                 name: headerLayout,

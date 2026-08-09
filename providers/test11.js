@@ -6,6 +6,38 @@ var BASE = 'https://animesalt.link'
 var CDN = 'https://as-cdn21.top'
 var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36'
 
+/* ----------------------------------------------------------------------------
+ * HELPER & FORMATTING FUNCTIONS
+ * ---------------------------------------------------------------------------- */
+
+function getInvertedSortTag(val, maxBaseline) {
+  if (!maxBaseline) maxBaseline = 999999;
+  var safeVal = Math.max(0, parseInt(val, 10) || 0);
+  var inverted = Math.max(0, maxBaseline - safeVal);
+  var binaryStr = inverted.toString(2);
+  while (binaryStr.length < 20) { binaryStr = '0' + binaryStr; }
+  return binaryStr.split('').map(function(bit) {
+    return bit === '1' ? '\uFEFF' : '\u200B';
+  }).join('');
+}
+
+function getResolutionEmoji(res) {
+  var clean = String(res || '').toLowerCase();
+  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return "🌟 4K";
+  if (clean.includes("1080") || clean.includes("fhd")) return "🔥 1080p";
+  if (clean.includes("720") || clean.includes("hd")) return "💎 720p";
+  if (clean.includes("480") || clean.includes("sd")) return "📱 480p";
+  return "📺 " + (res || "1080p");
+}
+
+function qualityRank(qualityStr) {
+  if (/2160p|4k/i.test(qualityStr)) return 4;
+  if (/1080p/i.test(qualityStr)) return 3;
+  if (/720p/i.test(qualityStr)) return 2;
+  if (/480p/i.test(qualityStr)) return 1;
+  return 0;
+}
+
 function httpGet(url, headers) {
   return fetch(url, {
     headers: Object.assign({ 'User-Agent': UA }, headers || {})
@@ -35,6 +67,10 @@ function cleanTitle(title) {
     .replace(/\s+/g, ' ')
     .trim()
 }
+
+/* ----------------------------------------------------------------------------
+ * ANIME SALT EXTRACTION & PARSING
+ * ---------------------------------------------------------------------------- */
 
 function searchSite(title, mediaType, year) {
   var url = BASE + '/?s=' + encodeURIComponent(title)
@@ -175,6 +211,10 @@ function getStreamFromPage(pageUrl) {
     })
 }
 
+/* ----------------------------------------------------------------------------
+ * MAIN ENTRY POINT
+ * ---------------------------------------------------------------------------- */
+
 function getStreams(tmdbId, mediaType, season, episode) {
   return new Promise(function(resolve) {
     var tmdbUrl = mediaType === 'movie'
@@ -183,6 +223,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
     console.log('[AnimeSalt] Start: ' + tmdbId + ' ' + mediaType + ' S' + season + 'E' + episode)
 
+    var metaInfo = { title: 'Unknown', year: null }
+
     fetch(tmdbUrl)
       .then(function(r) { return r.json() })
       .then(function(data) {
@@ -190,6 +232,10 @@ function getStreams(tmdbId, mediaType, season, episode) {
         if (!title) throw new Error('No title')
         var releaseDate = data.release_date || data.first_air_date || ''
         var year = releaseDate ? parseInt(releaseDate.split('-')[0]) : null
+        
+        metaInfo.title = title
+        metaInfo.year = year
+        
         console.log('[AnimeSalt] Title: ' + title + ' Year: ' + year)
         return searchSite(title, mediaType, year)
       })
@@ -207,15 +253,39 @@ function getStreams(tmdbId, mediaType, season, episode) {
       .then(function(streamData) {
         if (!streamData) { resolve([]); return }
         var cdnDomain = streamData.cdnBase || CDN
+        var qualityStr = '1080p'
+        var qEmoji = getResolutionEmoji(qualityStr)
+        var qRank = qualityRank(qualityStr)
+
+        /* --- ZERO-WIDTH SORTING & HEADER --- */
+        var sortTag = getInvertedSortTag(qRank * 100000, 999999)
+        var headerLayout = sortTag + 'AnimeSalt • ' + qualityStr + ' • Multi-Audio'
+
+        /* --- FULL SUBHEADING LAYOUT LINES --- */
+        var line1 = '🧂 ' + metaInfo.title + (metaInfo.year ? ' (' + metaInfo.year + ')' : '')
+        var line2 = (mediaType === 'tv' && season && episode) ? '📋 S' + season + ' E' + episode : null
+        var line3 = qEmoji + ' | 🗣️ Multi-Audio'
+        var line4 = '🎞️ HLS | ⚡ H.264 | 🎧 AAC'
+        var line5 = '🔗 AnimeSalt | 🌐 Direct CDN | 📥 WEB-DL'
+
+        var fullLayout = [line1, line2, line3, line4, line5].filter(Boolean).join('\n')
+
         resolve([{
-          name: '🧂 AnimeSalt',
-          title: 'AnimeSalt • Multi-Audio',
+          name: headerLayout,
+          title: fullLayout,
+          size: fullLayout,           // CRITICAL FOR NUVIO MOBILE
+          description: fullLayout,    // CRITICAL FOR NUVIO MOBILE
           url: streamData.url,
-          quality: '720p',
-          headers: {
-            'Referer': cdnDomain + '/',
-            'Origin': cdnDomain,
-            'User-Agent': UA
+          quality: qualityStr,
+          behaviorHints: {
+            notWebReady: true,
+            proxyHeaders: {
+              request: {
+                'Referer': cdnDomain + '/',
+                'Origin': cdnDomain,
+                'User-Agent': UA
+              }
+            }
           },
           subtitles: streamData.subtitle ? [{ url: streamData.subtitle, lang: 'en', name: 'English' }] : []
         }])

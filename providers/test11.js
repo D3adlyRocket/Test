@@ -223,7 +223,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
     console.log('[AnimeSalt] Start: ' + tmdbId + ' ' + mediaType + ' S' + season + 'E' + episode)
 
-    var metaInfo = { title: 'Unknown', year: null }
+    var metaInfo = { title: 'Unknown', year: null, episodeTitle: '' }
 
     fetch(tmdbUrl)
       .then(function(r) { return r.json() })
@@ -237,6 +237,28 @@ function getStreams(tmdbId, mediaType, season, episode) {
         metaInfo.year = year
         
         console.log('[AnimeSalt] Title: ' + title + ' Year: ' + year)
+
+        if (mediaType === 'tv' && season) {
+          var seasonUrl = 'https://api.themoviedb.org/3/tv/' + tmdbId + '/season/' + season + '?api_key=' + TMDB_KEY
+          return fetch(seasonUrl)
+            .then(function(sr) { return sr.json() })
+            .then(function(sData) {
+              if (sData && sData.episodes) {
+                var epNum = parseInt(episode) || 1
+                for (var i = 0; i < sData.episodes.length; i++) {
+                  if (sData.episodes[i].episode_number === epNum) {
+                    metaInfo.episodeTitle = sData.episodes[i].name || ''
+                    break
+                  }
+                }
+              }
+              return searchSite(title, mediaType, year)
+            })
+            .catch(function() {
+              return searchSite(title, mediaType, year)
+            })
+        }
+
         return searchSite(title, mediaType, year)
       })
       .then(function(results) {
@@ -263,7 +285,12 @@ function getStreams(tmdbId, mediaType, season, episode) {
 
         /* --- FULL SUBHEADING LAYOUT LINES --- */
         var line1 = '🧂 ' + metaInfo.title + (metaInfo.year ? ' (' + metaInfo.year + ')' : '')
-        var line2 = (mediaType === 'tv' && season && episode) ? '📋 S' + season + ' E' + episode : null
+
+        var line2 = null
+        if (mediaType === 'tv' && season && episode) {
+          line2 = '📋 S' + season + ' E' + episode + (metaInfo.episodeTitle ? ' - ' + metaInfo.episodeTitle : '')
+        }
+
         var line3 = qEmoji + ' | 🗣️ Multi-Audio'
         var line4 = '🎞️ HLS | ⚡ H.264 | 🎧 AAC'
         var line5 = '🔗 AnimeSalt | 🌐 Direct CDN | 📥 WEB-DL'
@@ -276,7 +303,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
           size: fullLayout,           // CRITICAL FOR NUVIO MOBILE
           description: fullLayout,    // CRITICAL FOR NUVIO MOBILE
           url: streamData.url,
-          quality: qualityStr,
           behaviorHints: {
             notWebReady: true,
             proxyHeaders: {

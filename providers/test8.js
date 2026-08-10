@@ -105,7 +105,7 @@ function formatMoonflixStream(c, apiLabel, idx, mediaMeta) {
 
   var line3 = qEmoji + ' | 🗣️ Dual-Audio';
   var line4 = '🎞️ HLS | ⚡ H.264 | 🎧 AAC';
-  var line5 = '🔗 Moonflix | 🌐 Dual-Audio | 📥 WEB-DL';
+  var line5 = '🔗 Moonflix | 🌐 ' + apiLabel + ' | 📥 WEB-DL';
 
   var fullLayout = [line1, line2, line3, line4, line5].filter(Boolean).join('\n');
 

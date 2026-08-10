@@ -1,353 +1,251 @@
-// ============================================================= //
-// Provider Nuvio : DesiFlix (Indian Movies & TV Series)        //
-// Version : 1.2.0                                              //
-// Endpoint : https://desiflix.stremioaddon.workers.dev         //
-// - Quality Priority Sorted: 2160p -> 1080p -> 720p -> 480p     //
-// ============================================================= //
+/**
+ * Moonflix — Nuvio provider (ported from Wizdier Cloudstream MoonflixResolver).
+ * TMDB-keyed: CH + HV backends (/movie/{id}, /tv/{id}/{s}/{e}) → {streams[]}.
+ */
+"use strict";
 
-var PROVIDER_NAME = "DesiFlix";
-var DESIFLIX_BASE = "https://manifest.desitvhub.eu.org";
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var FETCH_TIMEOUT = 12000;
+var M_SITE = 'https://moonflix.website';
+var M_PLAYER = 'https://player.moonflix.website';
+var M_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36';
+var M_PLAYER_HEADERS = { 'User-Agent': M_UA, Referer: M_PLAYER + '/', Origin: M_PLAYER };
+var M_APIS = [
+  ['CH', 'https://confident-harmony-production-0578.up.railway.app'],
+  ['HV', 'https://hvhyu-production.up.railway.app'],
+];
+var TMDB_KEY = '439c478a771f35c05022f9feabcca01c';
 
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+/* ----------------------------------------------------------------------------
+ * HELPER & FORMATTING FUNCTIONS
+ * ---------------------------------------------------------------------------- */
 
-function log(msg) { console.log("[" + PROVIDER_NAME + "] " + msg); }
-function err(msg) { console.error("[" + PROVIDER_NAME + "] " + msg); }
-
-// Strict LTR Zero-Width Sort Marker (Prevents UI alignment flipping and forces app client sorting)
 function getInvertedSortTag(val, maxBaseline) {
-  var base = maxBaseline || 9999999;
+  if (!maxBaseline) maxBaseline = 999999;
   var safeVal = Math.max(0, parseInt(val, 10) || 0);
-  var inverted = Math.max(0, base - safeVal);
-  var binaryStr = inverted.toString(2).padStart(28, '0');
-  var tag = "";
-  for (var i = 0; i < binaryStr.length; i++) {
-    tag += binaryStr[i] === '1' ? "\uFEFF" : "\u200B";
-  }
-  return tag;
+  var inverted = Math.max(0, maxBaseline - safeVal);
+  var binaryStr = inverted.toString(2);
+  while (binaryStr.length < 20) { binaryStr = '0' + binaryStr; }
+  return binaryStr.split('').map(function(bit) {
+    return bit === '1' ? '\uFEFF' : '\u200B';
+  }).join('');
 }
 
-function resolveSettings(extraConfig) {
-  var settings = {
-    minQuality: "any",
-    sortBy: "any"
-  };
-
-  try {
-    var source = extraConfig;
-    if (!source && typeof globalThis !== "undefined") source = globalThis.SCRAPER_SETTINGS || globalThis.SETTINGS;
-    if (!source && typeof global !== "undefined") source = global.SCRAPER_SETTINGS || global.SETTINGS;
-    if (!source && typeof window !== "undefined") source = window.SCRAPER_SETTINGS || window.SETTINGS;
-
-    if (source) {
-      if (source.minQuality) settings.minQuality = String(source.minQuality).trim();
-      if (source.sortBy) settings.sortBy = String(source.sortBy).trim();
-    }
-  } catch (e) {
-    err("Error parsing settings: " + (e.message || ""));
-  }
-
-  return settings;
+function getResolutionEmoji(res) {
+  var clean = String(res || '').toLowerCase();
+  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return "🌟 4K";
+  if (clean.includes("1080") || clean.includes("fhd")) return "🔥 1080p";
+  if (clean.includes("720") || clean.includes("hd")) return "💎 720p";
+  if (clean.includes("480") || clean.includes("sd")) return "📱 480p";
+  return "📺 " + (res || "1080p");
 }
 
-function raceTimeout(ms) {
-  return new Promise(function(_, reject) {
-    setTimeout(function() { reject(new Error("Timeout " + ms + "ms")); }, ms);
-  });
-}
-
-async function fetchJson(url) {
-  try {
-    var req = fetch(url, {
-      headers: {
-        "User-Agent": USER_AGENT,
-        "Accept": "application/json"
-      }
-    });
-    var res = await Promise.race([req, raceTimeout(FETCH_TIMEOUT)]);
-    if (res && res.ok) return await res.json();
-  } catch (e) {
-    err("fetch failed: " + url + " -> " + (e.message || ""));
-  }
-  return null;
-}
-
-// ─── TMDB Details Fetcher ─────────────────────────────────────
-
-async function getTMDBDetails(tmdbId, mediaType) {
-  var isTv = mediaType === "tv" || mediaType === "series";
-  var type = isTv ? "tv" : "movie";
-  var url = "https://api.themoviedb.org/3/" + type + "/" + tmdbId + "?api_key=" + TMDB_API_KEY + "&append_to_response=external_ids";
-  var data = await fetchJson(url);
-  if (!data) return { title: "DesiFlix Title", year: "", imdbId: null };
-
-  return {
-    title: (isTv ? data.name : data.title) || "DesiFlix Title",
-    year: (isTv ? (data.first_air_date || "") : (data.release_date || "")).split("-")[0],
-    imdbId: data.imdb_id || (data.external_ids && data.external_ids.imdb_id) || null
-  };
-}
-
-// ─── Language & Metadata Engine ───────────────────────────────
-
-function parseLanguage(searchPool) {
-  if (searchPool.indexOf("multi") !== -1) return "Multi-Audio";
-  
-  var hasEnglish = searchPool.indexOf("english") !== -1 || searchPool.indexOf("eng") !== -1;
-  var hasHindi = searchPool.indexOf("hindi") !== -1 || searchPool.indexOf("hin") !== -1;
-  
-  if ((hasEnglish && hasHindi) || searchPool.indexOf("dual") !== -1) {
-    return "Dual-Audio";
-  }
-  if (hasHindi) return "Hindi";
-  if (hasEnglish) return "English";
-  if (searchPool.indexOf("tamil") !== -1) return "Tamil";
-  if (searchPool.indexOf("telugu") !== -1) return "Telugu";
-  if (searchPool.indexOf("malayalam") !== -1) return "Malayalam";
-  if (searchPool.indexOf("kannada") !== -1) return "Kannada";
-  
-  return "Original";
-}
-
-function buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, streamObj) {
-  var title = tmdbInfo.title || "DesiFlix Title";
-  var yearStr = tmdbInfo.year ? " (" + tmdbInfo.year + ")" : "";
-  
-  var rawText = (streamObj.title || "") + " " + (streamObj.name || "") + " " + (streamObj.url || "");
-  var searchPool = rawText.toLowerCase();
-
-  // Subheading Line 1
-  var line1 = "🍿 " + title + yearStr;
-  if (isTv && season != null && episode != null) {
-    line1 += " | S" + String(season).padStart(2, "0") + "E" + String(episode).padStart(2, "0");
-  }
-
-  // Subheading Line 2
-  var qIcon = "💎";
-  if (normQual.indexOf("2160") !== -1 || normQual.indexOf("4k") !== -1) qIcon = "🌟";
-  else if (normQual.indexOf("1080") !== -1) qIcon = "🔥";
-
-  var langStr = parseLanguage(searchPool);
-  var szMatch = searchPool.match(/(\d+(?:\.\d+)?\s*(?:gb|mb))/i);
-  var sizeStr = szMatch ? szMatch[1].toUpperCase() : "Variable Size";
-
-  var line2 = qIcon + " " + normQual + " | 💾 " + sizeStr + " | 🔊 " + langStr;
-
-  // Subheading Line 3
-  var codecVal = "x264";
-  if (searchPool.indexOf("hevc") !== -1 && (searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1)) {
-    codecVal = "HEVC x265";
-  } else if (searchPool.indexOf("hevc") !== -1) {
-    codecVal = "HEVC x264";
-  } else if (searchPool.indexOf("x265") !== -1 || searchPool.indexOf("h265") !== -1) {
-    codecVal = "x265";
-  }
-
-  var audioCodec = "AAC";
-  if (searchPool.indexOf("ddp5.1") !== -1 || searchPool.indexOf("ddp 5.1") !== -1) audioCodec = "DDP5.1";
-  else if (searchPool.indexOf("dd5.1") !== -1 || searchPool.indexOf("5.1") !== -1) audioCodec = "DD5.1";
-  else if (searchPool.indexOf("7.1") !== -1) audioCodec = "7.1";
-  else if (searchPool.indexOf("truehd") !== -1) audioCodec = "TrueHD";
-
-  var atmosTag = searchPool.indexOf("atmos") !== -1 ? " | 🔊 Atmos" : "";
-  var line3 = "🎥 " + codecVal + " | 🎧 " + audioCodec + atmosTag;
-
-  // Subheading Line 4
-  var sourceVal = "📥 WEB-DL";
-  if (searchPool.indexOf("web-rip") !== -1 || searchPool.indexOf("webrip") !== -1) sourceVal = "🌐 WEB-RIP";
-  else if (searchPool.indexOf("bluray") !== -1) sourceVal = "💿 BluRay";
-  else if (searchPool.indexOf("hdrip") !== -1) sourceVal = "📺 HD-RIP";
-
-  var formatVal = (streamObj.url && streamObj.url.indexOf(".mp4") !== -1) ? "MP4" : "MKV";
-
-  var colorVal = "SDR";
-  if (searchPool.indexOf("10bit") !== -1 || searchPool.indexOf("10-bit") !== -1) {
-    colorVal = searchPool.indexOf("hdr") !== -1 ? "10bit HDR" : "10bit";
-  } else if (searchPool.indexOf("hdr10+") !== -1) {
-    colorVal = "HDR10+";
-  } else if (searchPool.indexOf("hdr") !== -1) {
-    colorVal = "HDR";
-  } else if (searchPool.indexOf("dv") !== -1 || searchPool.indexOf("dolby vision") !== -1) {
-    colorVal = "Dolby Vision";
-  }
-
-  var line4 = sourceVal + " | 📦 " + formatVal + " | 🌈 " + colorVal;
-
-  // Subheading Line 5
-  var line5 = "📎 " + PROVIDER_NAME;
-
-  return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5;
-}
-
-// Helper to determine numerical resolution score
-function getResolutionScore(qStr) {
-  if (qStr === "2160p") return 2160;
-  if (qStr === "1080p") return 1080;
-  if (qStr === "720p") return 720;
-  if (qStr === "480p") return 480;
+function qualityRank(qualityStr) {
+  if (/2160p|4k/i.test(qualityStr)) return 4;
+  if (/1080p/i.test(qualityStr)) return 3;
+  if (/720p/i.test(qualityStr)) return 2;
+  if (/480p/i.test(qualityStr)) return 1;
   return 0;
 }
 
-// ─── Main Stream Method ───────────────────────────────────────
+function fetchTmdbMeta(tmdbId, mediaType, season, episode) {
+  if (!tmdbId) return Promise.resolve({ title: 'Unknown', year: null, episodeTitle: '' });
+  var isTv = mediaType === 'tv';
+  var url = isTv
+    ? 'https://api.themoviedb.org/3/tv/' + tmdbId + '?api_key=' + TMDB_KEY
+    : 'https://api.themoviedb.org/3/movie/' + tmdbId + '?api_key=' + TMDB_KEY;
 
-async function getStreams(tmdbId, mediaType, season, episode, userSettings) {
-  var settings = resolveSettings(userSettings);
-  var isTv = mediaType === "tv" || mediaType === "series";
-  log("Request: tmdbId=" + tmdbId + " type=" + mediaType + " s=" + season + " e=" + episode);
+  return fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var title = data.title || data.name || 'Unknown';
+      var releaseDate = data.release_date || data.first_air_date || '';
+      var year = releaseDate ? parseInt(releaseDate.split('-')[0]) : null;
+      var meta = { title: title, year: year, episodeTitle: '' };
 
-  var tmdbInfo = await getTMDBDetails(tmdbId, mediaType);
-  var queryId = tmdbInfo.imdbId || tmdbId;
-
-  var streamEndpoint = "";
-  if (isTv) {
-    var sNum = season != null ? season : 1;
-    var eNum = episode != null ? episode : 1;
-    streamEndpoint = DESIFLIX_BASE + "/stream/series/" + queryId + ":" + sNum + ":" + eNum + ".json";
-  } else {
-    streamEndpoint = DESIFLIX_BASE + "/stream/movie/" + queryId + ".json";
-  }
-
-  log("Fetching streams from: " + streamEndpoint);
-  var resData = await fetchJson(streamEndpoint);
-  
-  if ((!resData || !resData.streams || !resData.streams.length) && tmdbInfo.imdbId) {
-    var fallbackEndpoint = isTv 
-      ? DESIFLIX_BASE + "/stream/series/" + tmdbId + ":" + (season || 1) + ":" + (episode || 1) + ".json"
-      : DESIFLIX_BASE + "/stream/movie/" + tmdbId + ".json";
-    log("Retrying with fallback endpoint: " + fallbackEndpoint);
-    resData = await fetchJson(fallbackEndpoint);
-  }
-
-  if (!resData || !resData.streams || !resData.streams.length) {
-    log("No streams returned from DesiFlix");
-    return [];
-  }
-
-  var rawItems = [];
-  var seen = {};
-
-  for (var i = 0; i < resData.streams.length; i++) {
-    var st = resData.streams[i];
-    var streamUrl = st.url || st.externalUrl;
-    if (!streamUrl || seen[streamUrl]) continue;
-    seen[streamUrl] = true;
-
-    var rawText = ((st.title || "") + " " + (st.name || "") + " " + streamUrl).toLowerCase();
-    
-    var normQual = "1080p";
-    if (rawText.indexOf("2160") !== -1 || rawText.indexOf("4k") !== -1) normQual = "2160p";
-    else if (rawText.indexOf("720") !== -1) normQual = "720p";
-    else if (rawText.indexOf("480") !== -1) normQual = "480p";
-
-    // Quality Filter Option Check
-    if (settings.minQuality && settings.minQuality !== "any") {
-      if (normQual !== settings.minQuality) continue;
-    }
-
-    // Extract size in MB for sorting
-    var szMatch = rawText.match(/(\d+(?:\.\d+)?)\s*(gb|mb)/i);
-    var sizeInMB = 0;
-    if (szMatch) {
-      var num = parseFloat(szMatch[1]);
-      var unit = szMatch[2].toLowerCase();
-      sizeInMB = unit === "gb" ? Math.floor(num * 1024) : Math.floor(num);
-    }
-
-    var qScore = getResolutionScore(normQual);
-    var displayLang = parseLanguage(rawText);
-    var metadata = buildDropdownMetadata(tmdbInfo, normQual, isTv, season, episode, st);
-
-    rawItems.push({
-      sizeInMB: sizeInMB,
-      qualityScore: qScore,
-      normQual: normQual,
-      displayLang: displayLang,
-      metadata: metadata,
-      streamUrl: streamUrl
-    });
-  }
-
-  // ── Sorting Mechanics ──────────────────────────────────────
-  rawItems.sort(function(a, b) {
-    if (settings.sortBy === "size") {
-      return b.sizeInMB - a.sizeInMB;
-    } else if (settings.sortBy === "quality") {
-      return b.qualityScore - a.qualityScore;
-    }
-    // "any" or default quality-first sorting
-    return b.qualityScore - a.qualityScore;
-  });
-
-  // Construct Final Output with Inverted Zero-Width Sort Markers in `name`
-  var out = [];
-  for (var j = 0; j < rawItems.length; j++) {
-    var item = rawItems[j];
-    
-    var sortTag = "";
-    if (settings.sortBy === "size") {
-      sortTag = getInvertedSortTag(item.sizeInMB, 9999999);
-    } else if (settings.sortBy === "quality") {
-      sortTag = getInvertedSortTag(item.qualityScore, 9999);
-    } else {
-      sortTag = getInvertedSortTag(item.qualityScore, 9999);
-    }
-
-    var headerName = sortTag + PROVIDER_NAME + " | " + item.normQual + " | " + item.displayLang;
-
-    out.push({
-      name: headerName,
-      title: item.metadata,
-      size: item.metadata,
-      description: item.metadata,
-      url: item.streamUrl,
-      quality: "",
-      language: "",
-      headers: {
-        "User-Agent": USER_AGENT,
-        "Referer": DESIFLIX_BASE + "/"
+      if (isTv && season && episode) {
+        var seasonUrl = 'https://api.themoviedb.org/3/tv/' + tmdbId + '/season/' + season + '?api_key=' + TMDB_KEY;
+        return fetch(seasonUrl)
+          .then(function(sr) { return sr.json(); })
+          .then(function(sData) {
+            if (sData && Array.isArray(sData.episodes)) {
+              var epNum = parseInt(episode);
+              for (var i = 0; i < sData.episodes.length; i++) {
+                if (sData.episodes[i].episode_number === epNum) {
+                  meta.episodeTitle = sData.episodes[i].name || '';
+                  break;
+                }
+              }
+            }
+            return meta;
+          })
+          .catch(function() { return meta; });
       }
+      return meta;
+    })
+    .catch(function() {
+      return { title: 'Unknown', year: null, episodeTitle: '' };
     });
+}
+
+function formatMoonflixStream(c, apiLabel, idx, mediaMeta) {
+  var q = c.q || '1080p';
+  var qEmoji = getResolutionEmoji(q);
+  var qRank = qualityRank(q);
+
+  /* --- ZERO-WIDTH SORTING & HEADER --- */
+  var sortTag = getInvertedSortTag((qRank * 100000) + (100 - idx), 999999);
+  var headerLayout = sortTag + '🌙 Moonflix • ' + q + ' • ' + apiLabel;
+
+  /* --- FULL SUBHEADING LAYOUT LINES --- */
+  var line1 = '🎬 ' + mediaMeta.title + (mediaMeta.year ? ' (' + mediaMeta.year + ')' : '');
+  
+  var line2 = null;
+  if (mediaMeta.isTv && mediaMeta.season && mediaMeta.episode) {
+    line2 = '📋 S' + mediaMeta.season + ' E' + mediaMeta.episode + (mediaMeta.episodeTitle ? ' - ' + mediaMeta.episodeTitle : '');
   }
 
-  log("Returning " + out.length + " sorted streams");
+  var line3 = qEmoji + ' | 🗣️ Multi-Audio';
+  var line4 = '🎞️ HLS | ⚡ H.264 | 🎧 AAC';
+  var line5 = '🔗 Moonflix | 🌐 ' + apiLabel + ' | 📥 WEB-DL';
+
+  var fullLayout = [line1, line2, line3, line4, line5].filter(Boolean).join('\n');
+
+  var streamHeaders = {
+    'User-Agent': M_UA,
+    'Referer': M_PLAYER + '/',
+    'Origin': M_PLAYER
+  };
+
+  return {
+    name: headerLayout,
+    title: fullLayout,
+    size: fullLayout,           // CRITICAL FOR NUVIO MOBILE
+    description: fullLayout,    // CRITICAL FOR NUVIO MOBILE
+    url: c.url,
+    quality: q,
+    headers: streamHeaders,     // ROOT LEVEL HEADERS (PREVENTS PLAYBACK REFERER BLOCK)
+    behaviorHints: {
+      notWebReady: true,
+      proxyHeaders: {
+        request: streamHeaders
+      }
+    }
+  };
+}
+
+/* ----------------------------------------------------------------------------
+ * NETWORK PROBING & FETCHING
+ * ---------------------------------------------------------------------------- */
+
+function mFetch(url, opts) {
+  opts = opts || {};
+  return fetch(url, {
+    method: opts.method || 'GET',
+    headers: Object.assign({ 'User-Agent': M_UA }, opts.headers || {}),
+    body: opts.body,
+  }).then(function (r) {
+    return r.text().then(function (t) { return { code: r.status, text: t }; });
+  }).catch(function () { return null; });
+}
+
+function mProbe(url, h) {
+  return mFetch(url, { headers: Object.assign({ Range: 'bytes=0-16384' }, h || {}) }).then(function (r) {
+    if (!r) return false;
+    if (r.code !== 200 && r.code !== 206) return false;
+    var t = r.text;
+    return t.indexOf('#EXTM3U') === 0 || t.indexOf('{') !== 0; // playlist or mp4 range
+  }).catch(function () { return false; });
+}
+
+function mParseStreams(json, label) {
+  var out = [];
+  var streams = json && Array.isArray(json.streams) ? json.streams : [];
+  for (var i = 0; i < streams.length; i++) {
+    var s = streams[i] || {};
+    var url = s.url ? String(s.url) : '';
+    if (!url || url.indexOf('http') !== 0) continue;
+    var q = s.quality || 'Auto';
+    out.push({ url: url, q: q, extra: s });
+  }
   return out;
 }
 
-// ─── Options Menu Engine ──────────────────────────────────────
+/* ----------------------------------------------------------------------------
+ * MAIN ENTRY POINT
+ * ---------------------------------------------------------------------------- */
 
-async function onSettings() {
-  return [
-    { type: "header", label: "Basics" },
-    {
-      type: "select",
-      key: "minQuality",
-      label: "Choose Quality",
-      options: [
-        { label: "Any", value: "any" },
-        { label: "720p Only", value: "720p" },
-        { label: "1080p Only", value: "1080p" },
-        { label: "2160p Only", value: "2160p" }
-      ],
-      default: "any"
-    },
-    {
-      type: "select",
-      key: "sortBy",
-      label: "Sort By",
-      options: [
-        { label: "Any", value: "any" },
-        { label: "Quality", value: "quality" },
-        { label: "Size", value: "size" }
-      ],
-      default: "any"
+function mGetStreams(tmdbId, mediaType, season, episode) {
+  if (!tmdbId) return Promise.resolve([]);
+  var isTv = mediaType === 'tv';
+  var s = season || 1, e = episode || 1;
+  var path = isTv ? ('tv/' + tmdbId + '/' + s + '/' + e) : ('movie/' + tmdbId);
+
+  return fetchTmdbMeta(tmdbId, mediaType, s, e).then(function(mediaMeta) {
+    mediaMeta.isTv = isTv;
+    mediaMeta.season = s;
+    mediaMeta.episode = e;
+
+    var queue = Promise.resolve([]);
+    M_APIS.forEach(function (api) {
+      queue = queue.then(function (acc) {
+        if (acc.length) return acc;
+        return mFetch(api[1] + '/' + path, { headers: M_PLAYER_HEADERS }).then(function (r) {
+          if (!r || r.code !== 200) return acc;
+          var json;
+          try { json = JSON.parse(r.text); } catch (err) { return acc; }
+          var cands = mParseStreams(json, api[0]);
+          var rows = [];
+          var pending = Promise.resolve();
+          cands.forEach(function (c, idx) {
+            pending = pending.then(function () {
+              return mProbe(c.url, M_PLAYER_HEADERS).then(function (ok) {
+                if (!ok) return;
+                rows.push(formatMoonflixStream(c, api[0], idx, mediaMeta));
+              });
+            });
+          });
+          return pending.then(function () { return acc.concat(rows); });
+        });
+      });
+    });
+
+    // TV-only SE backend as a third lane
+    if (isTv) {
+      queue = queue.then(function (acc) {
+        if (acc.length) return acc;
+        return mFetch('https://series-production-5c1c.up.railway.app/tv/' + tmdbId + '/' + s + '/' + e,
+          { headers: M_PLAYER_HEADERS }).then(function (r) {
+          if (!r || r.code !== 200) return acc;
+          var json;
+          try { json = JSON.parse(r.text); } catch (err) { return acc; }
+          var sources = json.sources || [];
+          var rows = [];
+          var pending = Promise.resolve();
+          for (var i = 0; i < sources.length; i++) {
+            (function (src, idx) {
+              pending = pending.then(function () {
+                var url = (src.proxy_url || src.url || '');
+                if (!url || url.indexOf('http') !== 0) return;
+                return mProbe(url, M_PLAYER_HEADERS).then(function (ok) {
+                  if (!ok) return;
+                  var cand = { url: url, q: src.quality || 'Auto' };
+                  rows.push(formatMoonflixStream(cand, 'SE', idx, mediaMeta));
+                });
+              });
+            })(sources[i], i);
+          }
+          return pending.then(function () { return acc.concat(rows); });
+        });
+      });
     }
-  ];
+    return queue;
+  });
 }
 
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getStreams: getStreams, onSettings: onSettings };
-} else {
-  global.getStreams = getStreams;
-  global.onSettings = onSettings;
+function mOnSettings() { return []; }
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { getStreams: mGetStreams, scrape: mGetStreams, onSettings: mOnSettings };
+} else if (typeof global !== 'undefined') {
+  global.getStreams = mGetStreams;
+  global.onSettings = mOnSettings;
 }

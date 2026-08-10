@@ -1,42 +1,43 @@
 "use strict";
 
-var __async = (__this, __arguments, generator) => {
-  return new Promise((resolve, reject) => {
-    var fulfilled = (value) => {
-      try {
-        step(generator.next(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var rejected = (value) => {
-      try {
-        step(generator.throw(value));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    var step = (x) => x.done ? resolve(x.value) : Promise.resolve(x.value).then(fulfilled, rejected);
-    step((generator = generator.apply(__this, __arguments)).next());
-  });
-};
-
-var TMDB_URL = "https://api.themoviedb.org/3";
-var TMDB_API_KEY = "439c478a771f35c05022f9feabcca01c";
-var USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
-
 const BASE_URL = "https://ballerinacappuccinalovestungtungtungsahur.com";
 const REFERER = "https://player.vidlove.cc/";
+const TMDB_BASE = "https://api.themoviedb.org/3";
+const TMDB_KEY = "307b7b8ef035c6aa336900aef4e203bd";
+const MIN_QUALITY = 1080;
+const DEFAULT_QUALITY = "1080p";
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+
+const PROVIDERS = [
+  "moviebox",
+  "ipcloud",
+  "tcloud",
+  "vidapi",
+  "vixsrc",
+  "1embed",
+  "xpass",
+  "vidrift",
+  "lookmovie",
+  "vidnest"
+];
+
+const DEFAULT_HEADERS = {
+  "accept": "application/json",
+  "accept-language": "nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7",
+  "sec-ch-ua": "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\"",
+  "Referer": REFERER,
+  "User-Agent": USER_AGENT
+};
 
 /* ----------------------------------------------------------------------------
- * HELPER & PARSER FUNCTIONS
+ * HELPER & FORMATTING FUNCTIONS
  * ---------------------------------------------------------------------------- */
 
-function qualityFromText(text) {
-  const normalized = String(text || "").replace(/р/gi, "p");
-  if (/\b(?:2160p|4k|uhd)\b/i.test(normalized)) return "2160p";
-  const match = normalized.match(/\b(1080|720|480)p\b/i);
-  return match ? `${match[1]}p` : "1080p";
+function getInvertedSortTag(val, maxBaseline = 999999) {
+  const safeVal = Math.max(0, parseInt(val, 10) || 0);
+  const inverted = Math.max(0, maxBaseline - safeVal);
+  const binaryStr = inverted.toString(2).padStart(20, '0');
+  return binaryStr.split('').map(bit => bit === '1' ? "\uFEFF" : "\u200B").join('');
 }
 
 function getResolutionEmoji(res) {
@@ -56,235 +57,170 @@ function qualityRank(qualityStr) {
   return 0;
 }
 
-function getInvertedSortTag(val, maxBaseline = 999999) {
-  const safeVal = Math.max(0, parseInt(val, 10) || 0);
-  const inverted = Math.max(0, maxBaseline - safeVal);
-  const binaryStr = inverted.toString(2).padStart(20, '0');
-  return binaryStr.split('').map(bit => bit === '1' ? "\uFEFF" : "\u200B").join('');
-}
+const parseQuality = (quality) => {
+  const match = String(quality || "").match(/(\d+)/);
+  return match ? parseInt(match[1], 10) : 0;
+};
+
+const normalizeQuality = (quality) => {
+  const q = String(quality || "").trim();
+  return q ? q : DEFAULT_QUALITY;
+};
+
+const isQualityAcceptable = (quality) => {
+  return parseQuality(normalizeQuality(quality)) >= MIN_QUALITY;
+};
 
 /* ----------------------------------------------------------------------------
  * METADATA FETCHING
  * ---------------------------------------------------------------------------- */
 
-function fetchMediaDetails(tmdbId, mediaType, season = null, episode = null) {
-  return __async(this, null, function* () {
-    try {
-      const endpoint = mediaType === "tv" ? "tv" : "movie";
-      const response = yield fetch(
-        `${TMDB_URL}/${endpoint}/${encodeURIComponent(tmdbId)}?api_key=${TMDB_API_KEY}`,
-        { headers: { Accept: "application/json", "User-Agent": USER_AGENT } }
-      );
-      if (!response.ok) return { title: "Unknown", year: null, episodeTitle: "" };
-      const data = yield response.json();
-      const title = data.title || data.name || data.original_title || data.original_name || "Unknown";
-      const dateStr = data.release_date || data.first_air_date || "";
-      const year = Number(dateStr.slice(0, 4)) || null;
+async function fetchTmdbMeta(tmdbId, mediaType, season = null, episode = null) {
+  try {
+    const endpoint = mediaType === "tv" ? "tv" : "movie";
+    const res = await fetch(`${TMDB_BASE}/${endpoint}/${encodeURIComponent(tmdbId)}?api_key=${TMDB_KEY}`, {
+      headers: { Accept: "application/json", "User-Agent": USER_AGENT }
+    });
+    if (!res.ok) return { title: "Unknown", year: null, episodeTitle: "" };
+    
+    const data = await res.json();
+    const title = data.title || data.name || data.original_title || data.original_name || "Unknown";
+    const dateStr = data.release_date || data.first_air_date || "";
+    const year = dateStr ? parseInt(dateStr.slice(0, 4)) : null;
 
-      let episodeTitle = "";
-      if (mediaType === "tv" && season && episode) {
-        try {
-          const sResp = yield fetch(
-            `${TMDB_URL}/tv/${encodeURIComponent(tmdbId)}/season/${season}?api_key=${TMDB_API_KEY}`,
-            { headers: { Accept: "application/json", "User-Agent": USER_AGENT } }
-          );
-          if (sResp.ok) {
-            const sData = yield sResp.json();
-            if (sData && Array.isArray(sData.episodes)) {
-              const epNum = Number(episode);
-              const epMatch = sData.episodes.find(e => e.episode_number === epNum);
-              if (epMatch && epMatch.name) {
-                episodeTitle = epMatch.name;
-              }
+    let episodeTitle = "";
+    if (mediaType === "tv" && season && episode) {
+      try {
+        const sRes = await fetch(`${TMDB_BASE}/tv/${encodeURIComponent(tmdbId)}/season/${season}?api_key=${TMDB_KEY}`, {
+          headers: { Accept: "application/json", "User-Agent": USER_AGENT }
+        });
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          if (sData && Array.isArray(sData.episodes)) {
+            const epNum = parseInt(episode);
+            const epMatch = sData.episodes.find(e => e.episode_number === epNum);
+            if (epMatch && epMatch.name) {
+              episodeTitle = epMatch.name;
             }
           }
-        } catch (e) {}
-      }
-
-      return { title, year, episodeTitle };
-    } catch (e) {
-      return { title: "Unknown", year: null, episodeTitle: "" };
+        }
+      } catch (e) {}
     }
-  });
+
+    return { title, year, episodeTitle };
+  } catch (e) {
+    return { title: "Unknown", year: null, episodeTitle: "" };
+  }
 }
 
 /* ----------------------------------------------------------------------------
- * STREAM MAKER (NUVIO LAYOUT PARITY)
+ * STREAM FORMATTER
  * ---------------------------------------------------------------------------- */
 
-function makeStream(sourceItem, index, total, mediaMeta) {
-  const url = sourceItem.url;
-  const serverLabel = sourceItem.serverLabel || "Vidlove";
-  const rawQuality = sourceItem.quality || "";
-  const fullText = `${rawQuality} ${serverLabel} ${url}`;
+const buildEndpointUrl = (mediaType, tmdbId, provider, season, episode) => {
+  const params = new URLSearchParams({ id: tmdbId, mode: "json", sources: provider, hevc: "1" });
+  if (season != null) params.set("season", season);
+  if (episode != null) params.set("episode", episode);
+  return `${BASE_URL}/${mediaType}?${params}`;
+};
 
-  const q = qualityFromText(fullText);
+const mapQualityToStream = (qObj, label, idx, mediaMeta) => {
+  const q = normalizeQuality(qObj.quality);
   const qEmoji = getResolutionEmoji(q);
   const qRank = qualityRank(q);
 
-  /* --- NUVIO ZERO-WIDTH SORTING & HEADER --- */
-  const sortTag = getInvertedSortTag((qRank * 100000) + (100 - index), 999999);
-  const headerLayout = `${sortTag}Vidlove • ${q} • ${serverLabel}`;
+  /* --- ZERO-WIDTH SORTING & HEADER --- */
+  const sortTag = getInvertedSortTag((qRank * 100000) + (100 - idx), 999999);
+  const headerLayout = `${sortTag}Vidlove • ${q} • ${label}`;
 
-  /* --- NUVIO FULL LAYOUT LINES --- */
-  const line1_TitleHeader = mediaMeta.mediaType === "tv"
-    ? `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""} | S${mediaMeta.season}E${mediaMeta.episode}${mediaMeta.episodeTitle ? ` - ${mediaMeta.episodeTitle}` : ""}`
-    : `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
+  /* --- FULL SUBHEADING LAYOUT LINES --- */
+  const line1 = `🎬 ${mediaMeta.title}${mediaMeta.year ? ` (${mediaMeta.year})` : ""}`;
+  
+  let line2 = null;
+  if (mediaMeta.mediaType === "tv" && mediaMeta.season && mediaMeta.episode) {
+    line2 = `📋 S${mediaMeta.season} E${mediaMeta.episode}${mediaMeta.episodeTitle ? ` - ${mediaMeta.episodeTitle}` : ""}`;
+  }
 
-  const line2_SubheadingQuality = `${qEmoji} | 🗣️ Multi-Audio`;
-  const line3_SubheadingTech = `🎞️ MKV | ⚡ HEVC | 🎧 AAC`;
-  const line4_SourceInfo = `🔗 Vidlove | 🌐 ${serverLabel} | 📥 WEB-DL`;
+  const line3 = `${qEmoji} | 🗣️ Multi-Audio`;
+  const line4 = `🎞️ MKV | ⚡ HEVC | 🎧 AAC`;
+  const line5 = `🔗 Vidlove | 🌐 ${label} | 📥 WEB-DL`;
 
-  const fullLayout = [
-    line1_TitleHeader,
-    line2_SubheadingQuality,
-    line3_SubheadingTech,
-    line4_SourceInfo
-  ].filter(Boolean).join("\n");
-
-  const headers = {
-    "Referer": REFERER,
-    "User-Agent": USER_AGENT
-  };
+  const fullLayout = [line1, line2, line3, line4, line5].filter(Boolean).join("\n");
 
   return {
-    _rank: qRank,
-    stream: {
-      name: headerLayout,
-      title: fullLayout,
-      size: fullLayout,           // CRITICAL FOR NUVIO MOBILE
-      description: fullLayout,    // CRITICAL FOR NUVIO MOBILE
-      url: url,
-      behaviorHints: {
-        notWebReady: true,
-        proxyHeaders: {
-          request: headers
+    name: headerLayout,
+    title: fullLayout,
+    size: fullLayout,           // CRITICAL FOR NUVIO MOBILE
+    description: fullLayout,    // CRITICAL FOR NUVIO MOBILE
+    url: qObj.url,
+    quality: q,
+    behaviorHints: {
+      notWebReady: true,
+      proxyHeaders: {
+        request: {
+          Referer: REFERER,
+          "User-Agent": USER_AGENT
         }
       }
     }
   };
-}
+};
 
 /* ----------------------------------------------------------------------------
- * SERVER SOURCE EXTRACTOR
+ * PROVIDER FETCHING & MAIN ENTRY
  * ---------------------------------------------------------------------------- */
 
-function fetchServerSource(server, tmdbId, type, season, episode) {
-  return __async(this, null, function* () {
-    try {
-      const resp = yield fetch(`${BASE_URL}/${type}?id=${tmdbId}${season ? `&season=${season}` : ""}${episode ? `&episode=${episode}` : ""}&mode=json&sources=${server}&hevc=1`, {
-        headers: {
-          accept: "application/json",
-          "accept-language": "nl-NL,nl;q=0.9,en-US;q=0.8,en;q=0.7",
-          priority: "u=1, i",
-          "sec-ch-ua": "\"Not;A=Brand\";v=\"8\", \"Chromium\";v=\"150\", \"Google Chrome\";v=\"150\"",
-          "sec-ch-ua-mobile": "?0",
-          "sec-ch-ua-platform": "\"Windows\"",
-          "sec-fetch-dest": "empty",
-          "sec-fetch-mode": "cors",
-          "sec-fetch-site": "cross-site",
-          Referer: REFERER
-        },
-        method: "GET"
-      });
+async function fetchProviderStreams(provider, tmdbId, mediaType, season, episode, mediaMeta) {
+  try {
+    const res = await fetch(buildEndpointUrl(mediaType, tmdbId, provider, season, episode), {
+      method: "GET",
+      headers: DEFAULT_HEADERS
+    });
+    if (!res.ok) return [];
 
-      const data = yield resp.json();
+    const { source } = await res.json();
+    if (!source) return [];
 
-      const hasQualities = data.source != null && Array.isArray(data.source.qualities) && data.source.qualities.length > 0;
-      if (data.source == null || (!data.source.url && !hasQualities)) {
-        return [];
-      }
+    const qualities = Array.isArray(source.qualities) ? source.qualities : [];
+    const label = source.label ?? provider;
 
-      const meta = data.meta || {};
-      const fallbackTitle = meta.name || meta.title || meta.original_title || meta.original_name || "";
-      const label = data.source.label || server;
-
-      if (hasQualities) {
-        return data.source.qualities
-          .filter((q) => q && q.url)
-          .map((q) => ({
-            serverLabel: label,
-            fallbackTitle,
-            url: q.url,
-            quality: q.quality || "",
-            size: "",
-            type: "direct"
-          }));
-      }
-
-      return [
-        {
-          serverLabel: label,
-          fallbackTitle,
-          url: data.source.url,
-          quality: "",
-          size: "",
-          type: "direct"
-        }
-      ];
-    } catch (error) {
-      return [];
+    if (qualities.length > 0) {
+      return qualities
+        .filter(q => q?.url && isQualityAcceptable(q.quality))
+        .map((q, idx) => mapQualityToStream(q, label, idx, mediaMeta));
     }
-  });
+
+    if (source.url && isQualityAcceptable(source.quality)) {
+      return [mapQualityToStream({ url: source.url, quality: source.quality }, label, 0, mediaMeta)];
+    }
+
+    return [];
+  } catch {
+    return [];
+  }
 }
 
-/* ----------------------------------------------------------------------------
- * MAIN ENTRY POINT
- * ---------------------------------------------------------------------------- */
-
-function getStreams(tmdbId, type, season = null, episode = null) {
-  return __async(this, null, function* () {
-    const typeStr = String(type || "").toLowerCase().trim();
+async function getStreams(tmdbId, mediaType, season, episode) {
+  try {
+    const typeStr = String(mediaType || "").toLowerCase().trim();
     const normalizedType = (typeStr === "series" || typeStr === "show" || typeStr === "tvshow" || typeStr === "tv") ? "tv" : "movie";
 
-    if (!tmdbId) return [];
+    if (normalizedType === "tv" && (season == null || episode == null)) return [];
 
-    const parsedSeason = Number(season);
-    const parsedEpisode = Number(episode);
+    const mediaMeta = await fetchTmdbMeta(tmdbId, normalizedType, season, episode);
+    mediaMeta.mediaType = normalizedType;
+    mediaMeta.season = season;
+    mediaMeta.episode = episode;
 
-    const servers = [
-      "moviebox",
-      "ipcloud",
-      "tcloud",
-      "vidapi",
-      "vixsrc",
-      "1embed",
-      "xpass",
-      "vidrift",
-      "lookmovie",
-      "vidnest"
-    ];
+    const results = await Promise.all(
+      PROVIDERS.map(provider => fetchProviderStreams(provider, tmdbId, normalizedType, season, episode, mediaMeta))
+    );
 
-    try {
-      const [rawServerResults, tmdbMeta] = yield Promise.all([
-        Promise.all(servers.map(server => fetchServerSource(server, tmdbId, normalizedType, parsedSeason, parsedEpisode))),
-        fetchMediaDetails(String(tmdbId), normalizedType, parsedSeason, parsedEpisode)
-      ]);
-
-      const mediaMeta = {
-        title: tmdbMeta.title,
-        year: tmdbMeta.year,
-        episodeTitle: tmdbMeta.episodeTitle,
-        mediaType: normalizedType,
-        season: parsedSeason,
-        episode: parsedEpisode
-      };
-
-      const rawSources = rawServerResults.flat();
-      
-      const wrappedStreams = rawSources.map((sourceItem, idx) => 
-        makeStream(sourceItem, idx, rawSources.length, mediaMeta)
-      );
-
-      return wrappedStreams.map(w => w.stream);
-    } catch (e) {
-      return [];
-    }
-  });
+    const seen = new Set();
+    return results.flat().filter(s => s.url && !seen.has(s.url) && seen.add(s.url));
+  } catch (e) {
+    return [];
+  }
 }
 
-if (typeof module !== "undefined" && module.exports) {
-  module.exports = { getStreams };
-} else {
-  global.getStreams = getStreams;
-}
+module.exports = { getStreams };

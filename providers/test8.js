@@ -31,10 +31,10 @@ function getInvertedSortTag(val, maxBaseline) {
 
 function getResolutionEmoji(res) {
   var clean = String(res || '').toLowerCase();
-  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return "🌟 4K";
-  if (clean.includes("1080") || clean.includes("fhd")) return "🔥 1080p";
-  if (clean.includes("720") || clean.includes("hd")) return "💎 720p";
-  if (clean.includes("480") || clean.includes("sd")) return "📱 480p";
+  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return "🔥 4K";
+  if (clean.includes("1080") || clean.includes("fhd")) return "🚀 1080p";
+  if (clean.includes("720") || clean.includes("hd")) return "✨ 720p";
+  if (clean.includes("480") || clean.includes("sd")) return "💎 480p";
   return "📺 " + (res || "1080p");
 }
 
@@ -104,8 +104,8 @@ function formatMoonflixStream(c, apiLabel, idx, mediaMeta) {
   }
 
   var line3 = qEmoji + ' | 🗣️ Dual-Audio';
-  var line4 = '🎞️ HLS | ⚡ H.264 | 🎧 AAC';
-  var line5 = '🔗 Moonflix | 🌐 ' + apiLabel + ' | 📥 WEB-DL';
+  var line4 = '🛰️ HLS | ⚡ H.264 | 🎧 AAC';
+  var line5 = '🌔 Moonflix | 🌐 ' + apiLabel + ' | 📥 WEB-DL';
 
   var fullLayout = [line1, line2, line3, line4, line5].filter(Boolean).join('\n');
 

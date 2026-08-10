@@ -147,6 +147,12 @@ const mapQualityToStream = (qObj, label, idx, mediaMeta) => {
 
   const fullLayout = [line1, line2, line3, line4, line5].filter(Boolean).join("\n");
 
+  const streamHeaders = {
+    "Referer": REFERER,
+    "Origin": "https://player.vidlove.cc",
+    "User-Agent": USER_AGENT
+  };
+
   return {
     name: headerLayout,
     title: fullLayout,
@@ -154,13 +160,11 @@ const mapQualityToStream = (qObj, label, idx, mediaMeta) => {
     description: fullLayout,    // CRITICAL FOR NUVIO MOBILE
     url: qObj.url,
     quality: q,
+    headers: streamHeaders,     // ROOT LEVEL HEADERS (DIRECT NUVIO PLAYER BYPASS)
     behaviorHints: {
       notWebReady: true,
       proxyHeaders: {
-        request: {
-          Referer: REFERER,
-          "User-Agent": USER_AGENT
-        }
+        request: streamHeaders
       }
     }
   };

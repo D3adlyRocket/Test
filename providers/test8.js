@@ -26,6 +26,13 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
+function getInvertedSortTag(val, maxBaseline = 999999) {
+  const safeVal = Math.max(0, parseInt(val, 10) || 0);
+  const inverted = Math.max(0, maxBaseline - safeVal);
+  const binaryStr = inverted.toString(2).padStart(20, '0');
+  return binaryStr.split('').map(bit => bit === '1' ? "\uFEFF" : "\u200B").join('');
+}
+
 // --------------------------------------------------------------------------
 // ## 2. CONSTANTS & CONFIGURATION
 // --------------------------------------------------------------------------
@@ -477,7 +484,9 @@ function resolveRelease(release, metadata) {
         return [];
       }
       const details = compactReleaseLabel(release.label);
-      const formattedTitle = buildDropdownMetadata(metadata, release, details);
+      const resNum = parseInt(release.quality, 10) || 0;
+      const sortTag = getInvertedSortTag(resNum);
+      const formattedTitle = sortTag + buildDropdownMetadata(metadata, release, details);
 
       return streamUrls.map((streamUrl) => ({
         name: `UHDMovies | ${release.quality}${release.size ? ` | ${release.size}` : ""}`,
@@ -533,6 +542,13 @@ function getStreams(tmdbId, mediaType) {
         return [];
       const resolved = yield Promise.all(releases.map((rel) => resolveRelease(rel, metadata)));
       const streams = resolved.reduce((all, item) => all.concat(item || []), []);
+      
+      streams.sort((a, b) => {
+        const qA = parseInt(a.name.match(/\b\d+p\b/)?.[0] || "0", 10);
+        const qB = parseInt(b.name.match(/\b\d+p\b/)?.[0] || "0", 10);
+        return qB - qA;
+      });
+
       console.log(`[UHDMovies] Returning ${streams.length} stream(s)`);
       if (!streams.length) {
         console.log(

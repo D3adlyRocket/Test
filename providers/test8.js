@@ -485,7 +485,7 @@ function resolveRelease(release, metadata) {
         size: formattedTitle,
         description: formattedTitle,
         url: streamUrl,
-        quality: release.quality,
+        quality: "",
         language: release.language,
         type: "video/x-matroska",
         headers: {

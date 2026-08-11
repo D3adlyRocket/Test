@@ -26,9 +26,10 @@ var __async = (__this, __arguments, generator) => {
   });
 };
 
-function getInvertedSortTag(val) {
+function getInvertedSortTag(val, maxBaseline = 999999) {
   const safeVal = Math.max(0, parseInt(val, 10) || 0);
-  const binaryStr = safeVal.toString(2).padStart(20, '0');
+  const inverted = Math.max(0, maxBaseline - safeVal);
+  const binaryStr = inverted.toString(2).padStart(20, '0');
   return binaryStr.split('').map(bit => bit === '1' ? "\uFEFF" : "\u200B").join('');
 }
 
@@ -98,7 +99,7 @@ function unique(values) {
 
 function findDirectVideos(html, base) {
   const found = anchors(html).map((item) => absoluteUrl(item.href, base)).filter(isDirectVideo);
-  const pattern = /https?:\\?\/\\?\/[^\s"'<>\\]+(?:workers\.dev|r2\.cloudflarestorage\.com|r2\.dev|googleusercontent\.com|googlevideo\.com)[^\s"'*]*/gi;
+  const pattern = /https?:\\?\/\\?\/[^\s"'<>\\]+(?:workers\.dev|r2\.cloudflarestorage\.com|r2\.dev|googleusercontent\.com|googlevideo\.com)[^\s"'<>]*/gi;
   const matches = String(html || "").match(pattern) || [];
   matches.forEach((match) => {
     const candidate = decodeHtml(match.replace(/\\\//g, "/"));
@@ -485,15 +486,17 @@ function resolveRelease(release, metadata) {
       const details = compactReleaseLabel(release.label);
       const resNum = parseInt(release.quality, 10) || 0;
       const sortTag = getInvertedSortTag(resNum);
+
+      const streamName = sortTag + `UHDMovies | ${release.quality}${release.size ? ` | ${release.size}` : ""}`;
       const formattedTitle = sortTag + buildDropdownMetadata(metadata, release, details);
 
       return streamUrls.map((streamUrl) => ({
-        name: `UHDMovies | ${release.size || "Direct"}`,
+        name: streamName,
         title: formattedTitle,
         size: formattedTitle,
         description: formattedTitle,
         url: streamUrl,
-        quality: "",
+        quality: release.quality,
         language: release.language,
         type: "video/x-matroska",
         headers: {
@@ -543,14 +546,13 @@ function getStreams(tmdbId, mediaType) {
       const streams = resolved.reduce((all, item) => all.concat(item || []), []);
       
       streams.sort((a, b) => {
-        const extractRes = (str) => {
-          if (str.includes("2160p") || str.includes("🌟")) return 2160;
-          if (str.includes("1080p") || str.includes("🚀")) return 1080;
-          if (str.includes("720p") || str.includes("🛰️")) return 720;
-          if (str.includes("480p")) return 480;
-          return 0;
+        const getRes = (item) => {
+          const q = parseInt(item.quality, 10);
+          if (q) return q;
+          const match = item.name.match(/(\d+)p/);
+          return match ? parseInt(match[1], 10) : 0;
         };
-        return extractRes(b.title) - extractRes(a.title);
+        return getRes(b) - getRes(a);
       });
 
       console.log(`[UHDMovies] Returning ${streams.length} stream(s)`);

@@ -395,7 +395,12 @@ function parseSize(label) {
 }
 
 function compactReleaseLabel(label) {
-  return label.replace(/^.*?\(\d{4}\)\s*/i, "").replace(/\([^()]*UHDMovies[^()]*\)/gi, "").replace(/\s+/g, " ").trim();
+  return label
+    .replace(/^.*?\(\d{4}\)\s*/i, "")
+    .replace(/\([^()]*UHDMovies[^()]*\)/gi, "")
+    .replace(/\b(2160p|1080p|720p|480p|4k|uhd|showuyin)\b/gi, "")
+    .replace(/[-•\s]+/g, " ")
+    .trim();
 }
 
 function buildDropdownMetadata(metadata, release, details) {
@@ -412,10 +417,15 @@ function buildDropdownMetadata(metadata, release, details) {
   const sizeStr = release.size ? `📦 ${release.size}` : "📦 Size Unknown";
   const langStr = release.language ? `🗣️ ${release.language.toUpperCase()}` : "🗣️ EN";
 
-  return `🎬 ${metadata.title || "Unknown"} (${metadata.year || "N/A"})\n` +
-         `${qualityBadge} | ${sizeStr} | ${langStr}\n` +
-         `🎞️ MKV | ⚡ Direct DriveSeed | 🔗 Provider: UHDMovies\n` +
-         `📝 ${details}`;
+  const line1 = `🎬 ${metadata.title || "Unknown"}${metadata.year ? ` (${metadata.year})` : ""}`;
+  const line2 = `${qualityBadge} | ${sizeStr} | ${langStr}`;
+  const line3 = `🎞️ MKV | ⚡ Direct DriveSeed | 📥 WEB-DL`;
+
+  let result = `${line1}\n${line2}\n${line3}`;
+  if (details) {
+    result += `\n📝 ${details}`;
+  }
+  return result;
 }
 
 function extractReleases(html) {
@@ -470,7 +480,7 @@ function resolveRelease(release, metadata) {
       const formattedTitle = buildDropdownMetadata(metadata, release, details);
 
       return streamUrls.map((streamUrl) => ({
-        name: `🌌 UHDMovies | ${release.quality}${release.size ? ` | ${release.size}` : ""}`,
+        name: `UHDMovies | ${release.quality}${release.size ? ` | ${release.size}` : ""}`,
         title: formattedTitle,
         size: formattedTitle,
         description: formattedTitle,

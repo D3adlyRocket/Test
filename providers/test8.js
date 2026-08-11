@@ -99,7 +99,7 @@ function unique(values) {
 
 function findDirectVideos(html, base) {
   const found = anchors(html).map((item) => absoluteUrl(item.href, base)).filter(isDirectVideo);
-  const pattern = /https?:\\?\/\\?\/[^\s"'<>\\]+(?:workers\.dev|r2\.cloudflarestorage\.com|r2\.dev|googleusercontent\.com|googlevideo\.com)[^\s"'<>]*/gi;
+  const pattern = /https?:\\?\/\\?\/[^\s"'<>\\]+(?:workers\.dev|r2\.cloudflarestorage\.com|r2\.dev|googleusercontent\.com|googlevideo\.com)[^\s"'*]*/gi;
   const matches = String(html || "").match(pattern) || [];
   matches.forEach((match) => {
     const candidate = decodeHtml(match.replace(/\\\//g, "/"));
@@ -488,7 +488,7 @@ function resolveRelease(release, metadata) {
       const sortTag = getInvertedSortTag(resNum);
 
       const streamName = sortTag + `UHDMovies | ${release.quality}${release.size ? ` | ${release.size}` : ""}`;
-      const formattedTitle = sortTag + buildDropdownMetadata(metadata, release, details);
+      const formattedTitle = buildDropdownMetadata(metadata, release, details);
 
       return streamUrls.map((streamUrl) => ({
         name: streamName,

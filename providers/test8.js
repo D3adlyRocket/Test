@@ -496,7 +496,7 @@ function resolveRelease(release, metadata) {
         size: formattedTitle,
         description: formattedTitle,
         url: streamUrl,
-        quality: release.quality,
+        quality: "",
         language: release.language,
         type: "video/x-matroska",
         headers: {
@@ -547,8 +547,6 @@ function getStreams(tmdbId, mediaType) {
       
       streams.sort((a, b) => {
         const getRes = (item) => {
-          const q = parseInt(item.quality, 10);
-          if (q) return q;
           const match = item.name.match(/(\d+)p/);
           return match ? parseInt(match[1], 10) : 0;
         };

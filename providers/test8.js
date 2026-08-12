@@ -90,15 +90,7 @@ var require_formatter = __commonJS({
       const normalized = String(providerName || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
       return normalized || void 0;
     }
-    function normalizeEpisodeTemplate(value) {
-      return String(value || "").replace(
-        /\b(\d{1,3})[xX](\d{1,3})\b/g,
-        (_, season, episode) => `S${season.padStart(2, "0")}E${episode.padStart(2, "0")}`
-      ).replace(
-        /\bS(\d{1,3})\s*E(\d{1,3})\b/gi,
-        (_, season, episode) => `S${season.padStart(2, "0")}E${episode.padStart(2, "0")}`
-      );
-    }
+
     function formatStream2(stream, providerName) { 
       if (!stream) return stream;
 
@@ -107,6 +99,9 @@ var require_formatter = __commonJS({
       if (quality.toLowerCase() === "2160p" || quality.toLowerCase() === "4k") quality = "2160P";
 
       let audioTag = "Single-Audio"; 
+      if (stream.language === "Italian" || (stream.language && stream.language.toLowerCase().includes("ita"))) {
+        audioTag = "ITA";
+      }
       if (
         stream.language === "English" || 
         (stream.name && (stream.name.includes("ENG") || stream.name.includes("English"))) || 
@@ -118,9 +113,10 @@ var require_formatter = __commonJS({
       }
 
       const pName = providerName || stream.server || "CinemaCity";
-      const finalName = `⚪ ${pName} | ${quality} | ${audioTag}`; 
+      // Formatted like UHDMovies: Provider\nQuality
+      const finalName = `${pName}\n${quality}`; 
 
-      let rawTitle = stream.displayTitle || stream.title || "Stream";
+      let rawTitle = stream.displayTitle || stream.title || stream.originalTitle || "Stream";
       rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '');
 
       // Format Parser Engine 
@@ -145,6 +141,7 @@ var require_formatter = __commonJS({
         durationStr = `${stream.runtime} min`;
       }
 
+      // Subheadings block for main stream card body
       var line1 = "🎬 " + rawTitle;
       var line2 = qIcon + " " + quality + " | 🔊 " + audioTag + " | 🗃️ Server 1";
       var line3 = "🎞️ " + format + " | ⏱️ " + durationStr + " | " + dynamicSourceTag;
@@ -183,9 +180,9 @@ var require_formatter = __commonJS({
       return __spreadProps(__spreadValues({}, stream), {
         name: finalName,
         title: finalSubtitlesBlock,
+        description: finalSubtitlesBlock,
         providerName: pName,
         qualityTag: quality,
-        description: finalSubtitlesBlock,
         originalTitle: rawTitle,
         language: stream.language || "",
         _nuvio_formatted: true,
@@ -824,7 +821,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
       const movieUrl = searchResult.url;
       const movieTitle = (searchResult.title || imdbId).replace(/\s*\(.*?\)\s*/g, "").trim();
-      const title = type === "tv" || type === "series" ? `${movieTitle} ${season}x${episode}` : movieTitle;
+      const title = providerType === "tv" ? `${movieTitle} S${String(season).padStart(2, '0')}E${String(episode).padStart(2, '0')}` : movieTitle;
       let html;
       try {
         html = yield fetchViaWorker(movieUrl);

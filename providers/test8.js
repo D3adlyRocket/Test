@@ -181,6 +181,8 @@ var require_formatter = __commonJS({
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
 
       const baseStream = __spreadValues({}, stream);
+      delete baseStream.quality;
+      delete baseStream.language;
 
       return __spreadProps(baseStream, {
         name: finalName,

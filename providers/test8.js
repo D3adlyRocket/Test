@@ -198,25 +198,17 @@ var require_formatter = __commonJS({
 
       const baseStream = __spreadValues({}, stream);
 
-      delete baseStream.quality;
-      delete baseStream.qualityTag;
-      delete baseStream.language;
-      delete baseStream.resolution;
-      delete baseStream.size;
-      delete baseStream.displayTitle;
-      delete baseStream.hasItalian;
-      delete baseStream.hasEnglish;
-      delete baseStream.runtime;
-      delete baseStream.year;
-      delete baseStream.season;
-      delete baseStream.episode;
-      delete baseStream.isTv;
-
       return __spreadProps(baseStream, {
         name: finalName,
         title: finalSubtitlesBlock,
         description: finalSubtitlesBlock,
         details: finalSubtitlesBlock,
+        subtitle: finalSubtitlesBlock,
+        subtitles: finalSubtitlesBlock,
+        overview: finalSubtitlesBlock,
+        quality: qualityStr,
+        resolution: qualityStr,
+        language: audioTag,
         _nuvio_formatted: true,
         behaviorHints,
         provider: stream.provider || normalizeProviderId(providerName),

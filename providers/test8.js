@@ -112,7 +112,6 @@ var require_formatter = __commonJS({
         qualityStr = stream.quality || "720p";
       }
 
-      // Explicitly set audio to Multi-Audio as requested
       const audioTag = "Multi-Audio";
       const pName = providerName || stream.providerName || stream.name || "CinemaCity";
 
@@ -120,7 +119,6 @@ var require_formatter = __commonJS({
       rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '').trim();
       rawTitle = rawTitle.replace(/\s+\d+x\d+$/i, '').replace(/\s+S\d+E\d+$/i, '').trim();
 
-      // Subheading Line 1: Movie Name - (Year) or Series Name - (Year) | S1E1
       let line1 = "🎬 " + rawTitle;
       if (stream.year) {
         line1 += ` - (${stream.year})`;
@@ -155,10 +153,8 @@ var require_formatter = __commonJS({
         }
       }
 
-      // Header: CinemaCity | 1080p | Multi-Audio
       const finalName = `${pName} | ${qualityStr} | ${audioTag}`;
 
-      // 3 Subheading Lines
       var line2 = `${qIcon} ${qualityStr} | 🔉 ${audioTag} | 🗃️ Server 1`;
       var line3 = `🎞️ ${format} | ⌛ ${durationStr} | 📥 ${dynamicSourceTag}`;
       var finalSubtitlesBlock = line1 + "\n" + line2 + "\n" + line3;
@@ -207,7 +203,6 @@ var require_formatter = __commonJS({
       delete baseStream.language;
       delete baseStream.resolution;
       delete baseStream.size;
-      delete baseStream.details;
       delete baseStream.displayTitle;
       delete baseStream.hasItalian;
       delete baseStream.hasEnglish;
@@ -221,6 +216,7 @@ var require_formatter = __commonJS({
         name: finalName,
         title: finalSubtitlesBlock,
         description: finalSubtitlesBlock,
+        details: finalSubtitlesBlock,
         _nuvio_formatted: true,
         behaviorHints,
         provider: stream.provider || normalizeProviderId(providerName),
@@ -647,7 +643,6 @@ function searchBySitemap(id, providerType, providerContext = null) {
   });
 }
 
-// Fixed TMDB metadata lookup to pull full item details (including runtime)
 function getTmdbMetadata(id, providerType) {
   return __async(this, null, function* () {
     try {

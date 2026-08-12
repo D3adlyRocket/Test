@@ -121,27 +121,27 @@ var require_formatter = __commonJS({
       rawTitle = String(rawTitle).replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '').trim();
       rawTitle = rawTitle.replace(/\s+\d+x\d+$/i, '').replace(/\s+S\d+E\d+$/i, '').trim();
 
-      let line1 = `🎬 ${rawTitle}`;
       const mediaYear = (mediaMeta && mediaMeta.year) ? mediaMeta.year : stream.year;
-      if (mediaYear) {
-        line1 += ` (${mediaYear})`;
-      }
+      const yearStr = mediaYear ? ` - (${mediaYear})` : "";
 
-      let line2 = null;
+      let line1 = "";
       const isTvMedia = (mediaMeta && mediaMeta.mediaType === "tv") || stream.isTv || stream.season != null;
       if (isTvMedia) {
         const s = (mediaMeta && mediaMeta.season != null) ? mediaMeta.season : (stream.season != null ? stream.season : 1);
         const e = (mediaMeta && mediaMeta.episode != null) ? mediaMeta.episode : (stream.episode != null ? stream.episode : 1);
-        const epTitle = (mediaMeta && mediaMeta.episodeTitle) ? ` - ${mediaMeta.episodeTitle}` : "";
-        line2 = `📋 S${s} E${e}${epTitle}`;
+        line1 = `🎬 ${rawTitle}${yearStr} | S${s}E${e}`;
+      } else {
+        line1 = `🎬 ${rawTitle}${yearStr}`;
       }
 
-      const line3 = `${qIcon} ${qualityStr} | 🗣️ Multi-Audio`;
-      const line4 = `🎞️ MKV | ⚡ HEVC | 🎧 AAC`;
-      const line5 = `🔗 CinemaCity | 🌐 ${pName} | 📥 WEB-DL`;
+      const runtimeVal = (mediaMeta && mediaMeta.runtime) ? mediaMeta.runtime : stream.runtime;
+      const durationStr = runtimeVal ? ` | ⌛ ${runtimeVal}m` : "";
+      const line2 = `${qIcon}${qualityStr} | 🔉 Multi-Audio${durationStr}`;
+      const line3 = `🎞️ MKV | ⚡ HLS | 📥 WEB-DL`;
+      const line4 = `🔗 ${pName} [Server 1]`;
 
-      const fullLayout = [line1, line2, line3, line4, line5].filter(Boolean).join("\n");
-      const finalName = stream.name || `${pName} | ${qualityStr}`;
+      const fullLayout = [line1, line2, line3, line4].filter(Boolean).join("\n");
+      const finalName = `${pName} | ${qualityStr} | Multi-Audio`;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       
@@ -928,7 +928,8 @@ function getStreams(id, type, season, episode, providerContext = null) {
         mediaType: providerType,
         season: providerType === "tv" ? season : null,
         episode: providerType === "tv" ? episode : null,
-        episodeTitle: episodeTitle
+        episodeTitle: episodeTitle,
+        runtime: searchResult.runtime
       };
 
       const result = {

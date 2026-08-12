@@ -93,10 +93,10 @@ var require_formatter = __commonJS({
     function normalizeEpisodeTemplate(value) {
       return String(value || "").replace(
         /\b(\d{1,3})[xX](\d{1,3})\b/g,
-        (_, season, episode) => `S${season.padStart(2, "0")}E${episode.padStart(2, "0")}`
+        (_, season, episode) => `S${season.padStart(1, "0")}E${episode.padStart(1, "0")}`
       ).replace(
         /\bS(\d{1,3})\s*E(\d{1,3})\b/gi,
-        (_, season, episode) => `S${season.padStart(2, "0")}E${episode.padStart(2, "0")}`
+        (_, season, episode) => `S${season.padStart(1, "0")}E${episode.padStart(1, "0")}`
       );
     }
     function formatStream2(stream, providerName) {
@@ -107,47 +107,58 @@ var require_formatter = __commonJS({
       else if (normQual.includes("720")) normQual = "720p";
       else if (normQual.includes("480")) normQual = "480p";
 
-      let qIcon = "💎";
-      if (normQual.includes("2160") || normQual.includes("4k")) qIcon = "🌟";
-      else if (normQual.includes("1080")) qIcon = "🔥";
+      let pName = stream.server || providerName || "CinemaCity";
+      pName = pName.charAt(0).toUpperCase() + pName.slice(1);
 
-      const normalizedTitle = normalizeEpisodeTemplate(stream.title || "Stream");
-      
-      // Clean title for Line 1 - ensuring '1080p •' or any resolution tags are strictly stripped
-      let cleanTitle = normalizedTitle
-        .replace(/^[📁🎬]\s*/, "")
-        .replace(/\b(2160p|1080p|720p|480p|360p|4k|uhd|hd|sd)\b\s*•?\s*/gi, "")
-        .replace(/•\s*/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      cleanTitle = cleanTitle.replace(/\s+(S\d{2}E\d{2})/i, " | $1");
-
+      // Audio formatting for Header and Subheading Line 2
       let language = stream.language || "";
       let langDisplay = "Original-Audio";
       let headerLang = "Original-Audio";
 
       if (language === "Italian" || (stream.name && stream.name.includes("ITA"))) {
-        langDisplay = "🇮🇹 Italian";
+        langDisplay = "Italian";
         headerLang = "Italian";
+      } else if (language.includes("Multi") || language.includes("Dual")) {
+        langDisplay = "Multi-Audio";
+        headerLang = "Multi-Audio";
       } else if (language.includes("SUB") || (stream.name && stream.name.includes("SUB"))) {
-        langDisplay = "🇮🇹 Subbed";
+        langDisplay = "Subbed";
         headerLang = "SUB ITA";
       }
 
-      let pName = stream.server || providerName || "CinemaCity";
-      pName = pName.charAt(0).toUpperCase() + pName.slice(1);
+      // Title & Year extraction
+      let rawTitle = stream.title || stream.originalTitle || "Unknown";
+      let cleanTitle = normalizeEpisodeTemplate(rawTitle)
+        .replace(/^[📁🎬]\s*/, "")
+        .replace(/\b(2160p|1080p|720p|480p|360p|4k|uhd|hd|sd)\b\s*•?\s*/gi, "")
+        .replace(/\s*\|\s*S\d+E\d+/gi, "")
+        .replace(/\s+S\d+E\d+/gi, "")
+        .replace(/•\s*/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
 
-      // Multi-line Subheadings Structure
-      const line1 = `🎬 ${cleanTitle}`;
-      const sizeStr = stream.size ? ` | 💾 ${stream.size}` : "";
-      const line2 = `${qIcon} ${normQual} | 🌍 ${langDisplay}${sizeStr}`;
-      const formatVal = (stream.type === "hls" || (stream.url && stream.url.includes(".m3u8"))) ? "HLS" : "MP4";
-      const line3 = `🎞️ ${formatVal} | 🎥 H.264`;
-      const line4 = `🎵 AAC`;
-      const line5 = `🔗 ${pName}`;
+      const yearStr = stream.year ? ` (${stream.year})` : "";
 
-      const finalTitle = `${line1}\n${line2}\n${line3}\n${line4}\n${line5}`;
+      // --- Subheading Line 1 ---
+      let line1 = "";
+      if (stream.season && stream.episode) {
+        line1 = `🎬 ${cleanTitle}${yearStr} | S${stream.season}E${stream.episode}`;
+      } else {
+        line1 = `🎬 ${cleanTitle}${yearStr}`;
+      }
+
+      // --- Subheading Line 2 ---
+      const durationOrSize = stream.duration ? `⌛ ${stream.duration}` : (stream.size ? `💾 ${stream.size}` : `⌛ N/A`);
+      const line2 = `🌟 ${normQual} | 🔉 ${langDisplay} | ${durationOrSize}`;
+
+      // --- Subheading Line 3 ---
+      const formatVal = stream.format || ((stream.type === "hls" || (stream.url && stream.url.includes(".m3u8"))) ? "HLS" : "MP4");
+      const sourceVal = stream.source || "WEB-DL";
+      const codecVal = stream.codec || "H.264";
+      const line3 = `🎞️ ${formatVal} | 📥 ${sourceVal} | ⚡ ${codecVal}`;
+
+      // Final Assembly
+      const finalTitle = `${line1}\n${line2}\n${line3}`;
       const finalName = `${pName} | ${normQual} | ${headerLang}`;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
@@ -187,7 +198,7 @@ var require_formatter = __commonJS({
         description: finalTitle,
         providerName: pName,
         qualityTag: normQual,
-        originalTitle: normalizedTitle,
+        originalTitle: cleanTitle,
         language: headerLang,
         _nuvio_formatted: true,
         behaviorHints,
@@ -359,39 +370,9 @@ function extractYearFromMetadata(metadata) {
 }
 function getSignificantTokens(value) {
   const stopwords = /* @__PURE__ */ new Set([
-    "the",
-    "a",
-    "an",
-    "of",
-    "and",
-    "in",
-    "on",
-    "to",
-    "for",
-    "at",
-    "by",
-    "is",
-    "it",
-    "il",
-    "lo",
-    "la",
-    "gli",
-    "le",
-    "un",
-    "uno",
-    "una",
-    "di",
-    "da",
-    "del",
-    "della",
-    "dei",
-    "e",
-    "o",
-    "con",
-    "per",
-    "su",
-    "tra",
-    "fra"
+    "the", "a", "an", "of", "and", "in", "on", "to", "for", "at", "by", "is", "it",
+    "il", "lo", "la", "gli", "le", "un", "uno", "una", "di", "da", "del", "della",
+    "dei", "e", "o", "con", "per", "su", "tra", "fra"
   ]);
   return normalizeTitle(value).split(/\s+/).filter((token) => token.length > 1 && !stopwords.has(token));
 }
@@ -447,8 +428,7 @@ function fetchSitemapEntries(providerContext = null) {
             pageFetches.push(
               fetchWithTimeout(pageUrl, { timeout: FETCH_TIMEOUT, headers: { "User-Agent": USER_AGENT } }).then((r) => r.ok ? r.text() : "").then((xml2) => {
                 if (xml2) allEntries = allEntries.concat(parseSitemapEntries(xml2));
-              }).catch(() => {
-              })
+              }).catch(() => {})
             );
           }
           yield Promise.all(pageFetches);
@@ -610,7 +590,8 @@ function searchBySitemap(id, providerType, providerContext = null) {
           console.log(`[CinemaCity] Sitemap IMDb verified: ${expectedTitles[0]} -> ${candidate.entry.url}`);
           return {
             url: candidate.entry.url,
-            title: expectedTitles[0] || candidate.entry.title
+            title: expectedTitles[0] || candidate.entry.title,
+            year: candidate.entry.year || expectedYear
           };
         }
         if (candidateImdbId && candidateImdbId !== expectedImdbId) {
@@ -627,7 +608,8 @@ function searchBySitemap(id, providerType, providerContext = null) {
     console.log(`[CinemaCity] Sitemap match: ${expectedTitles[0]} -> ${bestEntry.url} [score=${Math.round(bestScore)}]`);
     return {
       url: bestEntry.url,
-      title: expectedTitles[0] || bestEntry.title
+      title: expectedTitles[0] || bestEntry.title,
+      year: bestEntry.year || expectedYear
     };
   });
 }
@@ -858,7 +840,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
       const movieUrl = searchResult.url;
       const movieTitle = (searchResult.title || imdbId).replace(/\s*\(.*?\)\s*/g, "").trim();
-      const title = type === "tv" || type === "series" ? `${movieTitle} ${season}x${episode}` : movieTitle;
       let html;
       try {
         html = yield fetchViaWorker(movieUrl);
@@ -904,12 +885,19 @@ function getStreams(id, type, season, episode, providerContext = null) {
       if (!selectedUrl) selectedUrl = links[0].url;
       const streamUrl = resolveUrl(movieUrl, selectedUrl);
       console.log(`[CinemaCity] Direct stream: ${streamUrl}`);
+      
+      const isTvSeries = providerType === "tv";
       const result = {
         name: "CinemaCity",
-        title,
+        title: movieTitle,
+        year: (searchResult && searchResult.year) || null,
+        season: isTvSeries ? season : null,
+        episode: isTvSeries ? episode : null,
         url: streamUrl,
         quality: "1080p",
         type: "hls",
+        source: "WEB-DL",
+        codec: "H.264",
         language: hasItalian ? "Italian" : "",
         behaviorHints: { notWebReady: true },
         headers: {

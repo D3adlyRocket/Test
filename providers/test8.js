@@ -100,21 +100,25 @@ var require_formatter = __commonJS({
       );
     }
     function formatStream2(stream, providerName) { 
+      if (!stream) return stream;
+
       let quality = stream.quality || "1080p"; 
       if (quality.toLowerCase() === "1080p") quality = "1080P";
       if (quality.toLowerCase() === "2160p" || quality.toLowerCase() === "4k") quality = "2160P";
 
       let audioTag = "Single-Audio"; 
-  if (
-    stream.language === "English" || 
-    (stream.name && (stream.name.includes("ENG") || stream.name.includes("English"))) || 
-    stream.hasEnglish === true ||
-    stream.hasEnglish === "true" ||
-    (stream.url && (stream.url.toLowerCase().includes("eng") || stream.url.toLowerCase().includes("english")))
-  ) { 
-    audioTag = "Multi-Audio"; 
-  }
-      const finalName = `⚪ CinemaCity | ${quality} | ${audioTag}`; 
+      if (
+        stream.language === "English" || 
+        (stream.name && (stream.name.includes("ENG") || stream.name.includes("English"))) || 
+        stream.hasEnglish === true ||
+        stream.hasEnglish === "true" ||
+        (stream.url && (stream.url.toLowerCase().includes("eng") || stream.url.toLowerCase().includes("english")))
+      ) { 
+        audioTag = "Multi-Audio"; 
+      }
+
+      const pName = providerName || stream.server || "CinemaCity";
+      const finalName = `⚪ ${pName} | ${quality} | ${audioTag}`; 
 
       let rawTitle = stream.displayTitle || stream.title || "Stream";
       rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '');
@@ -141,7 +145,6 @@ var require_formatter = __commonJS({
         durationStr = `${stream.runtime} min`;
       }
 
-      // Exact layout mapping directly matching VixSrc configuration style
       var line1 = "🎬 " + rawTitle;
       var line2 = qIcon + " " + quality + " | 🔊 " + audioTag + " | 🗃️ Server 1";
       var line3 = "🎞️ " + format + " | ⏱️ " + durationStr + " | " + dynamicSourceTag;
@@ -173,30 +176,23 @@ var require_formatter = __commonJS({
       } else if (!providerExplicitNotWebReady) {
         delete behaviorHints.notWebReady;
       }
-      const finalName = pName;
-      let finalTitle = `\u{1F4C1} ${normalizedTitle}`;
-      if (desc) finalTitle += ` | ${desc}`;
-      if (language) finalTitle += ` | ${language}`;
+
       const playbackReferer = stream.referer || (finalHeaders == null ? void 0 : finalHeaders.Referer) || (finalHeaders == null ? void 0 : finalHeaders.referer);
       const playbackUserAgent = stream.userAgent || (finalHeaders == null ? void 0 : finalHeaders["User-Agent"]) || (finalHeaders == null ? void 0 : finalHeaders["user-agent"]);
+
       return __spreadProps(__spreadValues({}, stream), {
-        // Keep original properties
         name: finalName,
-        title: finalTitle,
-        // Metadata for Stremio UI reconstruction (safer names for RN)
+        title: finalSubtitlesBlock,
         providerName: pName,
         qualityTag: quality,
-        description: desc,
-        originalTitle: normalizedTitle,
-        // Ensure language is set for Stremio/Nuvio sorting
-        language,
-        // Mark as formatted
+        description: finalSubtitlesBlock,
+        originalTitle: rawTitle,
+        language: stream.language || "",
         _nuvio_formatted: true,
         behaviorHints,
         provider: stream.provider || normalizeProviderId(providerName),
         referer: playbackReferer,
         userAgent: playbackUserAgent,
-        // Explicitly ensure root headers are preserved for Nuvio
         headers: finalHeaders
       });
     }
@@ -309,6 +305,7 @@ var TMDB_API_KEY = "68e094699525b18a70bab2f86b1fa706";
 var SITEMAP_URL = `${BASE_URL}/news_pages.xml`;
 var SITEMAP_CACHE_MS = 60 * 60 * 1e3;
 var sitemapCache = null;
+
 function getMappingApiUrl() {
   return "https://animemapping.realbestia.com";
 }
@@ -361,40 +358,10 @@ function extractYearFromMetadata(metadata) {
   return Number.isInteger(year) ? year : null;
 }
 function getSignificantTokens(value) {
-  const stopwords = /* @__PURE__ */ new Set([
-    "the",
-    "a",
-    "an",
-    "of",
-    "and",
-    "in",
-    "on",
-    "to",
-    "for",
-    "at",
-    "by",
-    "is",
-    "it",
-    "il",
-    "lo",
-    "la",
-    "gli",
-    "le",
-    "un",
-    "uno",
-    "una",
-    "di",
-    "da",
-    "del",
-    "della",
-    "dei",
-    "e",
-    "o",
-    "con",
-    "per",
-    "su",
-    "tra",
-    "fra"
+  const stopwords = new Set([
+    "the", "a", "an", "of", "and", "in", "on", "to", "for", "at", "by", "is", "it",
+    "il", "lo", "la", "gli", "le", "un", "uno", "una", "di", "da", "del", "della",
+    "dei", "e", "o", "con", "per", "su", "tra", "fra"
   ]);
   return normalizeTitle(value).split(/\s+/).filter((token) => token.length > 1 && !stopwords.has(token));
 }
@@ -450,8 +417,7 @@ function fetchSitemapEntries(providerContext = null) {
             pageFetches.push(
               fetchWithTimeout(pageUrl, { timeout: FETCH_TIMEOUT, headers: { "User-Agent": USER_AGENT } }).then((r) => r.ok ? r.text() : "").then((xml2) => {
                 if (xml2) allEntries = allEntries.concat(parseSitemapEntries(xml2));
-              }).catch(() => {
-              })
+              }).catch(() => {})
             );
           }
           yield Promise.all(pageFetches);
@@ -486,10 +452,7 @@ function fetchSitemapEntries(providerContext = null) {
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const xml = yield response.text();
       const entries = parseSitemapEntries(xml);
-      sitemapCache = {
-        entries,
-        expiresAt: Date.now() + SITEMAP_CACHE_MS
-      };
+      sitemapCache = { entries, expiresAt: Date.now() + SITEMAP_CACHE_MS };
       console.log(`[CinemaCity] Sitemap catalog loaded: ${entries.length} entries`);
       return entries;
     }
@@ -927,4 +890,4 @@ function getStreams(id, type, season, episode, providerContext = null) {
     }
   });
 }
-module.exports = { getStreams };
+module.exports = { getStreams, formatStream };

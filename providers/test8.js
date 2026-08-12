@@ -121,12 +121,12 @@ var require_formatter = __commonJS({
 
       let line1 = "🎬 " + rawTitle;
       if (stream.year) {
-        line1 += ` - (${stream.year})`;
+        line1 += ` (${stream.year})`;
       }
       if (stream.isTv || stream.season != null) {
         const s = stream.season != null ? stream.season : 1;
         const e = stream.episode != null ? stream.episode : 1;
-        line1 += ` | S${s}E${e}`;
+        line1 += ` S${s}E${e}`;
       }
 
       var lowerScan = String(stream.url || '').toLowerCase();
@@ -155,9 +155,9 @@ var require_formatter = __commonJS({
 
       const finalName = `${pName} | ${qualityStr} | ${audioTag}`;
 
-      var line2 = `${qIcon} ${qualityStr} | 🔉 ${audioTag} | 🗃️ Server 1`;
-      var line3 = `🎞️ ${format} | ⌛ ${durationStr} | 📥 ${dynamicSourceTag}`;
-      var finalSubtitlesBlock = line1 + "\n" + line2 + "\n" + line3;
+      var line2 = `${qIcon} ${qualityStr} • 🔉 ${audioTag} • 🗃️ Server 1`;
+      var line3 = `🎞️ ${format} • ⌛ ${durationStr} • 📥 ${dynamicSourceTag}`;
+      var finalSubtitlesBlock = `${line1} • ${line2} • ${line3}`;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       
@@ -198,6 +198,20 @@ var require_formatter = __commonJS({
 
       const baseStream = __spreadValues({}, stream);
 
+      delete baseStream.quality;
+      delete baseStream.qualityTag;
+      delete baseStream.language;
+      delete baseStream.resolution;
+      delete baseStream.size;
+      delete baseStream.displayTitle;
+      delete baseStream.hasItalian;
+      delete baseStream.hasEnglish;
+      delete baseStream.runtime;
+      delete baseStream.year;
+      delete baseStream.season;
+      delete baseStream.episode;
+      delete baseStream.isTv;
+
       return __spreadProps(baseStream, {
         name: finalName,
         title: finalSubtitlesBlock,
@@ -206,9 +220,6 @@ var require_formatter = __commonJS({
         subtitle: finalSubtitlesBlock,
         subtitles: finalSubtitlesBlock,
         overview: finalSubtitlesBlock,
-        quality: qualityStr,
-        resolution: qualityStr,
-        language: audioTag,
         _nuvio_formatted: true,
         behaviorHints,
         provider: stream.provider || normalizeProviderId(providerName),

@@ -91,62 +91,57 @@ var require_formatter = __commonJS({
       return normalized || void 0;
     }
     
-    function formatStream2(stream, providerName) {
+    function formatStream2(stream, providerName, mediaMeta = null) {
       if (!stream) return stream;
 
       let rawQuality = (stream.quality || "1080p").toLowerCase();
       let qualityStr = "1080p";
-      let qIcon = "💎";
+      let qIcon = "🔥";
 
       if (rawQuality.includes("4k") || rawQuality.includes("2160")) {
-        qIcon = "💎";
-        qualityStr = "2160p";
+        qIcon = "🌟";
+        qualityStr = "4K";
       } else if (rawQuality.includes("1080")) {
-        qIcon = "💎";
+        qIcon = "🔥";
         qualityStr = "1080p";
       } else if (rawQuality.includes("720")) {
         qIcon = "💎";
         qualityStr = "720p";
+      } else if (rawQuality.includes("480")) {
+        qIcon = "📱";
+        qualityStr = "480p";
       } else {
-        qIcon = "💎";
-        qualityStr = stream.quality || "720p";
+        qIcon = "📺";
+        qualityStr = stream.quality || "1080p";
       }
 
-      const audioTag = "Multi-Audio";
       const pName = providerName || stream.providerName || stream.name || "CinemaCity";
 
-      let rawTitle = stream.displayTitle || stream.title || stream.originalTitle || "Stream";
-      rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '').trim();
+      let rawTitle = (mediaMeta && mediaMeta.title) ? mediaMeta.title : (stream.displayTitle || stream.title || stream.originalTitle || "Stream");
+      rawTitle = String(rawTitle).replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '').trim();
       rawTitle = rawTitle.replace(/\s+\d+x\d+$/i, '').replace(/\s+S\d+E\d+$/i, '').trim();
 
       let line1 = `🎬 ${rawTitle}`;
-      if (stream.year) {
-        line1 += ` - (${stream.year})`;
-      } else if (stream.isTv || stream.season != null) {
-        const s = stream.season != null ? stream.season : 1;
-        const e = stream.episode != null ? stream.episode : 1;
-        line1 += ` - S${s}E${e}`;
+      const mediaYear = (mediaMeta && mediaMeta.year) ? mediaMeta.year : stream.year;
+      if (mediaYear) {
+        line1 += ` (${mediaYear})`;
       }
 
-      var lowerScan = String(stream.url || '').toLowerCase();
-      var format = "M3U8 / HLS";
-      if (lowerScan.includes(".mp4")) format = "MP4";
-      if (lowerScan.includes(".mkv")) format = "MKV";
-
-      let durationStr = "N/A";
-      if (stream.runtime) {
-        const parsedRun = parseInt(stream.runtime, 10);
-        if (!isNaN(parsedRun) && parsedRun > 0) {
-          durationStr = `${parsedRun} min`;
-        }
+      let line2 = null;
+      const isTvMedia = (mediaMeta && mediaMeta.mediaType === "tv") || stream.isTv || stream.season != null;
+      if (isTvMedia) {
+        const s = (mediaMeta && mediaMeta.season != null) ? mediaMeta.season : (stream.season != null ? stream.season : 1);
+        const e = (mediaMeta && mediaMeta.episode != null) ? mediaMeta.episode : (stream.episode != null ? stream.episode : 1);
+        const epTitle = (mediaMeta && mediaMeta.episodeTitle) ? ` - ${mediaMeta.episodeTitle}` : "";
+        line2 = `📋 S${s} E${e}${epTitle}`;
       }
 
-      // Reintroducing \n formatting based on the 2Peckle stream layout
-      var line2 = `${qIcon} ${qualityStr} | 🔉 ${audioTag} | 🗃️ Server 1`;
-      var line3 = `🎞️ ${format} | ⌛ ${durationStr} | 🔗 ${pName}`;
-      var finalSubtitlesBlock = `${line1}\n${line2}\n${line3}`;
+      const line3 = `${qIcon} ${qualityStr} | 🗣️ Multi-Audio`;
+      const line4 = `🎞️ MKV | ⚡ HEVC | 🎧 AAC`;
+      const line5 = `🔗 CinemaCity | 🌐 ${pName} | 📥 WEB-DL`;
 
-      const finalName = `${pName} | ${qualityStr} | ${audioTag}`;
+      const fullLayout = [line1, line2, line3, line4, line5].filter(Boolean).join("\n");
+      const finalName = stream.name || `${pName} | ${qualityStr}`;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       
@@ -187,11 +182,11 @@ var require_formatter = __commonJS({
 
       const baseStream = __spreadValues({}, stream);
 
-      // Mapping both title and description to our newline block to ensure the Nuvio UI catches it
       return __spreadProps(baseStream, {
         name: finalName,
-        title: finalSubtitlesBlock,
-        description: finalSubtitlesBlock,
+        title: fullLayout,
+        size: fullLayout,
+        description: fullLayout,
         _nuvio_formatted: true,
         behaviorHints,
         provider: stream.provider || normalizeProviderId(providerName),
@@ -654,6 +649,25 @@ function getTmdbMetadata(id, providerType) {
   });
 }
 
+function getEpisodeTitle(tmdbId, season, episode) {
+  return __async(this, null, function* () {
+    try {
+      const sRes = yield fetchWithTimeout(`https://api.themoviedb.org/3/tv/${encodeURIComponent(tmdbId)}/season/${season}?api_key=${TMDB_API_KEY}`, { timeout: FETCH_TIMEOUT });
+      if (sRes.ok) {
+        const sData = yield sRes.json();
+        if (sData && Array.isArray(sData.episodes)) {
+          const epNum = parseInt(episode, 10);
+          const epMatch = sData.episodes.find(e => e.episode_number === epNum);
+          if (epMatch && epMatch.name) {
+            return epMatch.name;
+          }
+        }
+      }
+    } catch (e) {}
+    return "";
+  });
+}
+
 function getIdsFromKitsu(kitsuId, season, episode, providerContext = null) {
   return __async(this, null, function* () {
     try {
@@ -819,12 +833,13 @@ function getStreams(id, type, season, episode, providerContext = null) {
     } else if (!/^\d+$/.test(imdbId) && contextTmdbId) {
       imdbId = contextTmdbId;
     }
+    let rawNumericTmdbId = imdbId.replace(/\D/g, "");
     if (!imdbId.startsWith("tt")) {
       if (providerContext && providerContext.imdbId && providerContext.imdbId.startsWith("tt")) {
         imdbId = providerContext.imdbId;
       } else {
         try {
-          const tmdbId = imdbId.replace(/\D/g, "");
+          const tmdbId = rawNumericTmdbId;
           if (tmdbId) {
             let externalUrl = "";
             if (providerType === "movie") {
@@ -855,6 +870,12 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
       const movieUrl = searchResult.url;
       const movieTitle = (searchResult.title || imdbId).replace(/\s*\(.*?\)\s*/g, "").trim();
+
+      let episodeTitle = "";
+      if (providerType === "tv" && rawNumericTmdbId) {
+        episodeTitle = yield getEpisodeTitle(rawNumericTmdbId, season, episode);
+      }
+
       let html;
       try {
         html = yield fetchViaWorker(movieUrl);
@@ -900,6 +921,16 @@ function getStreams(id, type, season, episode, providerContext = null) {
       if (!selectedUrl) selectedUrl = links[0].url;
       const streamUrl = resolveUrl(movieUrl, selectedUrl);
       console.log(`[CinemaCity] Direct stream: ${streamUrl}`);
+
+      const mediaMeta = {
+        title: movieTitle,
+        year: searchResult.year,
+        mediaType: providerType,
+        season: providerType === "tv" ? season : null,
+        episode: providerType === "tv" ? episode : null,
+        episodeTitle: episodeTitle
+      };
+
       const result = {
         name: "CinemaCity",
         title: movieTitle,
@@ -918,7 +949,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
           "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
         }
       };
-      return [formatStream(result, "CinemaCity")];
+      return [formatStream(result, "CinemaCity", mediaMeta)];
     } catch (e) {
       console.error("[CinemaCity] Error:", e);
       return [];

@@ -96,13 +96,13 @@ var require_formatter = __commonJS({
 
       let rawQuality = (stream.quality || "1080p").toLowerCase();
       let qualityStr = "1080p";
-      let qIcon = "🔥";
+      let qIcon = "💎";
 
       if (rawQuality.includes("4k") || rawQuality.includes("2160")) {
-        qIcon = "🌟";
-        qualityStr = "4K";
+        qIcon = "💎";
+        qualityStr = "2160p";
       } else if (rawQuality.includes("1080")) {
-        qIcon = "🔥";
+        qIcon = "💎";
         qualityStr = "1080p";
       } else if (rawQuality.includes("720")) {
         qIcon = "💎";
@@ -119,31 +119,19 @@ var require_formatter = __commonJS({
       rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '').trim();
       rawTitle = rawTitle.replace(/\s+\d+x\d+$/i, '').replace(/\s+S\d+E\d+$/i, '').trim();
 
-      let line1 = "🎬 " + rawTitle;
+      let line1 = `🎬 ${rawTitle}`;
       if (stream.year) {
-        line1 += ` (${stream.year})`;
-      }
-      if (stream.isTv || stream.season != null) {
+        line1 += ` - (${stream.year})`;
+      } else if (stream.isTv || stream.season != null) {
         const s = stream.season != null ? stream.season : 1;
         const e = stream.episode != null ? stream.episode : 1;
-        line1 += ` S${s}E${e}`;
+        line1 += ` - S${s}E${e}`;
       }
 
       var lowerScan = String(stream.url || '').toLowerCase();
       var format = "M3U8 / HLS";
       if (lowerScan.includes(".mp4")) format = "MP4";
       if (lowerScan.includes(".mkv")) format = "MKV";
-
-      var sourceParts = [];
-      if (lowerScan.includes("10bit")) sourceParts.push("10bit");
-      if (lowerScan.includes("x265") || lowerScan.includes("hevc")) {
-        sourceParts.push("x265");
-      } else {
-        sourceParts.push("x264");
-      }
-      sourceParts.push("WEB-DL");
-      
-      var dynamicSourceTag = sourceParts.join(" • ");
 
       let durationStr = "N/A";
       if (stream.runtime) {
@@ -153,11 +141,12 @@ var require_formatter = __commonJS({
         }
       }
 
-      const finalName = `${pName} | ${qualityStr} | ${audioTag}`;
+      // Reintroducing \n formatting based on the 2Peckle stream layout
+      var line2 = `${qIcon} ${qualityStr} | 🔉 ${audioTag} | 🗃️ Server 1`;
+      var line3 = `🎞️ ${format} | ⌛ ${durationStr} | 🔗 ${pName}`;
+      var finalSubtitlesBlock = `${line1}\n${line2}\n${line3}`;
 
-      var line2 = `${qIcon} ${qualityStr} • 🔉 ${audioTag} • 🗃️ Server 1`;
-      var line3 = `🎞️ ${format} • ⌛ ${durationStr} • 📥 ${dynamicSourceTag}`;
-      var finalSubtitlesBlock = `${line1} • ${line2} • ${line3}`;
+      const finalName = `${pName} | ${qualityStr} | ${audioTag}`;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       
@@ -198,28 +187,11 @@ var require_formatter = __commonJS({
 
       const baseStream = __spreadValues({}, stream);
 
-      delete baseStream.quality;
-      delete baseStream.qualityTag;
-      delete baseStream.language;
-      delete baseStream.resolution;
-      delete baseStream.size;
-      delete baseStream.displayTitle;
-      delete baseStream.hasItalian;
-      delete baseStream.hasEnglish;
-      delete baseStream.runtime;
-      delete baseStream.year;
-      delete baseStream.season;
-      delete baseStream.episode;
-      delete baseStream.isTv;
-
+      // Mapping both title and description to our newline block to ensure the Nuvio UI catches it
       return __spreadProps(baseStream, {
         name: finalName,
         title: finalSubtitlesBlock,
         description: finalSubtitlesBlock,
-        details: finalSubtitlesBlock,
-        subtitle: finalSubtitlesBlock,
-        subtitles: finalSubtitlesBlock,
-        overview: finalSubtitlesBlock,
         _nuvio_formatted: true,
         behaviorHints,
         provider: stream.provider || normalizeProviderId(providerName),

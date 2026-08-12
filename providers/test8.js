@@ -112,24 +112,15 @@ var require_formatter = __commonJS({
         qualityStr = stream.quality || "720p";
       }
 
-      let audioTag = "Unknown";
-      if (stream.isMultiAudio || (stream.hasItalian && stream.hasEnglish)) {
-        audioTag = "Multi-Audio";
-      } else if (stream.language === "Italian" || stream.hasItalian) {
-        audioTag = "ITA";
-      } else if (stream.language === "English" || stream.hasEnglish) {
-        audioTag = "ENG";
-      } else if (stream.language) {
-        audioTag = stream.language;
-      }
-
+      // Explicitly set audio to Multi-Audio as requested
+      const audioTag = "Multi-Audio";
       const pName = providerName || stream.providerName || stream.name || "CinemaCity";
 
       let rawTitle = stream.displayTitle || stream.title || stream.originalTitle || "Stream";
       rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '').trim();
       rawTitle = rawTitle.replace(/\s+\d+x\d+$/i, '').replace(/\s+S\d+E\d+$/i, '').trim();
 
-      // Subheading Line 1: Movie Name - (Year) OR Series Name - (Year) | S1E1
+      // Subheading Line 1: Movie Name - (Year) or Series Name - (Year) | S1E1
       let line1 = "🎬 " + rawTitle;
       if (stream.year) {
         line1 += ` - (${stream.year})`;
@@ -157,11 +148,14 @@ var require_formatter = __commonJS({
       var dynamicSourceTag = sourceParts.join(" • ");
 
       let durationStr = "N/A";
-      if (stream.runtime && Number.isInteger(stream.runtime) && stream.runtime > 0) {
-        durationStr = `${stream.runtime} min`;
+      if (stream.runtime) {
+        const parsedRun = parseInt(stream.runtime, 10);
+        if (!isNaN(parsedRun) && parsedRun > 0) {
+          durationStr = `${parsedRun} min`;
+        }
       }
 
-      // Single Line Header Format: CinemaCity | 1080p | ITA
+      // Header: CinemaCity | 1080p | Multi-Audio
       const finalName = `${pName} | ${qualityStr} | ${audioTag}`;
 
       // 3 Subheading Lines
@@ -578,6 +572,16 @@ function searchBySitemap(id, providerType, providerContext = null) {
     }
     const expectedYear = extractYearFromMetadata(metadata);
     const expectedKind = providerType === "movie" ? "movies" : "tv-series";
+
+    let calculatedRuntime = null;
+    if (metadata) {
+      if (typeof metadata.runtime === "number" && metadata.runtime > 0) {
+        calculatedRuntime = metadata.runtime;
+      } else if (Array.isArray(metadata.episode_run_time) && metadata.episode_run_time.length > 0) {
+        calculatedRuntime = metadata.episode_run_time[0];
+      }
+    }
+
     let entries;
     try {
       entries = yield fetchSitemapEntries(providerContext);
@@ -619,7 +623,7 @@ function searchBySitemap(id, providerType, providerContext = null) {
             url: candidate.entry.url,
             title: expectedTitles[0] || candidate.entry.title,
             year: expectedYear || candidate.entry.year,
-            runtime: metadata && metadata.runtime ? metadata.runtime : (metadata && metadata.episode_run_time && metadata.episode_run_time[0] ? metadata.episode_run_time[0] : null)
+            runtime: calculatedRuntime
           };
         }
         if (candidateImdbId && candidateImdbId !== expectedImdbId) {
@@ -638,36 +642,48 @@ function searchBySitemap(id, providerType, providerContext = null) {
       url: bestEntry.url,
       title: expectedTitles[0] || bestEntry.title,
       year: expectedYear || bestEntry.year,
-      runtime: metadata && metadata.runtime ? metadata.runtime : (metadata && metadata.episode_run_time && metadata.episode_run_time[0] ? metadata.episode_run_time[0] : null)
+      runtime: calculatedRuntime
     };
   });
 }
+
+// Fixed TMDB metadata lookup to pull full item details (including runtime)
 function getTmdbMetadata(id, providerType) {
   return __async(this, null, function* () {
     try {
-      let metadataUrl = null;
-      const normalizedId = String(id || "").trim();
-      const normalizedType = providerType === "movie" ? "movie" : "tv";
+      let normalizedId = String(id || "").trim();
+      let normalizedType = providerType === "movie" ? "movie" : "tv";
+      let tmdbId = null;
+
       if (/^tt\d+$/i.test(normalizedId)) {
-        metadataUrl = `https://api.themoviedb.org/3/find/${encodeURIComponent(normalizedId)}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=en-US`;
+        const findUrl = `https://api.themoviedb.org/3/find/${encodeURIComponent(normalizedId)}?api_key=${TMDB_API_KEY}&external_source=imdb_id&language=en-US`;
+        const findRes = yield fetchWithTimeout(findUrl, { timeout: FETCH_TIMEOUT });
+        if (findRes.ok) {
+          const findData = yield findRes.json();
+          const results = normalizedType === "movie" ? findData == null ? void 0 : findData.movie_results : findData == null ? void 0 : findData.tv_results;
+          if (Array.isArray(results) && results.length > 0) {
+            tmdbId = results[0].id;
+          }
+        }
       } else if (/^\d+$/.test(normalizedId)) {
-        metadataUrl = `https://api.themoviedb.org/3/${normalizedType}/${normalizedId}?api_key=${TMDB_API_KEY}&language=en-US`;
+        tmdbId = normalizedId;
       }
-      if (!metadataUrl) return null;
-      const response = yield fetchWithTimeout(metadataUrl, { timeout: FETCH_TIMEOUT });
-      if (!response.ok) return null;
-      const payload = yield response.json();
-      if (/^tt\d+$/i.test(normalizedId)) {
-        const results = normalizedType === "movie" ? payload == null ? void 0 : payload.movie_results : payload == null ? void 0 : payload.tv_results;
-        return Array.isArray(results) && results.length > 0 ? results[0] : null;
+
+      if (tmdbId) {
+        const detailUrl = `https://api.themoviedb.org/3/${normalizedType}/${tmdbId}?api_key=${TMDB_API_KEY}&language=en-US`;
+        const detailRes = yield fetchWithTimeout(detailUrl, { timeout: FETCH_TIMEOUT });
+        if (detailRes.ok) {
+          return yield detailRes.json();
+        }
       }
-      return payload;
+      return null;
     } catch (e) {
       console.error("[CinemaCity] TMDB metadata error:", e);
       return null;
     }
   });
 }
+
 function getIdsFromKitsu(kitsuId, season, episode, providerContext = null) {
   return __async(this, null, function* () {
     try {
@@ -924,7 +940,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
         url: streamUrl,
         quality: "1080p",
         type: "hls",
-        language: hasItalian ? "Italian" : "",
+        language: "Multi-Audio",
         runtime: searchResult.runtime,
         behaviorHints: { notWebReady: true },
         headers: {

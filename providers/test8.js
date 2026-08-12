@@ -94,26 +94,51 @@ var require_formatter = __commonJS({
     function formatStream2(stream, providerName) {
       if (!stream) return stream;
 
-      let quality = stream.quality || "1080p";
-      if (quality.toLowerCase() === "1080p") quality = "1080P";
-      if (quality.toLowerCase() === "2160p" || quality.toLowerCase() === "4k") quality = "2160P";
+      let rawQuality = (stream.quality || "1080p").toLowerCase();
+      let qualityStr = "1080p";
+      let qIcon = "🔥";
+
+      if (rawQuality.includes("4k") || rawQuality.includes("2160")) {
+        qIcon = "🌟";
+        qualityStr = "4K";
+      } else if (rawQuality.includes("1080")) {
+        qIcon = "🔥";
+        qualityStr = "1080p";
+      } else if (rawQuality.includes("720")) {
+        qIcon = "💎";
+        qualityStr = "720p";
+      } else {
+        qIcon = "💎";
+        qualityStr = stream.quality || "720p";
+      }
 
       let audioTag = "Unknown";
-      if (stream.language === "Italian" || stream.hasItalian) {
+      if (stream.isMultiAudio || (stream.hasItalian && stream.hasEnglish)) {
+        audioTag = "Multi-Audio";
+      } else if (stream.language === "Italian" || stream.hasItalian) {
         audioTag = "ITA";
       } else if (stream.language === "English" || stream.hasEnglish) {
         audioTag = "ENG";
       } else if (stream.language) {
         audioTag = stream.language;
       }
-      if (stream.hasItalian && stream.hasEnglish) {
-        audioTag = "ITA/ENG";
-      }
 
       const pName = providerName || stream.providerName || stream.name || "CinemaCity";
 
       let rawTitle = stream.displayTitle || stream.title || stream.originalTitle || "Stream";
-      rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '');
+      rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '').trim();
+      rawTitle = rawTitle.replace(/\s+\d+x\d+$/i, '').replace(/\s+S\d+E\d+$/i, '').trim();
+
+      // Subheading Line 1: Movie Name - (Year) OR Series Name - (Year) | S1E1
+      let line1 = "🎬 " + rawTitle;
+      if (stream.year) {
+        line1 += ` - (${stream.year})`;
+      }
+      if (stream.isTv || stream.season != null) {
+        const s = stream.season != null ? stream.season : 1;
+        const e = stream.episode != null ? stream.episode : 1;
+        line1 += ` | S${s}E${e}`;
+      }
 
       var lowerScan = String(stream.url || '').toLowerCase();
       var format = "M3U8 / HLS";
@@ -129,26 +154,23 @@ var require_formatter = __commonJS({
       }
       sourceParts.push("WEB-DL");
       
-      var dynamicSourceTag = "📌 " + sourceParts.join(" • ");
-      var qIcon = quality.includes("4K") || quality.includes("2160") ? "🌟" : "💎";
+      var dynamicSourceTag = sourceParts.join(" • ");
 
       let durationStr = "N/A";
       if (stream.runtime && Number.isInteger(stream.runtime) && stream.runtime > 0) {
         durationStr = `${stream.runtime} min`;
       }
 
-      // Name block with \n for Provider \n Quality
-      const finalName = `⚪ ${pName}\n${qIcon} ${quality}`;
+      // Single Line Header Format: CinemaCity | 1080p | ITA
+      const finalName = `${pName} | ${qualityStr} | ${audioTag}`;
 
-      // Title/Description block with \n
-      var line1 = "🎬 " + rawTitle;
-      var line2 = qIcon + " " + quality + " | 🔊 " + audioTag + " | 🗃️ Server 1";
-      var line3 = "🎞️ " + format + " | ⏱️ " + durationStr + " | " + dynamicSourceTag;
+      // 3 Subheading Lines
+      var line2 = `${qIcon} ${qualityStr} | 🔉 ${audioTag} | 🗃️ Server 1`;
+      var line3 = `🎞️ ${format} | ⌛ ${durationStr} | 📥 ${dynamicSourceTag}`;
       var finalSubtitlesBlock = line1 + "\n" + line2 + "\n" + line3;
 
       const behaviorHints = stream.behaviorHints && typeof stream.behaviorHints === "object" ? __spreadValues({}, stream.behaviorHints) : {};
       
-      // Safely merge headers so they don't overwrite each other and break playback
       let finalHeaders = Object.assign({}, stream.headers || {});
       if (behaviorHints.proxyHeaders && behaviorHints.proxyHeaders.request) {
         Object.assign(finalHeaders, behaviorHints.proxyHeaders.request);
@@ -196,6 +218,10 @@ var require_formatter = __commonJS({
       delete baseStream.hasItalian;
       delete baseStream.hasEnglish;
       delete baseStream.runtime;
+      delete baseStream.year;
+      delete baseStream.season;
+      delete baseStream.episode;
+      delete baseStream.isTv;
 
       return __spreadProps(baseStream, {
         name: finalName,
@@ -371,39 +397,8 @@ function extractYearFromMetadata(metadata) {
 }
 function getSignificantTokens(value) {
   const stopwords = /* @__PURE__ */ new Set([
-    "the",
-    "a",
-    "an",
-    "of",
-    "and",
-    "in",
-    "on",
-    "to",
-    "for",
-    "at",
-    "by",
-    "is",
-    "it",
-    "il",
-    "lo",
-    "la",
-    "gli",
-    "le",
-    "un",
-    "uno",
-    "una",
-    "di",
-    "da",
-    "del",
-    "della",
-    "dei",
-    "e",
-    "o",
-    "con",
-    "per",
-    "su",
-    "tra",
-    "fra"
+    "the", "a", "an", "of", "and", "in", "on", "to", "for", "at", "by", "is", "it",
+    "il", "lo", "la", "gli", "le", "un", "uno", "una", "di", "da", "del", "della", "dei", "e", "o", "con", "per", "su", "tra", "fra"
   ]);
   return normalizeTitle(value).split(/\s+/).filter((token) => token.length > 1 && !stopwords.has(token));
 }
@@ -623,6 +618,7 @@ function searchBySitemap(id, providerType, providerContext = null) {
           return {
             url: candidate.entry.url,
             title: expectedTitles[0] || candidate.entry.title,
+            year: expectedYear || candidate.entry.year,
             runtime: metadata && metadata.runtime ? metadata.runtime : (metadata && metadata.episode_run_time && metadata.episode_run_time[0] ? metadata.episode_run_time[0] : null)
           };
         }
@@ -641,6 +637,7 @@ function searchBySitemap(id, providerType, providerContext = null) {
     return {
       url: bestEntry.url,
       title: expectedTitles[0] || bestEntry.title,
+      year: expectedYear || bestEntry.year,
       runtime: metadata && metadata.runtime ? metadata.runtime : (metadata && metadata.episode_run_time && metadata.episode_run_time[0] ? metadata.episode_run_time[0] : null)
     };
   });
@@ -872,7 +869,6 @@ function getStreams(id, type, season, episode, providerContext = null) {
       }
       const movieUrl = searchResult.url;
       const movieTitle = (searchResult.title || imdbId).replace(/\s*\(.*?\)\s*/g, "").trim();
-      const title = type === "tv" || type === "series" ? `${movieTitle} ${season}x${episode}` : movieTitle;
       let html;
       try {
         html = yield fetchViaWorker(movieUrl);
@@ -920,11 +916,16 @@ function getStreams(id, type, season, episode, providerContext = null) {
       console.log(`[CinemaCity] Direct stream: ${streamUrl}`);
       const result = {
         name: "CinemaCity",
-        title,
+        title: movieTitle,
+        year: searchResult.year,
+        season: providerType === "tv" ? season : null,
+        episode: providerType === "tv" ? episode : null,
+        isTv: providerType === "tv",
         url: streamUrl,
         quality: "1080p",
         type: "hls",
         language: hasItalian ? "Italian" : "",
+        runtime: searchResult.runtime,
         behaviorHints: { notWebReady: true },
         headers: {
           "Referer": "https://cinemacity.cc/",

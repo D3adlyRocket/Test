@@ -115,7 +115,6 @@ var require_formatter = __commonJS({
       let rawTitle = stream.displayTitle || stream.title || stream.originalTitle || "Stream";
       rawTitle = rawTitle.replace(/^[\u2000-\u3300\ud83c-\udbff\udcc0-\udfff\u2011-\u2017\u2190-\u21FF\u2600-\u27BF\u2300-\u23EF\u2934-\u2b55]\s*/gi, '');
 
-      // Format Parser Engine
       var lowerScan = String(stream.url || '').toLowerCase();
       var format = "M3U8 / HLS";
       if (lowerScan.includes(".mp4")) format = "MP4";
@@ -137,7 +136,6 @@ var require_formatter = __commonJS({
         durationStr = `${stream.runtime} min`;
       }
 
-      // Exact layout subheadings
       var line1 = "🎬 " + rawTitle;
       var line2 = qIcon + " " + quality + " | 🔊 " + audioTag + " | 🗃️ Server 1";
       var line3 = "🎞️ " + format + " | ⏱️ " + durationStr + " | " + dynamicSourceTag;
@@ -175,7 +173,7 @@ var require_formatter = __commonJS({
 
       const baseStream = __spreadValues({}, stream);
 
-      // Strip keys that trigger TV UI template fallback
+      // Remove UI fallback keys
       delete baseStream.quality;
       delete baseStream.qualityTag;
       delete baseStream.language;
@@ -320,30 +318,27 @@ function getMappingLanguage(providerContext = null) {
 }
 function fetchViaWorker(url) {
   return __async(this, null, function* () {
-    const path = url.startsWith("http") ? new URL(url).pathname + new URL(url).search : url;
-    const targetUrl = ("https://" + base64Decode("Y2MucmVhbGJlc3RpYS5jb20=")).replace(/\/+$/, "") + (path.startsWith("/") ? path : "/" + path);
-    const response = yield fetchWithTimeout(targetUrl, {
+    try {
+      const path = url.startsWith("http") ? new URL(url).pathname + new URL(url).search : url;
+      const targetUrl = ("https://" + base64Decode("Y2MucmVhbGJlc3RpYS5jb20=")).replace(/\/+$/, "") + (path.startsWith("/") ? path : "/" + path);
+      const response = yield fetchWithTimeout(targetUrl, {
+        timeout: FETCH_TIMEOUT,
+        headers: { "User-Agent": USER_AGENT }
+      });
+      if (response.ok) return yield response.text();
+    } catch (e) {
+    }
+    const directUrl = url.startsWith("http") ? url : `${BASE_URL}${url.startsWith("/") ? "" : "/"}${url}`;
+    const response = yield fetchWithTimeout(directUrl, {
       timeout: FETCH_TIMEOUT,
       headers: { "User-Agent": USER_AGENT }
     });
-    if (!response.ok) throw new Error(`Worker HTTP ${response.status}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return yield response.text();
   });
 }
 function decodeHtmlEntities(str) {
   return String(str || "").replace(/&#(\d+);/g, (_, dec) => String.fromCharCode(Number(dec))).replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16))).replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&ndash;|&mdash;/g, "-").replace(/\u2013|\u2014/g, "-");
-}
-function getHttpStatusFromError(error) {
-  var _a;
-  const responseStatus = Number.parseInt(String(((_a = error == null ? void 0 : error.response) == null ? void 0 : _a.status) || ""), 10);
-  if (Number.isInteger(responseStatus)) return responseStatus;
-  const match = String(error && error.message ? error.message : error).match(/HTTP\s+(\d+)/i);
-  return match ? Number.parseInt(match[1], 10) : null;
-}
-function isCloudflareBlockedError(error) {
-  var _a, _b, _c;
-  const message = [error == null ? void 0 : error.message, (_b = (_a = error == null ? void 0 : error.response) == null ? void 0 : _a.data) == null ? void 0 : _b.message, (_c = error == null ? void 0 : error.response) == null ? void 0 : _c.data].filter(Boolean).join(" ");
-  return /Cloudflare has blocked this request|Error solving the challenge/i.test(message);
 }
 function normalizeTitle(value) {
   return decodeHtmlEntities(String(value || "")).normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/\([^)]*\)/g, " ").replace(/[^a-z0-9]+/g, " ").trim();
@@ -366,11 +361,12 @@ function getSignificantTokens(value) {
 }
 function parseSitemapEntries(xml) {
   const entries = [];
-  const regex = /<loc>(https:\/\/cinemacity\.cc\/(movies|tv-series)\/\d+-([a-z0-9-]+)\.html)<\/loc>/gi;
+  const regex = /<loc>(?:https?:\/\/[^\/]+)?\/(movies|tv-series|movie|series)\/(\d+-([a-z0-9-]+)\.html)<\/loc>/gi;
   let match;
   while ((match = regex.exec(String(xml || ""))) !== null) {
-    const url = match[1];
-    const kind = match[2];
+    const rawPath = match[0].replace(/<\/?loc>/g, "").trim();
+    const url = rawPath.startsWith("http") ? rawPath : `${BASE_URL}${rawPath.startsWith("/") ? "" : "/"}${rawPath}`;
+    const kind = match[1].includes("movie") ? "movies" : "tv-series";
     const slug = match[3];
     const yearMatch = slug.match(/-(\d{4})$/);
     const year = yearMatch ? Number.parseInt(yearMatch[1], 10) : null;
@@ -393,62 +389,39 @@ function fetchSitemapEntries(providerContext = null) {
     if (sitemapCache && sitemapCache.expiresAt > Date.now()) {
       return sitemapCache.entries;
     }
-    console.log("[CinemaCity] Fetching sitemap catalog...");
-    let sitemapProxy = "https://" + base64Decode("Y2MucmVhbGJlc3RpYS5jb20=");
+    let allEntries = [];
+    const sitemapProxy = "https://" + base64Decode("Y2MucmVhbGJlc3RpYS5jb20=");
     const sitemapPath = SITEMAP_URL.startsWith("http") ? new URL(SITEMAP_URL).pathname : SITEMAP_URL;
-    if (sitemapProxy) {
-      const firstPageUrl = sitemapProxy.endsWith("/") ? `${sitemapProxy.slice(0, -1)}${sitemapPath}?page=1&perPage=500` : `${sitemapProxy}${sitemapPath}?page=1&perPage=500`;
-      const firstResp = yield fetchWithTimeout(firstPageUrl, {
+    
+    try {
+      const targetUrl = `${sitemapProxy}${sitemapPath}`;
+      const firstResp = yield fetchWithTimeout(targetUrl, {
         timeout: FETCH_TIMEOUT,
         headers: { "User-Agent": USER_AGENT }
       });
       if (firstResp.ok) {
-        const totalEntries = parseInt(firstResp.headers.get("x-total-entries") || "0", 10);
         const firstXml = yield firstResp.text();
-        let allEntries = parseSitemapEntries(firstXml);
-        if (totalEntries > 0) {
-          const perPage = 500;
-          const totalPages = Math.ceil(totalEntries / perPage);
-          const pageFetches = [];
-          for (let p = 2; p <= totalPages; p++) {
-            const pageUrl = sitemapProxy.endsWith("/") ? `${sitemapProxy.slice(0, -1)}${sitemapPath}?page=${p}&perPage=500` : `${sitemapProxy}${sitemapPath}?page=${p}&perPage=500`;
-            pageFetches.push(
-              fetchWithTimeout(pageUrl, { timeout: FETCH_TIMEOUT, headers: { "User-Agent": USER_AGENT } }).then((r) => r.ok ? r.text() : "").then((xml2) => {
-                if (xml2) allEntries = allEntries.concat(parseSitemapEntries(xml2));
-              }).catch(() => {})
-            );
-          }
-          yield Promise.all(pageFetches);
-        } else if (allEntries.length >= 1800) {
-          sitemapCache = { entries: allEntries, expiresAt: Date.now() + SITEMAP_CACHE_MS };
-          return allEntries;
-        }
-        if (allEntries.length > 0) {
-          sitemapCache = { entries: allEntries, expiresAt: Date.now() + SITEMAP_CACHE_MS };
-          return allEntries;
-        }
+        allEntries = parseSitemapEntries(firstXml);
       }
-      const targetUrl = sitemapProxy.endsWith("/") ? `${sitemapProxy}${sitemapPath.replace(/^\//, "")}` : `${sitemapProxy}${sitemapPath}`;
-      const response = yield fetchWithTimeout(targetUrl, {
-        timeout: FETCH_TIMEOUT,
-        headers: { "User-Agent": USER_AGENT }
-      });
-      if (!response.ok) throw new Error(`Proxy HTTP ${response.status}`);
-      const xml = yield response.text();
-      const entries = parseSitemapEntries(xml);
-      sitemapCache = { entries, expiresAt: Date.now() + SITEMAP_CACHE_MS };
-      return entries;
-    } else {
-      const response = yield fetchWithTimeout(SITEMAP_URL, {
-        timeout: FETCH_TIMEOUT,
-        headers: { "User-Agent": USER_AGENT }
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const xml = yield response.text();
-      const entries = parseSitemapEntries(xml);
-      sitemapCache = { entries, expiresAt: Date.now() + SITEMAP_CACHE_MS };
-      return entries;
+    } catch (e) {}
+
+    if (allEntries.length === 0) {
+      try {
+        const response = yield fetchWithTimeout(SITEMAP_URL, {
+          timeout: FETCH_TIMEOUT,
+          headers: { "User-Agent": USER_AGENT }
+        });
+        if (response.ok) {
+          const xml = yield response.text();
+          allEntries = parseSitemapEntries(xml);
+        }
+      } catch (e) {}
     }
+
+    if (allEntries.length > 0) {
+      sitemapCache = { entries: allEntries, expiresAt: Date.now() + SITEMAP_CACHE_MS };
+    }
+    return allEntries;
   });
 }
 function scoreSitemapEntry(entry, expectedTitles, expectedYear) {
@@ -501,8 +474,7 @@ function verifyCandidateImdb(candidateUrl, expectedImdbId) {
     }
     try {
       const html = yield fetchViaWorker(candidateUrl);
-      const imdbId = extractImdbIdFromHtml(html);
-      return imdbId;
+      return extractImdbIdFromHtml(html);
     } catch (e) {
       return null;
     }
@@ -512,30 +484,39 @@ function searchBySitemap(id, providerType, season, episode, providerContext = nu
   return __async(this, null, function* () {
     const expectedImdbId = /^tt\d{5,}$/i.test(String(id || "").trim()) ? String(id).trim().toLowerCase() : null;
     const metadata = yield getTmdbMetadata(id, providerType, season, episode);
-    const expectedTitles = Array.from(new Set([
+    
+    let expectedTitles = Array.from(new Set([
       metadata == null ? void 0 : metadata.title,
       metadata == null ? void 0 : metadata.name,
       metadata == null ? void 0 : metadata.original_title,
-      metadata == null ? void 0 : metadata.original_name
+      metadata == null ? void 0 : metadata.original_name,
+      providerContext == null ? void 0 : providerContext.title
     ].filter(Boolean)));
+
     if (expectedTitles.length === 0) {
-      return null;
+      expectedTitles = [String(id).replace(/^tt\d+:/i, "")];
     }
+
     const expectedYear = extractYearFromMetadata(metadata);
     const expectedKind = providerType === "movie" ? "movies" : "tv-series";
-    let entries;
+    
+    let entries = [];
     try {
       entries = yield fetchSitemapEntries(providerContext);
     } catch (e) {
+      entries = [];
+    }
+    if (!entries || entries.length === 0) {
       return null;
     }
+
     let bestEntry = null;
     let bestScore = -Infinity;
     const ranked = [];
     for (const entry of entries) {
       if (entry.kind !== expectedKind) continue;
       const score = scoreSitemapEntry(entry, expectedTitles, expectedYear);
-      if (score >= 250) {
+      if (score >= 200) {
         ranked.push({ entry, score });
       }
       if (score > bestScore) {
@@ -543,10 +524,12 @@ function searchBySitemap(id, providerType, season, episode, providerContext = nu
         bestEntry = entry;
       }
     }
-    if (!bestEntry || bestScore < 250) {
+
+    if (!bestEntry || bestScore < 200) {
       return null;
     }
-    if (expectedImdbId) {
+
+    if (expectedImdbId && ranked.length > 0) {
       ranked.sort((a, b) => b.score - a.score);
       const candidatesToVerify = ranked.slice(0, 3);
       for (const candidate of candidatesToVerify) {
@@ -560,8 +543,8 @@ function searchBySitemap(id, providerType, season, episode, providerContext = nu
           };
         }
       }
-      if (bestScore < 950) return null;
     }
+
     return {
       url: bestEntry.url,
       title: expectedTitles[0] || bestEntry.title,
@@ -837,7 +820,7 @@ function getStreams(id, type, season, episode, providerContext = null) {
       } catch (e) {
         return [];
       }
-      if (html.length < 500 || html.includes("Just a moment") || html.includes("admin") && html.includes("Unlimited")) {
+      if (html.length < 500 || html.includes("Just a moment") || (html.includes("admin") && html.includes("Unlimited"))) {
         return [];
       }
       const links = extractDownloadLinks(html);

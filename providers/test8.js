@@ -35,7 +35,7 @@ function searchSite(title, mediaType) {
   return httpGet(url, { 'Referer': BASE + '/' })
     .then(function(html) {
       var results = []
-      var re = /href="(https:\/\/watchanimeworld\.net\/(series|movies)\/([^\/\"]+)\/)"/g
+      var re = /href="(https:\/\/watchanimeworld\.top\/(series|movies)\/([^\/\"]+)\/)"/g
       var m
       while ((m = re.exec(html)) !== null) {
         var link = m[1], type = m[2], slug = m[3]
@@ -59,7 +59,7 @@ function getEpisodeUrl(seriesUrl, season, episode) {
       return httpGet(ajaxUrl, { 'Referer': seriesUrl })
         .then(function(epHtml) {
           var suffix = season + 'x' + episode + '/'
-          var re = /href="(https:\/\/watchanimeworld\.net\/episode\/([^"]+))"/g
+          var re = /href="(https:\/\/watchanimeworld\.top\/episode\/([^"]+))"/g
           var m
           while ((m = re.exec(epHtml)) !== null) {
             if (m[1].indexOf(suffix) !== -1) return m[1]

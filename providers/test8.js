@@ -7,6 +7,38 @@ var BASE     = 'https://watchanimeworld.top'
 var PLAYER   = 'https://play.zephyrix.top'
 var UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
+/* ----------------------------------------------------------------------------
+ * HELPER & FORMATTING FUNCTIONS
+ * ---------------------------------------------------------------------------- */
+
+function getInvertedSortTag(val, maxBaseline) {
+  if (!maxBaseline) maxBaseline = 999999;
+  var safeVal = Math.max(0, parseInt(val, 10) || 0);
+  var inverted = Math.max(0, maxBaseline - safeVal);
+  var binaryStr = inverted.toString(2);
+  while (binaryStr.length < 20) { binaryStr = '0' + binaryStr; }
+  return binaryStr.split('').map(function(bit) {
+    return bit === '1' ? '\uFEFF' : '\u200B';
+  }).join('');
+}
+
+function getResolutionEmoji(res) {
+  var clean = String(res || '').toLowerCase();
+  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return "🌟 4K";
+  if (clean.includes("1080") || clean.includes("fhd")) return "🔥 1080p";
+  if (clean.includes("720") || clean.includes("hd")) return "💎 720p";
+  if (clean.includes("480") || clean.includes("sd")) return "📱 480p";
+  return "📺 " + (res || "1080p");
+}
+
+function qualityRank(qualityStr) {
+  if (/2160p|4k/i.test(qualityStr)) return 4;
+  if (/1080p/i.test(qualityStr)) return 3;
+  if (/720p/i.test(qualityStr)) return 2;
+  if (/480p/i.test(qualityStr)) return 1;
+  return 0;
+}
+
 function httpGet(url, headers) {
   return fetch(url, {
     headers: Object.assign({ 'User-Agent': UA }, headers || {})
@@ -29,6 +61,10 @@ function httpPost(url, body, headers) {
     return r.json()
   })
 }
+
+/* ----------------------------------------------------------------------------
+ * SCRAPING FUNCTIONS
+ * ---------------------------------------------------------------------------- */
 
 function searchSite(title, mediaType) {
   var url = BASE + '/?s=' + encodeURIComponent(title)
@@ -97,14 +133,47 @@ function getStreamFromPage(pageUrl) {
     })
 }
 
+/* ----------------------------------------------------------------------------
+ * MAIN ENTRY POINT
+ * ---------------------------------------------------------------------------- */
+
 function getStreams(tmdbId, mediaType, season, episode) {
   return new Promise(function(resolve) {
     var tmdbUrl = 'https://api.themoviedb.org/3/' + (mediaType === 'movie' ? 'movie' : 'tv') + '/' + tmdbId + '?api_key=' + TMDB_KEY
+    var metaInfo = { title: 'Unknown', year: null, episodeTitle: '' }
     
     fetch(tmdbUrl)
       .then(function(r) { return r.json() })
       .then(function(data) {
         var title = data.title || data.name
+        if (!title) throw new Error('No title')
+        var releaseDate = data.release_date || data.first_air_date || ''
+        var year = releaseDate ? parseInt(releaseDate.split('-')[0]) : null
+
+        metaInfo.title = title
+        metaInfo.year = year
+
+        if (mediaType === 'tv' && season) {
+          var seasonUrl = 'https://api.themoviedb.org/3/tv/' + tmdbId + '/season/' + season + '?api_key=' + TMDB_KEY
+          return fetch(seasonUrl)
+            .then(function(sr) { return sr.json() })
+            .then(function(sData) {
+              if (sData && sData.episodes) {
+                var epNum = parseInt(episode) || 1
+                for (var i = 0; i < sData.episodes.length; i++) {
+                  if (sData.episodes[i].episode_number === epNum) {
+                    metaInfo.episodeTitle = sData.episodes[i].name || ''
+                    break
+                  }
+                }
+              }
+              return searchSite(title, mediaType)
+            })
+            .catch(function() {
+              return searchSite(title, mediaType)
+            })
+        }
+
         return searchSite(title, mediaType)
       })
       .then(function(results) {
@@ -119,11 +188,35 @@ function getStreams(tmdbId, mediaType, season, episode) {
       .then(function(streamData) {
         if (!streamData) { resolve([]); return }
 
+        var qualityStr = '1080p'
+        var qEmoji = getResolutionEmoji(qualityStr)
+        var qRank = qualityRank(qualityStr)
+
+        /* --- ZERO-WIDTH SORTING & HEADER --- */
+        var sortTag = getInvertedSortTag(qRank * 100000, 999999)
+        var headerLayout = sortTag + 'AnimeWorld • ' + qualityStr + ' • Multi-Audio'
+
+        /* --- FULL SUBHEADING LAYOUT LINES --- */
+        var line1 = '🗡️ ' + metaInfo.title + (metaInfo.year ? ' (' + metaInfo.year + ')' : '')
+        
+        var line2 = null
+        if (mediaType === 'tv' && season && episode) {
+          line2 = '📋 S' + season + ' E' + episode + (metaInfo.episodeTitle ? ' - ' + metaInfo.episodeTitle : '')
+        }
+
+        var line3 = qEmoji + ' | 🗣️ Multi-Audio'
+        var line4 = '🎞️ HLS | ⚡ H.264 | 🎧 AAC'
+        var line5 = '🔗 AnimeWorld | 🌐 Zephyrix CDN | 📥 WEB-DL'
+
+        var fullLayout = [line1, line2, line3, line4, line5].filter(Boolean).join('\n')
+
         resolve([{
-          name: '🗡️ AnimeWorld',
-          title: 'AnimeWorld • Multi-Audio 1080p',
+          name: headerLayout,
+          title: fullLayout,
+          size: fullLayout,           // CRITICAL FOR NUVIO MOBILE
+          description: fullLayout,    // CRITICAL FOR NUVIO MOBILE
           url: streamData.url,
-          quality: '1080p',
+          quality: qualityStr,
           headers: {
             'Referer': PLAYER + '/',
             'Origin': PLAYER,

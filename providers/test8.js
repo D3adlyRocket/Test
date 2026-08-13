@@ -72,7 +72,7 @@ function getEpisodeUrl(seriesUrl, season, episode) {
 function getStreamFromPage(pageUrl) {
   return httpGet(pageUrl, { 'Referer': BASE + '/' })
     .then(function(html) {
-      var iframeM = html.match(/(?:src|data-src)="(https:\/\/play\.zephyrflick\.top\/video\/([a-f0-9]+))"/)
+      var iframeM = html.match(/(?:src|data-src)="(https:\/\/play\.zephyrix\.top\/video\/([a-f0-9]+))"/)
       if (!iframeM) return null
       
       var videoHash = iframeM[2]

@@ -22,15 +22,6 @@ function getInvertedSortTag(val, maxBaseline) {
   }).join('');
 }
 
-function getResolutionEmoji(res) {
-  var clean = String(res || '').toLowerCase();
-  if (clean.includes("2160") || clean.includes("4k") || clean.includes("uhd")) return "🌟 4K";
-  if (clean.includes("1080") || clean.includes("fhd")) return "🔥 1080p";
-  if (clean.includes("720") || clean.includes("hd")) return "💎 720p";
-  if (clean.includes("480") || clean.includes("sd")) return "📱 480p";
-  return "📺 " + (res || "1080p");
-}
-
 function qualityRank(qualityStr) {
   if (/2160p|4k/i.test(qualityStr)) return 4;
   if (/1080p/i.test(qualityStr)) return 3;
@@ -189,7 +180,6 @@ function getStreams(tmdbId, mediaType, season, episode) {
         if (!streamData) { resolve([]); return }
 
         var qualityStr = '1080p'
-        var qEmoji = getResolutionEmoji(qualityStr)
         var qRank = qualityRank(qualityStr)
 
         /* --- ZERO-WIDTH SORTING & HEADER --- */
@@ -204,9 +194,9 @@ function getStreams(tmdbId, mediaType, season, episode) {
           line2 = '📋 S' + season + ' E' + episode + (metaInfo.episodeTitle ? ' - ' + metaInfo.episodeTitle : '')
         }
 
-        var line3 = qEmoji + ' | 🗣️ Multi-Audio'
-        var line4 = '🎞️ HLS | ⚡ H.264 | 🎧 AAC'
-        var line5 = '🔗 AnimeWorld | 🌐 Zephyrix CDN | 📥 WEB-DL'
+        var line3 = '🔥 1080p | 🗣️ Multi-Audio |🎧 AAC'
+        var line4 = '🎞️ M3U8 | ⚡ H.264 | 🎥 HLS'
+        var line5 = '🔗 AnimeWorld | 🌐 Zephyrix CDN'
 
         var fullLayout = [line1, line2, line3, line4, line5].filter(Boolean).join('\n')
 

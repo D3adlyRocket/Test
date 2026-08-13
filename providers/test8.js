@@ -194,7 +194,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
           line2 = '📋 S' + season + ' E' + episode + (metaInfo.episodeTitle ? ' - ' + metaInfo.episodeTitle : '')
         }
 
-        var line3 = '🔥 1080p | 🗣️ Multi-Audio | AAC'
+        var line3 = '🔥 1080p | 🗣️ Multi-Audio | 🎧 AAC'
         var line4 = '🎞️ M3U8 | ⚡ H.264 | 🎥 HLS'
         var line5 = '🔗 AnimeWorld | 🌐 Zephyrix CDN'
 
